@@ -5,6 +5,7 @@ import * as apid from '../../../api';
 import * as mapid from '../../../node_modules/mirakurun/api';
 import Program from '../../db/entities/Program';
 import DateUtil from '../../util/DateUtil';
+import ChannelTypeUtil from '../../util/ChannelTypeUtil';
 import StrUtil from '../../util/StrUtil';
 import IConfigFile from '../IConfigFile';
 import IConfiguration from '../IConfiguration';
@@ -18,6 +19,7 @@ import IProgramDB, {
     FindRuleOption,
     FindScheduleIdOption,
     FindScheduleOption,
+    ProgramReconcileResult,
     ProgramUpdateValues,
     ProgramWithOverlap,
 } from './IProgramDB';
@@ -34,6 +36,42 @@ interface KeywordOption {
     description: boolean;
     extended: boolean;
 }
+
+const PROGRAM_RECONCILE_COLUMNS: Array<keyof Program> = [
+    'channelId',
+    'eventId',
+    'serviceId',
+    'networkId',
+    'startAt',
+    'endAt',
+    'startHour',
+    'week',
+    'duration',
+    'isFree',
+    'name',
+    'halfWidthName',
+    'shortName',
+    'description',
+    'halfWidthDescription',
+    'extended',
+    'halfWidthExtended',
+    'rawExtended',
+    'rawHalfWidthExtended',
+    'genre1',
+    'subGenre1',
+    'genre2',
+    'subGenre2',
+    'genre3',
+    'subGenre3',
+    'channelType',
+    'channel',
+    'videoType',
+    'videoResolution',
+    'videoStreamContent',
+    'videoComponentType',
+    'audioSamplingRate',
+    'audioComponentType',
+];
 
 @injectable()
 export default class ProgramDB implements IProgramDB {
@@ -106,6 +144,107 @@ export default class ProgramDB implements IProgramDB {
         if (hasError) {
             throw new Error('InsertError');
         }
+    }
+
+    public async reconcile(
+        channelTypes: IChannelTypeIndex,
+        programs: mapid.Program[],
+    ): Promise<ProgramReconcileResult> {
+        const updateTime = new Date().getTime();
+        const desiredIndex: { [id: number]: QueryDeepPartialEntity<Program> } = {};
+
+        for (const program of programs) {
+            const value = this.createProgramValue(channelTypes, program, updateTime);
+            if (value !== null) {
+                desiredIndex[Number(value.id)] = value;
+            }
+        }
+
+        const connection = await this.op.getConnection();
+        const existingPrograms = await connection
+            .getRepository(Program)
+            .createQueryBuilder('program')
+            .addSelect(['program.startHour', 'program.week'])
+            .getMany();
+
+        const existingIndex: { [id: number]: Program } = {};
+        for (const program of existingPrograms) {
+            existingIndex[Number(program.id)] = program;
+        }
+
+        const deleteValues: number[] = [];
+        const insertValues: QueryDeepPartialEntity<Program>[] = [];
+        const updateValues: QueryDeepPartialEntity<Program>[] = [];
+        let unchangedValues = 0;
+
+        for (const program of existingPrograms) {
+            const id = Number(program.id);
+            if (typeof desiredIndex[id] === 'undefined') {
+                deleteValues.push(id);
+            }
+        }
+
+        for (const [idText, value] of Object.entries(desiredIndex)) {
+            const id = Number(idText);
+            const existing = existingIndex[id];
+            if (typeof existing === 'undefined') {
+                insertValues.push(value);
+            } else if (this.isProgramValueChanged(existing, value) === true) {
+                updateValues.push(value);
+            } else {
+                unchangedValues++;
+            }
+        }
+
+        const queryRunner = connection.createQueryRunner();
+        await queryRunner.startTransaction();
+
+        let hasError = false;
+        try {
+            for (const id of deleteValues) {
+                await queryRunner.manager.delete(Program, id);
+            }
+            for (const value of insertValues) {
+                await queryRunner.manager.insert(Program, value);
+            }
+            for (const value of updateValues) {
+                await queryRunner.manager.update(Program, value.id as number, value);
+            }
+
+            await queryRunner.commitTransaction();
+        } catch (err: any) {
+            console.error(err);
+            hasError = true;
+            await queryRunner.rollbackTransaction();
+        } finally {
+            await queryRunner.release();
+        }
+
+        if (hasError) {
+            throw new Error('ReconcileError');
+        }
+
+        return {
+            deleteValues: deleteValues.length,
+            insertValues: insertValues.length,
+            updateValues: updateValues.length,
+            unchangedValues,
+        };
+    }
+
+    private isProgramValueChanged(program: Program, value: QueryDeepPartialEntity<Program>): boolean {
+        const current = program as any;
+        const next = value as any;
+
+        for (const column of PROGRAM_RECONCILE_COLUMNS) {
+            const currentValue = typeof current[column] === 'undefined' ? null : current[column];
+            const nextValue = typeof next[column] === 'undefined' ? null : next[column];
+            if (currentValue !== nextValue) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -631,19 +770,7 @@ export default class ProgramDB implements IProgramDB {
             this.createInQuery(query, 'channelId', searchOption.channelIds);
         } else {
             // in で channelType 列挙
-            const channelTypes: string[] = [];
-            if (!!searchOption.GR === true) {
-                channelTypes.push('GR');
-            }
-            if (!!searchOption.BS === true) {
-                channelTypes.push('BS');
-            }
-            if (!!searchOption.CS === true) {
-                channelTypes.push('CS');
-            }
-            if (!!searchOption.SKY === true) {
-                channelTypes.push('SKY');
-            }
+            const channelTypes = ChannelTypeUtil.getRuleChannelTypes(searchOption);
             this.createInQuery(query, 'channelType', channelTypes);
         }
     }

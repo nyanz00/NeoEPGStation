@@ -15,7 +15,28 @@ export type ThumbnailId = number;
 export type DropLogFileId = number;
 export type RecordedTagId = number;
 export type EncodeId = number;
-export type ChannelType = 'GR' | 'BS' | 'CS' | 'SKY';
+export type GRAltChannelType =
+    | 'GR-ALT1'
+    | 'GR-ALT2'
+    | 'GR-ALT3'
+    | 'GR-ALT4'
+    | 'GR-ALT5'
+    | 'GR-ALT6'
+    | 'GR-ALT7'
+    | 'GR-ALT8'
+    | 'GR-ALT9'
+    | 'GR-ALT10'
+    | 'GR-ALT11'
+    | 'GR-ALT12'
+    | 'GR-ALT13'
+    | 'GR-ALT14'
+    | 'GR-ALT15'
+    | 'GR-ALT16'
+    | 'GR-ALT17'
+    | 'GR-ALT18'
+    | 'GR-ALT19'
+    | 'GR-ALT20';
+export type ChannelType = 'GR' | GRAltChannelType | 'BS' | 'CS' | 'SKY';
 export type ProgramGenreLv1 = number;
 export type ProgramGenreLv2 = number;
 export type ProgramVideoType = 'mpeg2' | 'h.264' | 'h.265';
@@ -187,6 +208,7 @@ export interface ReserveCnts {
  * true のもが有効
  */
 export interface BroadcastStatus {
+    [key: string]: boolean;
     GR: boolean;
     BS: boolean;
     CS: boolean;
@@ -276,6 +298,7 @@ export interface RuleSearchOption {
     BS?: boolean; // BS
     CS?: boolean; // CS
     SKY?: boolean; // SKY
+    channelTypes?: ChannelType[]; // GR-ALT などの追加 channel type
     channelIds?: ChannelId[]; // channels ids
     genres?: Genre[];
     times?: SearchTime[]; // 開始時間からの有効時間
@@ -533,6 +556,7 @@ export interface ScheduleOption {
     BS: boolean;
     CS: boolean;
     SKY: boolean;
+    channelTypes?: ChannelType[];
 }
 
 /**

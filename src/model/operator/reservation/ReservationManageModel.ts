@@ -4,6 +4,7 @@ import * as mapid from '../../../../node_modules/mirakurun/api';
 import Channel from '../../../db/entities/Channel';
 import Program from '../../../db/entities/Program';
 import Reserve from '../../../db/entities/Reserve';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import DateUtil from '../../../util/DateUtil';
 import StrUtil from '../../../util/StrUtil';
 import Util from '../../../util/Util';
@@ -38,12 +39,7 @@ class ReservationManageModel implements IReservationManageModel {
     private ruleDB: IRuleDB;
     private reserveEvent: IReserveEvent;
     private tuners: Tuner[] = [];
-    private broadcastStatus: apid.BroadcastStatus = {
-        GR: false,
-        BS: false,
-        CS: false,
-        SKY: false,
-    };
+    private broadcastStatus: apid.BroadcastStatus = ChannelTypeUtil.createBroadcastStatus();
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -72,6 +68,8 @@ class ReservationManageModel implements IReservationManageModel {
      * @param tuners: TunerDevice[]
      */
     public setTuners(tuners: mapid.TunerDevice[]): void {
+        this.broadcastStatus = ChannelTypeUtil.createBroadcastStatus();
+
         this.tuners = tuners.map(tuner => {
             // set this.broadcastStatus
             for (const key in this.broadcastStatus) {

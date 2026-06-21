@@ -17,6 +17,7 @@ export interface BroadcastWaveState {
 }
 
 export interface BroadcastWave {
+    [type: string]: BroadcastWaveState;
     GR: BroadcastWaveState;
     BS: BroadcastWaveState;
     CS: BroadcastWaveState;
@@ -176,6 +177,8 @@ export default interface ISearchState {
     getSearchResult(): SearchResultItem[] | null;
     fetchRuleReserves(): Promise<void>;
     getRuleReservesResult(): ReserveStateData[];
+    getBroadcastWaveTypes(): apid.ChannelType[];
+    getBroadcastWaveLabel(type: apid.ChannelType): string;
     getPrentDirectoryItems(): string[];
     getEncodeModeItems(): string[];
     isEnableEncodeMode(): boolean;

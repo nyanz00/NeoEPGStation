@@ -105,17 +105,22 @@ export default class ChannelDB implements IChannelDB {
      * @paramChannelTypeId
      */
     private getChannelTypeId(type: mapid.ChannelType): number {
+        const grAltMatch = /^GR-ALT(\d+)$/.exec(type);
+        if (grAltMatch !== null) {
+            return parseInt(grAltMatch[1], 10);
+        }
+
         switch (type) {
             case 'GR':
                 return 0;
             case 'BS':
-                return 1;
+                return 100;
             case 'CS':
-                return 2;
+                return 101;
             case 'SKY':
-                return 3;
+                return 102;
             default:
-                return 4;
+                return 999;
         }
     }
 

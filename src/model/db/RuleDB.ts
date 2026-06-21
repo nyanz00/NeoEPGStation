@@ -230,6 +230,10 @@ export default class RuleDB implements IRuleDB {
             BS: !!rule.searchOption.BS,
             CS: !!rule.searchOption.CS,
             SKY: !!rule.searchOption.SKY,
+            channelTypes:
+                typeof rule.searchOption.channelTypes === 'undefined'
+                    ? null
+                    : JSON.stringify(rule.searchOption.channelTypes),
             channelIds:
                 typeof rule.searchOption.channelIds === 'undefined'
                     ? null
@@ -352,6 +356,9 @@ export default class RuleDB implements IRuleDB {
         }
         if (rule.channelIds !== null) {
             convertedRule.searchOption.channelIds = JSON.parse(rule.channelIds);
+        }
+        if (rule.channelTypes !== null) {
+            convertedRule.searchOption.channelTypes = JSON.parse(rule.channelTypes);
         }
         if (rule.genres !== null) {
             convertedRule.searchOption.genres = JSON.parse(rule.genres);

@@ -30,13 +30,17 @@ import container from '@/model/ModelContainer';
 import IServerConfigModel from '@/model/serverConfig/IServerConfigModel';
 import IGuideState from '@/model/state/guide/IGuideState';
 import { ISettingStorageModel, ISettingValue } from '@/model/storage/setting/ISettingStorageModel';
+import ChannelTypeUtil from '@/util/ChannelTypeUtil';
 import DateUtil from '@/util/DateUtil';
 import Util from '@/util/Util';
 import { Component, Vue, Watch } from 'vue-property-decorator';
 
 @Component({})
 export default class GuideTimeSelector extends Vue {
-    public broadcastItems: string[] = [];
+    public broadcastItems: {
+        text: string;
+        value: string;
+    }[] = [];
     public broadcastValue: string | undefined = undefined;
     public dayItems: {
         text: string;
@@ -131,17 +135,13 @@ export default class GuideTimeSelector extends Vue {
         // 放送波 item 設定
         this.broadcastItems = [];
         if (this.settingValue.isEnableDisplayForEachBroadcastWave === true) {
-            if (config.broadcast.GR === true) {
-                this.broadcastItems.push('GR');
-            }
-            if (config.broadcast.BS === true) {
-                this.broadcastItems.push('BS');
-            }
-            if (config.broadcast.CS === true) {
-                this.broadcastItems.push('CS');
-            }
-            if (config.broadcast.SKY === true) {
-                this.broadcastItems.push('SKY');
+            for (const type of ChannelTypeUtil.broadcastTypes) {
+                if (config.broadcast[type] === true) {
+                    this.broadcastItems.push({
+                        text: ChannelTypeUtil.getDisplayName(type),
+                        value: type,
+                    });
+                }
             }
         }
 

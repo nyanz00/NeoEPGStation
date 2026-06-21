@@ -13,6 +13,13 @@ export interface ProgramUpdateValues {
     delete: mapid.ProgramId[];
 }
 
+export interface ProgramReconcileResult {
+    deleteValues: number;
+    insertValues: number;
+    updateValues: number;
+    unchangedValues: number;
+}
+
 /**
  * ルール検索オプション
  */
@@ -52,6 +59,7 @@ export default interface IProgramDB {
         programs: mapid.Program[],
         deleteChannelIds?: mapid.ServiceId[],
     ): Promise<void>;
+    reconcile(channelTypes: IChannelTypeIndex, programs: mapid.Program[]): Promise<ProgramReconcileResult>;
     update(channelTypes: IChannelTypeIndex, values: ProgramUpdateValues): Promise<void>;
     deleteOld(time: apid.UnixtimeMS): Promise<void>;
     findId(programId: apid.ProgramId): Promise<Program | null>;

@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import { Route } from 'vue-router';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import IServerConfigModel from '../../serverConfig/IServerConfigModel';
 import { ISettingStorageModel } from '../../storage/setting/ISettingStorageModel';
 import INavigationState, { NavigationItem, NavigationType } from './INavigationState';
@@ -47,24 +48,12 @@ export default class NavigationState implements INavigationState {
         }
 
         if (this.setting.getSavedValue().isEnableDisplayForEachBroadcastWave === true && config !== null) {
-            const types: string[] = [];
-            if (config.broadcast.GR === true) {
-                types.push('GR');
-            }
-            if (config.broadcast.BS === true) {
-                types.push('BS');
-            }
-            if (config.broadcast.CS === true) {
-                types.push('CS');
-            }
-            if (config.broadcast.SKY === true) {
-                types.push('SKY');
-            }
+            const types = ChannelTypeUtil.broadcastTypes.filter(type => config.broadcast[type] === true);
 
             for (const type of types) {
                 newItems.push({
                     icon: 'mdi-television-guide',
-                    title: `番組表${type}`,
+                    title: `番組表${ChannelTypeUtil.getDisplayName(type)}`,
                     herf: {
                         path: '/guide',
                         query: {

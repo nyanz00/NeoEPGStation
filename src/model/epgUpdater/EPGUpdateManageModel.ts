@@ -19,11 +19,15 @@ import IEPGUpdateManageModel, {
     RedefineEvent,
     ServiceEvent,
     EPGUpdateEvent,
+    ProgramEventBurstInfo,
     TunerServerType,
 } from './IEPGUpdateManageModel';
 
 @injectable()
 class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel {
+    private static readonly PROGRAM_EVENT_BURST_THRESHOLD = 10000;
+    private static readonly PROGRAM_EVENT_BURST_WINDOW_MS = 10 * 60 * 1000;
+
     private log: ILogger;
     private mirakurunClient: mirakurun;
     private channelDB: IChannelDB;
@@ -44,6 +48,9 @@ class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel
     private updatedOnAirServiceIds: { [serviceId: mapid.ServiceId]: boolean } = {};
     private updateServiceIds: { [serviceId: mapid.ServiceId]: boolean } = {};
     private mirakurunPath: string;
+    private programEventBurstStartedAt: number = 0;
+    private programEventBurstCount: number = 0;
+    private isProgramEventBurstEmitted: boolean = false;
 
     constructor(
         @inject('ILoggerModel') loggerModel: ILoggerModel,
@@ -91,6 +98,7 @@ class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel
             10 * 60 * 1000,
         );
 
+        const updateAllStartedAt = Date.now();
         this.log.system.info('get programs');
         const programs = await this.mirakurunClient.getPrograms().catch(err => {
             this.log.system.error('get programs error');
@@ -104,6 +112,10 @@ class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel
         const insertPrograms = programs.filter(p => {
             return this.isMainProgram(p);
         });
+        this.log.system.info({
+            programs: programs.length,
+            mainPrograms: insertPrograms.length,
+        });
 
         this.log.system.info('start update programs');
         await this.programDB.insert(this.channelIndex, insertPrograms).catch(err => {
@@ -113,8 +125,78 @@ class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel
             throw err;
         });
         this.log.system.info('done update programs');
+        this.log.system.info({
+            updateAllElapsedMs: Date.now() - updateAllStartedAt,
+        });
 
         clearTimeout(timeout);
+    }
+
+    public async reconcilePrograms(): Promise<void> {
+        await this.updateChannels();
+
+        this.log.system.info('get programs for reconcile');
+        const programs = await this.mirakurunClient.getPrograms().catch(err => {
+            this.log.system.error('get programs for reconcile error');
+            this.log.system.error(err);
+            throw err;
+        });
+        this.log.system.info('done get programs for reconcile');
+
+        const insertPrograms = programs.filter(p => {
+            return this.isMainProgram(p);
+        });
+
+        this.log.system.info('start reconcile programs');
+        const result = await this.programDB.reconcile(this.channelIndex, insertPrograms).catch(err => {
+            this.log.system.error('reconcile programs error');
+            this.log.system.error(err);
+            throw err;
+        });
+        this.log.system.info({
+            deleteValues: result.deleteValues,
+            insertValues: result.insertValues,
+            updateValues: result.updateValues,
+            unchangedValues: result.unchangedValues,
+        });
+        this.log.system.info('done reconcile programs');
+
+        if (result.deleteValues > 0 || result.insertValues > 0 || result.updateValues > 0) {
+            this.emit(EPGUpdateEvent.PROGRAM_UPDATED);
+        }
+    }
+
+    private recordProgramEvents(count: number): void {
+        if (count === 0) {
+            return;
+        }
+
+        const now = new Date().getTime();
+        if (
+            this.programEventBurstStartedAt === 0 ||
+            this.programEventBurstStartedAt + EPGUpdateManageModel.PROGRAM_EVENT_BURST_WINDOW_MS < now
+        ) {
+            this.programEventBurstStartedAt = now;
+            this.programEventBurstCount = 0;
+            this.isProgramEventBurstEmitted = false;
+        }
+
+        this.programEventBurstCount += count;
+        if (
+            this.isProgramEventBurstEmitted === false &&
+            this.programEventBurstCount >= EPGUpdateManageModel.PROGRAM_EVENT_BURST_THRESHOLD
+        ) {
+            this.isProgramEventBurstEmitted = true;
+            const info: ProgramEventBurstInfo = {
+                count: this.programEventBurstCount,
+                windowMs: now - this.programEventBurstStartedAt,
+            };
+            this.log.system.info({
+                programEventBurst: info.count,
+                windowMs: info.windowMs,
+            });
+            this.emit(EPGUpdateEvent.PROGRAM_EVENT_BURST, info);
+        }
     }
 
     /**
@@ -315,13 +397,16 @@ class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel
                     // event 情報をパースして queue に積む
                     this.log.system.debug(String(tmp));
                     const events: mapid.Event[] = <mapid.Event[]>JSON.parse(`[${String(tmp).slice(0, -3)}]`);
+                    let programEventCount = 0;
                     for (const event of events) {
                         if (event.resource === 'program') {
                             this.programQueue.push(<any>event);
+                            programEventCount++;
                         } else if (event.resource === 'service') {
                             this.serviceQueue.push(<any>event);
                         }
                     }
+                    this.recordProgramEvents(programEventCount);
                     this.log.system.debug('OK');
                 } catch (err: any) {
                     this.log.system.error('event stream parse error');

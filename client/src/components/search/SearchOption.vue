@@ -34,28 +34,11 @@
                     ></v-select>
                     <div class="d-flex flex-wrap">
                         <v-checkbox
-                            v-if="searchState.searchOption.broadcastWave.GR.isShow"
-                            v-model="searchState.searchOption.broadcastWave.GR.isEnable"
+                            v-for="type in searchState.getBroadcastWaveTypes()"
+                            v-bind:key="type"
+                            v-model="searchState.searchOption.broadcastWave[type].isEnable"
                             class="mx-1 my-0"
-                            label="GR"
-                        ></v-checkbox>
-                        <v-checkbox
-                            v-if="searchState.searchOption.broadcastWave.BS.isShow"
-                            v-model="searchState.searchOption.broadcastWave.BS.isEnable"
-                            class="mx-1 my-0"
-                            label="BS"
-                        ></v-checkbox>
-                        <v-checkbox
-                            v-if="searchState.searchOption.broadcastWave.CS.isShow"
-                            v-model="searchState.searchOption.broadcastWave.CS.isEnable"
-                            class="mx-1 my-0"
-                            label="CS"
-                        ></v-checkbox>
-                        <v-checkbox
-                            v-if="searchState.searchOption.broadcastWave.SKY.isShow"
-                            v-model="searchState.searchOption.broadcastWave.SKY.isEnable"
-                            class="mx-1 my-0"
-                            label="SKY"
+                            :label="searchState.getBroadcastWaveLabel(type)"
                         ></v-checkbox>
                     </div>
                 </SearchOptionRow>

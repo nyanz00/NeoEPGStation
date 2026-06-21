@@ -4,6 +4,7 @@ import { inject, injectable } from 'inversify';
 import { cloneDeep } from 'lodash';
 import * as apid from '../../../../../api';
 import * as event from '../../../lib/event';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import DateUtil from '../../../util/DateUtil';
 import IScheduleApiModel from '../../api/schedule/IScheduleApiModel';
 import IChannelModel from '../../channels/IChannelModel';
@@ -159,6 +160,28 @@ export default class SearchState implements ISearchState {
     /**
      * 検索オプション初期化
      */
+    private createBroadcastWave(): BroadcastWave {
+        const broadcastWave = {} as BroadcastWave;
+        for (const type of ChannelTypeUtil.broadcastTypes) {
+            broadcastWave[type] = {
+                isEnable: true,
+                isShow: true,
+            };
+        }
+
+        return broadcastWave;
+    }
+
+    private setBroadcastWaveEnabled(isEnable: boolean): void {
+        if (this.searchOption === null) {
+            return;
+        }
+
+        for (const type of ChannelTypeUtil.broadcastTypes) {
+            this.searchOption.broadcastWave[type].isEnable = isEnable;
+        }
+    }
+
     private initSearchOption(): void {
         this.searchOption = {
             keyword: null,
@@ -178,24 +201,7 @@ export default class SearchState implements ISearchState {
                 extended: false,
             },
             channels: [],
-            broadcastWave: {
-                GR: {
-                    isEnable: true,
-                    isShow: true,
-                },
-                BS: {
-                    isEnable: true,
-                    isShow: true,
-                },
-                CS: {
-                    isEnable: true,
-                    isShow: true,
-                },
-                SKY: {
-                    isEnable: true,
-                    isShow: true,
-                },
-            },
+            broadcastWave: this.createBroadcastWave(),
             genres: {},
             isShowSubgenres: true,
             startTime: undefined,
@@ -219,21 +225,11 @@ export default class SearchState implements ISearchState {
         // 放送波の表示をサーバの設定と合わせる
         const config = this.serverConfig.getConfig();
         if (config !== null) {
-            if (config.broadcast.GR === false) {
-                this.searchOption.broadcastWave.GR.isEnable = false;
-                this.searchOption.broadcastWave.GR.isShow = false;
-            }
-            if (config.broadcast.BS === false) {
-                this.searchOption.broadcastWave.BS.isEnable = false;
-                this.searchOption.broadcastWave.BS.isShow = false;
-            }
-            if (config.broadcast.CS === false) {
-                this.searchOption.broadcastWave.CS.isEnable = false;
-                this.searchOption.broadcastWave.CS.isShow = false;
-            }
-            if (config.broadcast.SKY === false) {
-                this.searchOption.broadcastWave.SKY.isEnable = false;
-                this.searchOption.broadcastWave.SKY.isShow = false;
+            for (const type of ChannelTypeUtil.broadcastTypes) {
+                if (config.broadcast[type] === false) {
+                    this.searchOption.broadcastWave[type].isEnable = false;
+                    this.searchOption.broadcastWave[type].isShow = false;
+                }
             }
         }
 
@@ -427,10 +423,13 @@ export default class SearchState implements ISearchState {
         if (typeof searchOption.channelIds !== 'undefined') {
             this.searchOption.channels = searchOption.channelIds.slice(0, searchOption.channelIds.length);
         } else {
-            this.searchOption.broadcastWave.GR.isEnable = !!searchOption.GR;
-            this.searchOption.broadcastWave.BS.isEnable = !!searchOption.BS;
-            this.searchOption.broadcastWave.CS.isEnable = !!searchOption.CS;
-            this.searchOption.broadcastWave.SKY.isEnable = !!searchOption.SKY;
+            const channelTypes = typeof searchOption.channelTypes === 'undefined' ? [] : searchOption.channelTypes;
+            for (const type of ChannelTypeUtil.broadcastTypes) {
+                this.searchOption.broadcastWave[type].isEnable = channelTypes.indexOf(type) !== -1 || (searchOption as any)[type] === true;
+            }
+            if (this.isDisabledAllBroadcasWave(this.searchOption.broadcastWave)) {
+                this.setBroadcastWaveEnabled(true);
+            }
         }
 
         // ジャンル
@@ -607,6 +606,19 @@ export default class SearchState implements ISearchState {
         });
     }
 
+    public getBroadcastWaveTypes(): apid.ChannelType[] {
+        if (this.searchOption === null) {
+            return [];
+        }
+
+        const option = this.searchOption;
+        return ChannelTypeUtil.broadcastTypes.filter(type => option.broadcastWave[type].isShow === true);
+    }
+
+    public getBroadcastWaveLabel(type: apid.ChannelType): string {
+        return ChannelTypeUtil.getDisplayName(type);
+    }
+
     /**
      * ジャンル item を返す
      * @return GenreItem
@@ -774,15 +786,9 @@ export default class SearchState implements ISearchState {
 
         // channels
         if (this.searchOption.channels.length > 0) {
-            this.searchOption.broadcastWave.GR.isEnable = false;
-            this.searchOption.broadcastWave.BS.isEnable = false;
-            this.searchOption.broadcastWave.CS.isEnable = false;
-            this.searchOption.broadcastWave.SKY.isEnable = false;
+            this.setBroadcastWaveEnabled(false);
         } else if (this.isDisabledAllBroadcasWave(this.searchOption.broadcastWave)) {
-            this.searchOption.broadcastWave.GR.isEnable = true;
-            this.searchOption.broadcastWave.BS.isEnable = true;
-            this.searchOption.broadcastWave.CS.isEnable = true;
-            this.searchOption.broadcastWave.SKY.isEnable = true;
+            this.setBroadcastWaveEnabled(true);
         }
 
         // time range
@@ -827,20 +833,10 @@ export default class SearchState implements ISearchState {
     }
 
     private isDisabledAllBroadcasWave(broadcas: BroadcastWave): boolean {
-        if (broadcas.GR.isShow === true && broadcas.GR.isEnable === true) {
-            return false;
-        }
-
-        if (broadcas.BS.isShow === true && broadcas.BS.isEnable === true) {
-            return false;
-        }
-
-        if (broadcas.CS.isShow === true && broadcas.CS.isEnable === true) {
-            return false;
-        }
-
-        if (broadcas.SKY.isShow === true && broadcas.SKY.isEnable === true) {
-            return false;
+        for (const type of ChannelTypeUtil.broadcastTypes) {
+            if (broadcas[type].isShow === true && broadcas[type].isEnable === true) {
+                return false;
+            }
         }
 
         return true;
@@ -981,17 +977,20 @@ export default class SearchState implements ISearchState {
         if (option.channels.length > 0) {
             ruleOption.channelIds = option.channels;
         } else if (this.isEnabledAllBroadcasWave(option.broadcastWave) === false) {
-            if (option.broadcastWave.GR.isShow === true) {
-                ruleOption.GR = option.broadcastWave.GR.isEnable;
+            const channelTypes: apid.ChannelType[] = [];
+            for (const type of ChannelTypeUtil.broadcastTypes) {
+                if (option.broadcastWave[type].isShow !== true) {
+                    continue;
+                }
+
+                if (type === 'GR' || type === 'BS' || type === 'CS' || type === 'SKY') {
+                    (ruleOption as any)[type] = option.broadcastWave[type].isEnable;
+                } else if (option.broadcastWave[type].isEnable === true) {
+                    channelTypes.push(type);
+                }
             }
-            if (option.broadcastWave.BS.isShow === true) {
-                ruleOption.BS = option.broadcastWave.BS.isEnable;
-            }
-            if (option.broadcastWave.CS.isShow === true) {
-                ruleOption.CS = option.broadcastWave.CS.isEnable;
-            }
-            if (option.broadcastWave.SKY.isShow === true) {
-                ruleOption.SKY = option.broadcastWave.SKY.isEnable;
+            if (channelTypes.length > 0) {
+                ruleOption.channelTypes = channelTypes;
             }
         }
 
@@ -1061,20 +1060,10 @@ export default class SearchState implements ISearchState {
      * @return boolean true なら有効
      */
     private isEnabledAllBroadcasWave(broadcas: BroadcastWave): boolean {
-        if (broadcas.GR.isShow === true && broadcas.GR.isEnable !== true) {
-            return false;
-        }
-
-        if (broadcas.BS.isShow === true && broadcas.BS.isEnable !== true) {
-            return false;
-        }
-
-        if (broadcas.CS.isShow === true && broadcas.CS.isEnable !== true) {
-            return false;
-        }
-
-        if (broadcas.SKY.isShow === true && broadcas.SKY.isEnable !== true) {
-            return false;
+        for (const type of ChannelTypeUtil.broadcastTypes) {
+            if (broadcas[type].isShow === true && broadcas[type].isEnable !== true) {
+                return false;
+            }
         }
 
         return true;

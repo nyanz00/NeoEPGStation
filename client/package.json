@@ -3,9 +3,9 @@
     "version": "2.10.0",
     "private": true,
     "scripts": {
-        "build": "NODE_OPTIONS='--openssl-legacy-provider' vue-cli-service build",
-        "lint": "NODE_OPTIONS='--openssl-legacy-provider' vue-cli-service lint",
-        "watch": "NODE_OPTIONS='--openssl-legacy-provider' vue-cli-service build --watch --mode development"
+        "build": "node scripts/vue-cli-service.js build",
+        "lint": "node scripts/vue-cli-service.js lint",
+        "watch": "node scripts/vue-cli-service.js build --watch --mode development"
     },
     "dependencies": {
         "@mdi/font": "7.4.47",

@@ -125,6 +125,12 @@ export default class Rule extends BaseEntity {
         type: 'text',
         nullable: true,
     })
+    public channelTypes: string | null = null; // channelType の array を JSON.stringify したもの
+
+    @Column({
+        type: 'text',
+        nullable: true,
+    })
     public channelIds: string | null = null; // channleId の array を JSON.stringify したもの
 
     @Column({

@@ -11,5 +11,6 @@
     "bracketSpacing": true,
     "jsxBracketSameLine": false,
     "semi": true,
+    "endOfLine": "auto",
     "htmlWhitespaceSensitivity": "ignore"
 }

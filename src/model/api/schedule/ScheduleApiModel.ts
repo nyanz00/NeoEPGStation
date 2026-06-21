@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import * as apid from '../../../../api';
 import Channel from '../../../db/entities/Channel';
 import Program from '../../../db/entities/Program';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IProgramDB, { ProgramWithOverlap } from '../../db/IProgramDB';
 import IScheduleApiModel from './IScheduleApiModel';
@@ -37,19 +38,7 @@ export default class ScheduleApiModel implements IScheduleApiModel {
      * @return Promise<apid.Schedule[]>
      */
     public async getSchedules(option: apid.ScheduleOption): Promise<apid.Schedule[]> {
-        const types: apid.ChannelType[] = [];
-        if (option.GR === true) {
-            types.push('GR');
-        }
-        if (option.BS === true) {
-            types.push('BS');
-        }
-        if (option.CS === true) {
-            types.push('CS');
-        }
-        if (option.SKY === true) {
-            types.push('SKY');
-        }
+        const types = ChannelTypeUtil.getRuleChannelTypes(option);
 
         if (types.length === 0) {
             throw new Error('GetScheduleTypesError');

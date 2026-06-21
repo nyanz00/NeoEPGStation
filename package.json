@@ -10,7 +10,7 @@
         "build-server": "npm run lint && npm run format && npm run compile",
         "build-client": "cd client && npm run build",
         "lint": "eslint --fix --ext .ts src/",
-        "format": "prettier --check --write 'src/**/*.ts'",
+        "format": "prettier --check --write src/**/*.ts",
         "compile": "tsc",
         "watch": "tsc --watch",
         "orm-gen": "typeorm migration:generate src/db/migrations/${npm_config_db}/${npm_config_name} -d ./ormconfig.js",

@@ -3,7 +3,7 @@
         <TitleBar title="放映中">
             <template v-slot:extension>
                 <v-tabs v-if="isTabView === true && onAirState.getSchedules().length > 0" v-model="onAirState.selectedTab" centered>
-                    <v-tab v-for="item in onAirState.getTabs()" :key="item" :href="`#${item}`">{{ item }}</v-tab>
+                    <v-tab v-for="item in onAirState.getTabs()" :key="item" :href="`#${item}`">{{ getBroadcastWaveLabel(item) }}</v-tab>
                 </v-tabs>
             </template>
         </TitleBar>
@@ -36,6 +36,7 @@ import IScrollPositionState from '@/model/state/IScrollPositionState';
 import IOnAirState from '@/model/state/onair/IOnAirState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
 import { ISettingStorageModel, ISettingValue } from '@/model/storage/setting/ISettingStorageModel';
+import ChannelTypeUtil from '@/util/ChannelTypeUtil';
 import Util from '@/util/Util';
 import { Component, Vue, Watch } from 'vue-property-decorator';
 import { Route } from 'vue-router';
@@ -64,6 +65,10 @@ export default class OnAir extends Vue {
 
     get isTabView(): boolean {
         return this.settingValue.isOnAirTabListView;
+    }
+
+    public getBroadcastWaveLabel(type: string): string {
+        return ChannelTypeUtil.getDisplayName(type as any);
     }
 
     public created(): void {

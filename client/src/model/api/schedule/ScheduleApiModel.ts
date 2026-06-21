@@ -33,8 +33,14 @@ export default class ScheduleApiModel implements IScheduleApiModel {
      * @return Promise<apid.Schedule[]>
      */
     public async getSchedules(option: apid.ScheduleOption): Promise<apid.Schedule[]> {
+        const params: any = { ...option };
+        if (typeof option.channelTypes !== 'undefined') {
+            delete params.channelTypes;
+            params['channelTypes[]'] = option.channelTypes;
+        }
+
         const result = await this.repository.get('/schedules', {
-            params: option,
+            params,
         });
 
         return result.data;

@@ -35,7 +35,7 @@
                                 {{ recorded.display.genre }}
                             </div>
                             <div class="subtitle-2 font-weight-light">
-                                {{ recorded.display.time }} ({{ recorded.display.duration }}
+                                {{ recorded.display.fullTime }} ({{ recorded.display.duration }}
                                 m)
                             </div>
                             <div class="body-2 mt-2 font-weight-light drop" v-bind:class="{ droped: recorded.display.hasDrop === true }" v-on:click="showDropLog">

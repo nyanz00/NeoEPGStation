@@ -1,5 +1,6 @@
 import { Operation } from 'express-openapi';
 import * as apid from '../../../../api';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import IScheduleApiModel from '../../api/schedule/IScheduleApiModel';
 import container from '../../ModelContainer';
 import * as api from '../api';
@@ -17,6 +18,7 @@ export const get: Operation = async (req, res) => {
             BS: req.query.BS as any,
             CS: req.query.CS as any,
             SKY: req.query.SKY as any,
+            channelTypes: ChannelTypeUtil.parseChannelTypes(req.query.channelTypes ?? req.query['channelTypes[]']),
         };
         if (typeof req.query.isFree === 'boolean') {
             option.isFree = req.query.isFree;
@@ -58,6 +60,9 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/requiredSKY',
+        },
+        {
+            $ref: '#/components/parameters/ChannelTypes',
         },
     ],
     responses: {

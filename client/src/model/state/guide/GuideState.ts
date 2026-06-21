@@ -2,6 +2,7 @@ import ChannelModel from '@/model/channels/ChannelModel';
 import { IGuideGenreSettingStorageModel, IGuideGenreSettingValue } from '@/model/storage/guide/IGuideGenreSettingStorageModel';
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../../../api';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import DateUtil from '../../../util/DateUtil';
 import IScheduleApiModel from '../../api/schedule/IScheduleApiModel';
 import { ISettingStorageModel } from '../../storage/setting/ISettingStorageModel';
@@ -109,8 +110,11 @@ class GuideState implements IGuideState {
                 scheduleOption.BS = true;
                 scheduleOption.CS = true;
                 scheduleOption.SKY = true;
-            } else {
+                scheduleOption.channelTypes = ChannelTypeUtil.grAltChannelTypes;
+            } else if (option.type === 'GR' || option.type === 'BS' || option.type === 'CS' || option.type === 'SKY') {
                 scheduleOption[option.type] = true;
+            } else {
+                scheduleOption.channelTypes = [option.type];
             }
 
             if (this.settingModel.getSavedValue().isShowOnlyFreePrograms === true) {

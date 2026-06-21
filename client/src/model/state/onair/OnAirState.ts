@@ -1,4 +1,5 @@
 import IServerConfigModel from '@/model/serverConfig/IServerConfigModel';
+import ChannelTypeUtil from '@/util/ChannelTypeUtil';
 import DateUtil from '@/util/DateUtil';
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../../../api';
@@ -27,18 +28,7 @@ export default class OnAirState implements IOnAirState {
         // tab 設定
         const config = serverConfigModel.getConfig();
         if (config !== null) {
-            if (config.broadcast.GR === true) {
-                this.tabs.push('GR');
-            }
-            if (config.broadcast.BS === true) {
-                this.tabs.push('BS');
-            }
-            if (config.broadcast.CS === true) {
-                this.tabs.push('CS');
-            }
-            if (config.broadcast.SKY === true) {
-                this.tabs.push('SKY');
-            }
+            this.tabs = ChannelTypeUtil.broadcastTypes.filter(type => config.broadcast[type] === true);
         }
     }
 

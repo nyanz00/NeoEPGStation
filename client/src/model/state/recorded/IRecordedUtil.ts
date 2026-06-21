@@ -5,6 +5,7 @@ export interface RecordedDisplayData {
         channelName: string;
         name: string;
         time: string;
+        fullTime: string;
         shortTime: string;
         duration: number;
         description?: string;

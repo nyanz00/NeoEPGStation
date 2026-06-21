@@ -3,7 +3,7 @@ import IConfigFile from '../IConfigFile';
 import IConfiguration from '../IConfiguration';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
-import IEPGUpdateManageModel, { EPGUpdateEvent, TunerServerType } from './IEPGUpdateManageModel';
+import IEPGUpdateManageModel, { EPGUpdateEvent, ProgramEventBurstInfo, TunerServerType } from './IEPGUpdateManageModel';
 import IEPGUpdater from './IEPGUpdater';
 import Util from '../../util/Util';
 
@@ -17,8 +17,16 @@ class EPGUpdater implements IEPGUpdater {
     private lastUpdatedTime: number = 0;
     private lastDeletedTime: number = 0;
     private retryCount: number = 0;
+    private isUpdating: boolean = false;
+    private isProgramReconcileRequested: boolean = false;
+    private programReconcileTimer: NodeJS.Timeout | null = null;
+    private lastProgramReconcileTime: number = 0;
+    private needsFollowupProgramReconcile: boolean = false;
 
     private static readonly EVENT_STREAM_REONNECTION_MAX = 12;
+    private static readonly PROGRAM_RECONCILE_SETTLE_MS = 30 * 60 * 1000;
+    private static readonly PROGRAM_RECONCILE_FOLLOWUP_DELAY_MS = 30 * 60 * 1000;
+    private static readonly PROGRAM_RECONCILE_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -39,14 +47,29 @@ class EPGUpdater implements IEPGUpdater {
             // this.notify();
         });
 
+        this.updateManage.on(EPGUpdateEvent.PROGRAM_EVENT_BURST, (info: ProgramEventBurstInfo) => {
+            this.log.system.info({
+                programEventBurstDetected: info.count,
+                windowMs: info.windowMs,
+            });
+            this.requestProgramReconcile('event-burst');
+        });
+
         this.updateManage.on(EPGUpdateEvent.STREAM_STARTED, async () => {
             this.log.system.info('event stream started');
             this.retryCount = 0;
+            if (this.isUpdating === true) {
+                this.log.system.warn('skip updateAll on event stream start because previous update is still running');
+                this.isEventStreamAlive = true;
+                return;
+            }
+            this.isUpdating = true;
             try {
                 await this.updateManage.updateAll();
                 this.notify();
             } catch (err: any) {
                 this.log.system.error('updateAll error');
+                this.log.system.error(err);
             }
             // updateAllが完了して以降、queueフラッシュ処理を有効にするために
             // この位置でisEventStreamAliveをtrueにする
@@ -55,6 +78,7 @@ class EPGUpdater implements IEPGUpdater {
             // updateAll 後は全件数削除が行われるため削除時間も更新する
             this.lastDeletedTime = now;
             this.isEventStreamAlive = true;
+            this.isUpdating = false;
         });
 
         this.updateManage.on(EPGUpdateEvent.STREAM_ABORTED, () => {
@@ -80,16 +104,22 @@ class EPGUpdater implements IEPGUpdater {
         // 放送中や放送開始時刻が間近の番組は短いサイクルでDBへ保存する
         // NOTE: DB負荷などを考慮しEvent受信と同時のDB反映は見合わせる
         setInterval(async () => {
+            if (this.isUpdating === true) {
+                this.log.system.warn('skip EPG update tick because previous update is still running');
+                return;
+            }
+
+            this.isUpdating = true;
             const now = new Date().getTime();
 
             try {
                 if (this.isEventStreamAlive === true) {
                     if (tunerServerType === TunerServerType.mirakurun) {
                         // mirakurun の場合
-                        this.updateMirakurunEventStream(updateInterval, now);
+                        await this.updateMirakurunEventStream(updateInterval, now);
                     } else {
                         // mirakc の場合
-                        this.updateMirakcEvent(updateInterval, now);
+                        await this.updateMirakcEvent(updateInterval, now);
                     }
                 } else if (this.isEventStreamAlive === false && this.lastUpdatedTime + updateInterval * 1.5 <= now) {
                     await this.updateManage.updateAll();
@@ -111,7 +141,117 @@ class EPGUpdater implements IEPGUpdater {
                 });
                 this.lastDeletedTime = now;
             }
+
+            this.isUpdating = false;
         }, 10 * 1000);
+    }
+
+    private requestProgramReconcile(reason: string): void {
+        const now = new Date().getTime();
+        if (
+            reason !== 'event-burst-followup' &&
+            this.lastProgramReconcileTime + EPGUpdater.PROGRAM_RECONCILE_MIN_INTERVAL_MS > now
+        ) {
+            this.log.system.info({
+                skipProgramReconcile: reason,
+                lastProgramReconcileTime: this.lastProgramReconcileTime,
+            });
+            return;
+        }
+
+        this.isProgramReconcileRequested = true;
+        if (this.programReconcileTimer !== null) {
+            this.log.system.info({
+                keepProgramReconcileRequest: reason,
+            });
+            return;
+        }
+
+        this.log.system.info({
+            requestProgramReconcile: reason,
+            settleMs: EPGUpdater.PROGRAM_RECONCILE_SETTLE_MS,
+        });
+
+        this.needsFollowupProgramReconcile = reason === 'event-burst';
+        this.programReconcileTimer = setTimeout(() => {
+            this.runProgramReconcile(reason).catch(err => {
+                this.log.system.error('program reconcile error');
+                this.log.system.error(err);
+            });
+        }, EPGUpdater.PROGRAM_RECONCILE_SETTLE_MS);
+    }
+
+    private async runProgramReconcile(reason: string): Promise<void> {
+        this.programReconcileTimer = null;
+        if (this.isProgramReconcileRequested === false) {
+            return;
+        }
+
+        if (this.isUpdating === true) {
+            this.log.system.info({
+                delayProgramReconcile: reason,
+            });
+            this.programReconcileTimer = setTimeout(() => {
+                this.runProgramReconcile(reason).catch(err => {
+                    this.log.system.error('program reconcile error');
+                    this.log.system.error(err);
+                });
+            }, 10 * 1000);
+            return;
+        }
+
+        const now = new Date().getTime();
+        if (
+            reason !== 'event-burst-followup' &&
+            this.lastProgramReconcileTime + EPGUpdater.PROGRAM_RECONCILE_MIN_INTERVAL_MS > now
+        ) {
+            this.isProgramReconcileRequested = false;
+            return;
+        }
+
+        this.isUpdating = true;
+        let shouldRequestFollowup = false;
+        try {
+            this.log.system.info({
+                startProgramReconcile: reason,
+            });
+            await this.updateManage.reconcilePrograms();
+            this.lastProgramReconcileTime = new Date().getTime();
+            this.lastUpdatedTime = this.lastProgramReconcileTime;
+            this.notify();
+            this.log.system.info('done program reconcile');
+
+            if (this.needsFollowupProgramReconcile === true && reason === 'event-burst') {
+                this.needsFollowupProgramReconcile = false;
+                shouldRequestFollowup = true;
+            }
+        } finally {
+            this.isProgramReconcileRequested = false;
+            this.isUpdating = false;
+        }
+
+        if (shouldRequestFollowup === true) {
+            this.requestFollowupProgramReconcile();
+        }
+    }
+
+    private requestFollowupProgramReconcile(): void {
+        if (this.programReconcileTimer !== null) {
+            return;
+        }
+
+        this.isProgramReconcileRequested = true;
+        this.log.system.info({
+            requestProgramReconcile: 'event-burst-followup',
+            settleMs: EPGUpdater.PROGRAM_RECONCILE_FOLLOWUP_DELAY_MS,
+        });
+
+        this.programReconcileTimer = setTimeout(() => {
+            this.runProgramReconcile('event-burst-followup').catch(err => {
+                this.log.system.error('program reconcile error');
+                this.log.system.error(err);
+            });
+        }, EPGUpdater.PROGRAM_RECONCILE_FOLLOWUP_DELAY_MS);
     }
 
     /**
@@ -179,7 +319,7 @@ class EPGUpdater implements IEPGUpdater {
 
         // 放映中以外の者は updateInterval の間隔で更新する
         if (this.lastUpdatedTime + updateInterval <= now) {
-            this.updateManage.saveUpdateServices().catch(e => {
+            await this.updateManage.saveUpdateServices().catch(e => {
                 this.log.system.error('failed to save update services');
                 throw e;
             });
