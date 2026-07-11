@@ -2,92 +2,39 @@
     "name": "epgstation-client",
     "version": "2.10.0",
     "private": true,
+    "type": "module",
     "scripts": {
-        "build": "node scripts/vue-cli-service.js build --no-module",
-        "lint": "node scripts/vue-cli-service.js lint",
-        "watch": "node scripts/vue-cli-service.js build --watch --mode development --no-module"
+        "build": "npm run check && vite build",
+        "check": "tsc --noEmit && prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" index.html",
+        "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" index.html",
+        "dev": "vite",
+        "preview": "vite preview"
     },
     "dependencies": {
-        "@mdi/font": "7.4.47",
-        "aribb24.js": "1.11.2",
+        "@emotion/react": "11.14.0",
+        "@emotion/styled": "11.14.1",
+        "@mui/icons-material": "9.2.0",
+        "@mui/material": "9.2.0",
+        "@tanstack/react-query": "5.101.2",
         "axios": "1.18.1",
         "dplayer": "https://github.com/tsukumijima/DPlayer/archive/refs/tags/v1.32.8.tar.gz",
-        "eventemitter2": "6.4.9",
         "hls.js": "1.6.16",
-        "inversify": "6.0.2",
         "jassub": "1.8.8",
-        "json-stable-stringify": "1.3.0",
-        "lodash": "4.18.1",
-        "material-design-icons-iconfont": "6.7.0",
         "mpegts.js": "https://github.com/tsukumijima/mpegts.js/archive/cc58169d2b61f0d27588fd31593b8739abe7b0ab.tar.gz",
-        "reflect-metadata": "0.2.2",
-        "resize-observer-polyfill": "1.5.1",
-        "roboto-fontface": "*",
-        "smoothscroll-polyfill": "0.4.4",
-        "socket.io-client": "4.8.3",
-        "typeface-roboto": "1.1.13",
-        "vue": "2.7.14",
-        "vue-class-component": "7.2.6",
-        "vue-property-decorator": "9.1.2",
-        "vue-router": "3.6.5",
-        "vuetify": "2.7.0",
-        "vuetify-datetime-picker": "2.1.1"
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
+        "react-router-dom": "7.18.1",
+        "socket.io-client": "4.8.3"
     },
     "devDependencies": {
-        "@types/hls.js": "0.13.3",
-        "@types/json-stable-stringify": "1.0.36",
-        "@types/lodash": "4.17.0",
-        "@types/smoothscroll-polyfill": "0.3.4",
-        "@types/socket.io-client": "1.4.36",
-        "@typescript-eslint/eslint-plugin": "4.33.0",
-        "@typescript-eslint/parser": "4.33.0",
-        "@vue/cli-plugin-eslint": "5.0.8",
-        "@vue/cli-plugin-typescript": "5.0.8",
-        "@vue/cli-plugin-vuex": "5.0.8",
-        "@vue/cli-service": "5.0.8",
-        "@vue/eslint-config-prettier": "6.0.0",
-        "@vue/eslint-config-typescript": "7.0.0",
-        "eslint": "7.32.0",
-        "eslint-plugin-prettier": "3.4.1",
-        "eslint-plugin-vue": "7.20.0",
-        "prettier": "2.4.1",
-        "sass": "1.32.12",
-        "sass-loader": "10.2.0",
-        "typescript": "4.4.4",
-        "vue-cli-plugin-vuetify": "2.5.8",
-        "vue-template-compiler": "2.7.14",
-        "vuetify-loader": "1.9.2"
+        "@types/react": "19.2.17",
+        "@types/react-dom": "19.2.3",
+        "@vitejs/plugin-react": "6.0.3",
+        "prettier": "3.6.2",
+        "typescript": "7.0.2",
+        "vite": "8.1.4"
     },
     "overrides": {
-        "loader-utils": "1.4.2",
-        "@vue/vue-loader-v15": {
-            "loader-utils": "1.4.2"
-        },
-        "cache-loader": {
-            "loader-utils": "1.4.2"
-        },
-        "vue-style-loader": {
-            "loader-utils": "1.4.2"
-        },
-        "babel-loader": {
-            "loader-utils": "2.0.4"
-        },
-        "thread-loader": {
-            "loader-utils": "2.0.4"
-        },
-        "ts-loader": {
-            "loader-utils": "2.0.4"
-        },
-        "null-loader": {
-            "loader-utils": "2.0.4"
-        },
-        "sass-loader": {
-            "loader-utils": "2.0.4"
-        },
-        "socket.io-parser": "4.2.6",
-        "vuetify-loader": {
-            "loader-utils": "2.0.4"
-        },
-        "minimist": "1.2.8"
+        "path-parse": "1.0.7"
     }
 }
