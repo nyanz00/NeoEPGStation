@@ -11,6 +11,12 @@ export default class Reserve extends BaseEntity {
     public id!: number;
 
     @Column({
+        type: 'integer',
+        nullable: true,
+    })
+    public userId: number | null = null;
+
+    @Column({
         type: 'bigint',
     })
     public updateTime!: number; // 更新時間 手動予約の優先度決定事項に使用する
@@ -150,6 +156,11 @@ export default class Reserve extends BaseEntity {
         default: false,
     })
     public isDeleteOriginalAfterEncode: boolean = false;
+
+    @Column({
+        default: false,
+    })
+    public updateThumbnail: boolean = false;
 
     /**
      * 番組情報

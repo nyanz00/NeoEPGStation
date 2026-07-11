@@ -26,7 +26,7 @@ import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
 import IMirakurunClientModel from '../../IMirakurunClientModel';
 import IDropCheckerModel from './IDropCheckerModel';
-import IRecorderModel from './IRecorderModel';
+import IRecorderModel, { RecordingDropLogFile } from './IRecorderModel';
 import IRecordingStreamCreator from './IRecordingStreamCreator';
 import IRecordingUtilModel, { RecFilePathInfo } from './IRecordingUtilModel';
 
@@ -531,6 +531,7 @@ class RecorderModel implements IRecorderModel {
             recorded.id = this.recordedId;
         }
         recorded.isRecording = this.isRecording;
+        recorded.userId = this.reserve.userId;
         recorded.reserveId = this.reserve.id;
         recorded.ruleId = this.reserve.ruleId;
         recorded.programId = this.reserve.programId;
@@ -918,6 +919,36 @@ class RecorderModel implements IRecorderModel {
             this.log.system.info(`update reocrded: ${this.recordedId}`);
             this.recordedDB.updateOnce(recorded);
         }
+    }
+
+    public getCurrentDropLogFile(): RecordingDropLogFile | null {
+        if (this.recordedId === null || this.dropLogFileId === null) {
+            return null;
+        }
+
+        const dropResult = this.dropChecker.getCurrentResult();
+        if (dropResult === null) {
+            return null;
+        }
+
+        let errorCnt = 0;
+        let dropCnt = 0;
+        let scramblingCnt = 0;
+        for (const pid in dropResult) {
+            errorCnt += dropResult[pid].error;
+            dropCnt += dropResult[pid].drop;
+            scramblingCnt += dropResult[pid].scrambling;
+        }
+
+        return {
+            recordedId: this.recordedId,
+            dropLogFile: {
+                id: this.dropLogFileId,
+                errorCnt,
+                dropCnt,
+                scramblingCnt,
+            },
+        };
     }
 
     /**

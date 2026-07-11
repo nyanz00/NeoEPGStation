@@ -1,4 +1,6 @@
 // tslint:disable-next-line: no-import-side-effect
+import 'vuetify/dist/vuetify.min.css';
+// tslint:disable-next-line: no-import-side-effect
 import '@mdi/font/css/materialdesignicons.css';
 // tslint:disable-next-line: no-import-side-effect
 import 'material-design-icons-iconfont/dist/material-design-icons.css';

@@ -28,6 +28,7 @@ export interface UploadProgramOption {
 
 export default interface IRecordedUploadState {
     programOption: UploadProgramOption;
+    userId: apid.UserId | null;
     videoFileItems: VideoFileItem[];
     ruleKeyword: string | null;
     ruleItems: apid.RuleKeywordItem[];
@@ -35,7 +36,7 @@ export default interface IRecordedUploadState {
     init(): void;
     fetchData(): Promise<void>;
     updateRuleItems(): Promise<void>;
-    getChannelItems(): SelectorItem[];
+    getChannelItems(filter?: string | null): SelectorItem[];
     getPrentDirectoryItems(): string[];
     getFileTypeItems(): apid.VideoFileType[];
     getGenreItems(): SelectorItem[];

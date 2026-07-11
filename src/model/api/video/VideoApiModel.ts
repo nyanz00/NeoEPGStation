@@ -1,4 +1,5 @@
 import * as fileType from 'file-type';
+import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import * as apid from '../../../../api';
@@ -125,6 +126,48 @@ export default class VideoApiModel implements IVideoApiModel {
         const videoInfo = await this.videoUtil.getInfo(filePath);
 
         return videoInfo.duration;
+    }
+
+    public async getSubtitles(videoFileId: apid.VideoFileId): Promise<apid.VideoSubtitles> {
+        const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
+        if (filePath === null) {
+            throw new Error('VideoFileIsUndefined');
+        }
+
+        return {
+            items: await this.videoUtil.getSubtitles(filePath),
+        };
+    }
+
+    public async getSubtitleText(
+        videoFileId: apid.VideoFileId,
+        subtitleIndex: number,
+    ): Promise<apid.VideoSubtitleText> {
+        const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
+        if (filePath === null) {
+            throw new Error('VideoFileIsUndefined');
+        }
+
+        return {
+            subtitleText: await this.videoUtil.getSubtitleText(filePath, subtitleIndex),
+        };
+    }
+
+    public async prepareSubtitle(
+        videoFileId: apid.VideoFileId,
+        subtitleIndex: number,
+    ): Promise<apid.VideoPreparedSubtitle> {
+        const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
+        if (filePath === null) {
+            throw new Error('VideoFileIsUndefined');
+        }
+
+        const prepared = await this.videoUtil.prepareSubtitle(filePath, subtitleIndex);
+
+        return {
+            subtitleFileKey: prepared.key,
+            subtitleText: await fs.promises.readFile(prepared.filePath, 'utf8'),
+        };
     }
 
     public async sendToKodi(

@@ -31,7 +31,7 @@ export default class ThumbnailDB implements IThumbnailDB {
         let hasError = false;
         try {
             // 削除
-            await queryRunner.manager.delete(Thumbnail, {});
+            await queryRunner.manager.clear(Thumbnail);
 
             // 挿入処理
             for (const item of items) {

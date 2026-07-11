@@ -4,5 +4,7 @@ module.exports = {
     chainWebpack: config => {
         // ios で reload 時に更新内容が反映されないため
         config.plugins.delete('preload');
+
+        config.module.rule('asset-url').resourceQuery(/url/).type('asset/resource');
     },
 };

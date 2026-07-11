@@ -55,8 +55,8 @@ export interface SearchOption {
     broadcastWave: BroadcastWave;
     genres: { [genre: number]: GenreIndex };
     isShowSubgenres: boolean;
-    startTime: number | undefined;
-    rangeTime: number | undefined;
+    startTime: number | null | undefined;
+    rangeTime: number | null | undefined;
     week: Week;
     durationMin: number | null;
     durationMax: number | null;
@@ -134,15 +134,19 @@ export interface SaveOption {
  */
 export interface EncodedOption {
     mode1: string | null; // エンコードモード
+    channelIds1: apid.ChannelId[]; // エンコードモード1対象局
     encodeParentDirectoryName1: string | null; // 親保存ディレクトリ
     directory1: string | null; // 保存先ディレクトリ
     mode2: string | null;
+    channelIds2: apid.ChannelId[];
     encodeParentDirectoryName2: string | null;
     directory2: string | null;
     mode3: string | null;
+    channelIds3: apid.ChannelId[];
     encodeParentDirectoryName3: string | null;
     directory3: string | null;
     isDeleteOriginalAfterEncode: boolean; // エンコード後に元ファイルを自動削除するか
+    updateThumbnail: boolean; // エンコード完了時にサムネイルを再生成するか
 }
 
 export interface QuerySearchOption {
@@ -159,13 +163,14 @@ export default interface ISearchState {
     reserveOption: ReserveOption | null;
     saveOption: SaveOption | null;
     encodeOption: EncodedOption | null;
+    userId: apid.UserId | null;
     isShowPeriod: boolean;
     optionPanel: number[];
     genreSelect: number;
     init(ruleId?: apid.RuleId): Promise<void>;
     setQueryOption(query: QuerySearchOption): void;
     clear(): void;
-    getChannelItems(): SelectorItem[];
+    getChannelItems(filter?: string | null): SelectorItem[];
     getGenreItems(): GenreItem[];
     getStartTimeItems(): SelectorItem[];
     getRangeTimeItems(): SelectorItem[];
@@ -181,6 +186,7 @@ export default interface ISearchState {
     getBroadcastWaveLabel(type: apid.ChannelType): string;
     getPrentDirectoryItems(): string[];
     getEncodeModeItems(): string[];
+    getEncodeChannelItems(): SelectorItem[];
     isEnableEncodeMode(): boolean;
     isEditingRule(): boolean;
     addRule(): Promise<void>;

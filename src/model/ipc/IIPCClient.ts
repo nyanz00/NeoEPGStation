@@ -1,6 +1,7 @@
 import * as apid from '../../../api';
-import { OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
 import { AddVideoFileOption, UploadedVideoFileOption } from '../operator/recorded/IRecordedManageModel';
+import { RecordingDropLogFile } from '../operator/recording/IRecorderModel';
 
 export interface IPCReservationManageModel {
     getBroadcastStatus(): Promise<apid.BroadcastStatus>;
@@ -23,6 +24,8 @@ export interface IPCRecordedManageModel {
     createNewRecorded(option: apid.CreateNewRecordedOption): Promise<apid.RecordedId>;
     deleteVideoFile(videoFileId: apid.VideoFileId, isIgnoreProtection?: boolean): Promise<void>;
     changeProtect(recordedId: apid.RecordedId, isProtect: boolean): Promise<void>;
+    createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult>;
+    executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult>;
     videoFileCleanup(): Promise<void>;
     dropLogFileCleanup(): Promise<void>;
 }
@@ -36,6 +39,7 @@ export interface IPCRecordedTagManageModel {
 }
 
 export interface IPCRecordingManageModel {
+    getCurrentDropLogFiles(): Promise<RecordingDropLogFile[]>;
     resetTimer(): void;
 }
 
@@ -52,11 +56,13 @@ export interface IPCThumbnailManageModel {
     regenerate(): Promise<void>;
     fileCleanup(): Promise<void>;
     add(videoFileId: apid.VideoFileId): Promise<void>;
+    replace(videoFileId: apid.VideoFileId): Promise<void>;
     delete(thumbnailId: apid.ThumbnailId): Promise<void>;
 }
 
 export interface IPCOperatorEncodeEvent {
     emitFinishEncode(info: OperatorFinishEncodeInfo): Promise<void>;
+    emitErrorEncode(info: OperatorErrorEncodeInfo): Promise<void>;
 }
 
 export default interface IIPCClient {

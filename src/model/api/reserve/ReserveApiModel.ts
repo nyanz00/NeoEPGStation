@@ -71,12 +71,14 @@ export default class ReserveApiModel implements IReserveApiModel {
     private toReserveItem(reserve: Reserve, isHalfWidth: boolean): apid.ReserveItem {
         const item: apid.ReserveItem = {
             id: reserve.id,
+            userId: reserve.userId === null ? undefined : reserve.userId,
             isSkip: reserve.isSkip,
             isConflict: reserve.isConflict,
             isOverlap: reserve.isOverlap,
             allowEndLack: reserve.allowEndLack,
             isTimeSpecified: reserve.isTimeSpecified,
             isDeleteOriginalAfterEncode: reserve.isDeleteOriginalAfterEncode,
+            updateThumbnail: reserve.updateThumbnail,
             channelId: reserve.channelId,
             startAt: reserve.startAt,
             endAt: reserve.endAt,

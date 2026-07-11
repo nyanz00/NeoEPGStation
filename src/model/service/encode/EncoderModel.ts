@@ -1,7 +1,9 @@
 import { ChildProcess } from 'child_process';
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
+import * as net from 'net';
 import * as path from 'path';
+import { TextDecoder } from 'util';
 import * as apid from '../../../../api';
 import FileUtil from '../../../util/FileUtil';
 import ProcessUtil from '../../../util/ProcessUtil';
@@ -14,10 +16,542 @@ import IEncodeEvent from '../../event/IEncodeEvent';
 import IConfiguration from '../../IConfiguration';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
+import { AmatsukazeEncodeConfig } from '../../IConfigFile';
 import IEncodeFileManageModel from './IEncodeFileManageModel';
 import IEncodeProcessManageModel from './IEncodeProcessManageModel';
 import { EncodeOption, EncodeProgressInfo, IEncoderModel } from './IEncoderModel';
 import IRecordingUtilModel from '../../operator/recording/IRecordingUtilModel';
+
+interface AmatsukazeOutputCandidate {
+    path: string;
+    size: number;
+    stableSince: number;
+}
+
+interface AmatsukazePushStatus {
+    isConnected: boolean;
+    isMatched: boolean;
+    consoleId: number | null;
+    log: string | null;
+    percent: number | null;
+    isReadyForOutputScan: boolean;
+    isPending: boolean;
+    pendingMessage: string | null;
+    errorMessage: string | null;
+    updatedAt: number;
+}
+
+class AmatsukazePushConnection {
+    private static readonly RPC_CHANGE_ITEM = 103;
+    private static readonly RPC_ON_UI_DATA = 200;
+    private static readonly RPC_ON_CONSOLE_UPDATE = 201;
+    private static readonly RPC_ON_ENCODE_STATE = 202;
+    private static readonly IDLE_CLOSE_DELAY_MS = 60 * 1000;
+    private static readonly connections: Map<string, AmatsukazePushConnection> = new Map();
+
+    public static subscribe(
+        host: string,
+        port: number,
+        inputFilePath: string,
+        onUpdate: (status: AmatsukazePushStatus) => void,
+        onLog: (message: string) => void,
+    ): AmatsukazePushSubscription {
+        const key = `${host}:${port}`;
+        let connection = AmatsukazePushConnection.connections.get(key);
+        if (typeof connection === 'undefined') {
+            connection = new AmatsukazePushConnection(key, host, port);
+            AmatsukazePushConnection.connections.set(key, connection);
+        }
+
+        return connection.subscribe(inputFilePath, onUpdate, onLog);
+    }
+
+    public static readTag(xml: string, name: string): string | undefined {
+        return AmatsukazePushConnection.readTags(xml, name)[0];
+    }
+
+    public static readTags(xml: string, name: string): string[] {
+        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regexp = new RegExp(
+            `<(?:\\w+:)?${escapedName}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:\\w+:)?${escapedName}>`,
+            'g',
+        );
+        const result: string[] = [];
+        for (;;) {
+            const match = regexp.exec(xml);
+            if (match === null) {
+                return result;
+            }
+            result.push(AmatsukazePushConnection.decodeXml(match[1].trim()));
+        }
+    }
+
+    private static decodeXml(value: string): string {
+        return value
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, '&');
+    }
+
+    private socket: net.Socket | null = null;
+    private recvBuffer: Buffer = Buffer.alloc(0);
+    private subscriptions: Map<number, AmatsukazePushSubscription> = new Map();
+    private nextSubscriptionId: number = 1;
+    private idleCloseTimerId: NodeJS.Timer | null = null;
+    private readonly decoder: TextDecoder = new TextDecoder('shift_jis');
+
+    private constructor(
+        private readonly key: string,
+        private readonly host: string,
+        private readonly port: number,
+    ) {}
+
+    private subscribe(
+        inputFilePath: string,
+        onUpdate: (status: AmatsukazePushStatus) => void,
+        onLog: (message: string) => void,
+    ): AmatsukazePushSubscription {
+        if (this.idleCloseTimerId !== null) {
+            clearTimeout(this.idleCloseTimerId);
+            this.idleCloseTimerId = null;
+        }
+
+        const subscription = new AmatsukazePushSubscription(
+            this.nextSubscriptionId++,
+            this,
+            inputFilePath,
+            onUpdate,
+            onLog,
+        );
+        this.subscriptions.set(subscription.id, subscription);
+        this.start();
+
+        return subscription;
+    }
+
+    public unsubscribe(subscriptionId: number): void {
+        this.subscriptions.delete(subscriptionId);
+        if (this.subscriptions.size > 0 || this.idleCloseTimerId !== null) {
+            return;
+        }
+
+        this.idleCloseTimerId = setTimeout(() => {
+            this.idleCloseTimerId = null;
+            if (this.subscriptions.size === 0) {
+                this.stop();
+            }
+        }, AmatsukazePushConnection.IDLE_CLOSE_DELAY_MS);
+    }
+
+    public sendFrame(frame: Buffer): boolean {
+        if (this.socket === null) {
+            return false;
+        }
+
+        this.socket.write(frame);
+
+        return true;
+    }
+
+    public createChangeItemFrame(itemId: number): Buffer {
+        const requestId = `epgstation-${Date.now().toString(36)}`;
+        const xml = [
+            '<ChangeItemData xmlns="http://schemas.datacontract.org/2004/07/Amatsukaze.Server" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">',
+            '<ChangeType>Cancel</ChangeType>',
+            `<ItemId>${itemId}</ItemId>`,
+            '<Mode i:nil="true"/>',
+            '<Position>0</Position>',
+            '<Priority>0</Priority>',
+            '<Profile i:nil="true"/>',
+            `<RequestId>${requestId}</RequestId>`,
+            '<workerId>0</workerId>',
+            '</ChangeItemData>',
+        ].join('');
+        const xmlBytes = Buffer.from(xml, 'utf8');
+        const chunked = Buffer.alloc(4 + xmlBytes.length);
+        chunked.writeInt32LE(xmlBytes.length, 0);
+        xmlBytes.copy(chunked, 4);
+
+        const frame = Buffer.alloc(6 + chunked.length);
+        frame.writeInt16LE(AmatsukazePushConnection.RPC_CHANGE_ITEM, 0);
+        frame.writeInt32LE(chunked.length, 2);
+        chunked.copy(frame, 6);
+
+        return frame;
+    }
+
+    private start(): void {
+        if (this.socket !== null) {
+            return;
+        }
+
+        const socket = net.createConnection({ host: this.host, port: this.port }, () => {
+            this.notifyConnected(true);
+            this.notifyLog(`amatsukaze push connected: ${this.host}:${this.port}`);
+        });
+        this.socket = socket;
+
+        socket.on('data', chunk => {
+            this.onData(chunk);
+        });
+        socket.on('error', err => {
+            this.notifyLog(`amatsukaze push error: ${err.message}`);
+        });
+        socket.on('close', () => {
+            this.socket = null;
+            this.recvBuffer = Buffer.alloc(0);
+            this.notifyConnected(false);
+            this.notifyLog('amatsukaze push closed');
+        });
+    }
+
+    private stop(): void {
+        if (this.socket !== null) {
+            this.socket.removeAllListeners();
+            this.socket.destroy();
+            this.socket = null;
+        }
+        this.recvBuffer = Buffer.alloc(0);
+        AmatsukazePushConnection.connections.delete(this.key);
+    }
+
+    private onData(chunk: Buffer): void {
+        this.recvBuffer = Buffer.concat([this.recvBuffer, chunk]);
+        for (;;) {
+            if (this.recvBuffer.length < 6) {
+                return;
+            }
+
+            const id = this.recvBuffer.readInt16LE(0);
+            const size = this.recvBuffer.readInt32LE(2);
+            if (this.recvBuffer.length < 6 + size) {
+                return;
+            }
+
+            const payload = this.recvBuffer.subarray(6, 6 + size);
+            this.recvBuffer = this.recvBuffer.subarray(6 + size);
+            this.handlePacket(id, payload);
+        }
+    }
+
+    private handlePacket(id: number, payload: Buffer): void {
+        if (
+            id !== AmatsukazePushConnection.RPC_ON_UI_DATA &&
+            id !== AmatsukazePushConnection.RPC_ON_CONSOLE_UPDATE &&
+            id !== AmatsukazePushConnection.RPC_ON_ENCODE_STATE
+        ) {
+            return;
+        }
+
+        const chunks = this.splitChunks(payload);
+        const xml = chunks[0]?.toString('utf8') ?? '';
+        if (id === AmatsukazePushConnection.RPC_ON_CONSOLE_UPDATE) {
+            this.handleConsoleUpdate(xml);
+            return;
+        }
+
+        if (id === AmatsukazePushConnection.RPC_ON_UI_DATA) {
+            this.handleUIData(xml);
+        }
+    }
+
+    private handleConsoleUpdate(xml: string): void {
+        const index = Number(AmatsukazePushConnection.readTag(xml, 'index') ?? -999);
+        const data = AmatsukazePushConnection.readTag(xml, 'data');
+        if (data === undefined) {
+            return;
+        }
+
+        const text = this.decoder.decode(Buffer.from(data, 'base64'));
+        for (const subscription of this.subscriptions.values()) {
+            subscription.handleConsoleUpdate(index, text);
+        }
+    }
+
+    private handleUIData(xml: string): void {
+        for (const subscription of this.subscriptions.values()) {
+            subscription.handleUIData(xml);
+        }
+    }
+
+    private notifyConnected(isConnected: boolean): void {
+        for (const subscription of this.subscriptions.values()) {
+            subscription.handleConnectionStatus(isConnected);
+        }
+    }
+
+    private notifyLog(message: string): void {
+        for (const subscription of this.subscriptions.values()) {
+            subscription.log(message);
+        }
+    }
+
+    private splitChunks(payload: Buffer): Buffer[] {
+        const chunks: Buffer[] = [];
+        let offset = 0;
+        while (offset + 4 <= payload.length) {
+            const size = payload.readInt32LE(offset);
+            offset += 4;
+            if (size < 0 || offset + size > payload.length) {
+                return chunks;
+            }
+            chunks.push(payload.subarray(offset, offset + size));
+            offset += size;
+        }
+
+        return chunks;
+    }
+}
+
+class AmatsukazePushSubscription {
+    private status: AmatsukazePushStatus = {
+        isConnected: false,
+        isMatched: false,
+        consoleId: null,
+        log: null,
+        percent: null,
+        isReadyForOutputScan: false,
+        isPending: false,
+        pendingMessage: null,
+        errorMessage: null,
+        updatedAt: 0,
+    };
+    private taskId: number | null = null;
+    private consoleTail: string = '';
+
+    constructor(
+        public readonly id: number,
+        private readonly connection: AmatsukazePushConnection,
+        private readonly inputFilePath: string,
+        private readonly onUpdate: (status: AmatsukazePushStatus) => void,
+        private readonly onLog: (message: string) => void,
+    ) {}
+
+    public stop(): void {
+        this.connection.unsubscribe(this.id);
+    }
+
+    public getStatus(): AmatsukazePushStatus {
+        return {
+            ...this.status,
+        };
+    }
+
+    public getTaskId(): number | null {
+        return this.taskId;
+    }
+
+    public cancelTask(): Promise<boolean> {
+        if (this.taskId === null) {
+            return Promise.resolve(false);
+        }
+
+        const taskId = this.taskId;
+        const isSent = this.connection.sendFrame(this.connection.createChangeItemFrame(taskId));
+
+        return Promise.resolve(isSent);
+    }
+
+    public handleConnectionStatus(isConnected: boolean): void {
+        this.status = {
+            ...this.status,
+            isConnected,
+            updatedAt: Date.now(),
+        };
+    }
+
+    public log(message: string): void {
+        this.onLog(message);
+    }
+
+    public handleConsoleUpdate(index: number, text: string): void {
+        if (index >= 0 && this.status.consoleId === null && this.isMatchingConsoleText(text)) {
+            this.status = {
+                ...this.status,
+                isMatched: true,
+                consoleId: index,
+                isPending: false,
+                pendingMessage: null,
+                updatedAt: Date.now(),
+            };
+            this.onLog(`amatsukaze push matched console: ${index}`);
+        }
+
+        if (this.status.consoleId !== index) {
+            return;
+        }
+
+        for (const line of this.applyConsoleText(text)) {
+            const trimmed = line.trim();
+            if (trimmed.length === 0) {
+                continue;
+            }
+
+            const percent = this.parsePercent(trimmed);
+            this.status = {
+                ...this.status,
+                log: trimmed,
+                percent: percent ?? this.status.percent,
+                isReadyForOutputScan: this.status.isReadyForOutputScan || (typeof percent === 'number' && percent >= 1),
+                isPending: false,
+                pendingMessage: null,
+                updatedAt: Date.now(),
+            };
+            this.onUpdate(this.getStatus());
+        }
+    }
+
+    public handleUIData(xml: string): void {
+        const hasMatchedQueueItem = this.handleQueueUpdate(xml);
+
+        const stateChangeEvent = this.readTag(xml, 'StateChangeEvent');
+        if (stateChangeEvent === undefined || this.status.isMatched === false || hasMatchedQueueItem === false) {
+            return;
+        }
+
+        if (stateChangeEvent === 'EncodeSucceeded') {
+            this.status = {
+                ...this.status,
+                percent: 1,
+                isReadyForOutputScan: true,
+                updatedAt: Date.now(),
+            };
+            this.onUpdate(this.getStatus());
+        } else if (stateChangeEvent === 'EncodeFailed' || stateChangeEvent === 'EncodeCanceled') {
+            this.status = {
+                ...this.status,
+                errorMessage: stateChangeEvent,
+                updatedAt: Date.now(),
+            };
+            this.onUpdate(this.getStatus());
+        }
+    }
+
+    private handleQueueUpdate(xml: string): boolean {
+        const queueUpdate = this.readTag(xml, 'QueueUpdate');
+        if (typeof queueUpdate === 'undefined') {
+            return false;
+        }
+
+        let isMatched = false;
+        for (const item of AmatsukazePushConnection.readTags(queueUpdate, 'Item')) {
+            const srcPath = this.readTag(item, 'SrcPath');
+            if (typeof srcPath !== 'string' || this.isMatchingConsoleText(srcPath) === false) {
+                continue;
+            }
+
+            isMatched = true;
+            const id = Number(this.readTag(item, 'Id'));
+            if (Number.isNaN(id) === false) {
+                this.taskId = id;
+            }
+
+            const state = this.readTag(item, 'State') ?? '';
+            const stateLabel = this.readTag(item, 'StateLabel') ?? '';
+            const isPending = this.isPendingState(state, stateLabel);
+            if (isPending === true) {
+                this.status = {
+                    ...this.status,
+                    isMatched: true,
+                    isPending: true,
+                    pendingMessage: stateLabel || state || 'pending',
+                    updatedAt: Date.now(),
+                };
+                continue;
+            }
+            if (state.includes('Succeeded') || state.includes('Completed')) {
+                this.status = {
+                    ...this.status,
+                    percent: 1,
+                    isReadyForOutputScan: true,
+                    isPending: false,
+                    pendingMessage: null,
+                    updatedAt: Date.now(),
+                };
+            } else if (state.includes('Failed') || state.includes('Canceled')) {
+                this.status = {
+                    ...this.status,
+                    isPending: false,
+                    pendingMessage: null,
+                    errorMessage: state,
+                    updatedAt: Date.now(),
+                };
+            } else {
+                this.status = {
+                    ...this.status,
+                    isMatched: true,
+                    isPending: false,
+                    pendingMessage: null,
+                    updatedAt: Date.now(),
+                };
+            }
+        }
+
+        if (isMatched === true) {
+            this.onUpdate(this.getStatus());
+        }
+
+        return isMatched;
+    }
+
+    private isPendingState(state: string, stateLabel: string): boolean {
+        const text = `${state} ${stateLabel}`.toLowerCase();
+
+        return (
+            text.includes('pending') ||
+            text.includes('ペンディング') ||
+            (text.includes('ロゴ') &&
+                (text.includes('未') ||
+                    text.includes('無') ||
+                    text.includes('なし') ||
+                    text.includes('見つ') ||
+                    text.includes('待')))
+        );
+    }
+
+    private applyConsoleText(text: string): string[] {
+        const lines: string[] = [];
+        for (const ch of text) {
+            if (ch === '\r' || ch === '\n') {
+                if (this.consoleTail.length > 0) {
+                    lines.push(this.consoleTail);
+                }
+                this.consoleTail = '';
+            } else {
+                this.consoleTail += ch;
+            }
+        }
+
+        return lines;
+    }
+
+    private isMatchingConsoleText(text: string): boolean {
+        const normalizedText = path.normalize(text).toLowerCase();
+        const normalizedInput = path.normalize(this.inputFilePath).toLowerCase();
+
+        return normalizedText.includes(normalizedInput) || text.includes(path.basename(this.inputFilePath));
+    }
+
+    private parsePercent(line: string): number | null {
+        const match = line.match(/(?:^|[\s[(])(\d+(?:\.\d+)?)\s*%/);
+        if (match === null) {
+            return null;
+        }
+
+        const percent = parseFloat(match[1]);
+        if (Number.isNaN(percent) || percent < 0 || percent > 100) {
+            return null;
+        }
+
+        return percent / 100;
+    }
+
+    private readTag(xml: string, name: string): string | undefined {
+        return AmatsukazePushConnection.readTag(xml, name);
+    }
+}
 
 @injectable()
 class EncoderModel implements IEncoderModel {
@@ -38,7 +572,14 @@ class EncoderModel implements IEncoderModel {
     private childProcess: ChildProcess | null = null; // エンコードプロセス
     private timerId: NodeJS.Timer | null = null; // タイムアウト検知用タイマーid
     private isCanceld: boolean = false; // キャンセルが呼び出されたか?
+    private isFinished: boolean = false;
+    private currentOutputFilePath: string | null = null;
     private progressInfo: EncodeProgressInfo | null = null;
+    private amatsukazePushSubscription: AmatsukazePushSubscription | null = null;
+    private encodingProgressBuffer: { stdout: string; stderr: string } = {
+        stdout: '',
+        stderr: '',
+    };
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -81,10 +622,13 @@ class EncoderModel implements IEncoderModel {
      * エンコード終了イベント登録
      * @param callback
      */
-    public setOnFinish(callback: (isError: boolean, outputFilePath: string | null) => void): void {
-        this.listener.once(EncoderModel.ENCODE_FINISH_EVENT, (isError: boolean, outputFilePath: string | null) => {
-            callback(isError, outputFilePath);
-        });
+    public setOnFinish(callback: (isError: boolean, outputFilePath: string | null, isCanceled: boolean) => void): void {
+        this.listener.once(
+            EncoderModel.ENCODE_FINISH_EVENT,
+            (isError: boolean, outputFilePath: string | null, isCanceled: boolean) => {
+                callback(isError, outputFilePath, isCanceled);
+            },
+        );
     }
 
     /**
@@ -128,16 +672,28 @@ class EncoderModel implements IEncoderModel {
             throw err;
         }
 
+        const config = this.configure.getConfig();
+
         // エンコードコマンド設定を探す
-        const encodeCmd = this.configure.getConfig().encode.find(enc => {
+        const encodeCmd = config.encode.find(enc => {
             return enc.name === this.encodeOption?.mode;
         });
         if (typeof encodeCmd === 'undefined') {
             throw new Error('EncodeCommandIsNotFound');
         }
 
+        const amatsukazeConfig =
+            encodeCmd.type === 'amatsukaze'
+                ? this.getAmatsukazeConfig(config.amatsukaze, encodeCmd.amatsukaze)
+                : undefined;
+
         // 出力先ディレクトリパスを取得する
-        const outputDirPath = typeof encodeCmd.suffix === 'undefined' ? null : await this.getDirPath(this.encodeOption);
+        const outputDirPath =
+            typeof encodeCmd.suffix === 'undefined'
+                ? null
+                : amatsukazeConfig?.outputDirMode === 'source'
+                  ? path.dirname(inputFilePath)
+                  : await this.getDirPath(this.encodeOption);
 
         // 出力先ディレクトリの存在確認 & 作成
         if (outputDirPath !== null) {
@@ -155,8 +711,7 @@ class EncoderModel implements IEncoderModel {
             outputDirPath === null || typeof encodeCmd.suffix === 'undefined'
                 ? null
                 : await this.fileManager.getFilePath(outputDirPath, inputFilePath, encodeCmd.suffix);
-
-        const config = this.configure.getConfig();
+        this.currentOutputFilePath = outputFilePath;
 
         // DIR
         let dir: string = '';
@@ -175,11 +730,33 @@ class EncoderModel implements IEncoderModel {
         this.log.encode.info(`queueItem.directory: ${this.encodeOption.directory}`);
         this.log.encode.info(`outputFilePath: ${outputFilePath}`);
 
+        const amatsukazeOutputDir =
+            outputFilePath !== null && typeof amatsukazeConfig !== 'undefined'
+                ? this.getAmatsukazeOutputDir(amatsukazeConfig, inputFilePath, outputFilePath)
+                : null;
+        const amatsukazeStartedAt = Date.now();
+        if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
+            this.startAmatsukazePushClient(amatsukazeConfig, inputFilePath);
+        }
+
         // プロセスの生成
         this.childProcess = await this.processManager.create({
             input: inputFilePath,
             output: outputFilePath,
-            cmd: encodeCmd.cmd,
+            cmd: this.createEncodeCommand(encodeCmd.cmd, amatsukazeConfig),
+            replace:
+                amatsukazeOutputDir === null || typeof amatsukazeConfig === 'undefined'
+                    ? undefined
+                    : {
+                          AMATSUKAZE_ADD_TASK: amatsukazeConfig.addTaskPath || '',
+                          AMATSUKAZE_ROOT: amatsukazeConfig.root || '',
+                          AMATSUKAZE_IP: amatsukazeConfig.ip || '127.0.0.1',
+                          AMATSUKAZE_PORT: (amatsukazeConfig.port ?? 32768).toString(10),
+                          AMATSUKAZE_OUTPUT_DIR: amatsukazeOutputDir,
+                          AMATSUKAZE_PROFILE: amatsukazeConfig.profile || '',
+                          AMATSUKAZE_PRIORITY: (amatsukazeConfig.priority ?? 3).toString(10),
+                          AMATSUKAZE_PROC_MODE: amatsukazeConfig.procMode || 'auto',
+                      },
             priority: EncoderModel.ENCODE_PRIPORITY,
             spawnOption: {
                 env: {
@@ -241,6 +818,14 @@ class EncoderModel implements IEncoderModel {
                 (typeof encodeCmd.rate === 'undefined' ? EncoderModel.DEFAULT_TIMEOUT_RATE : encodeCmd.rate),
         );
 
+        let encodeVideoInfo: VideoInfo | null = null;
+        try {
+            encodeVideoInfo = await this.videoUtil.getInfo(inputFilePath);
+        } catch (err: any) {
+            this.log.encode.error(`get encode vidoe file info: ${inputFilePath}`);
+            this.log.encode.error(err);
+        }
+
         /**
          * プロセスの設定
          */
@@ -248,23 +833,17 @@ class EncoderModel implements IEncoderModel {
         if (this.childProcess.stderr !== null) {
             this.childProcess.stderr.on('data', data => {
                 this.log.encode.debug(String(data));
+                this.updateEncodingProgressInfo(data, encodeVideoInfo, 'stderr');
             });
         }
 
         // 進捗情報更新用
         if (this.childProcess.stdout !== null) {
-            let videoInfo: VideoInfo | null = null;
-            try {
-                videoInfo = await this.videoUtil.getInfo(inputFilePath);
-            } catch (err: any) {
-                this.log.encode.error(`get encode vidoe file info: ${inputFilePath}`);
-                this.log.encode.error(err);
-            }
-            if (videoInfo !== null) {
+            {
                 // エンコードプロセスの標準出力から進捗情報を取り出す
                 this.childProcess.stdout.on('data', data => {
                     try {
-                        this.updateEncodingProgressInfo(data);
+                        this.updateEncodingProgressInfo(data, encodeVideoInfo, 'stdout');
                     } catch (err: any) {
                         // error
                     }
@@ -272,16 +851,338 @@ class EncoderModel implements IEncoderModel {
             }
         }
 
+        let hasHandledProcessExit = false;
+        const handleProcessExit = async (code: number | null, signal: NodeJS.Signals | null): Promise<void> => {
+            if (hasHandledProcessExit === true) {
+                return;
+            }
+            hasHandledProcessExit = true;
+
+            if (
+                code === 0 &&
+                encodeCmd.type === 'amatsukaze' &&
+                typeof amatsukazeConfig !== 'undefined' &&
+                outputFilePath !== null &&
+                amatsukazeOutputDir !== null
+            ) {
+                try {
+                    await this.waitForAmatsukazeOutput(
+                        amatsukazeConfig,
+                        outputFilePath,
+                        inputFilePath,
+                        amatsukazeOutputDir,
+                        amatsukazeStartedAt,
+                    );
+                } catch (err: any) {
+                    if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
+                        await this.childEndProcessing(null, signal, outputFilePath);
+
+                        return;
+                    }
+
+                    this.log.encode.error(`amatsukaze output wait failed: ${this.encodeOption?.encodeId}`);
+                    this.log.encode.error(err);
+                    await this.childEndProcessing(1, signal, outputFilePath);
+
+                    return;
+                }
+            }
+            await this.childEndProcessing(code, signal, outputFilePath);
+        };
+
         // プロセス終了処理
         this.childProcess.on('exit', async (code, signal) => {
-            this.childEndProcessing(code, signal, outputFilePath);
+            await handleProcessExit(code, signal);
         });
 
         // プロセスの即時終了対応
         if (ProcessUtil.isExited(this.childProcess) === true) {
-            this.childEndProcessing(this.childProcess.exitCode, this.childProcess.signalCode, outputFilePath);
+            await handleProcessExit(this.childProcess.exitCode, this.childProcess.signalCode);
             this.childProcess.removeAllListeners();
         }
+    }
+
+    private getAmatsukazeConfig(
+        common: AmatsukazeEncodeConfig | undefined,
+        encode: AmatsukazeEncodeConfig | undefined,
+    ): AmatsukazeEncodeConfig {
+        const result = {
+            ...(common || {}),
+            ...(encode || {}),
+        };
+
+        if (typeof result.addTaskPath === 'undefined' || result.addTaskPath.length === 0) {
+            throw new Error('AmatsukazeAddTaskPathIsNotFound');
+        }
+        if (typeof result.root === 'undefined' || result.root.length === 0) {
+            throw new Error('AmatsukazeRootIsNotFound');
+        }
+        if (typeof result.profile === 'undefined' || result.profile.length === 0) {
+            throw new Error('AmatsukazeProfileIsNotFound');
+        }
+
+        return result;
+    }
+
+    private startAmatsukazePushClient(amatsukaze: AmatsukazeEncodeConfig, inputFilePath: string): void {
+        this.stopAmatsukazePushClient();
+        const host = amatsukaze.ip || '127.0.0.1';
+        const port = amatsukaze.port ?? 32768;
+        this.amatsukazePushSubscription = AmatsukazePushConnection.subscribe(
+            host,
+            port,
+            inputFilePath,
+            status => this.updateAmatsukazePushProgress(status),
+            message => this.log.encode.info(message),
+        );
+    }
+
+    private stopAmatsukazePushClient(): void {
+        if (this.amatsukazePushSubscription === null) {
+            return;
+        }
+
+        this.amatsukazePushSubscription.stop();
+        this.amatsukazePushSubscription = null;
+    }
+
+    private updateAmatsukazePushProgress(status: AmatsukazePushStatus): void {
+        if (status.log === null && status.percent === null) {
+            return;
+        }
+
+        this.progressInfo = {
+            percent:
+                status.percent !== null && Number.isNaN(status.percent) === false
+                    ? Math.max(0, Math.min(1, status.percent))
+                    : this.progressInfo?.percent ?? 0,
+            log: status.log !== null ? `Amatsukaze: ${status.log}` : this.progressInfo?.log ?? 'Amatsukaze',
+        };
+        this.encodeEvent.emitUpdateEncodeProgress();
+    }
+
+    private getAmatsukazeOutputDir(
+        amatsukaze: AmatsukazeEncodeConfig,
+        inputFilePath: string,
+        outputFilePath: string,
+    ): string {
+        const sourceDir = path.dirname(inputFilePath);
+        const outputDir = path.dirname(outputFilePath);
+
+        if (typeof amatsukaze.outputDir !== 'undefined' && amatsukaze.outputDir.length > 0) {
+            return amatsukaze.outputDir.replace(/%SOURCE_DIR%/g, sourceDir).replace(/%OUTPUT_DIR%/g, outputDir);
+        }
+
+        return amatsukaze.outputDirMode === 'source' ? sourceDir : outputDir;
+    }
+
+    private createEncodeCommand(cmd: string | undefined, amatsukaze: AmatsukazeEncodeConfig | undefined): string {
+        if (typeof amatsukaze === 'undefined') {
+            if (typeof cmd === 'undefined' || cmd.length === 0) {
+                throw new Error('EncodeCommandIsNotFound');
+            }
+
+            return cmd;
+        }
+
+        if (typeof cmd !== 'undefined' && cmd.length > 0) {
+            return cmd;
+        }
+
+        const args = [
+            amatsukaze.addTaskPath || '',
+            '-r',
+            '%AMATSUKAZE_ROOT%',
+            '-f',
+            '%INPUT%',
+            '-ip',
+            '%AMATSUKAZE_IP%',
+            '-p',
+            '%AMATSUKAZE_PORT%',
+            '-o',
+            '%AMATSUKAZE_OUTPUT_DIR%',
+            '-s',
+            '%AMATSUKAZE_PROFILE%',
+            '--priority',
+            '%AMATSUKAZE_PRIORITY%',
+            '--proc-mode',
+            '%AMATSUKAZE_PROC_MODE%',
+        ];
+
+        if (amatsukaze.noMove !== false) {
+            args.push('--no-move');
+        }
+
+        return args.join(' ');
+    }
+
+    private async waitForAmatsukazeOutput(
+        amatsukaze: AmatsukazeEncodeConfig,
+        outputFilePath: string,
+        inputFilePath: string,
+        outputDirPath: string,
+        startedAt: number,
+    ): Promise<void> {
+        if (amatsukaze.waitForOutput === false) {
+            return;
+        }
+
+        const waitIntervalMs = (amatsukaze.waitIntervalSec ?? 10) * 1000;
+        const finishDelayMs = (amatsukaze.finishDelaySec ?? 30) * 1000;
+        const stableMs = (amatsukaze.stableSec ?? 30) * 1000;
+        const pendingTimeoutMs =
+            typeof amatsukaze.pendingTimeoutSec === 'number' && amatsukaze.pendingTimeoutSec <= 0
+                ? 0
+                : (amatsukaze.pendingTimeoutSec ?? 300) * 1000;
+        const outputExtension = (amatsukaze.outputExtension || path.extname(outputFilePath)).toLowerCase();
+        let candidate: AmatsukazeOutputCandidate | null = null;
+        let pendingSince: number | null = null;
+        let isReadyForOutputScan = false;
+
+        this.log.encode.info(`wait amatsukaze output: ${outputFilePath}`);
+
+        while (this.isCanceld === false) {
+            const pushStatus = this.amatsukazePushSubscription?.getStatus();
+            if (typeof pushStatus !== 'undefined') {
+                if (pushStatus.errorMessage !== null) {
+                    throw new Error(`Amatsukaze encode failed: ${pushStatus.errorMessage}`);
+                }
+                isReadyForOutputScan = isReadyForOutputScan || pushStatus.isReadyForOutputScan;
+                if (pushStatus.isPending === true) {
+                    if (pendingSince === null) {
+                        pendingSince = Date.now();
+                        this.log.encode.warn(
+                            `amatsukaze task pending: ${pushStatus.pendingMessage || path.basename(inputFilePath)}`,
+                        );
+                    }
+                    this.progressInfo = {
+                        percent: this.progressInfo?.percent ?? 0,
+                        log: `Amatsukaze pending: ${pushStatus.pendingMessage || path.basename(inputFilePath)}`,
+                    };
+                    this.encodeEvent.emitUpdateEncodeProgress();
+
+                    if (pendingTimeoutMs > 0 && Date.now() - pendingSince >= pendingTimeoutMs) {
+                        this.log.encode.warn(
+                            `cancel amatsukaze pending task: ${this.amatsukazePushSubscription?.getTaskId()}`,
+                        );
+                        this.isCanceld = true;
+                        await this.cancelAmatsukazeTask().catch(err => {
+                            this.log.encode.warn(`cancel amatsukaze pending task failed: ${err.message || err}`);
+                        });
+                        throw new Error('AmatsukazeEncodeCanceled');
+                    }
+                } else {
+                    pendingSince = null;
+                }
+            }
+
+            if (isReadyForOutputScan === true) {
+                if ((await this.existsFile(outputFilePath)) === true) {
+                    this.log.encode.info(`amatsukaze output found: ${outputFilePath}`);
+                    await Util.sleep(finishDelayMs);
+
+                    return;
+                }
+
+                const found = await this.findAmatsukazeOutputCandidate(
+                    inputFilePath,
+                    outputFilePath,
+                    outputDirPath,
+                    outputExtension,
+                    amatsukaze.outputNameMatch || 'exact',
+                    startedAt,
+                );
+
+                if (found !== null) {
+                    if (candidate !== null && candidate.path === found.path && candidate.size === found.size) {
+                        if (Date.now() - candidate.stableSince >= stableMs) {
+                            this.log.encode.info(`rename amatsukaze output: ${found.path} -> ${outputFilePath}`);
+                            await FileUtil.rename(found.path, outputFilePath);
+                            await Util.sleep(finishDelayMs);
+
+                            return;
+                        }
+                    } else {
+                        candidate = {
+                            path: found.path,
+                            size: found.size,
+                            stableSince: Date.now(),
+                        };
+                    }
+                }
+            }
+
+            if (this.progressInfo === null) {
+                this.progressInfo = {
+                    percent: 0,
+                    log: `waiting for Amatsukaze output: ${path.basename(outputFilePath)}`,
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+            }
+            await Util.sleep(waitIntervalMs);
+        }
+
+        throw new Error('AmatsukazeEncodeCanceled');
+    }
+
+    private async existsFile(filePath: string): Promise<boolean> {
+        try {
+            const stats = await FileUtil.stat(filePath);
+
+            return stats.isFile();
+        } catch (err: any) {
+            return false;
+        }
+    }
+
+    private async findAmatsukazeOutputCandidate(
+        inputFilePath: string,
+        outputFilePath: string,
+        outputDirPath: string,
+        outputExtension: string,
+        outputNameMatch: 'exact' | 'prefix',
+        startedAt: number,
+    ): Promise<{ path: string; size: number } | null> {
+        const inputBaseName = path.basename(inputFilePath, path.extname(inputFilePath));
+        const files = await FileUtil.readDir(outputDirPath);
+        const candidates: { path: string; size: number; mtimeMs: number }[] = [];
+
+        for (const file of files) {
+            if (path.extname(file).toLowerCase() !== outputExtension) {
+                continue;
+            }
+
+            const outputBaseName = path.basename(file, path.extname(file));
+            if (outputNameMatch === 'exact' && outputBaseName !== inputBaseName) {
+                continue;
+            }
+            if (outputNameMatch === 'prefix' && outputBaseName.startsWith(inputBaseName) === false) {
+                continue;
+            }
+
+            const filePath = path.join(outputDirPath, file);
+            if (filePath === outputFilePath) {
+                continue;
+            }
+
+            try {
+                const stats = await FileUtil.stat(filePath);
+                if (stats.isFile() === false || stats.mtimeMs < startedAt - 5000) {
+                    continue;
+                }
+                candidates.push({
+                    path: filePath,
+                    size: stats.size,
+                    mtimeMs: stats.mtimeMs,
+                });
+            } catch (err: any) {
+                // skip transient files
+            }
+        }
+
+        candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+        return candidates.length === 0 ? null : candidates[0];
     }
 
     /**
@@ -311,27 +1212,121 @@ class EncoderModel implements IEncoderModel {
      * @param data: エンコードプロセスの標準出力
      * @param encodeId: apid.EncodeId
      */
-    private updateEncodingProgressInfo(data: any): void {
+    private updateEncodingProgressInfo(data: any, videoInfo: VideoInfo | null, source: 'stdout' | 'stderr'): void {
         if (this.encodeOption === null) {
             return;
         }
 
-        const logs = String(data).split('\n');
-        for (let j = 0; j < logs.length; j++) {
-            if (logs[j] != '') {
-                const log = JSON.parse(String(logs[j]));
-                this.log.encode.debug(log);
-                if (log.type === 'progress' && typeof log.percent === 'number' && typeof log.log === 'string') {
-                    this.progressInfo = {
-                        percent: log.percent,
-                        log: log.log,
-                    };
+        const text = this.encodingProgressBuffer[source] + String(data);
+        const lines = text.split(/\r\n|\n|\r/);
+        this.encodingProgressBuffer[source] = lines.pop() || '';
 
-                    // エンコード進捗変更通知
-                    this.encodeEvent.emitUpdateEncodeProgress();
-                }
-            }
+        if (lines.length === 0 && text.length > 0) {
+            lines.push(text);
+            this.encodingProgressBuffer[source] = '';
         }
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (line.length === 0) {
+                continue;
+            }
+
+            const progress = this.parseEncodingProgressLine(line, videoInfo);
+            if (progress === null) {
+                continue;
+            }
+
+            this.progressInfo = progress;
+
+            // エンコード進捗変更通知
+            this.encodeEvent.emitUpdateEncodeProgress();
+        }
+    }
+
+    private parseEncodingProgressLine(line: string, videoInfo: VideoInfo | null): EncodeProgressInfo | null {
+        const jsonProgress = this.parseJsonEncodingProgressLine(line);
+        if (jsonProgress !== null) {
+            return jsonProgress;
+        }
+
+        const percentProgress = this.parsePercentEncodingProgressLine(line);
+        if (percentProgress !== null) {
+            return percentProgress;
+        }
+
+        return this.parseTimeEncodingProgressLine(line, videoInfo);
+    }
+
+    private parseJsonEncodingProgressLine(line: string): EncodeProgressInfo | null {
+        try {
+            const log = JSON.parse(line);
+            this.log.encode.debug(log);
+            if (log.type === 'progress' && typeof log.percent === 'number' && typeof log.log === 'string') {
+                return {
+                    percent: Math.max(0, Math.min(1, log.percent)),
+                    log: log.log,
+                };
+            }
+        } catch (err: any) {
+            // skip non JSON encoder output
+        }
+
+        return null;
+    }
+
+    private parsePercentEncodingProgressLine(line: string): EncodeProgressInfo | null {
+        const match = line.match(/(?:^|[\s[(])(\d+(?:\.\d+)?)\s*%/);
+        if (match === null) {
+            return null;
+        }
+
+        const percent = parseFloat(match[1]);
+        if (Number.isNaN(percent) || percent < 0 || percent > 100) {
+            return null;
+        }
+
+        return {
+            percent: percent / 100,
+            log: line,
+        };
+    }
+
+    private parseTimeEncodingProgressLine(line: string, videoInfo: VideoInfo | null): EncodeProgressInfo | null {
+        if (videoInfo === null || videoInfo.duration <= 0) {
+            return null;
+        }
+
+        const match = line.match(/time=\s*(\d+:\d+:\d+(?:\.\d+)?)/);
+        if (match === null) {
+            return null;
+        }
+
+        const current = this.parseDurationText(match[1]);
+        if (current === null) {
+            return null;
+        }
+
+        return {
+            percent: Math.max(0, Math.min(1, current / videoInfo.duration)),
+            log: line,
+        };
+    }
+
+    private parseDurationText(text: string): number | null {
+        const times = text.split(':');
+        if (times.length !== 3) {
+            return null;
+        }
+
+        const hour = parseFloat(times[0]);
+        const minute = parseFloat(times[1]);
+        const second = parseFloat(times[2]);
+        if (Number.isNaN(hour) || Number.isNaN(minute) || Number.isNaN(second)) {
+            return null;
+        }
+
+        return hour * 3600 + minute * 60 + second;
     }
 
     /**
@@ -346,6 +1341,11 @@ class EncoderModel implements IEncoderModel {
         signal: NodeJS.Signals | null,
         outputFilePath: string | null,
     ): Promise<void> {
+        if (this.isFinished === true) {
+            return;
+        }
+        this.isFinished = true;
+
         // exit code
         this.log.encode.info(`exit code: ${code}, signal: ${signal}`);
 
@@ -353,6 +1353,7 @@ class EncoderModel implements IEncoderModel {
         if (this.timerId !== null) {
             clearTimeout(this.timerId);
         }
+        this.stopAmatsukazePushClient();
 
         // ファイルパスの登録を削除
         if (outputFilePath !== null) {
@@ -393,7 +1394,7 @@ class EncoderModel implements IEncoderModel {
         }
 
         // エンコードプロセスの終了を通知
-        this.listener.emit(EncoderModel.ENCODE_FINISH_EVENT, isError, outputFilePath);
+        this.listener.emit(EncoderModel.ENCODE_FINISH_EVENT, isError, outputFilePath, this.isCanceld);
         this.listener.removeAllListeners();
     }
 
@@ -406,14 +1407,19 @@ class EncoderModel implements IEncoderModel {
         }
 
         this.log.encode.info(`cancel encode: ${this.encodeOption.encodeId}`);
+        this.isCanceld = true;
+        await this.cancelAmatsukazeTask().catch(err => {
+            this.log.encode.warn(`cancel amatsukaze task failed: ${err.message || err}`);
+        });
 
         // プロセスが実行されていれば削除する
-        if (this.childProcess !== null) {
+        if (this.childProcess === null || ProcessUtil.isExited(this.childProcess) === true) {
+            await this.childEndProcessing(null, null, this.currentOutputFilePath);
+        } else {
             this.log.encode.info(
                 `kill encode process encodeId: ${this.encodeOption.encodeId}, pid: ${this.childProcess.pid}`,
             );
 
-            this.isCanceld = true;
             await ProcessUtil.kill(this.childProcess).catch(err => {
                 this.log.encode.error(`kill encode process failed: ${this.encodeOption?.encodeId}`);
                 this.log.encode.error(err);
@@ -425,6 +1431,20 @@ class EncoderModel implements IEncoderModel {
      * セットされたエンコードオプションを返す
      * @returns EncodeOption | null
      */
+    private async cancelAmatsukazeTask(): Promise<void> {
+        if (this.amatsukazePushSubscription === null) {
+            return;
+        }
+
+        const taskId = this.amatsukazePushSubscription.getTaskId();
+        const isCanceled = await this.amatsukazePushSubscription.cancelTask();
+        if (isCanceled === true) {
+            this.log.encode.info(`cancel amatsukaze task by push: ${taskId}`);
+        } else {
+            this.log.encode.warn('cancel amatsukaze task by push skipped: task id is not resolved');
+        }
+    }
+
     public getEncodeOption(): EncodeOption | null {
         return this.encodeOption;
     }

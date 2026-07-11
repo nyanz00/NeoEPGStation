@@ -86,6 +86,8 @@ export default class GuideTimeSelector extends Vue {
         };
         if (typeof this.broadcastValue !== 'undefined') {
             query.type = this.broadcastValue;
+        } else if (typeof this.$route.query.type === 'string') {
+            query.type = this.$route.query.type;
         }
         if (typeof this.$route.query.channelId !== 'undefined') {
             query.channelId = this.$route.query.channelId;
@@ -165,6 +167,8 @@ export default class GuideTimeSelector extends Vue {
     private initValue(): void {
         if (this.settingValue !== null && this.settingValue.isEnableDisplayForEachBroadcastWave === true && typeof this.$route.query.type === 'string') {
             this.broadcastValue = this.$route.query.type;
+        } else {
+            this.broadcastValue = undefined;
         }
 
         this.dayValue = typeof this.$route.query.time === 'string' ? this.$route.query.time.substr(0, 6) : this.dayItems[0].value;

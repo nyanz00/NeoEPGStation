@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../api';
+import Reserve from '../../db/entities/Reserve';
 import Rule from '../../db/entities/Rule';
 import StrUtil from '../../util/StrUtil';
 import IPromiseRetry from '../IPromiseRetry';
@@ -33,7 +34,7 @@ export default class RuleDB implements IRuleDB {
         let hasError = false;
         try {
             // 削除
-            await queryRunner.manager.delete(Rule, {});
+            await queryRunner.manager.clear(Rule);
 
             // 挿入処理
             for (const item of items) {
@@ -205,6 +206,7 @@ export default class RuleDB implements IRuleDB {
      */
     private convertRuleToDBRule(rule: RuleWithCnt | apid.Rule | apid.AddRuleOption): Rule {
         const convertedRule: Rule = <any>{
+            userId: typeof rule.userId === 'undefined' ? 1 : rule.userId,
             updateCnt: typeof rule === 'undefined' ? 0 : (<RuleWithCnt>rule).updateCnt,
             isTimeSpecification: rule.isTimeSpecification,
             keyword: typeof rule.searchOption.keyword === 'undefined' ? null : rule.searchOption.keyword,
@@ -259,15 +261,22 @@ export default class RuleDB implements IRuleDB {
             directory: null,
             recordedFormat: null,
             mode1: null,
+            encodeChannelId1: null,
+            encodeChannelIds1: null,
             parentDirectoryName1: null,
             directory1: null,
             mode2: null,
+            encodeChannelId2: null,
+            encodeChannelIds2: null,
             parentDirectoryName2: null,
             directory2: null,
             mode3: null,
+            encodeChannelId3: null,
+            encodeChannelIds3: null,
             parentDirectoryName3: null,
             directory3: null,
             isDeleteOriginalAfterEncode: false,
+            updateThumbnail: false,
         };
 
         if (typeof (<apid.Rule>rule).id !== 'undefined') {
@@ -285,6 +294,14 @@ export default class RuleDB implements IRuleDB {
 
         if (typeof rule.encodeOption !== 'undefined') {
             convertedRule.mode1 = typeof rule.encodeOption.mode1 === 'undefined' ? null : rule.encodeOption.mode1;
+            convertedRule.encodeChannelId1 = this.getFirstEncodeChannelId(
+                rule.encodeOption.channelIds1,
+                rule.encodeOption.channelId1,
+            );
+            convertedRule.encodeChannelIds1 = this.stringifyEncodeChannelIds(
+                rule.encodeOption.channelIds1,
+                rule.encodeOption.channelId1,
+            );
             convertedRule.parentDirectoryName1 =
                 typeof rule.encodeOption.encodeParentDirectoryName1 === 'undefined'
                     ? null
@@ -292,6 +309,14 @@ export default class RuleDB implements IRuleDB {
             convertedRule.directory1 =
                 typeof rule.encodeOption.directory1 === 'undefined' ? null : rule.encodeOption.directory1;
             convertedRule.mode2 = typeof rule.encodeOption.mode2 === 'undefined' ? null : rule.encodeOption.mode2;
+            convertedRule.encodeChannelId2 = this.getFirstEncodeChannelId(
+                rule.encodeOption.channelIds2,
+                rule.encodeOption.channelId2,
+            );
+            convertedRule.encodeChannelIds2 = this.stringifyEncodeChannelIds(
+                rule.encodeOption.channelIds2,
+                rule.encodeOption.channelId2,
+            );
             convertedRule.parentDirectoryName2 =
                 typeof rule.encodeOption.encodeParentDirectoryName2 === 'undefined'
                     ? null
@@ -299,6 +324,14 @@ export default class RuleDB implements IRuleDB {
             convertedRule.directory2 =
                 typeof rule.encodeOption.directory2 === 'undefined' ? null : rule.encodeOption.directory2;
             convertedRule.mode3 = typeof rule.encodeOption.mode3 === 'undefined' ? null : rule.encodeOption.mode3;
+            convertedRule.encodeChannelId3 = this.getFirstEncodeChannelId(
+                rule.encodeOption.channelIds3,
+                rule.encodeOption.channelId3,
+            );
+            convertedRule.encodeChannelIds3 = this.stringifyEncodeChannelIds(
+                rule.encodeOption.channelIds3,
+                rule.encodeOption.channelId3,
+            );
             convertedRule.parentDirectoryName3 =
                 typeof rule.encodeOption.encodeParentDirectoryName3 === 'undefined'
                     ? null
@@ -306,9 +339,54 @@ export default class RuleDB implements IRuleDB {
             convertedRule.directory3 =
                 typeof rule.encodeOption.directory3 === 'undefined' ? null : rule.encodeOption.directory3;
             convertedRule.isDeleteOriginalAfterEncode = rule.encodeOption.isDeleteOriginalAfterEncode;
+            convertedRule.updateThumbnail = rule.encodeOption.updateThumbnail === true;
         }
 
         return convertedRule;
+    }
+
+    private stringifyEncodeChannelIds(
+        channelIds: apid.ChannelId[] | undefined,
+        legacyChannelId: apid.ChannelId | undefined,
+    ): string | null {
+        const ids = this.normalizeEncodeChannelIds(channelIds, legacyChannelId);
+
+        return ids.length === 0 ? null : JSON.stringify(ids);
+    }
+
+    private getFirstEncodeChannelId(
+        channelIds: apid.ChannelId[] | undefined,
+        legacyChannelId: apid.ChannelId | undefined,
+    ): apid.ChannelId | null {
+        const ids = this.normalizeEncodeChannelIds(channelIds, legacyChannelId);
+
+        return ids.length === 0 ? null : ids[0];
+    }
+
+    private normalizeEncodeChannelIds(
+        channelIds: apid.ChannelId[] | undefined,
+        legacyChannelId: apid.ChannelId | undefined,
+    ): apid.ChannelId[] {
+        if (Array.isArray(channelIds) === true) {
+            return channelIds.filter(id => Number.isInteger(id));
+        }
+
+        return typeof legacyChannelId === 'number' ? [legacyChannelId] : [];
+    }
+
+    private parseEncodeChannelIds(channelIdsText: string | null, legacyChannelId: number | null): apid.ChannelId[] {
+        if (channelIdsText !== null) {
+            try {
+                const channelIds = JSON.parse(channelIdsText);
+                if (Array.isArray(channelIds) === true) {
+                    return channelIds.filter(id => Number.isInteger(id));
+                }
+            } catch {
+                // 古い/壊れた値でも単数カラムがあればそちらで復旧する
+            }
+        }
+
+        return legacyChannelId === null ? [] : [legacyChannelId];
     }
 
     /**
@@ -319,6 +397,7 @@ export default class RuleDB implements IRuleDB {
     private convertDBRuleToRule(rule: Rule): RuleWithCnt {
         const convertedRule: RuleWithCnt = {
             id: rule.id,
+            userId: rule.userId === null ? undefined : rule.userId,
             updateCnt: rule.updateCnt,
             isTimeSpecification: rule.isTimeSpecification,
             searchOption: {
@@ -411,6 +490,13 @@ export default class RuleDB implements IRuleDB {
         if (rule.mode1 !== null) {
             encodeOption.mode1 = rule.mode1;
         }
+        const encodeChannelIds1 = this.parseEncodeChannelIds(rule.encodeChannelIds1, rule.encodeChannelId1);
+        if (encodeChannelIds1.length > 0) {
+            encodeOption.channelIds1 = encodeChannelIds1;
+            if (encodeChannelIds1.length === 1) {
+                encodeOption.channelId1 = encodeChannelIds1[0];
+            }
+        }
         if (rule.parentDirectoryName1 !== null) {
             encodeOption.encodeParentDirectoryName1 = rule.parentDirectoryName1;
         }
@@ -419,6 +505,13 @@ export default class RuleDB implements IRuleDB {
         }
         if (rule.mode2 !== null) {
             encodeOption.mode2 = rule.mode2;
+        }
+        const encodeChannelIds2 = this.parseEncodeChannelIds(rule.encodeChannelIds2, rule.encodeChannelId2);
+        if (encodeChannelIds2.length > 0) {
+            encodeOption.channelIds2 = encodeChannelIds2;
+            if (encodeChannelIds2.length === 1) {
+                encodeOption.channelId2 = encodeChannelIds2[0];
+            }
         }
         if (rule.parentDirectoryName2 !== null) {
             encodeOption.encodeParentDirectoryName2 = rule.parentDirectoryName2;
@@ -429,6 +522,13 @@ export default class RuleDB implements IRuleDB {
         if (rule.mode3 !== null) {
             encodeOption.mode3 = rule.mode3;
         }
+        const encodeChannelIds3 = this.parseEncodeChannelIds(rule.encodeChannelIds3, rule.encodeChannelId3);
+        if (encodeChannelIds3.length > 0) {
+            encodeOption.channelIds3 = encodeChannelIds3;
+            if (encodeChannelIds3.length === 1) {
+                encodeOption.channelId3 = encodeChannelIds3[0];
+            }
+        }
         if (rule.parentDirectoryName3 !== null) {
             encodeOption.encodeParentDirectoryName3 = rule.parentDirectoryName3;
         }
@@ -437,6 +537,7 @@ export default class RuleDB implements IRuleDB {
         }
         if (Object.keys(encodeOption).length > 0) {
             encodeOption.isDeleteOriginalAfterEncode = rule.isDeleteOriginalAfterEncode;
+            encodeOption.updateThumbnail = rule.updateThumbnail;
             convertedRule.encodeOption = encodeOption;
         }
 
@@ -452,6 +553,10 @@ export default class RuleDB implements IRuleDB {
         const connection = await this.op.getConnection();
 
         let queryBuilder = connection.getRepository(Rule).createQueryBuilder('rule');
+
+        if (typeof option.userId !== 'undefined') {
+            queryBuilder = queryBuilder.andWhere('rule.userId = :userId', { userId: option.userId });
+        }
 
         // keyword
         if (typeof option.keyword !== 'undefined') {
@@ -477,6 +582,23 @@ export default class RuleDB implements IRuleDB {
             }
 
             queryBuilder = queryBuilder.andWhere(DBUtil.createOrQuery(or), values);
+        }
+
+        if (option.hasReserve === true) {
+            const reserveQuery = connection
+                .createQueryBuilder()
+                .subQuery()
+                .select('1')
+                .from(Reserve, 'reserve')
+                .where('reserve.ruleId = rule.id');
+            if (typeof option.userId !== 'undefined') {
+                reserveQuery.andWhere('reserve.userId = :userId');
+            }
+            this.setReserveTypeQuery(reserveQuery, option.type);
+
+            queryBuilder = queryBuilder
+                .andWhere(`exists (${reserveQuery.getQuery()})`)
+                .setParameters(reserveQuery.getParameters());
         }
 
         // offset
@@ -507,6 +629,54 @@ export default class RuleDB implements IRuleDB {
             }),
             total,
         ];
+    }
+
+    private setReserveTypeQuery(queryBuilder: any, type: apid.GetReserveType | undefined): void {
+        if (type === 'normal') {
+            queryBuilder
+                .andWhere('reserve.isConflict = :reserveIsConflict', {
+                    reserveIsConflict: this.op.convertBoolean(false),
+                })
+                .andWhere('reserve.isSkip = :reserveIsSkip', {
+                    reserveIsSkip: this.op.convertBoolean(false),
+                })
+                .andWhere('reserve.isOverlap = :reserveIsOverlap', {
+                    reserveIsOverlap: this.op.convertBoolean(false),
+                });
+        } else if (type === 'conflict') {
+            queryBuilder
+                .andWhere('reserve.isConflict = :reserveIsConflict', {
+                    reserveIsConflict: this.op.convertBoolean(true),
+                })
+                .andWhere('reserve.isSkip = :reserveIsSkip', {
+                    reserveIsSkip: this.op.convertBoolean(false),
+                })
+                .andWhere('reserve.isOverlap = :reserveIsOverlap', {
+                    reserveIsOverlap: this.op.convertBoolean(false),
+                });
+        } else if (type === 'skip') {
+            queryBuilder
+                .andWhere('reserve.isConflict = :reserveIsConflict', {
+                    reserveIsConflict: this.op.convertBoolean(false),
+                })
+                .andWhere('reserve.isSkip = :reserveIsSkip', {
+                    reserveIsSkip: this.op.convertBoolean(true),
+                })
+                .andWhere('reserve.isOverlap = :reserveIsOverlap', {
+                    reserveIsOverlap: this.op.convertBoolean(false),
+                });
+        } else if (type === 'overlap') {
+            queryBuilder
+                .andWhere('reserve.isConflict = :reserveIsConflict', {
+                    reserveIsConflict: this.op.convertBoolean(false),
+                })
+                .andWhere('reserve.isSkip = :reserveIsSkip', {
+                    reserveIsSkip: this.op.convertBoolean(false),
+                })
+                .andWhere('reserve.isOverlap = :reserveIsOverlap', {
+                    reserveIsOverlap: this.op.convertBoolean(true),
+                });
+        }
     }
 
     /**

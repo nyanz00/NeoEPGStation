@@ -10,6 +10,7 @@
         ></EditTitleBar>
         <TitleBar v-else title="録画済み">
             <template v-slot:menu>
+                <UserSelector class="recorded-user-selector" v-model="selectedUserId" v-on:change="onUserChange"></UserSelector>
                 <RecordedSearchMenu></RecordedSearchMenu>
                 <RecordedMainMenu v-on:edit="onEdit" v-on:cleanup="onCleanup"></RecordedMainMenu>
             </template>
@@ -50,12 +51,14 @@ import RecordedMultipleDeletionDialog from '@/components/recorded/RecordedMultip
 import RecordedSearchMenu from '@/components/recorded/RecordedSearchMenu.vue';
 import EditTitleBar from '@/components/titleBar/EditTitleBar.vue';
 import TitleBar from '@/components/titleBar/TitleBar.vue';
+import UserSelector from '@/components/user/UserSelector.vue';
 import container from '@/model/ModelContainer';
 import ISocketIOModel from '@/model/socketio/ISocketIOModel';
 import IScrollPositionState from '@/model/state/IScrollPositionState';
 import IRecordedState, { MultipleDeletionOption } from '@/model/state/recorded/IRecordedState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
 import { ISettingStorageModel, ISettingValue } from '@/model/storage/setting/ISettingStorageModel';
+import { IActiveUserStorageModel } from '@/model/storage/user/IActiveUserStorageModel';
 import Util from '@/util/Util';
 import { Component, Vue, Watch } from 'vue-property-decorator';
 import { Route } from 'vue-router';
@@ -73,6 +76,7 @@ Component.registerHooks(['beforeRouteUpdate', 'beforeRouteLeave']);
         Pagination,
         RecordedMultipleDeletionDialog,
         RecordedCleanupDialog,
+        UserSelector,
     },
 })
 export default class Recorded extends Vue {
@@ -87,6 +91,8 @@ export default class Recorded extends Vue {
     private scrollState: IScrollPositionState = container.get<IScrollPositionState>('IScrollPositionState');
     private snackbarState: ISnackbarState = container.get<ISnackbarState>('ISnackbarState');
     private socketIoModel: ISocketIOModel = container.get<ISocketIOModel>('ISocketIOModel');
+    private activeUserStorage: IActiveUserStorageModel = container.get<IActiveUserStorageModel>('IActiveUserStorageModel');
+    private selectedUserId = this.activeUserStorage.getSavedValue().userId;
     private onUpdateStatusCallback = (async (): Promise<void> => {
         await this.recordedState.fetchData(this.createFetchDataOption());
     }).bind(this);
@@ -187,6 +193,10 @@ export default class Recorded extends Vue {
         this.isOpenCleanupDialog = true;
     }
 
+    public async onUserChange(): Promise<void> {
+        await this.recordedState.fetchData(this.createFetchDataOption());
+    }
+
     @Watch('$route', { immediate: true, deep: true })
     public onUrlChange(): void {
         this.recordedState.clearData();
@@ -221,6 +231,10 @@ export default class Recorded extends Vue {
             limit: this.settingValue.recordedLength,
         };
 
+        if (typeof this.selectedUserId === 'number') {
+            option.userId = this.selectedUserId;
+        }
+
         // query から読み取り
         if (typeof this.$route.query.keyword === 'string') {
             option.keyword = this.$route.query.keyword;
@@ -237,8 +251,44 @@ export default class Recorded extends Vue {
         if (typeof this.$route.query.hasOriginalFile !== 'undefined') {
             option.hasOriginalFile = (this.$route.query.hasOriginalFile as any) === true || this.$route.query.hasOriginalFile === 'true';
         }
+        const encodeModes = this.getStringArrayQuery('encodeModes');
+        if (encodeModes.length > 0) {
+            option.encodeModes = encodeModes;
+        } else if (typeof this.$route.query.encodeMode === 'string') {
+            option.encodeModes = [this.$route.query.encodeMode];
+        }
+        if (this.$route.query.encodeModeMatch === 'include' || this.$route.query.encodeModeMatch === 'only') {
+            option.encodeModeMatch = this.$route.query.encodeModeMatch;
+        }
+        if (typeof this.$route.query.hasDrop !== 'undefined') {
+            option.hasDrop = (this.$route.query.hasDrop as any) === true || this.$route.query.hasDrop === 'true';
+        }
+        if (typeof this.$route.query.hasError !== 'undefined') {
+            option.hasError = (this.$route.query.hasError as any) === true || this.$route.query.hasError === 'true';
+        }
+        if (typeof this.$route.query.hasScrambling !== 'undefined') {
+            option.hasScrambling = (this.$route.query.hasScrambling as any) === true || this.$route.query.hasScrambling === 'true';
+        }
+        if (typeof this.$route.query.recordedStartAt !== 'undefined') {
+            option.recordedStartAt = parseInt(this.$route.query.recordedStartAt as string, 10);
+        }
+        if (typeof this.$route.query.recordedEndAt !== 'undefined') {
+            option.recordedEndAt = parseInt(this.$route.query.recordedEndAt as string, 10);
+        }
 
         return option;
+    }
+
+    private getStringArrayQuery(name: string): string[] {
+        const value = this.$route.query[name];
+        if (Array.isArray(value)) {
+            return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+        }
+        if (typeof value === 'string' && value.length > 0) {
+            return [value];
+        }
+
+        return [];
     }
 }
 </script>

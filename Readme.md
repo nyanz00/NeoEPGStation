@@ -4,6 +4,9 @@
 iOS・Android での閲覧に最適化されたモバイルフレンドリーな Web インターフェイスが特徴です  
 PC からの閲覧でもモダンな UI で操作可能です
 
+## EPGStation-nyanz
+このブランチはフォーク作成者が欲しいと思った機能を出来る限り追加したバージョンです。変更点と導入上の注意は[別途ドキュメント](doc/epgstation-nyanz.md)を参照してください。
+
 ## 機能
 
 ### 放送番組の視聴・録画・管理
@@ -40,8 +43,8 @@ PC からの閲覧でもモダンな UI で操作可能です
 
 ## 動作環境
 
--   Linux / macOS / ~~Windows~~
--   [Node.js](http://nodejs.org/) : ^18.16.1
+-   Linux / macOS / Windows
+-   [Node.js](http://nodejs.org/) : ^20.19.0 || ^22.13.0 || >=24.11.0
 -   [Mirakurun](https://github.com/Chinachu/Mirakurun) : ^3.8.0 or [mirakc](https://github.com/mirakc/mirakc) : ^3.1.10
 -   いずれかのデータベース
     -   [SQLite3](https://www.sqlite.org/)（設定不要だが検索機能に制限あり）[標準]

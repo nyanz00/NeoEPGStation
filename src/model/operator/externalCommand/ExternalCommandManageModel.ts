@@ -7,7 +7,7 @@ import ProcessUtil from '../../../util/ProcessUtil';
 import IVideoUtil from '../../api/video/IVideoUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IRecordedDB from '../../db/IRecordedDB';
-import { OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent';
 import { IReserveUpdateValues } from '../../event/IReserveEvent';
 import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
@@ -148,6 +148,15 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
         }
 
         this.addFinishEncode(this.config.encodingFinishCommand, info);
+    }
+
+    public addEncodingFailedCmd(info: OperatorErrorEncodeInfo): void {
+        this.log.system.info(`encodingFailedCommand: ${this.config.encodingFailedCommand}`);
+        if (typeof this.config.encodingFailedCommand === 'undefined') {
+            return;
+        }
+
+        this.addFinishEncode(this.config.encodingFailedCommand, info);
     }
 
     /**

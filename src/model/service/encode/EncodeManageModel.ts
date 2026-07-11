@@ -14,6 +14,7 @@ import { EncodeOption, EncoderModelProvider, IEncoderModel } from './IEncoderMod
 @injectable()
 class EncodeManageModel implements IEncodeManageModel {
     private log: ILogger;
+    private configure: IConfiguration;
     private executeManagementModel: IExecutionManagementModel;
     private encoderModelProvider: EncoderModelProvider;
     private encodeEvent: IEncodeEvent;
@@ -32,6 +33,7 @@ class EncodeManageModel implements IEncodeManageModel {
         @inject('IEncodeEvent') encodeEvent: IEncodeEvent,
     ) {
         this.log = logger.getLogger();
+        this.configure = configure;
         this.executeManagementModel = executeManagementModel;
         this.concurrentEncodeNum = configure.getConfig().concurrentEncodeNum;
         this.encoderModelProvider = encoderModelProvider;
@@ -141,8 +143,8 @@ class EncodeManageModel implements IEncodeManageModel {
         this.runningQueue.push(encoder);
 
         // エンコード終了時の処理をセット
-        encoder.setOnFinish((isError, outputFilePath) => {
-            this.onFinish(isError, outputFilePath, encodeOption);
+        encoder.setOnFinish((isError, outputFilePath, isCanceled) => {
+            this.onFinish(isError, outputFilePath, encodeOption, isCanceled);
         });
 
         // エンコードプロセス開始
@@ -156,7 +158,11 @@ class EncodeManageModel implements IEncodeManageModel {
             needsFinalize = true;
 
             // エラー通知
-            this.encodeEvent.emitErrorEncode();
+            this.encodeEvent.emitErrorEncode({
+                recordedId: encodeOption.recordedId,
+                videoFileId: encodeOption.sourceVideoFileId,
+                mode: encodeOption.mode,
+            });
         }
 
         // 実行権開放
@@ -173,10 +179,21 @@ class EncodeManageModel implements IEncodeManageModel {
      * @param outputFilePath: エンコードファイルパス
      * @param encodeOption: エンコードオプション
      */
-    private onFinish(isError: boolean, outputFilePath: string | null, encodeOption: EncodeOption): void {
+    private onFinish(
+        isError: boolean,
+        outputFilePath: string | null,
+        encodeOption: EncodeOption,
+        isCanceled: boolean,
+    ): void {
         if (isError) {
             // エラー通知
-            this.encodeEvent.emitErrorEncode();
+            if (isCanceled === false) {
+                this.encodeEvent.emitErrorEncode({
+                    recordedId: encodeOption.recordedId,
+                    videoFileId: encodeOption.sourceVideoFileId,
+                    mode: encodeOption.mode,
+                });
+            }
         } else {
             // 終了通知 DB に登録を依頼
             const fileName = outputFilePath === null ? null : path.basename(outputFilePath);
@@ -192,20 +209,42 @@ class EncodeManageModel implements IEncodeManageModel {
                 recordedId: encodeOption.recordedId,
                 videoFileId: encodeOption.sourceVideoFileId,
                 parentDirName: encodeOption.parentDir,
-                filePath:
-                    outputFilePath === null || fileName === null
-                        ? null
-                        : typeof encodeOption.directory === 'undefined'
-                          ? fileName
-                          : path.join(encodeOption.directory, fileName),
+                filePath: this.getOutputFilePathForDB(outputFilePath, fileName, encodeOption),
                 fullOutputPath: outputFilePath,
                 mode: encodeOption.mode,
                 removeOriginal: encodeOption.removeOriginal,
+                updateThumbnail: encodeOption.updateThumbnail === true,
             });
         }
 
         // 終了処理
         this.finalize(encodeOption.encodeId);
+    }
+
+    private getOutputFilePathForDB(
+        outputFilePath: string | null,
+        fileName: string | null,
+        encodeOption: EncodeOption,
+    ): string | null {
+        if (outputFilePath === null || fileName === null) {
+            return null;
+        }
+
+        const parentDir = this.configure.getConfig().recorded.find(recordedDir => {
+            return recordedDir.name === encodeOption.parentDir;
+        });
+        if (typeof parentDir !== 'undefined') {
+            const relativePath = path.relative(parentDir.path, outputFilePath);
+            if (
+                relativePath.length > 0 &&
+                relativePath.startsWith('..') === false &&
+                path.isAbsolute(relativePath) === false
+            ) {
+                return relativePath;
+            }
+        }
+
+        return typeof encodeOption.directory === 'undefined' ? fileName : path.join(encodeOption.directory, fileName);
     }
 
     /**

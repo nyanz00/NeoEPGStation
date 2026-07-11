@@ -23,6 +23,14 @@
                         <v-list-item-title>search</v-list-item-title>
                     </v-list-item-content>
                 </v-list-item>
+                <v-list-item v-on:click="openUserDialog">
+                    <v-list-item-icon class="mr-3">
+                        <v-icon>mdi-account</v-icon>
+                    </v-list-item-icon>
+                    <v-list-item-content>
+                        <v-list-item-title>user</v-list-item-title>
+                    </v-list-item-content>
+                </v-list-item>
                 <v-list-item v-if="recordedItem.isProtected === true" v-on:click="unprotect">
                     <v-list-item-icon class="mr-3">
                         <v-icon>mdi-lock-open</v-icon>
@@ -68,12 +76,14 @@
         <div v-if="isOpened === true" class="menu-background" v-on:click="onClickMenuBackground"></div>
         <AddEncodeDialog :isOpen.sync="isOpenEncodeDialog" :recordedItem="recordedItem"></AddEncodeDialog>
         <RecordedDeleteDialog :isOpen.sync="isOpenDeleteDialog" :recordedItem="recordedItem"></RecordedDeleteDialog>
+        <RecordedUserDialog :isOpen.sync="isOpenUserDialog" :recordedItem="recordedItem"></RecordedUserDialog>
     </div>
 </template>
 
 <script lang="ts">
 import AddEncodeDialog from '@/components/encode/AddEncodeDialog.vue';
 import RecordedDeleteDialog from '@/components/recorded/RecordedDeleteDialog.vue';
+import RecordedUserDialog from '@/components/recorded/RecordedUserDialog.vue';
 import IRecordedApiModel from '@/model/api/recorded/IRecordedApiModel';
 import container from '@/model/ModelContainer';
 import IServerConfigModel from '@/model/serverConfig/IServerConfigModel';
@@ -87,6 +97,7 @@ import * as apid from '../../../../api';
     components: {
         AddEncodeDialog,
         RecordedDeleteDialog,
+        RecordedUserDialog,
     },
 })
 export default class RecordedItemMenu extends Vue {
@@ -98,6 +109,7 @@ export default class RecordedItemMenu extends Vue {
     public isOpened: boolean = false;
     public isOpenDeleteDialog: boolean = false;
     public isOpenEncodeDialog: boolean = false;
+    public isOpenUserDialog: boolean = false;
 
     public serverConfig: IServerConfigModel = container.get<IServerConfigModel>('IServerConfigModel');
     public recordedApiModel = container.get<IRecordedApiModel>('IRecordedApiModel');
@@ -182,6 +194,11 @@ export default class RecordedItemMenu extends Vue {
     public async openEncodeDialog(): Promise<void> {
         await Util.sleep(300);
         this.isOpenEncodeDialog = true;
+    }
+
+    public async openUserDialog(): Promise<void> {
+        await Util.sleep(300);
+        this.isOpenUserDialog = true;
     }
 
     public onClickMenuBackground(e: Event): boolean {

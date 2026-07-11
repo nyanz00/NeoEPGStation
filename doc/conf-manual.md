@@ -150,7 +150,8 @@ mirakurunPath: 'http://localhost:40772'
 | ------ | ------------ | ---- |
 | string | sqlite       | no   |
 
--   値は `mysql` `sqlite` のいずれか
+-   値は `mysql` `sqlite` `better-sqlite3` のいずれか
+-   `better-sqlite3` は SQLite3 と同じ DB ファイルを使用しますが、Node.js 側のドライバが異なります
 
 ```yaml
 dbType: mysql
@@ -158,7 +159,7 @@ dbType: mysql
 
 ### mysql
 
-#### MySQL の接続設定（MySQL 使用時は必須）
+#### MySQL の接続設定（MySQL/MariaDB 使用時は必須）
 
 | 子プロパティ名 | 種類   | 必須 | 説明                         |
 | -------------- | ------ | ---- | ---------------------------- |
@@ -193,6 +194,8 @@ sqlite:
         - '/hoge/regexp.so'
     regexp: true
 ```
+
+`dbtype: better-sqlite3` を使用する場合も、拡張機能と `regexp` の設定は `sqlite` セクションに記述します。
 
 ### ffmpeg
 
@@ -622,6 +625,18 @@ storageLimitCheckIntervalTime: 120
 thumbnail: '/hoge/thumbs'
 ```
 
+### channelLogo
+
+#### 放送局ロゴ画像キャッシュの保存先
+
+| 種類   | デフォルト値                                                                          | 必須 |
+| ------ | ------------------------------------------------------------------------------------- | ---- |
+| string | /hoge/EPGStation/channel-logo (EPGStation 直下の channel-logo ディレクトリのフルパス) | no   |
+
+```yaml
+channelLogo: '/hoge/channel-logo'
+```
+
 ### thumbnailCmd
 
 #### サムネイル生成時のコマンド
@@ -812,6 +827,21 @@ recordingFailedCommand: '/usr/bin/logger recfailed'
 
 ```yaml
 encodingFinishCommand: '/bin/node /home/hoge/fuga.js finish'
+```
+
+### encodingFailedCommand
+
+-   エンコード失敗時に実行するコマンド
+
+| 種類   | デフォルト値 | 必須 |
+| ------ | ------------ | ---- |
+| string | -            | no   |
+
+-   実行時に渡される環境変数は `encodingFinishCommand` と同じです。
+-   失敗時は新しいエンコード済みファイルが存在しないため、`VIDEOFILEID` と `OUTPUTPATH` は元ファイルの情報になります。
+
+```yaml
+encodingFailedCommand: '/bin/node /home/hoge/fuga.js failed'
 ```
 
 ### encodeProcessNum

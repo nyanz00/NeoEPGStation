@@ -60,7 +60,7 @@ $snackbar-min-width: 300px
         color: white
         box-shadow: 0 3px 5px -1px rgba(0,0,0,.2), 0 6px 10px 0 rgba(0,0,0,.14), 0 1px 18px 0 rgba(0,0,0,.12)
         border-radius: 4px
-        pointer-events: auto
+        pointer-events: none
 
     .text
         flex: 1
@@ -72,6 +72,7 @@ $snackbar-min-width: 300px
 
     .button
         flex: 1
+        pointer-events: auto
 
 @media screen and (max-width: $snackbar-min-width)
     .snackbar

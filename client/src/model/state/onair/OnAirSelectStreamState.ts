@@ -1,6 +1,7 @@
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../../../api';
 import UaUtil from '../../../util/UaUtil';
+import URLSchemeUtil from '../../../util/URLSchemeUtil';
 import Util from '../../../util/Util';
 import IServerConfigModel from '../../serverConfig/IServerConfigModel';
 import { IOnAirSelectStreamSettingStorageModel } from '../../storage/onair/IOnAirSelectStreamSettingStorageModel';
@@ -94,27 +95,22 @@ export default class OnAirSelectStreamState implements IOnAirSelectStreamState {
                 }
             } else {
                 // web 上での再生
-                if (typeof config.streamConfig.live.ts.m2tsll !== 'undefined' && config.streamConfig.live.ts.m2tsll.length > 0) {
-                    this.streamTypes.push('M2TS-LL');
-                    this.streamConfig['M2TS-LL'] = config.streamConfig.live.ts.m2tsll;
-                }
-                if (typeof config.streamConfig.live.ts.webm !== 'undefined' && config.streamConfig.live.ts.webm.length > 0) {
-                    this.streamTypes.push('WebM');
-                    this.streamConfig['WebM'] = config.streamConfig.live.ts.webm;
-                }
-                if (typeof config.streamConfig.live.ts.mp4 !== 'undefined' && config.streamConfig.live.ts.mp4.length > 0) {
-                    this.streamTypes.push('MP4');
-                    this.streamConfig['MP4'] = config.streamConfig.live.ts.mp4;
-                }
-                if (typeof config.streamConfig.live.ts.hls !== 'undefined' && config.streamConfig.live.ts.hls.length > 0) {
-                    this.streamTypes.push('HLS');
-                    this.streamConfig['HLS'] = config.streamConfig.live.ts.hls;
+                const defaultStreamType = this.getDefaultWatchStreamType();
+                if (defaultStreamType === 'M2TS-LL') {
+                    this.addM2TSLLStreamConfig(config);
+                    this.addM2TSStreamConfig(config);
+                } else {
+                    this.addM2TSStreamConfig(config);
+                    this.addM2TSLLStreamConfig(config);
                 }
             }
         }
 
         if (isInit === true) {
-            if (typeof this.selectedStreamType === 'undefined') {
+            if (this.useURLScheme === false) {
+                const defaultStreamType = this.getDefaultWatchStreamType();
+                this.selectedStreamType = this.streamTypes.includes(defaultStreamType) ? defaultStreamType : this.streamTypes[0];
+            } else if (typeof this.selectedStreamType === 'undefined') {
                 const savedType = this.streamSelectSetting.getSavedValue().type;
                 const newSelectedStreamType = this.streamTypes.find(type => {
                     return type === savedType;
@@ -123,6 +119,34 @@ export default class OnAirSelectStreamState implements IOnAirSelectStreamState {
             }
         } else {
             this.selectedStreamType = this.streamTypes[0];
+        }
+    }
+
+    private addM2TSStreamConfig(config: apid.Config): void {
+        if (
+            typeof config.streamConfig !== 'undefined' &&
+            typeof config.streamConfig.live !== 'undefined' &&
+            typeof config.streamConfig.live.ts !== 'undefined' &&
+            typeof config.streamConfig.live.ts.m2ts !== 'undefined' &&
+            this.streamTypes.includes('M2TS') === false
+        ) {
+            this.streamTypes.push('M2TS');
+            this.streamConfig['M2TS'] = config.streamConfig.live.ts.m2ts.map(c => {
+                return c.name;
+            });
+        }
+    }
+
+    private addM2TSLLStreamConfig(config: apid.Config): void {
+        if (
+            typeof config.streamConfig !== 'undefined' &&
+            typeof config.streamConfig.live !== 'undefined' &&
+            typeof config.streamConfig.live.ts !== 'undefined' &&
+            typeof config.streamConfig.live.ts.m2tsll !== 'undefined' &&
+            this.streamTypes.includes('M2TS-LL') === false
+        ) {
+            this.streamTypes.push('M2TS-LL');
+            this.streamConfig['M2TS-LL'] = config.streamConfig.live.ts.m2tsll;
         }
     }
 
@@ -139,6 +163,13 @@ export default class OnAirSelectStreamState implements IOnAirSelectStreamState {
 
         if (isInit === true) {
             this.selectedStreamConfig = this.streamSelectSetting.getSavedValue().mode;
+            const defaultQuality = this.settingModel.getSavedValue().watchDefaultQuality;
+            if (defaultQuality !== null) {
+                const defaultIndex = this.streamConfigItems.findIndex(item => item.text === defaultQuality);
+                if (defaultIndex >= 0) {
+                    this.selectedStreamConfig = defaultIndex;
+                }
+            }
         }
 
         if (typeof this.selectedStreamConfig === 'undefined' || typeof this.streamConfigItems[this.selectedStreamConfig] === 'undefined') {
@@ -155,6 +186,40 @@ export default class OnAirSelectStreamState implements IOnAirSelectStreamState {
         const result = typeof this.selectedStreamType === 'undefined' ? [] : this.streamConfig[this.selectedStreamType];
 
         return typeof result === 'undefined' ? [] : result;
+    }
+
+    public getWatchStreamType(): 'm2ts' | 'm2tsll' {
+        return this.selectedStreamType === 'M2TS-LL' ? 'm2tsll' : 'm2ts';
+    }
+
+    private getDefaultWatchStreamType(): LiveStreamType {
+        return this.settingModel.getSavedValue().watchLowLatency === true ? 'M2TS-LL' : 'M2TS';
+    }
+
+    public getWatchQuery(): { [key: string]: string } {
+        const query: { [key: string]: string } = {
+            mode: (typeof this.selectedStreamConfig === 'undefined' ? 0 : this.selectedStreamConfig).toString(10),
+        };
+        const quality = this.getSelectedQualityName();
+        const setting = this.settingModel.getSavedValue();
+        if (quality !== null) {
+            query.quality = quality;
+        }
+        if (setting.watchStreamEncoder !== 'Config') {
+            query.encoder = setting.watchStreamEncoder;
+        }
+        query.hevc = setting.watchUseHevc === true ? '1' : '0';
+
+        return query;
+    }
+
+    private getSelectedQualityName(): string | null {
+        if (typeof this.selectedStreamConfig === 'undefined') {
+            return null;
+        }
+
+        const item = this.streamConfigItems.find(config => config.value === this.selectedStreamConfig);
+        return typeof item === 'undefined' ? null : item.text;
     }
 
     /**
@@ -191,12 +256,9 @@ export default class OnAirSelectStreamState implements IOnAirSelectStreamState {
         }
 
         // URL Schemeの準備
-        let viewURL = location.host + Util.getSubDirectory() + `/api/streams/live/${channel.id.toString(10)}/m2ts?mode=${this.selectedStreamConfig}`;
-        if (urlScheme.match(/vlc-x-callback/)) {
-            viewURL = encodeURIComponent(viewURL);
-        }
-
-        return urlScheme.replace(/PROTOCOL/g, location.protocol.replace(':', '')).replace(/ADDRESS/g, viewURL);
+        const params = new URLSearchParams(this.getWatchQuery());
+        const viewURL = location.host + Util.getSubDirectory() + `/api/streams/live/${channel.id.toString(10)}/m2ts?${params.toString()}`;
+        return URLSchemeUtil.build(urlScheme, viewURL);
     }
 
     /**
@@ -209,6 +271,7 @@ export default class OnAirSelectStreamState implements IOnAirSelectStreamState {
             return null;
         }
 
-        return `/api/streams/live/${channel.id.toString(10)}/m2ts/playlist?mode=${this.selectedStreamConfig}`;
+        const params = new URLSearchParams(this.getWatchQuery());
+        return `/api/streams/live/${channel.id.toString(10)}/m2ts/playlist?${params.toString()}`;
     }
 }

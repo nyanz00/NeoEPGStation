@@ -8,6 +8,8 @@ import ISocketIOModel from './ISocketIOModel';
 class SocketIOModel implements ISocketIOModel {
     private serverConfiModel: IServerConfigModel;
     private io: socketIo.Socket | null = null;
+    private updateStateCallbacks: Array<() => void> = [];
+    private updateEncodeStateCallbacks: Array<() => void> = [];
 
     constructor(@inject('IServerConfigModel') serverConfiModel: IServerConfigModel) {
         this.serverConfiModel = serverConfiModel;
@@ -22,9 +24,7 @@ class SocketIOModel implements ISocketIOModel {
             throw new Error('InitializationSocketIOError');
         }
 
-        this.io = socketIo.io(`${location.protocol}//${location.hostname}:${config.socketIOPort}`, {
-            path: `${Util.getSubDirectory()}/socket.io`,
-        });
+        this.io = this.createSocket(config.socketIOPort);
     }
 
     /**
@@ -43,6 +43,9 @@ class SocketIOModel implements ISocketIOModel {
             throw new Error('IOIsNull');
         }
 
+        if (this.updateStateCallbacks.indexOf(callback) === -1) {
+            this.updateStateCallbacks.push(callback);
+        }
         this.io.on(SocketIOModel.UPDATE_STATUS_EVENT, callback);
     }
 
@@ -55,6 +58,7 @@ class SocketIOModel implements ISocketIOModel {
             throw new Error('IOIsNull');
         }
 
+        this.updateStateCallbacks = this.updateStateCallbacks.filter(c => c !== callback);
         this.io.off(SocketIOModel.UPDATE_STATUS_EVENT, callback);
     }
 
@@ -67,6 +71,9 @@ class SocketIOModel implements ISocketIOModel {
             throw new Error('IOIsNull');
         }
 
+        if (this.updateEncodeStateCallbacks.indexOf(callback) === -1) {
+            this.updateEncodeStateCallbacks.push(callback);
+        }
         this.io.on(SocketIOModel.UPDATE_ENCODE_STATUS_EVENT, callback);
     }
 
@@ -79,7 +86,53 @@ class SocketIOModel implements ISocketIOModel {
             throw new Error('IOIsNull');
         }
 
+        this.updateEncodeStateCallbacks = this.updateEncodeStateCallbacks.filter(c => c !== callback);
         this.io.off(SocketIOModel.UPDATE_ENCODE_STATUS_EVENT, callback);
+    }
+
+    private createSocket(socketIOPort: number): socketIo.Socket {
+        const socketIOUrl = this.getSocketIOUrl(socketIOPort);
+        const socketIOOption = {
+            path: `${Util.getSubDirectory()}/socket.io`,
+            timeout: 3000,
+        };
+        const io = typeof socketIOUrl === 'undefined' ? socketIo.io(socketIOOption) : socketIo.io(socketIOUrl, socketIOOption);
+
+        if (typeof socketIOUrl !== 'undefined') {
+            io.once('connect_error', () => {
+                if (this.io !== io) {
+                    return;
+                }
+
+                io.close();
+                this.io = socketIo.io(socketIOOption);
+                this.bindCallbacks(this.io);
+            });
+        }
+
+        return io;
+    }
+
+    private bindCallbacks(io: socketIo.Socket): void {
+        for (const callback of this.updateStateCallbacks) {
+            io.on(SocketIOModel.UPDATE_STATUS_EVENT, callback);
+        }
+        for (const callback of this.updateEncodeStateCallbacks) {
+            io.on(SocketIOModel.UPDATE_ENCODE_STATUS_EVENT, callback);
+        }
+    }
+
+    private getSocketIOUrl(socketIOPort: number): string | undefined {
+        const defaultPort = location.protocol === 'https:' ? '443' : '80';
+        const currentPort = location.port.length === 0 ? defaultPort : location.port;
+
+        if (socketIOPort.toString(10) === currentPort) {
+            return undefined;
+        }
+
+        const hostname = location.hostname.includes(':') === true ? `[${location.hostname}]` : location.hostname;
+
+        return `${location.protocol}//${hostname}:${socketIOPort.toString(10)}`;
     }
 }
 

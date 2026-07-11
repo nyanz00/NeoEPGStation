@@ -24,8 +24,9 @@
                     </div>
                 </SearchOptionRow>
                 <SearchOptionRow title="放送局">
+                    <v-text-field v-model="channelFilter" class="channel-filter" label="channel filter" clearable hide-details></v-text-field>
                     <v-select
-                        :items="searchState.getChannelItems()"
+                        :items="searchState.getChannelItems(channelFilter)"
                         v-model="searchState.searchOption.channels"
                         label="channel"
                         multiple
@@ -64,6 +65,7 @@
                             clearable
                             :menu-props="{ auto: true }"
                         ></v-select>
+                        <span class="time-range-suffix pl-2">以内</span>
                     </div>
                     <div class="d-flex flex-wrap">
                         <v-checkbox v-model="searchState.searchOption.week.mon" class="mx-1 my-0" label="月"></v-checkbox>
@@ -149,8 +151,9 @@
                     <v-text-field v-model="searchState.timeReserveOption.keyword" label="keyword" clearable></v-text-field>
                 </SearchOptionRow>
                 <SearchOptionRow title="放送局">
+                    <v-text-field v-model="timeReserveChannelFilter" class="channel-filter" label="channel filter" clearable hide-details></v-text-field>
                     <v-select
-                        :items="searchState.getChannelItems()"
+                        :items="searchState.getChannelItems(timeReserveChannelFilter)"
                         v-model="searchState.timeReserveOption.channel"
                         label="channel"
                         clearable
@@ -229,6 +232,8 @@ export default class SearchOption extends Vue {
 
     public isOpenStartTimepicker: boolean = false;
     public isOpenEndTimepicker: boolean = false;
+    public channelFilter: string | null = null;
+    public timeReserveChannelFilter: string | null = null;
 
     public mounted(): void {
         if (typeof this.$refs.keyword !== 'undefined') {
@@ -250,6 +255,8 @@ export default class SearchOption extends Vue {
     }
 
     public onClickClear(): void {
+        this.channelFilter = null;
+        this.timeReserveChannelFilter = null;
         this.$emit('clear');
     }
 }
@@ -262,6 +269,8 @@ export default class SearchOption extends Vue {
         max-width: 100px
     .range-time-select
         max-width: 120px
+    .channel-filter
+        max-width: 220px
     .duration
         max-width: 100px
 </style>

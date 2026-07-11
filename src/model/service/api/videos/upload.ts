@@ -4,6 +4,24 @@ import container from '../../../ModelContainer';
 import { UploadedVideoFileOption } from '../../../operator/recorded/IRecordedManageModel';
 import * as api from '../../api';
 
+const decodeUploadFileName = (fileName: string): string => {
+    const decoded = Buffer.from(fileName, 'latin1').toString('utf8');
+    if (decoded.includes('\uFFFD')) {
+        return fileName;
+    }
+
+    const mojibakeLike = /[ÃÂãåæçèéêëìíîïðñòóôõöùúûüýÿ\u0080-\u009f]/.test(fileName);
+    if (mojibakeLike === false) {
+        return fileName;
+    }
+
+    const countJapanese = (value: string): number => {
+        return (value.match(/[\u3040-\u30ff\u3400-\u9fff]/g) ?? []).length;
+    };
+
+    return countJapanese(decoded) >= countJapanese(fileName) ? decoded : fileName;
+};
+
 export const post: Operation = async (req, res) => {
     const recordedApiModel = container.get<IRecordedApiModel>('IRecordedApiModel');
 
@@ -17,7 +35,7 @@ export const post: Operation = async (req, res) => {
             parentDirectoryName: req.body.parentDirectoryName,
             viewName: req.body.viewName,
             fileType: req.body.fileType,
-            fileName: req.file.originalname,
+            fileName: decodeUploadFileName(req.file.originalname),
             filePath: req.file.path,
         };
         if (typeof req.body.subDirectory !== 'undefined') {

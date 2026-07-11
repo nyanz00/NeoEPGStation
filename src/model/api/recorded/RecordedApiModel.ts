@@ -1,6 +1,8 @@
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../../api';
 import IRecordedDB, { FindAllOption } from '../../db/IRecordedDB';
+import ITvUserDB from '../../db/ITvUserDB';
+import IConfiguration from '../../IConfiguration';
 import IIPCClient from '../../ipc/IIPCClient';
 import { UploadedVideoFileOption } from '../../operator/recorded/IRecordedManageModel';
 import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
@@ -9,18 +11,24 @@ import IRecordedApiModel from './IRecordedApiModel';
 
 @injectable()
 export default class RecordedApiModel implements IRecordedApiModel {
+    private configuration: IConfiguration;
     private ipc: IIPCClient;
     private recordedDB: IRecordedDB;
+    private userDB: ITvUserDB;
     private encodeManage: IEncodeManageModel;
     private recordedItemUtil: IRecordedItemUtil;
 
     constructor(
+        @inject('IConfiguration') configuration: IConfiguration,
         @inject('IIPCClient') ipc: IIPCClient,
         @inject('IRecordedDB') recordedDB: IRecordedDB,
+        @inject('ITvUserDB') userDB: ITvUserDB,
         @inject('IEncodeManageModel') encodeManage: IEncodeManageModel,
         @inject('IRecordedItemUtil') recordedItemUtil: IRecordedItemUtil,
     ) {
+        this.configuration = configuration;
         this.recordedDB = recordedDB;
+        this.userDB = userDB;
         this.ipc = ipc;
         this.encodeManage = encodeManage;
         this.recordedItemUtil = recordedItemUtil;
@@ -33,6 +41,7 @@ export default class RecordedApiModel implements IRecordedApiModel {
      */
     public async gets(option: apid.GetRecordedOption): Promise<apid.Records> {
         (<FindAllOption>option).isRecording = false;
+        this.setSearchVideoFileOption(option as FindAllOption);
         const [records, total] = await this.recordedDB.findAll(option, {
             isNeedVideoFiles: true,
             isNeedThumbnails: true,
@@ -73,11 +82,72 @@ export default class RecordedApiModel implements IRecordedApiModel {
     public async getSearchOptionList(): Promise<apid.RecordedSearchOptions> {
         const channels = await this.recordedDB.findChannelList();
         const genres = await this.recordedDB.findGenreList();
+        const encodedNames = await this.recordedDB.findEncodedNameList();
+        const config = this.configuration.getConfig();
+        const encodeItemIndex: { [name: string]: apid.RecordedEncodeListItem } = {};
+        const encodeItems: apid.RecordedEncodeListItem[] = [];
+
+        const pushEncodeItem = (item: apid.RecordedEncodeListItem): void => {
+            if (
+                typeof item.name !== 'string' ||
+                item.name.length === 0 ||
+                typeof encodeItemIndex[item.name] !== 'undefined'
+            ) {
+                return;
+            }
+
+            encodeItemIndex[item.name] = item;
+            encodeItems.push(item);
+        };
+
+        for (const e of config.encode) {
+            if (typeof e.name !== 'string' || e.name.length === 0) {
+                continue;
+            }
+
+            pushEncodeItem({
+                name: e.name,
+                suffix: e.suffix,
+            });
+        }
+
+        for (const name of encodedNames) {
+            pushEncodeItem({
+                name,
+            });
+        }
 
         return {
             channels: channels,
             genres: genres,
+            encode: encodeItems,
         };
+    }
+
+    private setSearchVideoFileOption(option: FindAllOption): void {
+        const encodeModes =
+            typeof option.encodeModes !== 'undefined' && option.encodeModes.length > 0
+                ? option.encodeModes
+                : typeof option.encodeMode === 'string'
+                  ? [option.encodeMode]
+                  : [];
+
+        if (encodeModes.length === 0) {
+            return;
+        }
+
+        option.searchVideoFiles = encodeModes.map(mode => {
+            if (mode === '__ts__') {
+                return {
+                    type: 'ts',
+                };
+            }
+
+            return {
+                type: 'encoded',
+                name: mode,
+            };
+        });
     }
 
     /**
@@ -108,6 +178,34 @@ export default class RecordedApiModel implements IRecordedApiModel {
      */
     public changeProtect(recordedId: apid.RecordedId, isProtect: boolean): Promise<void> {
         return this.ipc.recorded.changeProtect(recordedId, isProtect);
+    }
+
+    /**
+     * recorded のユーザーを変更する
+     */
+    public async changeUser(recordedId: apid.RecordedId, option: apid.UpdateRecordedUserOption): Promise<void> {
+        const userId = Number(option.userId);
+        if (Number.isInteger(userId) === false) {
+            throw new Error('UserIsNull');
+        }
+
+        const recorded = await this.recordedDB.findId(recordedId);
+        if (recorded === null) {
+            throw new Error('RecordedIsNull');
+        }
+        if ((await this.userDB.findId(userId)) === null) {
+            throw new Error('UserIsNull');
+        }
+
+        await this.recordedDB.changeUser(recordedId, userId);
+    }
+
+    public createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult> {
+        return this.ipc.recorded.createCleanupPlan();
+    }
+
+    public executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult> {
+        return this.ipc.recorded.executeCleanupPlan(planPath);
     }
 
     /**

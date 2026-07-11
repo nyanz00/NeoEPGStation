@@ -7,4 +7,5 @@ export namespace IChannelApiModelError {
 export default interface IChannelApiModel {
     getChannels(): Promise<apid.ChannelItem[]>;
     getLogo(channelId: apid.ChannelId): Promise<Buffer>;
+    getJikkyoInfo(channelId: apid.ChannelId): Promise<apid.ChannelJikkyoInfo>;
 }

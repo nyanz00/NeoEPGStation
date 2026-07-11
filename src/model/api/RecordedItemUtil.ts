@@ -19,6 +19,7 @@ export default class RecordedItemUtil implements IRecordedItemUtil {
     ): apid.RecordedItem {
         const item: apid.RecordedItem = {
             id: recorded.id,
+            userId: recorded.userId === null ? undefined : recorded.userId,
             channelId: recorded.channelId,
             startAt: recorded.startAt,
             endAt: recorded.endAt,

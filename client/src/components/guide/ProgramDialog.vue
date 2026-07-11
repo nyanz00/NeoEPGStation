@@ -31,9 +31,13 @@
                 <v-divider></v-divider>
                 <div class="pa-2 encode-action">
                     <div v-if="dialogState.reserve === null" class="overflow-x-hidden">
-                        <div class="d-flex align-center justify-end">
-                            <v-checkbox class="mx-1 my-0 pr-2" label="元ファイル削除" v-model="dialogSetting.tmp.isDeleteOriginalAfterEncode"></v-checkbox>
+                        <div class="quick-reserve-options">
+                            <div class="quick-checks">
+                                <v-checkbox class="compact-check my-0" label="元ファイル削除" v-model="dialogSetting.tmp.isDeleteOriginalAfterEncode"></v-checkbox>
+                                <v-checkbox class="compact-check my-0" label="サムネイル再生成" v-model="dialogSetting.tmp.updateThumbnail"></v-checkbox>
+                            </div>
                             <v-select :items="dialogState.getEncodeList()" v-model="dialogSetting.tmp.encode" :menu-props="{ auto: true }" class="encode-selector"></v-select>
+                            <v-select :items="userItems" v-model="selectedUserId" :menu-props="{ auto: true }" class="program-user-selector"></v-select>
                         </div>
                     </div>
                     <div>
@@ -61,14 +65,22 @@
 </template>
 
 <script lang="ts">
+import IUserApiModel from '@/model/api/user/IUserApiModel';
 import container from '@/model/ModelContainer';
 import IGuideProgramDialogState from '@/model/state/guide/IGuideProgramDialogState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
 import { IGuideProgramDialogSettingStorageModel } from '@/model/storage/guide/IGuideProgramDialogSettingStorageModel';
 import { ISettingStorageModel } from '@/model/storage/setting/ISettingStorageModel';
+import { IActiveUserStorageModel } from '@/model/storage/user/IActiveUserStorageModel';
 import StrUtil from '@/util/StrUtil';
 import Util from '@/util/Util';
 import { Component, Prop, Vue, Watch } from 'vue-property-decorator';
+import * as apid from '../../../../api';
+
+interface SelectItem {
+    text: string;
+    value: apid.UserId;
+}
 
 @Component({})
 export default class ProgramDialog extends Vue {
@@ -76,8 +88,25 @@ export default class ProgramDialog extends Vue {
     private setting: ISettingStorageModel = container.get<ISettingStorageModel>('ISettingStorageModel');
     private dialogSetting = container.get<IGuideProgramDialogSettingStorageModel>('IGuideProgramDialogSettingStorageModel');
     public isRemove: boolean = false;
+    public users: apid.User[] = [];
+    public selectedUserId: apid.UserId | null = null;
 
+    private userApiModel: IUserApiModel = container.get<IUserApiModel>('IUserApiModel');
+    private activeUserStorage: IActiveUserStorageModel = container.get<IActiveUserStorageModel>('IActiveUserStorageModel');
     private snackbarState = container.get<ISnackbarState>('ISnackbarState');
+
+    get userItems(): SelectItem[] {
+        return this.users.map(user => {
+            return {
+                text: user.name,
+                value: user.id,
+            };
+        });
+    }
+
+    public async created(): Promise<void> {
+        await this.fetchUsers();
+    }
 
     /**
      * 手動予約
@@ -192,7 +221,7 @@ export default class ProgramDialog extends Vue {
      */
     public async addReserve(): Promise<void> {
         try {
-            await this.dialogState.addReserve();
+            await this.dialogState.addReserve(typeof this.selectedUserId === 'number' ? this.selectedUserId : undefined);
             if (this.dialogState.displayData !== null) {
                 this.snackbarState.open({
                     text: `${this.dialogState.displayData.programName} 予約`,
@@ -279,7 +308,7 @@ export default class ProgramDialog extends Vue {
      * dialog の表示状態が変更されたときに呼ばれる
      */
     @Watch('dialogState.isOpen', { immediate: true })
-    public onChangeState(newState: boolean, oldState: boolean): void {
+    public async onChangeState(newState: boolean, oldState: boolean): Promise<void> {
         /**
          * dialog を一度開くと v-aplication 直下に要素が追加され、
          * android 使用時に番組表のスクロールが正常にできなくなる
@@ -298,6 +327,8 @@ export default class ProgramDialog extends Vue {
                 });
             });
         } else if (newState === true && oldState === false) {
+            await this.fetchUsers();
+
             // open
             // extended の URL のリンクを貼る
             this.$nextTick(() => {
@@ -322,6 +353,22 @@ export default class ProgramDialog extends Vue {
             this.dialogState.close();
         }
     }
+
+    private async fetchUsers(): Promise<void> {
+        const result = await this.userApiModel.gets();
+        this.users = result.users;
+
+        if (this.users.length === 0) {
+            return;
+        }
+
+        const activeUserId = this.activeUserStorage.getSavedValue().userId;
+        if (typeof activeUserId === 'number' && this.users.some(user => user.id === activeUserId) === true) {
+            this.selectedUserId = activeUserId;
+        } else if (this.selectedUserId === null || this.users.some(user => user.id === this.selectedUserId) === false) {
+            this.selectedUserId = this.users[0].id;
+        }
+    }
 }
 </script>
 
@@ -340,6 +387,25 @@ export default class ProgramDialog extends Vue {
 
 .encode-selector
     max-width: 120px
+
+.quick-reserve-options
+    display: flex
+    align-items: flex-end
+    justify-content: flex-end
+    gap: 12px
+
+.quick-checks
+    display: flex
+    flex-direction: column
+    justify-content: center
+    min-width: 116px
+
+.compact-check
+    padding-top: 0
+    font-size: 0.9rem
+
+.program-user-selector
+    max-width: 150px
 </style>
 
 <style lang="sass">

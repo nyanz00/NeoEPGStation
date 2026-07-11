@@ -36,7 +36,7 @@ export default interface IGuideProgramDialogState {
     getProgram(): apid.ScheduleProgramItem | null;
     getEncodeList(): string[];
     updateReserve(reserve: ProgramDialogReseveItem | null): void;
-    addReserve(): Promise<void>;
+    addReserve(userId?: apid.UserId): Promise<void>;
     cancelReserve(): Promise<void>;
     removeReserveSkip(): Promise<void>;
     removeReserveOverlap(): Promise<void>;

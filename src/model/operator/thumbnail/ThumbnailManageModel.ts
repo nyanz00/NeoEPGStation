@@ -64,6 +64,17 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
         });
     }
 
+    public replace(videoFileId: apid.VideoFileId): void {
+        this.log.system.info(`replace thumbnail queue: ${videoFileId}`);
+
+        this.queue.add<void>(() => {
+            return this.replaceRecordedThumbnail(videoFileId).catch(err => {
+                this.log.system.error(`replace thumbnail error: ${videoFileId}`);
+                this.log.system.error(err);
+            });
+        });
+    }
+
     /**
      * サムネイル生成をして生成したファイルを Thumbnail に登録する
      * @param videoFileId: apid.VideoFileId
@@ -183,6 +194,27 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
      * @param conflict: 重複数
      * @return string
      */
+    private async replaceRecordedThumbnail(videoFileId: apid.VideoFileId): Promise<void> {
+        const videoFile = await this.videoFileDB.findId(videoFileId);
+        if (videoFile === null) {
+            this.log.system.error(`video file is not found: ${videoFileId}`);
+            throw new Error('VideoFileIsNotFound');
+        }
+
+        const recorded = await this.recordedDB.findId(videoFile.recordedId);
+        const oldThumbnails =
+            recorded !== null && typeof recorded.thumbnails !== 'undefined' ? recorded.thumbnails.slice() : [];
+
+        await this.create(videoFileId);
+
+        for (const thumbnail of oldThumbnails) {
+            await this.delete(thumbnail.id).catch(err => {
+                this.log.system.error(`delete old thumbnail error: ${thumbnail.id}`);
+                this.log.system.error(err);
+            });
+        }
+    }
+
     private async getSaveFileName(recordedId: apid.RecordedId, conflict: number = 0): Promise<string> {
         const conflictStr = conflict === 0 ? '' : `(${conflict})`;
         const fileName = `${recordedId}${conflictStr}.jpg`;

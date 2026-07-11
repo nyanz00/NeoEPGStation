@@ -31,6 +31,24 @@ export default class VideoApiModel implements IVideoApiModel {
         return result.data.duration;
     }
 
+    public async getSubtitles(videoFileId: apid.VideoFileId): Promise<apid.VideoSubtitles> {
+        const result = await this.repository.get(`/videos/${videoFileId}/subtitles`);
+
+        return result.data;
+    }
+
+    public async getSubtitleText(videoFileId: apid.VideoFileId, subtitleIndex: number): Promise<apid.VideoSubtitleText> {
+        const result = await this.repository.get(`/videos/${videoFileId}/subtitles/${subtitleIndex}/text`);
+
+        return result.data;
+    }
+
+    public async prepareSubtitle(videoFileId: apid.VideoFileId, subtitleIndex: number): Promise<apid.VideoPreparedSubtitle> {
+        const result = await this.repository.post(`/videos/${videoFileId}/subtitles/${subtitleIndex}/prepare`, {});
+
+        return result.data;
+    }
+
     /**
      * kodi にビデオリンクを送信する
      * @param hostName: kodi host name

@@ -21,6 +21,12 @@ export const get: Operation = async (req, res) => {
         if (typeof req.query.keyword === 'string') {
             option.keyword = req.query.keyword;
         }
+        if (typeof req.query.userId !== 'undefined') {
+            option.userId = parseInt(req.query.userId as any, 10);
+        }
+        if (String(req.query.hasReserve) === 'true') {
+            option.hasReserve = true;
+        }
 
         api.responseJSON(res, 200, await ruleApiModel.gets(option));
     } catch (err: any) {
@@ -44,6 +50,17 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/QueryKeyword',
+        },
+        {
+            $ref: '#/components/parameters/QueryHasReserve',
+        },
+        {
+            name: 'userId',
+            in: 'query',
+            description: 'ユーザーID',
+            schema: {
+                $ref: '#/components/schemas/UserId',
+            },
         },
     ],
     responses: {

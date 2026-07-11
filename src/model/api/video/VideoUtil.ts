@@ -1,17 +1,29 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import * as crypto from 'crypto';
+import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
+import * as os from 'os';
 import * as path from 'path';
 import * as apid from '../../../../api';
 import VideoFile from '../../../db/entities/VideoFile';
 import IVideoFileDB from '../../db/IVideoFileDB';
 import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
-import IVideoUtil, { VideoInfo } from './IVideoUtil';
+import IVideoUtil, { PreparedSubtitleInfo, VideoInfo, VideoSubtitleInfo } from './IVideoUtil';
+
+interface PreparedSubtitleEntry {
+    filePath: string;
+    createdAt: number;
+}
 
 @injectable()
 export default class VideoUtil implements IVideoUtil {
+    private static readonly PREPARED_SUBTITLE_TTL = 60 * 60 * 1000;
+    private static readonly PREPARED_SUBTITLE_ROOT = path.join(os.tmpdir(), 'epgstation-vodhls-subtitles');
+
     private config: IConfigFile;
     private videoFileDB: IVideoFileDB;
+    private preparedSubtitles: Map<string, PreparedSubtitleEntry> = new Map();
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
@@ -19,6 +31,7 @@ export default class VideoUtil implements IVideoUtil {
     ) {
         this.config = configuration.getConfig();
         this.videoFileDB = videoFileDB;
+        this.cleanupPreparedSubtitleRoot();
     }
 
     public async getFullFilePathFromId(videoFileId: apid.VideoFileId): Promise<string | null> {
@@ -73,5 +86,218 @@ export default class VideoUtil implements IVideoUtil {
                 }
             });
         });
+    }
+
+    public getMpegTsServiceId(filePath: string): Promise<number | null> {
+        return new Promise<number | null>((resolve, reject) => {
+            execFile(
+                this.config.ffprobe,
+                ['-v', 'error', '-show_programs', '-of', 'json', filePath],
+                { maxBuffer: 4 * 1024 * 1024 },
+                (err, stdout) => {
+                    if (err) {
+                        reject(err);
+
+                        return;
+                    }
+
+                    try {
+                        const result = <any>JSON.parse(stdout);
+                        const programs: any[] = Array.isArray(result.programs) ? result.programs : [];
+                        const program =
+                            programs.find(item =>
+                                Array.isArray(item.streams)
+                                    ? item.streams.some((stream: any) => stream.codec_type === 'video')
+                                    : false,
+                            ) ?? programs[0];
+                        const serviceId = Number(program?.program_id);
+                        resolve(Number.isInteger(serviceId) === true && serviceId >= 0 ? serviceId : null);
+                    } catch (err: any) {
+                        reject(err);
+                    }
+                },
+            );
+        });
+    }
+
+    public getSubtitles(filePath: string): Promise<VideoSubtitleInfo[]> {
+        return new Promise<VideoSubtitleInfo[]>((resolve, reject) => {
+            execFile(
+                this.config.ffprobe,
+                ['-v', '0', '-select_streams', 's', '-show_streams', '-of', 'json', filePath],
+                (err, stdout) => {
+                    if (err) {
+                        reject(err);
+
+                        return;
+                    }
+
+                    try {
+                        const result = <any>JSON.parse(stdout);
+                        const streams: any[] = Array.isArray(result.streams) ? result.streams : [];
+                        resolve(
+                            streams.map((stream, subtitleIndex) => {
+                                const language =
+                                    typeof stream.tags?.language === 'string' ? stream.tags.language : undefined;
+                                const title = typeof stream.tags?.title === 'string' ? stream.tags.title : undefined;
+                                const codecName = typeof stream.codec_name === 'string' ? stream.codec_name : undefined;
+                                const displayParts = [`字幕 ${subtitleIndex + 1}`, title, language, codecName].filter(
+                                    (item): item is string => typeof item === 'string' && item.length > 0,
+                                );
+
+                                return {
+                                    subtitleIndex: subtitleIndex,
+                                    streamIndex:
+                                        typeof stream.index === 'number'
+                                            ? stream.index
+                                            : parseInt(stream.index ?? subtitleIndex, 10),
+                                    codecName: codecName,
+                                    language: language,
+                                    title: title,
+                                    isDefault: stream.disposition?.default === 1,
+                                    isForced: stream.disposition?.forced === 1,
+                                    displayName: displayParts.join(' / '),
+                                };
+                            }),
+                        );
+                    } catch (err: any) {
+                        reject(err);
+                    }
+                },
+            );
+        });
+    }
+
+    public async prepareSubtitle(filePath: string, subtitleIndex: number): Promise<PreparedSubtitleInfo> {
+        if (subtitleIndex < 0 || Number.isFinite(subtitleIndex) === false) {
+            throw new Error('SubtitleIndexIsInvalid');
+        }
+
+        this.cleanupPreparedSubtitles();
+
+        await fs.promises.mkdir(VideoUtil.PREPARED_SUBTITLE_ROOT, { recursive: true });
+
+        const key = crypto.randomBytes(16).toString('hex');
+        const outputPath = path.join(VideoUtil.PREPARED_SUBTITLE_ROOT, `${key}.ass`);
+        const args = [
+            '-hide_banner',
+            '-loglevel',
+            'warning',
+            '-y',
+            '-i',
+            filePath,
+            '-map',
+            `0:s:${subtitleIndex.toString(10)}`,
+            '-c:s',
+            'ass',
+            outputPath,
+        ];
+
+        await new Promise<void>((resolve, reject) => {
+            execFile(this.config.ffmpeg, args, (err, _stdout, stderr) => {
+                if (err) {
+                    reject(new Error(`SubtitlePrepareFailed: ${stderr}`));
+
+                    return;
+                }
+
+                resolve();
+            });
+        });
+        const stat = await fs.promises.stat(outputPath);
+        if (stat.size <= 0) {
+            await fs.promises.rm(outputPath, { force: true }).catch(() => {});
+            throw new Error('PreparedSubtitleIsEmpty');
+        }
+
+        this.preparedSubtitles.set(key, {
+            filePath: outputPath,
+            createdAt: Date.now(),
+        });
+
+        return {
+            key: key,
+            filePath: outputPath,
+        };
+    }
+
+    public async getSubtitleText(filePath: string, subtitleIndex: number): Promise<string> {
+        if (subtitleIndex < 0 || Number.isFinite(subtitleIndex) === false) {
+            throw new Error('SubtitleIndexIsInvalid');
+        }
+
+        const args = [
+            '-hide_banner',
+            '-loglevel',
+            'warning',
+            '-i',
+            filePath,
+            '-map',
+            `0:s:${subtitleIndex.toString(10)}`,
+            '-c:s',
+            'ass',
+            '-f',
+            'ass',
+            'pipe:1',
+        ];
+
+        return new Promise<string>((resolve, reject) => {
+            const process = spawn(this.config.ffmpeg, args, { windowsHide: true });
+            const stdout: Buffer[] = [];
+            const stderr: Buffer[] = [];
+            process.stdout?.on('data', data => stdout.push(Buffer.from(data)));
+            process.stderr?.on('data', data => stderr.push(Buffer.from(data)));
+            process.on('error', reject);
+            process.on('exit', code => {
+                if (code !== 0) {
+                    reject(new Error(`SubtitleReadFailed: ${Buffer.concat(stderr).toString('utf8')}`));
+
+                    return;
+                }
+
+                const subtitleText = Buffer.concat(stdout).toString('utf8');
+                if (subtitleText.length === 0) {
+                    reject(new Error('SubtitleReadResultIsEmpty'));
+
+                    return;
+                }
+
+                resolve(subtitleText);
+            });
+        });
+    }
+
+    public getPreparedSubtitlePath(key: string): string | undefined {
+        this.cleanupPreparedSubtitles();
+
+        const prepared = this.preparedSubtitles.get(key);
+        if (typeof prepared === 'undefined') {
+            return undefined;
+        }
+
+        if (fs.existsSync(prepared.filePath) === false) {
+            this.preparedSubtitles.delete(key);
+
+            return undefined;
+        }
+
+        return prepared.filePath;
+    }
+
+    private cleanupPreparedSubtitleRoot(): void {
+        fs.rmSync(VideoUtil.PREPARED_SUBTITLE_ROOT, { force: true, recursive: true });
+    }
+
+    private cleanupPreparedSubtitles(): void {
+        const now = Date.now();
+        for (const [key, prepared] of this.preparedSubtitles.entries()) {
+            if (
+                now - prepared.createdAt > VideoUtil.PREPARED_SUBTITLE_TTL ||
+                fs.existsSync(prepared.filePath) === false
+            ) {
+                fs.promises.rm(prepared.filePath, { force: true }).catch(() => {});
+                this.preparedSubtitles.delete(key);
+            }
+        }
     }
 }

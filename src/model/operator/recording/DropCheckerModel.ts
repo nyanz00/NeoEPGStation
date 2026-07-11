@@ -400,6 +400,17 @@ class DropCheckerModel implements IDropCheckerModel {
         return this.dest;
     }
 
+    public getCurrentResult(): aribts.Result | null {
+        if (this.result !== null) {
+            return this.result;
+        }
+        if (this.tsPacketAnalyzer === null) {
+            return null;
+        }
+
+        return this.tsPacketAnalyzer.getResult();
+    }
+
     /**
      * 結果の取得
      * @return Promise<aribts.Result>

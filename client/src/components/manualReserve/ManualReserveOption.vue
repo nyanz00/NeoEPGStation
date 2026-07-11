@@ -3,6 +3,14 @@
         <div class="pa-4 manual-reserve-option">
             <v-expansion-panels :value.sync="manualReserveState.optionPanel" accordion multiple flat class="option-panels">
                 <v-expansion-panel>
+                    <v-expansion-panel-header>ユーザー</v-expansion-panel-header>
+                    <v-expansion-panel-content>
+                        <SearchOptionRow>
+                            <UserSelector v-model="manualReserveState.userId" :includeMaster="false"></UserSelector>
+                        </SearchOptionRow>
+                    </v-expansion-panel-content>
+                </v-expansion-panel>
+                <v-expansion-panel>
                     <v-expansion-panel-header>オプション</v-expansion-panel-header>
                     <v-expansion-panel-content>
                         <SearchOptionRow>
@@ -116,6 +124,14 @@
                         </SearchOptionRow>
                     </v-expansion-panel-content>
                 </v-expansion-panel>
+                <v-expansion-panel v-if="manualReserveState.isEnableEncodeMode() === true">
+                    <v-expansion-panel-header>サムネイル</v-expansion-panel-header>
+                    <v-expansion-panel-content>
+                        <SearchOptionRow>
+                            <v-checkbox class="mx-1 my-0" v-model="manualReserveState.encodeOption.updateThumbnail" label="エンコード完了時にサムネイルを再生成する"></v-checkbox>
+                        </SearchOptionRow>
+                    </v-expansion-panel-content>
+                </v-expansion-panel>
             </v-expansion-panels>
         </div>
         <v-divider></v-divider>
@@ -130,6 +146,7 @@
 
 <script lang="ts">
 import SearchOptionRow from '@/components/search/SearchOptionRow.vue';
+import UserSelector from '@/components/user/UserSelector.vue';
 import container from '@/model/ModelContainer';
 import IManualReserveState from '@/model/state/reserve/manual/IManualReserveState';
 import { Component, Prop, Vue } from 'vue-property-decorator';
@@ -137,6 +154,7 @@ import { Component, Prop, Vue } from 'vue-property-decorator';
 @Component({
     components: {
         SearchOptionRow,
+        UserSelector,
     },
 })
 export default class ManualReserveOption extends Vue {

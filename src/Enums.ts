@@ -2,4 +2,4 @@
  * 定数宣言
  */
 
-export type DBType = 'sqlite' | 'mysql' | 'postgres';
+export type DBType = 'sqlite' | 'better-sqlite3' | 'mysql' | 'postgres';

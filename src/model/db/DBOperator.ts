@@ -41,13 +41,16 @@ export default class DBOperator implements IDBOperator {
         const subscriber = path.join(distDBBasePath, 'subscribers', '**', '*.js');
 
         // マイグレーションファイルの場所
-        const migrations = [path.join(distDBBasePath, 'migrations', this.config.dbtype, '**', '*.js')];
+        const migrationDBType = this.config.dbtype === 'better-sqlite3' ? 'sqlite' : this.config.dbtype;
+        const migrations = [path.join(distDBBasePath, 'migrations', migrationDBType, '**', '*.js')];
 
         let connection: DataSource;
-        if (this.config.dbtype === 'sqlite') {
+        if (this.isSQLiteLike() === true) {
             connection = new DataSource({
-                type: 'sqlite',
+                type: 'better-sqlite3',
                 database: path.join(appRootPath, 'data', 'database.db'),
+                timeout: 90000,
+                enableWAL: true,
                 synchronize: false,
                 logging: false,
                 entities: [entitie],
@@ -108,7 +111,7 @@ export default class DBOperator implements IDBOperator {
      */
     private async setSQLiteExtensions(): Promise<void> {
         if (
-            this.config.dbtype !== 'sqlite' ||
+            this.isSQLiteLike() === false ||
             typeof this.config.sqlite === 'undefined' ||
             typeof this.config.sqlite.extensions === 'undefined' ||
             this.connection === null
@@ -119,17 +122,27 @@ export default class DBOperator implements IDBOperator {
         // 外部拡張読み込み
         for (const extension of this.config.sqlite.extensions) {
             this.log.system.info(`load extension: ${extension}`);
-            await new Promise<void>((resolve: () => void, reject: (err: Error) => void) => {
-                (<any>this.connection).driver.databaseConnection.loadExtension(extension, (err: Error | null) => {
-                    if (err) {
-                        this.log.system.error(`failed to load extension: ${extension}`);
-                        reject(err);
-                    } else {
-                        this.log.system.info(`loaded extension success: ${extension}`);
-                        resolve();
-                    }
+            if (this.config.dbtype === 'better-sqlite3') {
+                try {
+                    (<any>this.connection).driver.databaseConnection.loadExtension(extension);
+                    this.log.system.info(`loaded extension success: ${extension}`);
+                } catch (err: any) {
+                    this.log.system.error(`failed to load extension: ${extension}`);
+                    throw err;
+                }
+            } else {
+                await new Promise<void>((resolve: () => void, reject: (err: Error) => void) => {
+                    (<any>this.connection).driver.databaseConnection.loadExtension(extension, (err: Error | null) => {
+                        if (err) {
+                            this.log.system.error(`failed to load extension: ${extension}`);
+                            reject(err);
+                        } else {
+                            this.log.system.info(`loaded extension success: ${extension}`);
+                            resolve();
+                        }
+                    });
                 });
-            });
+            }
         }
     }
 
@@ -137,7 +150,7 @@ export default class DBOperator implements IDBOperator {
      * regexp が有効か返す
      */
     public isEnabledRegexp(): boolean {
-        if (this.config.dbtype !== 'sqlite') {
+        if (this.isSQLiteLike() === false) {
             return true;
         }
 
@@ -148,7 +161,7 @@ export default class DBOperator implements IDBOperator {
      * boolean 型を変換する
      */
     public convertBoolean(value: boolean): boolean | number {
-        if (this.config.dbtype !== 'sqlite') {
+        if (this.isSQLiteLike() === false) {
             return value;
         }
 
@@ -160,7 +173,7 @@ export default class DBOperator implements IDBOperator {
      * @return boolean
      */
     public isEnableCS(): boolean {
-        return this.config.dbtype === 'sqlite' ? false : true;
+        return this.isSQLiteLike() === false;
     }
 
     /**
@@ -174,6 +187,7 @@ export default class DBOperator implements IDBOperator {
                 return cs ? 'regexp binary' : 'regexp';
             case 'postgres':
                 return cs ? '~' : '~*';
+            case 'better-sqlite3':
             case 'sqlite':
             default:
                 return 'regexp';
@@ -190,9 +204,14 @@ export default class DBOperator implements IDBOperator {
                 return cs ? 'like binary' : 'like';
             case 'postgres':
                 return cs ? 'like' : 'ilike';
+            case 'better-sqlite3':
             case 'sqlite':
             default:
                 return 'like';
         }
+    }
+
+    private isSQLiteLike(): boolean {
+        return this.config.dbtype === 'sqlite' || this.config.dbtype === 'better-sqlite3';
     }
 }

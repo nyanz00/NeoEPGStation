@@ -17,6 +17,9 @@ export const get: Operation = async (req, res) => {
         if (typeof req.query.ruleId !== 'undefined') {
             option.ruleId = parseInt(req.query.ruleId as any, 10);
         }
+        if (typeof req.query.userId !== 'undefined') {
+            option.userId = parseInt(req.query.userId as any, 10);
+        }
         if (typeof req.query.offset !== 'undefined') {
             option.offset = parseInt(req.query.offset as any, 10);
         }
@@ -49,6 +52,14 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/QueryRuleId',
+        },
+        {
+            name: 'userId',
+            in: 'query',
+            description: 'ユーザーID',
+            schema: {
+                $ref: '#/components/schemas/UserId',
+            },
         },
     ],
     responses: {

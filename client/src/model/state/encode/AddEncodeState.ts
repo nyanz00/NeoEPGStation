@@ -128,6 +128,7 @@ export default class AddEncodeState implements IAddEncodeState {
             sourceVideoFileId: this.videoFileId,
             mode: this.encodeMode,
             removeOriginal: this.setting.tmp.removeOriginal,
+            updateThumbnail: this.setting.tmp.updateThumbnail,
         };
 
         if (this.setting.tmp.isSaveSameDirectory === true) {

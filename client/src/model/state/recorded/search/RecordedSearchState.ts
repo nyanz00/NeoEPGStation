@@ -14,10 +14,22 @@ class RecordedSearchState implements IRecordedSearchState {
     public ruleId: apid.RuleId | null | undefined = null;
     public channelId: apid.ChannelId | undefined;
     public genre: apid.ProgramGenreLv1 | undefined;
+    public encodeModes: string[] = [];
+    public encodeModeMatch: apid.RecordedEncodeModeMatch = 'include';
+    public hasDrop: boolean = false;
+    public hasError: boolean = false;
+    public hasScrambling: boolean = false;
+    public recordedDateSearchMode: 'range' | 'specific' = 'range';
+    public recordedStartDate: string | undefined;
+    public recordedEndDate: string | undefined;
+    public recordedYear: number | undefined;
+    public recordedMonth: number | undefined;
+    public recordedDay: number | undefined;
     public ruleKeyword: string | null = null;
     public ruleItems: apid.RuleKeywordItem[] = [];
     public channelItems: SelectorItem[] = [];
     public genreItems: SelectorItem[] = [];
+    public encodeItems: SelectorItem<string>[] = [];
 
     private recordedApiModel: IRecordedApiModel;
     private ruleApiModel: IRuleApiModel;
@@ -106,6 +118,17 @@ class RecordedSearchState implements IRecordedSearchState {
         this.ruleId = null;
         this.channelId = undefined;
         this.genre = undefined;
+        this.encodeModes = [];
+        this.encodeModeMatch = 'include';
+        this.hasDrop = false;
+        this.hasError = false;
+        this.hasScrambling = false;
+        this.recordedDateSearchMode = 'range';
+        this.recordedStartDate = undefined;
+        this.recordedEndDate = undefined;
+        this.recordedYear = undefined;
+        this.recordedMonth = undefined;
+        this.recordedDay = undefined;
         this.ruleKeyword = null;
     }
 
@@ -116,6 +139,11 @@ class RecordedSearchState implements IRecordedSearchState {
         // items クリア
         this.channelItems.splice(-this.channelItems.length);
         this.genreItems.splice(-this.genreItems.length);
+        this.encodeItems.splice(-this.encodeItems.length);
+        this.encodeItems.push({
+            text: 'TS',
+            value: '__ts__',
+        });
 
         if (this.searchOptions === null) {
             return;
@@ -139,6 +167,12 @@ class RecordedSearchState implements IRecordedSearchState {
             this.genreItems.push({
                 text: `${genreStr}(${genre.cnt.toString(10)})`,
                 value: genre.genre,
+            });
+        }
+        for (const encode of this.searchOptions.encode) {
+            this.encodeItems.push({
+                text: typeof encode.suffix === 'string' ? `${encode.name} (${encode.suffix})` : encode.name,
+                value: encode.name,
             });
         }
     }

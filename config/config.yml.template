@@ -6,6 +6,12 @@ dbtype: sqlite
 #   extensions:
 #     - '/hoge/regexp.dylib'
 #   regexp: true
+#
+# dbtype: better-sqlite3
+# sqlite:
+#   extensions:
+#     - '/hoge/regexp.dylib'
+#   regexp: true
 
 # dbtype: mysql
 # mysql:
@@ -33,17 +39,45 @@ recorded:
 thumbnail: '%ROOT%/thumbnail'
 thumbnailSize: 480x270
 thumbnailPosition: 5
+channelLogo: '%ROOT%/channel-logo'
 
 ffmpeg: /usr/local/bin/ffmpeg
 ffprobe: /usr/local/bin/ffprobe
 
 encodeProcessNum: 4
 concurrentEncodeNum: 1
+
+# Amatsukaze AddTask integration common settings.
+# amatsukaze:
+#     addTaskPath: C:\Amatsukaze\exe_files\AmatsukazeAddTask.exe
+#     root: C:\Amatsukaze
+#     ip: 127.0.0.1
+#     port: 32768
+#     priority: 3
+#     noMove: true
+#     outputDirMode: encode # encode: EPGStation output folder, source: source TS folder
+#     waitIntervalSec: 10
+#     finishDelaySec: 30
+#     stableSec: 30
+#     outputNameMatch: exact
+#     # Progress, failure detection and cancellation use Amatsukaze GUI TCP push.
+#     pendingTimeoutSec: 300 # auto cancel after Amatsukaze pending; 0 disables
+
 encode:
     - name: H.264
       cmd: '%NODE% %ROOT%/config/enc.js'
       suffix: .mp4
       rate: 4.0
+    # Amatsukaze encode preset example.
+    # - name: Amatsukaze HIGH
+    #   type: amatsukaze
+    #   suffix: -amhigh.mkv
+    #   rate: 4.0
+    #   amatsukaze:
+    #       profile: HIGH
+
+# encodingFinishCommand: ''
+# encodingFailedCommand: ''
 
 urlscheme:
     m2ts:
@@ -54,6 +88,30 @@ urlscheme:
         android: intent://ADDRESS#Intent;action=android.intent.action.VIEW;type=video/*;scheme=PROTOCOL;end
     download:
         ios: vlc-x-callback://x-callback-url/download?url=PROTOCOL%3A%2F%2FADDRESS&filename=FILENAME
+
+# Web 視聴用の構造化設定です。
+# enabled: true の場合、ライブ視聴の M2TS / M2TS-LL は下記の品質プロファイルから
+# 自動生成されます。従来の stream: 設定は残したまま利用できます。
+# watch:
+#     enabled: true
+#     encoder: QSVEncC
+#     qsvEncC: C:\qsvenc\QSVEncC64.exe
+#     # 未指定の場合は %ROOT%/thirdparty/tsreadex/tsreadex.exe を自動利用します。
+#     # tsreadex: C:\tsreadex\tsreadex.exe
+#     defaultLiveQuality: 720p
+#     defaultRecordedQuality: 720p
+#     liveQualities:
+#         - 1080p
+#         - 720p
+#         - 720p-hevc
+#         - 480p
+#     recordedQualities:
+#         - 1080p
+#         - 720p
+#         - 720p-hevc
+#         - 480p
+#     hevc10bit: false
+#     fps24: false
 
 stream:
     live:

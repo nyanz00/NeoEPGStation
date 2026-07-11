@@ -15,6 +15,7 @@ export default class AddEncodeSettingStorageModel extends AbstractStorageBaseMod
             parentDirectory: null,
             isSaveSameDirectory: false,
             removeOriginal: false,
+            updateThumbnail: true,
         };
     }
 

@@ -40,6 +40,14 @@
                                     <v-spacer></v-spacer>
                                     <v-switch v-model="storageModel.tmp.isHalfWidthDisplayed" value></v-switch>
                                 </div>
+                                <div class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">ユーザー</v-list-item-title>
+                                        <v-list-item-subtitle>このブラウザで使用する標準ユーザー</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <UserSetting></UserSetting>
+                                </div>
                             </v-list-item-content>
                         </v-list-item>
 
@@ -304,6 +312,59 @@
                         <v-list-item three-line>
                             <v-list-item-content>
                                 <div class="title">ビデオプレーヤ</div>
+                                <div v-if="watchQualityItems.length > 0" class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">エンコーダー</v-list-item-title>
+                                        <v-list-item-subtitle>ライブ視聴とstreamingで使用するエンコーダー</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <v-select :items="watchEncoderItems" v-model="storageModel.tmp.watchStreamEncoder" class="watch-select" :menu-props="{ auto: true }"></v-select>
+                                </div>
+                                <div v-if="watchQualityItems.length > 0" class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">デフォルト画質</v-list-item-title>
+                                        <v-list-item-subtitle>ライブ視聴とのデフォルト画質</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <v-select
+                                        :items="watchQualityItems"
+                                        v-model="storageModel.tmp.watchDefaultQuality"
+                                        class="watch-select"
+                                        :menu-props="{ auto: true }"
+                                    ></v-select>
+                                </div>
+                                <div v-if="watchQualityItems.length > 0" class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">HEVCでエンコード</v-list-item-title>
+                                        <v-list-item-subtitle>ライブ視聴のエンコードをHEVCで行います</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <v-switch v-model="storageModel.tmp.watchUseHevc" value></v-switch>
+                                </div>
+                                <div v-if="watchQualityItems.length > 0" class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">低遅延モード</v-list-item-title>
+                                        <v-list-item-subtitle>ライブ視聴を自動的に低遅延のM2TS-LLで開始します</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <v-switch v-model="storageModel.tmp.watchLowLatency" value></v-switch>
+                                </div>
+                                <div class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">STREAMING優先字幕</v-list-item-title>
+                                        <v-list-item-subtitle>この文字列を含む字幕をSTREAMINGの初期選択にします</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <v-text-field v-model="storageModel.tmp.watchSubtitlePreferredKeyword" class="watch-select" clearable></v-text-field>
+                                </div>
+                                <div class="my-2 d-flex flex-row align-center">
+                                    <div>
+                                        <v-list-item-title class="subtitle-1">PLAY優先字幕</v-list-item-title>
+                                        <v-list-item-subtitle>この文字列を含む通常字幕をPLAYの初期選択にします</v-list-item-subtitle>
+                                    </div>
+                                    <v-spacer></v-spacer>
+                                    <v-text-field v-model="storageModel.tmp.watchPlaySubtitlePreferredKeyword" class="watch-select" clearable></v-text-field>
+                                </div>
                                 <div class="my-2 d-flex flex-row align-center">
                                     <div>
                                         <v-list-item-title class="subtitle-1">字幕の縁取りを強制する</v-list-item-title>
@@ -330,11 +391,13 @@
 
 <script lang="ts">
 import TitleBar from '@/components/titleBar/TitleBar.vue';
+import UserSetting from '@/components/user/UserSetting.vue';
 import container from '@/model/ModelContainer';
 import IScrollPositionState from '@/model/state/IScrollPositionState';
 import INavigationState from '@/model/state/navigation/INavigationState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
-import { ISettingStorageModel, GuideViewMode } from '@/model/storage/setting/ISettingStorageModel';
+import IServerConfigModel from '@/model/serverConfig/IServerConfigModel';
+import { ISettingStorageModel, GuideViewMode, WatchStreamEncoderSetting } from '@/model/storage/setting/ISettingStorageModel';
 import { Component, Vue, Watch } from 'vue-property-decorator';
 import IColorThemeState from '@/model/state/IColorThemeState';
 import Mpegts from 'mpegts.js';
@@ -351,9 +414,15 @@ interface SelectItem {
     value: number;
 }
 
+interface WatchSelectItem<T> {
+    text: string;
+    value: T;
+}
+
 @Component({
     components: {
         TitleBar,
+        UserSetting,
     },
 })
 export default class Settings extends Vue {
@@ -364,6 +433,7 @@ export default class Settings extends Vue {
     private scrollState: IScrollPositionState = container.get<IScrollPositionState>('IScrollPositionState');
     private snackbarState: ISnackbarState = container.get<ISnackbarState>('ISnackbarState');
     private colorThemeState: IColorThemeState = container.get<IColorThemeState>('IColorThemeState');
+    private serverConfig: IServerConfigModel = container.get<IServerConfigModel>('IServerConfigModel');
 
     public readonly guideModeItems: GuideModeItem[] = [
         {
@@ -386,6 +456,39 @@ export default class Settings extends Vue {
     public recordedLengthItems: SelectItem[] = [];
     public searchLengthItems: SelectItem[] = [];
     public rulesLengthItems: SelectItem[] = [];
+
+    get watchEncoderItems(): WatchSelectItem<WatchStreamEncoderSetting>[] {
+        const config = this.serverConfig.getConfig();
+        const encoders = config?.watchConfig?.availableEncoders ?? [];
+        const result: WatchSelectItem<WatchStreamEncoderSetting>[] = [
+            {
+                text: 'config.ymlの設定',
+                value: 'Config',
+            },
+        ];
+
+        for (const encoder of encoders) {
+            result.push({
+                text: encoder,
+                value: encoder,
+            });
+        }
+
+        return result;
+    }
+
+    get watchQualityItems(): WatchSelectItem<string | null>[] {
+        const config = this.serverConfig.getConfig();
+        const qualities = config?.watchConfig?.liveQualities ?? [];
+        const result = qualities.map((quality: string): WatchSelectItem<string | null> => {
+            return {
+                text: quality,
+                value: quality,
+            };
+        });
+
+        return result;
+    }
 
     get shouldUseOSColorTheme(): boolean {
         return this.storageModel.tmp.shouldUseOSColorTheme;
@@ -493,6 +596,8 @@ export default class Settings extends Vue {
     max-width: 100px
 .guide-time
     max-width: 70px
+.watch-select
+    max-width: 180px
 </style>
 
 <style lang="sass">

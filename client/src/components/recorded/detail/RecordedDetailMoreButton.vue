@@ -31,6 +31,14 @@
                         <v-list-item-title>search</v-list-item-title>
                     </v-list-item-content>
                 </v-list-item>
+                <v-list-item v-on:click="openUserDialog">
+                    <v-list-item-icon class="mr-3">
+                        <v-icon>mdi-account</v-icon>
+                    </v-list-item-icon>
+                    <v-list-item-content>
+                        <v-list-item-title>user</v-list-item-title>
+                    </v-list-item-content>
+                </v-list-item>
                 <v-list-item v-if="recordedItem.isProtected === true" v-on:click="unprotect">
                     <v-list-item-icon class="mr-3">
                         <v-icon>mdi-lock-open</v-icon>
@@ -70,12 +78,14 @@
             :isDelaySnackbarViewNum="800"
             v-on:deleteSuccessful="deleteSuccessful"
         ></RecordedDeleteDialog>
+        <RecordedUserDialog :isOpen.sync="isOpenUserDialog" :recordedItem="recordedItem"></RecordedUserDialog>
     </div>
 </template>
 
 <script lang="ts">
 import RecordedDeleteDialog from '@/components/recorded/RecordedDeleteDialog.vue';
 import RecordedDownloadDialog from '@/components/recorded/RecordedDownloadDialog.vue';
+import RecordedUserDialog from '@/components/recorded/RecordedUserDialog.vue';
 import IRecordedApiModel from '@/model/api/recorded/IRecordedApiModel';
 import container from '@/model/ModelContainer';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
@@ -88,6 +98,7 @@ import * as apid from '../../../../../api';
     components: {
         RecordedDownloadDialog,
         RecordedDeleteDialog,
+        RecordedUserDialog,
     },
 })
 export default class RecordedDetailMoreButton extends Vue {
@@ -98,6 +109,7 @@ export default class RecordedDetailMoreButton extends Vue {
 
     public isOpenDeleteDialog: boolean = false;
     public isOpenDownloadDialog: boolean = false;
+    public isOpenUserDialog: boolean = false;
 
     public recordedApiModel = container.get<IRecordedApiModel>('IRecordedApiModel');
     private snackbarState: ISnackbarState = container.get<ISnackbarState>('ISnackbarState');
@@ -175,6 +187,11 @@ export default class RecordedDetailMoreButton extends Vue {
     public async openDeleteDialog(): Promise<void> {
         await Util.sleep(300);
         this.isOpenDeleteDialog = true;
+    }
+
+    public async openUserDialog(): Promise<void> {
+        await Util.sleep(300);
+        this.isOpenUserDialog = true;
     }
 
     public onClickMenuBackground(e: Event): boolean {

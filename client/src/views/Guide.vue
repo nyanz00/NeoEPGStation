@@ -6,6 +6,7 @@
             v-on:click="onTitle"
         >
             <template v-slot:menu>
+                <GuideBroadcastSelector v-if="typeof $route.query.channelId === 'undefined' && isLoading === false"></GuideBroadcastSelector>
                 <GuideTimeSelector v-if="isLoading === false"></GuideTimeSelector>
                 <GuideMainMenu v-on:updatedgenre="onUpdateGenre"></GuideMainMenu>
             </template>
@@ -40,6 +41,7 @@
 
 <script lang="ts">
 import Channel from '@/components/guide/Channel.vue';
+import GuideBroadcastSelector from '@/components/guide/GuideBroadcastSelector.vue';
 import GuideDaySelectDialog from '@/components/guide/GuideDaySelectDialog.vue';
 import GuideMainMenu from '@/components/guide/GuideMainMenu.vue';
 import GuideScroller from '@/components/guide/GuideScroller.vue';
@@ -68,6 +70,7 @@ Component.registerHooks(['beforeRouteUpdate', 'beforeRouteLeave']);
 @Component({
     components: {
         TitleBar,
+        GuideBroadcastSelector,
         GuideMainMenu,
         GuideTimeSelector,
         Loading,
@@ -81,6 +84,9 @@ Component.registerHooks(['beforeRouteUpdate', 'beforeRouteLeave']);
     },
 })
 export default class Guide extends Vue {
+    private static readonly MIN_TABLET_CHANNEL_HEIGHT = 54;
+    private static readonly MIN_MOBILE_CHANNEL_HEIGHT = 50;
+
     public isLoading: boolean = true;
     public guideState: IGuideState = container.get<IGuideState>('IGuideState');
     public isOpenDaySelectDialog: boolean = false;
@@ -339,7 +345,7 @@ export default class Guide extends Vue {
      */
     private setSizeSetting(): void {
         const sizeValue = this.sizeSetting.getSavedValue();
-        this.setCssVariable('--channel-tablet-height', `${sizeValue.tablet.channelHeight}px`);
+        this.setCssVariable('--channel-tablet-height', `${Math.max(sizeValue.tablet.channelHeight, Guide.MIN_TABLET_CHANNEL_HEIGHT)}px`);
         this.setCssVariable('--channel-tablet-width', `${sizeValue.tablet.channelWidth}px`);
         this.setCssVariable('--channel-tablet-fontsize', `${sizeValue.tablet.channelFontsize}px`);
         this.setCssVariable('--timescale-tablet-height', `${sizeValue.tablet.timescaleHeight}px`);
@@ -347,7 +353,7 @@ export default class Guide extends Vue {
         this.setCssVariable('--timescale-tablet-fontsize', `${sizeValue.tablet.timescaleFontsize}px`);
         this.setCssVariable('--program-tablet-fontsize', `${sizeValue.tablet.programFontSize}pt`);
 
-        this.setCssVariable('--channel-mobile-height', `${sizeValue.mobile.channelHeight}px`);
+        this.setCssVariable('--channel-mobile-height', `${Math.max(sizeValue.mobile.channelHeight, Guide.MIN_MOBILE_CHANNEL_HEIGHT)}px`);
         this.setCssVariable('--channel-mobile-width', `${sizeValue.mobile.channelWidth}px`);
         this.setCssVariable('--channel-mobile-fontsize', `${sizeValue.mobile.channelFontsize}px`);
         this.setCssVariable('--timescale-mobile-height', `${sizeValue.mobile.timescaleHeight}px`);
@@ -464,7 +470,7 @@ $window-width: 600px
     /**
      * タブレット用設定
      */
-    --channel-tablet-height: 30px
+    --channel-tablet-height: 54px
     --channel-tablet-width: 140px
     --channel-tablet-fontsize: 14px
 
@@ -477,7 +483,7 @@ $window-width: 600px
     /**
      * モバイル用設定
      */
-    --channel-mobile-height: 20px
+    --channel-mobile-height: 50px
     --channel-mobile-width: 100px
     --channel-mobile-fontsize: 12px
 

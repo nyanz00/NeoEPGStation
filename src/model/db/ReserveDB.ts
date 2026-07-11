@@ -40,7 +40,7 @@ export default class ReserveDB implements IReserveDB {
         let hasError = false;
         try {
             // 削除
-            await queryRunner.manager.delete(Reserve, {});
+            await queryRunner.manager.clear(Reserve);
 
             // 挿入処理
             for (const item of items) {
@@ -183,6 +183,9 @@ export default class ReserveDB implements IReserveDB {
 
         if (typeof option.ruleId !== 'undefined') {
             findConditions.ruleId = option.ruleId;
+        }
+        if (typeof option.userId !== 'undefined') {
+            findConditions.userId = option.userId;
         }
 
         const findOption: FindManyOptions<Reserve> = {

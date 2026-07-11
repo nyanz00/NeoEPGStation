@@ -45,6 +45,9 @@ export default class RuleSearchMenu extends Vue {
             if (typeof this.keyword !== 'undefined' && this.keyword !== null && this.keyword.length > 0) {
                 searchQuery.keyword = this.keyword;
             }
+            if (this.$route.query.hasReserve === 'true') {
+                searchQuery.hasReserve = 'true';
+            }
 
             await Util.move(this.$router, {
                 path: '/rule',

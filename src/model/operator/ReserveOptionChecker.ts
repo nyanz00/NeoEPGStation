@@ -230,8 +230,21 @@ export default class ReserveOptionChecker implements IReserveOptionChecker {
         if (typeof option.mode2 === 'undefined' && typeof option.directory2 !== 'undefined') { return false; }
         // prettier-ignore
         if (typeof option.mode3 === 'undefined' && typeof option.directory3 !== 'undefined') { return false; }
+        // prettier-ignore
+        if (typeof option.mode1 === 'undefined' && this.hasEncodeChannelOption(option.channelIds1, option.channelId1)) { return false; }
+        // prettier-ignore
+        if (typeof option.mode2 === 'undefined' && this.hasEncodeChannelOption(option.channelIds2, option.channelId2)) { return false; }
+        // prettier-ignore
+        if (typeof option.mode3 === 'undefined' && this.hasEncodeChannelOption(option.channelIds3, option.channelId3)) { return false; }
 
         return true;
+    }
+
+    private hasEncodeChannelOption(
+        channelIds: apid.ChannelId[] | undefined,
+        legacyChannelId: apid.ChannelId | undefined,
+    ): boolean {
+        return (Array.isArray(channelIds) === true && channelIds.length > 0) || typeof legacyChannelId !== 'undefined';
     }
 
     /**

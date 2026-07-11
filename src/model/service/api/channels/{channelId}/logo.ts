@@ -9,6 +9,7 @@ export const get: Operation = async (req, res) => {
     try {
         const result = await channelApiModel.getLogo(parseInt(req.params.channelId, 10));
         res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
         res.status(200);
         res.end(result);
     } catch (err: any) {

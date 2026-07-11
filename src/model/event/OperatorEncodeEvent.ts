@@ -2,7 +2,7 @@ import * as events from 'events';
 import { inject, injectable } from 'inversify';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
-import IOperatorEncodeEvent, { OperatorFinishEncodeInfo } from './IOperatorEncodeEvent';
+import IOperatorEncodeEvent, { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from './IOperatorEncodeEvent';
 
 @injectable()
 class OperatorEncodeEvent implements IOperatorEncodeEvent {
@@ -21,6 +21,10 @@ class OperatorEncodeEvent implements IOperatorEncodeEvent {
         this.emitter.emit(OperatorEncodeEvent.FINISH_ENCODE_EVENT, info);
     }
 
+    public emitErrorEncode(info: OperatorErrorEncodeInfo): void {
+        this.emitter.emit(OperatorEncodeEvent.ERROR_ENCODE_EVENT, info);
+    }
+
     /**
      * エンコード完了イベント登録
      * @param callback: (info: OperatorFinishEncodeInfo) => void
@@ -34,10 +38,21 @@ class OperatorEncodeEvent implements IOperatorEncodeEvent {
             }
         });
     }
+
+    public setErrorEncode(callback: (info: OperatorErrorEncodeInfo) => void): void {
+        this.emitter.on(OperatorEncodeEvent.ERROR_ENCODE_EVENT, async (info: OperatorErrorEncodeInfo) => {
+            try {
+                await callback(info);
+            } catch (err: any) {
+                this.log.system.error(err);
+            }
+        });
+    }
 }
 
 namespace OperatorEncodeEvent {
     export const FINISH_ENCODE_EVENT = 'finishEncodeEvent';
+    export const ERROR_ENCODE_EVENT = 'errorEncodeEvent';
 }
 
 export default OperatorEncodeEvent;

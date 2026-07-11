@@ -120,6 +120,7 @@ export default class EncodeApiModel implements IEncodeApiModel {
                 directory: addOption.directory,
                 mode: addOption.mode,
                 removeOriginal: addOption.removeOriginal,
+                updateThumbnail: addOption.updateThumbnail,
             };
         } else {
             const video = await this.videoFileDB.findId(addOption.sourceVideoFileId);
@@ -138,6 +139,7 @@ export default class EncodeApiModel implements IEncodeApiModel {
                 parentDir: video.parentDirectoryName,
                 mode: addOption.mode,
                 removeOriginal: addOption.removeOriginal,
+                updateThumbnail: addOption.updateThumbnail,
             };
 
             if (directory !== null) {

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import mirakurun from 'mirakurun';
 import * as path from 'path';
-import * as url from 'url';
+import { URL } from 'url';
 import IConfigFile from './IConfigFile';
 import IConfiguration from './IConfiguration';
 import IMirakurunClientModel from './IMirakurunClientModel';
@@ -51,10 +51,10 @@ export default class MirakurunClientModel implements IMirakurunClientModel {
                 this.client.basePath = path.posix.join(mirakurunPath.replace(legacyFormat, '$2'), this.client.basePath);
             }
         } else {
-            const urlObject = url.parse(mirakurunPath);
-            this.client.host = <string>urlObject.hostname;
-            this.client.port = Number(<string>urlObject.port);
-            this.client.basePath = path.posix.join(<string>urlObject.pathname, <string>this.client.basePath);
+            const urlObject = new URL(mirakurunPath);
+            this.client.host = urlObject.hostname;
+            this.client.port = Number(urlObject.port);
+            this.client.basePath = path.posix.join(urlObject.pathname, this.client.basePath);
         }
 
         this.client.userAgent = `${pkg.name}/${pkg.version}`;

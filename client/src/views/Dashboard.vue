@@ -1,6 +1,6 @@
 <template>
     <v-main>
-        <TitleBar :title="versionState.getVersionString()"></TitleBar>
+        <TitleBar :title="versionState.getVersionString()" :showNyanzIcon="true"></TitleBar>
         <div class="app-content d-flex flex-column mx-auto">
             <transition name="page">
                 <div v-if="isShow" class="dashboard" v-bind:class="dashboardClass">
@@ -264,7 +264,6 @@ class Dashboard extends Vue {
      * 予約競合ページへ飛ぶ
      */
     public gotoConflicts(): void {
-        console.log('goto conflict');
         Util.move(this.$router, {
             path: '/reserves',
             query: {

@@ -1,4 +1,4 @@
-import { ChildProcess, exec } from 'child_process';
+import { ChildProcess, exec, spawn } from 'child_process';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import internal, { Readable } from 'stream';
@@ -29,6 +29,7 @@ export default abstract class RecordedStreamBaseModel
 
     private fileStream: Readable | null = null;
     private id3MetadataTransoform: ID3MetadataTransform | null = null;
+    private preProcessProcess: ChildProcess | null = null;
     private streamProcess: ChildProcess | null = null;
     private videoFilePath: string | null = null;
     private videoFileInfo: VideoFileInfo | null = null;
@@ -104,12 +105,41 @@ export default abstract class RecordedStreamBaseModel
             throw new Error('CreateStreamProcessError');
         }
 
+        const stderrLines: string[] = [];
+
+        // ffmpeg / HWEncC debug 用ログ出力
+        if (this.streamProcess.stderr !== null) {
+            this.streamProcess.stderr.on('data', data => {
+                const text = String(data);
+                this.log.stream.debug(text);
+                for (const line of text.split(/\r|\n/)) {
+                    const trimmed = line.trim();
+                    if (trimmed.length === 0) {
+                        continue;
+                    }
+                    stderrLines.push(trimmed);
+                    if (stderrLines.length > 30) {
+                        stderrLines.shift();
+                    }
+                }
+            });
+        }
+
         // process 終了時にイベントを発行する
         if (this.getStreamType() !== 'RecordedHLS') {
-            this.streamProcess.on('exit', () => {
+            this.streamProcess.on('exit', (code, signal) => {
+                this.log.stream.info(`recorded stream process exited: code=${code}, signal=${signal}`);
+                if (code !== null && code !== 0) {
+                    this.log.stream.warn(`recorded stream process failed: code=${code}, signal=${signal}`);
+                    for (const line of stderrLines) {
+                        this.log.stream.warn(line);
+                    }
+                }
                 this.emitExitStream();
             });
-            this.streamProcess.on('error', () => {
+            this.streamProcess.on('error', err => {
+                this.log.stream.error('recorded stream process error');
+                this.log.stream.error(err);
                 this.emitExitStream();
             });
         } else {
@@ -119,23 +149,18 @@ export default abstract class RecordedStreamBaseModel
         // stream 停止タイマーセット
         this.setStopTimer();
 
-        // ffmpeg debug 用ログ出力
-        if (this.streamProcess.stderr !== null) {
-            this.streamProcess.stderr.on('data', data => {
-                this.log.stream.debug(String(data));
-            });
-        }
-
         // パイプ処理
         if (this.streamProcess.stdin !== null && this.fileStream !== null) {
+            const inputStream = this.createInputStream();
+
             // ts が入力かつ、HLS 配信の場合は arib-subtitle-timedmetadater を通す
             if (this.videoFileType === 'ts' && this.getStreamType() === 'RecordedHLS') {
                 this.log.stream.info('use arib-subtitle-timedmetadater');
                 this.id3MetadataTransoform = new ID3MetadataTransform();
-                this.fileStream.pipe(this.id3MetadataTransoform);
+                inputStream.pipe(this.id3MetadataTransoform);
                 this.id3MetadataTransoform.pipe(this.streamProcess.stdin);
             } else {
-                this.fileStream.pipe(this.streamProcess.stdin);
+                inputStream.pipe(this.streamProcess.stdin);
             }
         }
 
@@ -227,7 +252,10 @@ export default abstract class RecordedStreamBaseModel
         }
 
         const option: CreateProcessOption = {
-            input: this.isRecording === true ? null : this.videoFilePath,
+            input:
+                typeof this.processOption.preprocessor === 'undefined' && this.isRecording === false
+                    ? this.videoFilePath
+                    : null,
             output:
                 this.getStreamType() === 'RecordedHLS'
                     ? `${this.config.streamFilePath}\/stream${streamId.toString(10)}.m3u8`
@@ -265,6 +293,43 @@ export default abstract class RecordedStreamBaseModel
         }
     }
 
+    private createInputStream(): Readable {
+        if (this.fileStream === null || this.processOption === null) {
+            throw new Error('FileStreamIsNull');
+        }
+
+        if (typeof this.processOption.preprocessor === 'undefined') {
+            return this.fileStream;
+        }
+
+        const cmds = this.processOption.preprocessor;
+        this.log.stream.info(`create recorded stream preprocessor: ${cmds.bin} ${cmds.args.join(' ')}`);
+        this.preProcessProcess = spawn(cmds.bin, cmds.args);
+
+        this.preProcessProcess.on('exit', (code, signal) => {
+            this.log.stream.debug(`recorded stream preprocessor exited: code=${code}, signal=${signal}`);
+        });
+        this.preProcessProcess.on('error', err => {
+            this.log.stream.error('recorded stream preprocessor error');
+            this.log.stream.error(err);
+            this.emitExitStream();
+        });
+
+        if (this.preProcessProcess.stderr !== null) {
+            this.preProcessProcess.stderr.on('data', data => {
+                this.log.stream.debug(String(data));
+            });
+        }
+
+        if (this.preProcessProcess.stdin === null || this.preProcessProcess.stdout === null) {
+            throw new Error('RecordedStreamPreprocessorPipeIsNull');
+        }
+
+        this.fileStream.pipe(this.preProcessProcess.stdin);
+
+        return this.preProcessProcess.stdout;
+    }
+
     /**
      * ストリームを停止
      * @return Promise<void>
@@ -280,6 +345,10 @@ export default abstract class RecordedStreamBaseModel
         if (this.id3MetadataTransoform !== null) {
             this.id3MetadataTransoform.unpipe();
             this.id3MetadataTransoform.destroy();
+        }
+
+        if (this.preProcessProcess !== null) {
+            await ProcessUtil.kill(this.preProcessProcess);
         }
 
         if (this.streamProcess !== null) {

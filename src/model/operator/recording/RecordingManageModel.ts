@@ -9,7 +9,7 @@ import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
-import IRecorderModel, { RecorderModelProvider } from './IRecorderModel';
+import IRecorderModel, { RecorderModelProvider, RecordingDropLogFile } from './IRecorderModel';
 import IRecordingManageModel from './IRecordingManageModel';
 import IRecordingStreamCreator from './IRecordingStreamCreator';
 import IRecordingUtilModel from './IRecordingUtilModel';
@@ -277,6 +277,18 @@ class RecordingManageModel implements IRecordingManageModel {
 
         this.log.system.info(`cancel recording reserveId: ${reserveId}, isPlanToDelete: ${isPlanToDelete}`);
         return recording.cancel(isPlanToDelete);
+    }
+
+    public getCurrentDropLogFiles(): RecordingDropLogFile[] {
+        const result: RecordingDropLogFile[] = [];
+        for (const key in this.recordingIndex) {
+            const dropLogFile = this.recordingIndex[key].getCurrentDropLogFile();
+            if (dropLogFile !== null) {
+                result.push(dropLogFile);
+            }
+        }
+
+        return result;
     }
 
     /**

@@ -12,7 +12,7 @@ export default class GuideSizeSettingStorageModel extends AbstractStorageBaseMod
     public getDefaultValue(): IGuideSizeSettingValue {
         return {
             tablet: {
-                channelHeight: 30,
+                channelHeight: 54,
                 channelWidth: 140,
                 channelFontsize: 14,
                 timescaleHeight: 180,
@@ -21,7 +21,7 @@ export default class GuideSizeSettingStorageModel extends AbstractStorageBaseMod
                 programFontSize: 10,
             },
             mobile: {
-                channelHeight: 20,
+                channelHeight: 50,
                 channelWidth: 100,
                 channelFontsize: 12,
                 timescaleHeight: 120,

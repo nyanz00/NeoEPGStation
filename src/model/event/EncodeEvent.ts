@@ -3,7 +3,7 @@ import { inject, injectable } from 'inversify';
 import * as apid from '../../../api';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
-import IEncodeEvent, { FinishEncodeInfo } from './IEncodeEvent';
+import IEncodeEvent, { ErrorEncodeInfo, FinishEncodeInfo } from './IEncodeEvent';
 
 @injectable()
 class EncodeEvent implements IEncodeEvent {
@@ -41,8 +41,8 @@ class EncodeEvent implements IEncodeEvent {
     /**
      * エンコード失敗イベント発行
      */
-    public emitErrorEncode(): void {
-        this.emitter.emit(EncodeEvent.ERROR_ENCODE_EVENT);
+    public emitErrorEncode(info: ErrorEncodeInfo): void {
+        this.emitter.emit(EncodeEvent.ERROR_ENCODE_EVENT, info);
     }
 
     /**
@@ -105,10 +105,10 @@ class EncodeEvent implements IEncodeEvent {
      * エンコード失敗イベント登録
      * @param callback: callback: () => void
      */
-    public setErrorEncode(callback: () => void): void {
-        this.emitter.on(EncodeEvent.ERROR_ENCODE_EVENT, async () => {
+    public setErrorEncode(callback: (info: ErrorEncodeInfo) => void): void {
+        this.emitter.on(EncodeEvent.ERROR_ENCODE_EVENT, async (info: ErrorEncodeInfo) => {
             try {
-                await callback();
+                await callback(info);
             } catch (err: any) {
                 this.log.system.error(err);
             }

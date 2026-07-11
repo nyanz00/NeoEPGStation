@@ -1,7 +1,7 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../api';
-import { OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
 import { AddVideoFileOption, UploadedVideoFileOption } from '../operator/recorded/IRecordedManageModel';
@@ -297,6 +297,27 @@ export default class IPCClient implements IIPCClient {
                     },
                 });
             },
+            createCleanupPlan: () => {
+                return this.send(
+                    {
+                        model: ModelName.recorded,
+                        func: RecordedFunctions.createCleanupPlan,
+                    },
+                    0,
+                );
+            },
+            executeCleanupPlan: (planPath: string) => {
+                return this.send(
+                    {
+                        model: ModelName.recorded,
+                        func: RecordedFunctions.executeCleanupPlan,
+                        args: {
+                            planPath,
+                        },
+                    },
+                    0,
+                );
+            },
             videoFileCleanup: () => {
                 return this.send(
                     {
@@ -381,6 +402,12 @@ export default class IPCClient implements IIPCClient {
      */
     private setRecording(): void {
         this.recording = {
+            getCurrentDropLogFiles: () => {
+                return this.send({
+                    model: ModelName.recording,
+                    func: RecordingFunctions.getCurrentDropLogFiles,
+                });
+            },
             resetTimer: () => {
                 return this.send({
                     model: ModelName.recording,
@@ -478,6 +505,15 @@ export default class IPCClient implements IIPCClient {
                     },
                 });
             },
+            replace: videoFileId => {
+                return this.send({
+                    model: ModelName.thumbnail,
+                    func: ThumbnailFunctions.replace,
+                    args: {
+                        videoFileId: videoFileId,
+                    },
+                });
+            },
             delete: thumbnailId => {
                 return this.send({
                     model: ModelName.thumbnail,
@@ -499,6 +535,15 @@ export default class IPCClient implements IIPCClient {
                 return this.send({
                     model: ModelName.encodeEvent,
                     func: OperatorEncodeEventFunctions.emitFinishEncode,
+                    args: {
+                        info: info,
+                    },
+                });
+            },
+            emitErrorEncode: (info: OperatorErrorEncodeInfo) => {
+                return this.send({
+                    model: ModelName.encodeEvent,
+                    func: OperatorEncodeEventFunctions.emitErrorEncode,
                     args: {
                         info: info,
                     },

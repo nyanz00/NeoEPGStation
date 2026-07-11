@@ -65,6 +65,7 @@ export interface EncodedOption {
     encodeParentDirectoryName3: string | null;
     directory3: string | null;
     isDeleteOriginalAfterEncode: boolean; // エンコード後に元ファイルを自動削除するか
+    updateThumbnail: boolean; // エンコード完了時にサムネイルを再生成するか
 }
 
 export default interface IManualReserveState {
@@ -73,6 +74,7 @@ export default interface IManualReserveState {
     reserveOption: ManualReserveOption;
     saveOption: ManualSaveOption;
     encodeOption: EncodedOption;
+    userId: apid.UserId | null;
     optionPanel: number[];
     init(): void;
     setTimeSpecifiedOption(): void;

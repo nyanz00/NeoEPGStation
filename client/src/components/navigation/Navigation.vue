@@ -9,7 +9,10 @@
     >
         <v-list-item>
             <v-list-item-content>
-                <v-list-item-title class="title">{{ versionState.getVersionString() }}</v-list-item-title>
+                <v-list-item-title class="title version-title">
+                    <span>{{ versionState.getVersionString() }}</span>
+                    <img class="nyanz-smile" src="/icon/nyanz-smile.png" alt="" />
+                </v-list-item-title>
             </v-list-item-content>
         </v-list-item>
 
@@ -137,6 +140,17 @@ export default class Navigation extends Vue {
 <style lang="sass" scoped>
 .list-dummy
     margin-bottom: 16px
+
+.version-title
+    display: flex
+    align-items: center
+    gap: 6px
+
+.nyanz-smile
+    display: inline-block
+    width: auto
+    height: 24px
+    object-fit: contain
 
 .v-item-group
     .selected

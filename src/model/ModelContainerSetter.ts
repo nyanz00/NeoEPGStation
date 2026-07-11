@@ -13,6 +13,8 @@ import IApiUtil from './api/IApiUtil';
 import IIPTVApiModel from './api/iptv/IIPTVApiModel';
 import IPTVApiModel from './api/iptv/IPTVApiModel';
 import IRecordedItemUtil from './api/IRecordedItemUtil';
+import IJikkyoApiModel from './api/jikkyo/IJikkyoApiModel';
+import JikkyoApiModel from './api/jikkyo/JikkyoApiModel';
 import IRecordedApiModel from './api/recorded/IRecordedApiModel';
 import RecordedApiModel from './api/recorded/RecordedApiModel';
 import RecordedItemUtil from './api/RecordedItemUtil';
@@ -32,6 +34,8 @@ import IStreamApiModel from './api/stream/IStreamApiModel';
 import StreamApiModel from './api/stream/StreamApiModel';
 import IThumbnailApiModel from './api/thumbnail/IThumbnailApiModel';
 import ThumbnailApiModel from './api/thumbnail/ThumbnailApiModel';
+import IUserApiModel from './api/user/IUserApiModel';
+import UserApiModel from './api/user/UserApiModel';
 import IVideoApiModel from './api/video/IVideoApiModel';
 import IVideoUtil from './api/video/IVideoUtil';
 import VideoApiModel from './api/video/VideoApiModel';
@@ -51,6 +55,7 @@ import IRecordedTagDB from './db/IRecordedTagDB';
 import IReserveDB from './db/IReserveDB';
 import IRuleDB from './db/IRuleDB';
 import IThumbnailDB from './db/IThumbnailDB';
+import ITvUserDB from './db/ITvUserDB';
 import IVideoFileDB from './db/IVideoFileDB';
 import ProgramDB from './db/ProgramDB';
 import RecordedDB from './db/RecordedDB';
@@ -59,6 +64,7 @@ import RecordedTagDB from './db/RecordedTagDB';
 import ReserveDB from './db/ReserveDB';
 import RuleDB from './db/RuleDB';
 import ThumbnailDB from './db/ThumbnailDB';
+import TvUserDB from './db/TvUserDB';
 import VideoFileDB from './db/VideoFileDB';
 import EPGUpdateExecutorManageModel from './epgUpdater/EPGUpdateExecutorManageModel';
 import EPGUpdateManageModel from './epgUpdater/EPGUpdateManageModel';
@@ -201,6 +207,8 @@ export const set = (container: Container): void => {
 
     container.bind<IDropLogFileDB>('IDropLogFileDB').to(DropLogFileDB).inSingletonScope();
 
+    container.bind<ITvUserDB>('ITvUserDB').to(TvUserDB).inSingletonScope();
+
     container.bind<IRuleEvent>('IRuleEvent').to(RuleEvent).inSingletonScope();
 
     container.bind<IThumbnailEvent>('IThumbnailEvent').to(ThumbnailEvent).inSingletonScope();
@@ -292,6 +300,8 @@ export const set = (container: Container): void => {
 
     container.bind<IRecordedApiModel>('IRecordedApiModel').to(RecordedApiModel).inSingletonScope();
 
+    container.bind<IJikkyoApiModel>('IJikkyoApiModel').to(JikkyoApiModel).inSingletonScope();
+
     container.bind<IRecordingApiModel>('IRecordingApiModel').to(RecordingApiModel).inSingletonScope();
 
     container.bind<IRecordedTagApiModel>('IRecordedTagApiModel').to(RecordedTagApiModel).inSingletonScope();
@@ -299,6 +309,8 @@ export const set = (container: Container): void => {
     container.bind<IRuleApiModel>('IRuleApiModel').to(RuleApiModel).inSingletonScope();
 
     container.bind<IThumbnailApiModel>('IThumbnailApiModel').to(ThumbnailApiModel).inSingletonScope();
+
+    container.bind<IUserApiModel>('IUserApiModel').to(UserApiModel).inSingletonScope();
 
     container.bind<IDropLogApiModel>('IDropLogApiModel').to(DropLogApiModel).inSingletonScope();
 

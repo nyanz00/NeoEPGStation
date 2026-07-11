@@ -1,4 +1,4 @@
-import { ChildProcess } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import * as http from 'http';
 import { inject, injectable } from 'inversify';
 import internal from 'stream';
@@ -22,6 +22,7 @@ export default abstract class LiveStreamBaseModel
     implements ILiveStreamBaseModel
 {
     private stream: http.IncomingMessage | null = null;
+    private preProcessProcess: ChildProcess | null = null;
     private streamProcess: ChildProcess | null = null;
     private mirakurunClientModel: IMirakurunClientModel;
     private id3MetadataTransoform: ID3MetadataTransform | null = null;
@@ -122,16 +123,18 @@ export default abstract class LiveStreamBaseModel
                 });
             }
 
+            const inputStream = this.createInputStream();
+
             // パイプ処理
             if (this.streamProcess.stdin !== null) {
                 // HLS 配信の場合は arib-subtitle-timedmetadater を通す
                 if (this.getStreamType() === 'LiveHLS') {
                     this.log.stream.info('use arib-subtitle-timedmetadater');
                     this.id3MetadataTransoform = new ID3MetadataTransform();
-                    this.stream.pipe(this.id3MetadataTransoform);
+                    inputStream.pipe(this.id3MetadataTransoform);
                     this.id3MetadataTransoform.pipe(this.streamProcess.stdin);
                 } else {
-                    this.stream.pipe(this.streamProcess.stdin);
+                    inputStream.pipe(this.streamProcess.stdin);
                 }
             } else {
                 await this.stop();
@@ -164,6 +167,41 @@ export default abstract class LiveStreamBaseModel
 
         // stream 停止タイマーセット
         this.setStopTimer();
+    }
+
+    private createInputStream(): internal.Readable {
+        if (this.stream === null || this.processOption === null) {
+            throw new Error('StreamIsNull');
+        }
+
+        if (typeof this.processOption.preprocessor === 'undefined') {
+            return this.stream;
+        }
+
+        const cmds = this.processOption.preprocessor;
+        this.log.stream.info(`create live stream preprocessor: ${cmds.bin} ${cmds.args.join(' ')}`);
+        this.preProcessProcess = spawn(cmds.bin, cmds.args);
+
+        this.preProcessProcess.on('exit', () => {
+            this.emitExitStream();
+        });
+        this.preProcessProcess.on('error', () => {
+            this.emitExitStream();
+        });
+
+        if (this.preProcessProcess.stderr !== null) {
+            this.preProcessProcess.stderr.on('data', data => {
+                this.log.stream.debug(String(data));
+            });
+        }
+
+        if (this.preProcessProcess.stdin === null || this.preProcessProcess.stdout === null) {
+            throw new Error('StreamPreprocessorPipeIsNull');
+        }
+
+        this.stream.pipe(this.preProcessProcess.stdin);
+
+        return this.preProcessProcess.stdout;
     }
 
     /**
@@ -201,6 +239,10 @@ export default abstract class LiveStreamBaseModel
         if (this.stream !== null) {
             this.stream.unpipe();
             this.stream.destroy();
+        }
+
+        if (this.preProcessProcess !== null) {
+            await ProcessUtil.kill(this.preProcessProcess);
         }
 
         if (this.id3MetadataTransoform !== null) {

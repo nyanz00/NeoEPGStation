@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import * as apid from '../../../../api';
 import IConfiguration from '../../IConfiguration';
 import IIPCClient from '../../ipc/IIPCClient';
+import WatchStreamProfileUtil from '../../service/stream/WatchStreamProfileUtil';
 import IConfigApiModel from './IConfigApiModel';
 
 @injectable()
@@ -163,6 +164,51 @@ export default class ConfigApiModel implements IConfigApiModel {
                     }
                 }
             }
+        }
+
+        if (WatchStreamProfileUtil.isEnabled(config) === true) {
+            result.isEnableTSLiveStream = true;
+            if (typeof result.streamConfig === 'undefined') {
+                result.streamConfig = {};
+            }
+            if (typeof result.streamConfig.live === 'undefined') {
+                result.streamConfig.live = {};
+            }
+            if (typeof result.streamConfig.live.ts === 'undefined') {
+                result.streamConfig.live.ts = {};
+            }
+            result.streamConfig.live.ts.m2ts = WatchStreamProfileUtil.getLiveDisplayQualityNames(config).map(name => {
+                return {
+                    name: name,
+                    isUnconverted: false,
+                };
+            });
+            result.streamConfig.live.ts.m2tsll = WatchStreamProfileUtil.getLiveDisplayQualityNames(config);
+            if (typeof result.streamConfig.recorded === 'undefined') {
+                result.streamConfig.recorded = {};
+            }
+            if (typeof result.streamConfig.recorded.ts === 'undefined') {
+                result.streamConfig.recorded.ts = {};
+            }
+            result.isEnableTSRecordedStream = true;
+            result.streamConfig.recorded.ts.hls = WatchStreamProfileUtil.getRecordedDisplayQualityNames(config);
+            result.streamConfig.recorded.ts.m2tsll = WatchStreamProfileUtil.getRecordedDisplayQualityNames(config);
+            if (typeof result.streamConfig.recorded.encoded === 'undefined') {
+                result.streamConfig.recorded.encoded = {};
+            }
+            result.isEnableEncodedRecordedStream = true;
+            result.streamConfig.recorded.encoded.hls = WatchStreamProfileUtil.getRecordedDisplayQualityNames(config);
+            result.watchConfig = {
+                enabled: true,
+                encoder: config.watch?.encoder ?? 'FFmpeg',
+                availableEncoders: WatchStreamProfileUtil.getAvailableEncoders(config),
+                defaultLiveQuality: config.watch?.defaultLiveQuality,
+                defaultRecordedQuality: config.watch?.defaultRecordedQuality,
+                liveQualities: WatchStreamProfileUtil.getLiveDisplayQualityNames(config),
+                recordedQualities: WatchStreamProfileUtil.getRecordedQualityNames(config),
+                hevc10bit: config.watch?.hevc10bit === true,
+                fps24: config.watch?.fps24 === true,
+            };
         }
 
         if (typeof config.kodiHosts !== 'undefined') {

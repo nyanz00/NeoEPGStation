@@ -215,6 +215,7 @@ export default class EventSetter implements IEventSetter {
                         directory: reserve.encodeDirectory1 === null ? undefined : reserve.encodeDirectory1,
                         mode: reserve.encodeMode1,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                        updateThumbnail: reserve.updateThumbnail,
                     });
                 }
 
@@ -230,6 +231,7 @@ export default class EventSetter implements IEventSetter {
                         directory: reserve.encodeDirectory2 === null ? undefined : reserve.encodeDirectory2,
                         mode: reserve.encodeMode2,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                        updateThumbnail: reserve.updateThumbnail,
                     });
                 }
 
@@ -245,6 +247,7 @@ export default class EventSetter implements IEventSetter {
                         directory: reserve.encodeDirectory3 === null ? undefined : reserve.encodeDirectory3,
                         mode: reserve.encodeMode3,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                        updateThumbnail: reserve.updateThumbnail,
                     });
                 }
             }
@@ -352,6 +355,10 @@ export default class EventSetter implements IEventSetter {
         // エンコード完了
         this.encodeEvent.setFinishEncode(info => {
             this.externalCommandManage.addEncodingFinishCmd(info);
+        });
+
+        this.encodeEvent.setErrorEncode(info => {
+            this.externalCommandManage.addEncodingFailedCmd(info);
         });
     }
 

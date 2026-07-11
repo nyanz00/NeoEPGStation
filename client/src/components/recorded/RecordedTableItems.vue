@@ -12,7 +12,16 @@
                 </thead>
                 <tbody>
                     <tr v-for="item in items" v-bind:key="item.id" v-on:click="gotoDetail(item)" v-bind:class="{ 'selected-color': item.isSelected === true }">
-                        <td>{{ item.display.name }}</td>
+                        <td>
+                            <span>{{ item.display.name }}</span>
+                            <span
+                                v-if="isShowDropInfo === true && typeof item.display.dropSimple !== 'undefined'"
+                                class="drop-info ml-2 caption"
+                                v-bind:class="{ droped: item.display.hasDrop === true }"
+                            >
+                                {{ item.display.dropSimple }}
+                            </span>
+                        </td>
                         <td>{{ item.display.channelName }}</td>
                         <td>{{ item.display.shortTime }} ({{ item.display.duration }} m)</td>
                         <td class="menu">
@@ -70,4 +79,10 @@ export default class RecordedTableItems extends Vue {
         width: 190px
     .menu
         width: 68px
+    .drop-info
+        color: rgba(255, 255, 255, .7)
+        white-space: nowrap
+    .droped
+        color: red
+        font-weight: bold
 </style>

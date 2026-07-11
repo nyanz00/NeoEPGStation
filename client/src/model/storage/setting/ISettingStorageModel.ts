@@ -1,6 +1,7 @@
 import IStorageBaseModel from '../IStorageBaseModel';
 
 export type GuideViewMode = 'sequential' | 'minimum' | 'all';
+export type WatchStreamEncoderSetting = 'Config' | 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
 
 export interface ISettingValue {
     isEnablePWA: boolean;
@@ -10,6 +11,12 @@ export interface ISettingValue {
     isOnAirTabListView: boolean;
     isPreferredPlayingLiveM2TSOnWeb: boolean;
     onAirM2TSViewURLScheme: string | null;
+    watchStreamEncoder: WatchStreamEncoderSetting;
+    watchDefaultQuality: string | null;
+    watchUseHevc: boolean;
+    watchLowLatency: boolean;
+    watchSubtitlePreferredKeyword: string;
+    watchPlaySubtitlePreferredKeyword: string;
     guideMode: GuideViewMode;
     guideLength: number;
     isForceDisableDarkThemeForGuide: boolean;

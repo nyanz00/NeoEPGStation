@@ -73,13 +73,15 @@
 -   自動で起動する場合
 
     -   [winser](https://github.com/jfromaniello/winser) を利用して自動起動設定が可能です
+    -   winser は EPGStation の依存関係としてインストールされます
     -   以下のコマンドを管理者権限で実行するとサービス化できます
 
         ```
-        > npm install winser -g
         > npm run install-win-service
-        > net start epgstation
         ```
+
+    -   サービス名と表示名はどちらも `epgstation-nyanz` です
+    -   インストール時にサービスを開始するため、別途 `net start` を実行する必要はありません
 
 -   手動で終了する場合
 
@@ -90,7 +92,7 @@
 -   自動起動した EPGStation を終了する場合
 
     ```
-    > net stop epgstation
+    > net stop epgstation-nyanz
     ```
 
     -   サービスから削除する場合は以下のコマンドを管理者権限で実行します

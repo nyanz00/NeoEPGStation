@@ -8,6 +8,7 @@ import IScheduleApiModel from '../../../api/schedule/IScheduleApiModel';
 import IChannelModel from '../../../channels/IChannelModel';
 import IServerConfigModel from '../../../serverConfig/IServerConfigModel';
 import { ISettingStorageModel } from '../../../storage/setting/ISettingStorageModel';
+import { IActiveUserStorageModel } from '../../../storage/user/IActiveUserStorageModel';
 import IManualReserveState, { EncodedOption, ManualReserveOption, ManualSaveOption, ProgramStateData, SelectorItem, TimeSpecifiedOption } from './IManualReserveState';
 
 @injectable()
@@ -38,7 +39,9 @@ export default class ManualReserveState implements IManualReserveState {
         encodeParentDirectoryName3: null,
         directory3: null,
         isDeleteOriginalAfterEncode: false,
+        updateThumbnail: false,
     };
+    public userId: apid.UserId | null = null;
 
     // ルールオプションのアコーディオンの開閉を行う
     public optionPanel: number[] = [];
@@ -48,6 +51,7 @@ export default class ManualReserveState implements IManualReserveState {
     private channelModel: IChannelModel;
     private serverConfig: IServerConfigModel;
     private settingModel: ISettingStorageModel;
+    private activeUserStorage: IActiveUserStorageModel;
     private programInfo: ProgramStateData | null = null;
 
     constructor(
@@ -56,12 +60,14 @@ export default class ManualReserveState implements IManualReserveState {
         @inject('IChannelModel') channelModel: IChannelModel,
         @inject('IServerConfigModel') serverConfig: IServerConfigModel,
         @inject('ISettingStorageModel') settingModel: ISettingStorageModel,
+        @inject('IActiveUserStorageModel') activeUserStorage: IActiveUserStorageModel,
     ) {
         this.scheduleApiModel = scheduleApiModel;
         this.reservesApiModel = reservesApiModel;
         this.channelModel = channelModel;
         this.serverConfig = serverConfig;
         this.settingModel = settingModel;
+        this.activeUserStorage = activeUserStorage;
     }
 
     /**
@@ -98,9 +104,11 @@ export default class ManualReserveState implements IManualReserveState {
             encodeParentDirectoryName3: null,
             directory3: null,
             isDeleteOriginalAfterEncode: false,
+            updateThumbnail: false,
         };
+        this.userId = this.getDefaultUserId();
 
-        this.optionPanel = [0, 1, 2, 3, 6];
+        this.optionPanel = [0, 1, 2, 3, 4, 7];
     }
 
     /**
@@ -124,6 +132,12 @@ export default class ManualReserveState implements IManualReserveState {
      */
     public setOptions(reserveItem: apid.ReserveItem): void {
         this.isTimeSpecification = reserveItem.isTimeSpecified;
+
+        if (typeof reserveItem.userId === 'number') {
+            this.userId = reserveItem.userId;
+        } else {
+            this.userId = this.getDefaultUserId();
+        }
 
         if (reserveItem.isTimeSpecified === true) {
             this.timeSpecifiedOption = {
@@ -157,7 +171,7 @@ export default class ManualReserveState implements IManualReserveState {
 
         if (typeof reserveItem.encodeMode2 !== 'undefined') {
             this.encodeOption.mode2 = reserveItem.encodeMode2;
-            this.optionPanel.push(4);
+            this.optionPanel.push(5);
         }
         if (typeof reserveItem.encodeParentDirectoryName2 !== 'undefined') {
             this.encodeOption.encodeParentDirectoryName2 = reserveItem.encodeParentDirectoryName2;
@@ -168,7 +182,7 @@ export default class ManualReserveState implements IManualReserveState {
 
         if (typeof reserveItem.encodeMode3 !== 'undefined') {
             this.encodeOption.mode3 = reserveItem.encodeMode3;
-            this.optionPanel.push(5);
+            this.optionPanel.push(6);
         }
         if (typeof reserveItem.encodeParentDirectoryName3 !== 'undefined') {
             this.encodeOption.encodeParentDirectoryName3 = reserveItem.encodeParentDirectoryName3;
@@ -184,6 +198,7 @@ export default class ManualReserveState implements IManualReserveState {
         }
 
         this.encodeOption.isDeleteOriginalAfterEncode = reserveItem.isDeleteOriginalAfterEncode;
+        this.encodeOption.updateThumbnail = reserveItem.updateThumbnail === true;
     }
 
     /**
@@ -438,9 +453,19 @@ export default class ManualReserveState implements IManualReserveState {
             result.encodeOption = encodeOption;
         }
 
+        if (typeof this.userId === 'number') {
+            result.userId = this.userId;
+        }
+
         // TODO tag
 
         return result;
+    }
+
+    private getDefaultUserId(): apid.UserId | null {
+        const activeUserId = this.activeUserStorage.getSavedValue().userId;
+
+        return typeof activeUserId === 'number' ? activeUserId : null;
     }
 
     /**
@@ -451,6 +476,9 @@ export default class ManualReserveState implements IManualReserveState {
         const result: apid.EditManualReserveOption = {
             allowEndLack: this.reserveOption.allowEndLack,
         };
+        if (typeof this.userId === 'number') {
+            result.userId = this.userId;
+        }
 
         // 保存オプション
         const saveOption = this.getSaveOption();
@@ -495,6 +523,7 @@ export default class ManualReserveState implements IManualReserveState {
     private getEncodeOption(): apid.ReserveEncodedOption | null {
         const encodeOption: apid.ReserveEncodedOption = {
             isDeleteOriginalAfterEncode: this.encodeOption.isDeleteOriginalAfterEncode,
+            updateThumbnail: this.encodeOption.updateThumbnail,
         };
         if (this.encodeOption.mode1 !== null) {
             encodeOption.mode1 = this.encodeOption.mode1;

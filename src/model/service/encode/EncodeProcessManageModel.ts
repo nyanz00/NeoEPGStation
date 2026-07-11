@@ -204,6 +204,15 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
             if (option.output !== null) {
                 cmds.args[i] = cmds.args[i].replace(/%OUTPUT%/g, option.output);
             }
+
+            if (typeof option.replace !== 'undefined') {
+                for (const key in option.replace) {
+                    const value = option.replace[key];
+                    if (value !== null) {
+                        cmds.args[i] = cmds.args[i].replace(new RegExp(`%${key}%`, 'g'), value);
+                    }
+                }
+            }
         }
 
         // プロセス生成

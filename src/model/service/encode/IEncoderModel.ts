@@ -13,7 +13,7 @@ export type EncoderModelProvider = () => Promise<IEncoderModel>;
 
 export interface IEncoderModel {
     setOption(encodeOption: EncodeOption): void;
-    setOnFinish(callback: (isError: boolean, outputFilePath: string | null) => void): void;
+    setOnFinish(callback: (isError: boolean, outputFilePath: string | null, isCanceled: boolean) => void): void;
     start(): Promise<void>;
     cancel(): Promise<void>;
     getEncodeOption(): EncodeOption | null;

@@ -31,13 +31,23 @@ export default class RecordingApiModel implements IRecordingApiModel {
         const [records, total] = await this.recordedDB.findAll(option, {
             isNeedVideoFiles: true,
             isNeedThumbnails: true,
-            isNeedsDropLog: false,
+            isNeedsDropLog: true,
             isNeedTags: false,
         });
+        const liveDropLogFiles = await this.ipc.recording.getCurrentDropLogFiles();
+        const liveDropLogFileIndex: { [recordedId: number]: apid.DropLogFile } = {};
+        for (const dropLogFile of liveDropLogFiles) {
+            liveDropLogFileIndex[dropLogFile.recordedId] = dropLogFile.dropLogFile;
+        }
 
         return {
             records: records.map(r => {
-                return this.recordedItemUtil.convertRecordedToRecordedItem(r, option.isHalfWidth);
+                const item = this.recordedItemUtil.convertRecordedToRecordedItem(r, option.isHalfWidth);
+                if (typeof liveDropLogFileIndex[item.id] !== 'undefined') {
+                    item.dropLogFile = liveDropLogFileIndex[item.id];
+                }
+
+                return item;
             }),
             total,
         };

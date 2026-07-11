@@ -181,6 +181,7 @@ class V1MigrationTool {
     private convertOldRuleToAddRuleOption(oldRule: OldRuleItem, parentDirectoryName: string): apid.AddRuleOption {
         const newRule: apid.AddRuleOption = {
             isTimeSpecification: false,
+            userId: 1,
             searchOption: this.createSearchOption(oldRule),
             reserveOption: this.createReserveOption(oldRule),
             saveOption: this.createSaveOption(oldRule, parentDirectoryName),
@@ -438,6 +439,7 @@ class V1MigrationTool {
         ruleIndex: RuleIndex,
     ): NewRecordedData {
         const newRecorded = new Recorded();
+        newRecorded.userId = 1;
         newRecorded.reserveId = null;
         const oldRecordedRuleId = oldRecorded.ruleId;
         if (oldRecordedRuleId !== null) {

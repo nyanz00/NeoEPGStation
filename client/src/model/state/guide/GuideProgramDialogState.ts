@@ -6,6 +6,7 @@ import DateUtil from '../../../util/DateUtil';
 import GenreUtil from '../../../util/GenreUtil';
 import IReservesApiModel from '../../api/reserves/IReservesApiModel';
 import IServerConfigModel from '../../serverConfig/IServerConfigModel';
+import { IActiveUserStorageModel } from '../../storage/user/IActiveUserStorageModel';
 import IGuideProgramDialogState, { DisplayProgramData, ProgramDialogOpenOption, ProgramDialogReseveItem } from './IGuideProgramDialogState';
 
 @injectable()
@@ -17,6 +18,7 @@ export default class GuideProgramDialogState implements IGuideProgramDialogState
     private reservesApiModel: IReservesApiModel;
     private serverConfig: IServerConfigModel;
     private setting: IGuideProgramDialogSettingStorageModel;
+    private activeUserStorage: IActiveUserStorageModel;
     private programId: apid.ProgramId | null = null;
     private program: apid.ScheduleProgramItem | null = null;
 
@@ -24,10 +26,12 @@ export default class GuideProgramDialogState implements IGuideProgramDialogState
         @inject('IReservesApiModel') reservesApiModel: IReservesApiModel,
         @inject('IServerConfigModel') serverConfig: IServerConfigModel,
         @inject('IGuideProgramDialogSettingStorageModel') setting: IGuideProgramDialogSettingStorageModel,
+        @inject('IActiveUserStorageModel') activeUserStorage: IActiveUserStorageModel,
     ) {
         this.reservesApiModel = reservesApiModel;
         this.serverConfig = serverConfig;
         this.setting = setting;
+        this.activeUserStorage = activeUserStorage;
     }
 
     /**
@@ -218,7 +222,7 @@ export default class GuideProgramDialogState implements IGuideProgramDialogState
     /**
      * 簡易予約追加
      */
-    public async addReserve(): Promise<void> {
+    public async addReserve(userId?: apid.UserId): Promise<void> {
         if (this.programId === null) {
             throw new Error('ProgramIdIsNull');
         }
@@ -227,11 +231,20 @@ export default class GuideProgramDialogState implements IGuideProgramDialogState
             programId: this.programId,
             allowEndLack: true,
         };
+        if (typeof userId === 'number') {
+            option.userId = userId;
+        } else {
+            const activeUserId = this.activeUserStorage.getSavedValue().userId;
+            if (typeof activeUserId === 'number') {
+                option.userId = activeUserId;
+            }
+        }
 
         if (this.setting.tmp.encode !== NONE_ENCODE_OPTION) {
             option.encodeOption = {
                 mode1: this.setting.tmp.encode,
                 isDeleteOriginalAfterEncode: this.setting.tmp.isDeleteOriginalAfterEncode,
+                updateThumbnail: this.setting.tmp.updateThumbnail,
             };
         }
 

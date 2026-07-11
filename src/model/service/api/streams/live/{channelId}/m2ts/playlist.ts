@@ -3,6 +3,21 @@ import IStreamApiModel from '../../../../../../api/stream/IStreamApiModel';
 import container from '../../../../../../ModelContainer';
 import * as api from '../../../../../api';
 
+const parseEncoder = (value: unknown) => {
+    return value === 'FFmpeg' || value === 'QSVEncC' || value === 'NVEncC' || value === 'VCEEncC' ? value : undefined;
+};
+
+const parseBoolean = (value: unknown): boolean | undefined => {
+    if (value === 'true' || value === '1') {
+        return true;
+    }
+    if (value === 'false' || value === '0') {
+        return false;
+    }
+
+    return undefined;
+};
+
 export const get: Operation = async (req, res) => {
     const streamApiModel = container.get<IStreamApiModel>('IStreamApiModel');
 
@@ -14,6 +29,9 @@ export const get: Operation = async (req, res) => {
         const playlist = await streamApiModel.getLiveM2TsStreamM3u8(req.headers.host, api.isSecureProtocol(req), {
             channelId: parseInt(req.params.channelId, 10),
             mode: parseInt(req.query.mode as string, 10),
+            quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
+            encoder: parseEncoder(req.query.encoder),
+            isHevc: parseBoolean(req.query.hevc),
         });
 
         if (playlist === null) {
@@ -39,6 +57,15 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/StreamMode',
+        },
+        {
+            $ref: '#/components/parameters/WatchStreamQuality',
+        },
+        {
+            $ref: '#/components/parameters/WatchStreamEncoder',
+        },
+        {
+            $ref: '#/components/parameters/WatchStreamHevc',
         },
     ],
     responses: {

@@ -340,6 +340,7 @@ class ReservationManageModel implements IReservationManageModel {
      */
     private setManualReserveOption(option: apid.ManualReserveOption, newReserve: Reserve): void {
         // option から必要な情報をセットする
+        newReserve.userId = typeof option.userId === 'undefined' ? 1 : option.userId;
         newReserve.allowEndLack = option.allowEndLack;
         if (typeof option.tags !== 'undefined') {
             newReserve.tags = JSON.stringify(option.tags);
@@ -383,6 +384,7 @@ class ReservationManageModel implements IReservationManageModel {
         this.setProgramToReserve(newReserve, program);
 
         // リレー元の予約情報から必要な情報をセットする
+        newReserve.userId = parentReserve.userId;
         newReserve.ruleId = parentReserve.ruleId;
         newReserve.allowEndLack = parentReserve.allowEndLack;
         newReserve.tags = parentReserve.tags;
@@ -399,6 +401,7 @@ class ReservationManageModel implements IReservationManageModel {
         newReserve.encodeDirectory2 = parentReserve.encodeDirectory2;
         newReserve.encodeDirectory3 = parentReserve.encodeDirectory3;
         newReserve.isDeleteOriginalAfterEncode = parentReserve.isDeleteOriginalAfterEncode;
+        newReserve.updateThumbnail = parentReserve.updateThumbnail;
 
         return newReserve;
     }
@@ -523,7 +526,11 @@ class ReservationManageModel implements IReservationManageModel {
      * @param reserve: Reserve
      * @param encodeOption: apid.ReserveEncodedOption
      */
-    private setEncodeOptionToReserve(reserve: Reserve, encodeOption: apid.ReserveEncodedOption | undefined): void {
+    private setEncodeOptionToReserve(
+        reserve: Reserve,
+        encodeOption: apid.ReserveEncodedOption | undefined,
+        channelId?: apid.ChannelId,
+    ): void {
         if (typeof encodeOption === 'undefined') {
             reserve.encodeMode1 = null;
             reserve.encodeMode2 = null;
@@ -535,32 +542,75 @@ class ReservationManageModel implements IReservationManageModel {
             reserve.encodeDirectory2 = null;
             reserve.encodeDirectory3 = null;
             reserve.isDeleteOriginalAfterEncode = false;
+            reserve.updateThumbnail = false;
 
             return;
         }
 
-        reserve.encodeMode1 = typeof encodeOption.mode1 === 'undefined' ? null : encodeOption.mode1;
-        reserve.encodeMode2 = typeof encodeOption.mode2 === 'undefined' ? null : encodeOption.mode2;
-        reserve.encodeMode3 = typeof encodeOption.mode3 === 'undefined' ? null : encodeOption.mode3;
+        reserve.encodeMode1 =
+            typeof encodeOption.mode1 === 'undefined' ||
+            this.isEncodeChannelMatched(encodeOption.channelIds1, encodeOption.channelId1, channelId) === false
+                ? null
+                : encodeOption.mode1;
+        reserve.encodeMode2 =
+            typeof encodeOption.mode2 === 'undefined' ||
+            this.isEncodeChannelMatched(encodeOption.channelIds2, encodeOption.channelId2, channelId) === false
+                ? null
+                : encodeOption.mode2;
+        reserve.encodeMode3 =
+            typeof encodeOption.mode3 === 'undefined' ||
+            this.isEncodeChannelMatched(encodeOption.channelIds3, encodeOption.channelId3, channelId) === false
+                ? null
+                : encodeOption.mode3;
 
         reserve.encodeParentDirectoryName1 =
-            typeof encodeOption.encodeParentDirectoryName1 === 'undefined'
+            reserve.encodeMode1 === null || typeof encodeOption.encodeParentDirectoryName1 === 'undefined'
                 ? null
                 : encodeOption.encodeParentDirectoryName1;
         reserve.encodeParentDirectoryName2 =
-            typeof encodeOption.encodeParentDirectoryName2 === 'undefined'
+            reserve.encodeMode2 === null || typeof encodeOption.encodeParentDirectoryName2 === 'undefined'
                 ? null
                 : encodeOption.encodeParentDirectoryName2;
         reserve.encodeParentDirectoryName3 =
-            typeof encodeOption.encodeParentDirectoryName3 === 'undefined'
+            reserve.encodeMode3 === null || typeof encodeOption.encodeParentDirectoryName3 === 'undefined'
                 ? null
                 : encodeOption.encodeParentDirectoryName3;
 
-        reserve.encodeDirectory1 = typeof encodeOption.directory1 === 'undefined' ? null : encodeOption.directory1;
-        reserve.encodeDirectory2 = typeof encodeOption.directory2 === 'undefined' ? null : encodeOption.directory2;
-        reserve.encodeDirectory3 = typeof encodeOption.directory3 === 'undefined' ? null : encodeOption.directory3;
+        reserve.encodeDirectory1 =
+            reserve.encodeMode1 === null || typeof encodeOption.directory1 === 'undefined'
+                ? null
+                : encodeOption.directory1;
+        reserve.encodeDirectory2 =
+            reserve.encodeMode2 === null || typeof encodeOption.directory2 === 'undefined'
+                ? null
+                : encodeOption.directory2;
+        reserve.encodeDirectory3 =
+            reserve.encodeMode3 === null || typeof encodeOption.directory3 === 'undefined'
+                ? null
+                : encodeOption.directory3;
 
-        reserve.isDeleteOriginalAfterEncode = encodeOption.isDeleteOriginalAfterEncode;
+        reserve.isDeleteOriginalAfterEncode =
+            (reserve.encodeMode1 !== null || reserve.encodeMode2 !== null || reserve.encodeMode3 !== null) &&
+            encodeOption.isDeleteOriginalAfterEncode;
+        reserve.updateThumbnail =
+            (reserve.encodeMode1 !== null || reserve.encodeMode2 !== null || reserve.encodeMode3 !== null) &&
+            encodeOption.updateThumbnail === true;
+    }
+
+    private isEncodeChannelMatched(
+        encodeChannelIds: apid.ChannelId[] | undefined,
+        legacyEncodeChannelId: apid.ChannelId | undefined,
+        reserveChannelId: apid.ChannelId | undefined,
+    ): boolean {
+        if (typeof reserveChannelId === 'undefined') {
+            return true;
+        }
+
+        if (Array.isArray(encodeChannelIds) === true && encodeChannelIds.length > 0) {
+            return encodeChannelIds.indexOf(reserveChannelId) !== -1;
+        }
+
+        return typeof legacyEncodeChannelId === 'undefined' || legacyEncodeChannelId === reserveChannelId;
     }
 
     /**
@@ -915,6 +965,7 @@ class ReservationManageModel implements IReservationManageModel {
         updateTime: apid.UnixtimeMS,
     ): void {
         reserve.ruleId = rule.id;
+        reserve.userId = typeof rule.userId === 'undefined' ? 1 : rule.userId;
         reserve.ruleUpdateCnt = rule.updateCnt;
         reserve.updateTime = updateTime;
         reserve.allowEndLack = rule.reserveOption.allowEndLack;
@@ -933,7 +984,7 @@ class ReservationManageModel implements IReservationManageModel {
         }
 
         if (typeof rule.encodeOption !== 'undefined') {
-            this.setEncodeOptionToReserve(reserve, rule.encodeOption);
+            this.setEncodeOptionToReserve(reserve, rule.encodeOption, reserve.channelId);
         }
     }
 
@@ -1454,6 +1505,9 @@ class ReservationManageModel implements IReservationManageModel {
 
         // option から必要な情報をセットする
         newReserve.allowEndLack = option.allowEndLack;
+        if (typeof option.userId === 'number') {
+            newReserve.userId = option.userId;
+        }
         if (typeof option.tags !== 'undefined') {
             newReserve.tags = JSON.stringify(option.tags);
         }

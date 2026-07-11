@@ -5,6 +5,7 @@ export interface IAddEncodeSettingValue {
     parentDirectory: string | null;
     isSaveSameDirectory: boolean;
     removeOriginal: boolean;
+    updateThumbnail: boolean;
 }
 
 export type IAddEncodeSettingStorageModel = IStorageBaseModel<IAddEncodeSettingValue>;

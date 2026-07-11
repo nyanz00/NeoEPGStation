@@ -25,6 +25,8 @@ import IStreamApiModel from './api/streams/IStreamApiModel';
 import StreamApiModel from './api/streams/StreamApiModel';
 import IThumbnailApiModel from './api/thumbnail/IThumbnailApiModel';
 import ThumbnailApiModel from './api/thumbnail/ThumbnailApiModel';
+import IUserApiModel from './api/user/IUserApiModel';
+import UserApiModel from './api/user/UserApiModel';
 import IVideoApiModel from './api/video/IVideoApiModel';
 import VideoApiModel from './api/video/VideoApiModel';
 import ChannelModel from './channels/ChannelModel';
@@ -116,6 +118,8 @@ import RecordedSelectStreamSettingStorageModel from './storage/recorded/Recorded
 import SendVideoFileSelectHostSettingStorageModel from './storage/recorded/SendVideoFileSelectHostSettingStorageModel';
 import { ISettingStorageModel } from './storage/setting/ISettingStorageModel';
 import SettingStorageModel from './storage/setting/SettingStorageModel';
+import ActiveUserStorageModel from './storage/user/ActiveUserStorageModel';
+import { IActiveUserStorageModel } from './storage/user/IActiveUserStorageModel';
 import { IVideoPlayerSettingModel } from './storage/video/IVideoPlayerSettingModel';
 import VideoPlayerSettingModel from './storage/video/VideoPlayerSettingModel';
 import StorageOperationModel from './storage/StorageOperationModel';
@@ -162,9 +166,13 @@ export default (container: Container): void => {
 
     container.bind<IThumbnailApiModel>('IThumbnailApiModel').to(ThumbnailApiModel).inSingletonScope();
 
+    container.bind<IUserApiModel>('IUserApiModel').to(UserApiModel).inSingletonScope();
+
     container.bind<IStorageOperationModel>('IStorageOperationModel').to(StorageOperationModel).inSingletonScope();
 
     container.bind<ISettingStorageModel>('ISettingStorageModel').to(SettingStorageModel).inSingletonScope();
+
+    container.bind<IActiveUserStorageModel>('IActiveUserStorageModel').to(ActiveUserStorageModel).inSingletonScope();
 
     container.bind<IGuideProgramDialogSettingStorageModel>('IGuideProgramDialogSettingStorageModel').to(GuideProgramDialogSettingStorageModel).inSingletonScope();
 

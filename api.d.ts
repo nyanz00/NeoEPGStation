@@ -11,6 +11,7 @@ export type RecordedId = number;
 export type RecordedHistoryId = number;
 export type VideoFileId = number;
 export type VideoFileType = 'ts' | 'encoded';
+export type UserId = number;
 export type ThumbnailId = number;
 export type DropLogFileId = number;
 export type RecordedTagId = number;
@@ -62,11 +63,38 @@ export interface ChannelItem {
     type?: number;
 }
 
+export interface ChannelJikkyoInfo {
+    jikkyoId: string | null;
+    watchSessionUrl: string | null;
+    commentSessionUrl: string | null;
+}
+
+export type JikkyoCommentPosition = 'top' | 'right' | 'bottom';
+export type JikkyoCommentSize = 'big' | 'medium' | 'small';
+
+export interface RecordedJikkyoComment {
+    id: number;
+    time: number;
+    text: string;
+    color: string;
+    position: JikkyoCommentPosition;
+    size: JikkyoCommentSize;
+    userId: string;
+    postedAt: number;
+}
+
+export interface RecordedJikkyoComments {
+    isSuccess: boolean;
+    comments: RecordedJikkyoComment[];
+    detail: string;
+}
+
 /**
  * 手動予約編集オプション
  */
 export interface EditManualReserveOption {
     allowEndLack: boolean; // 末尾切れを許すか
+    userId?: UserId;
     tags?: RecordedTagId[];
     saveOption?: ReserveSaveOption;
     encodeOption?: ReserveEncodedOption;
@@ -77,6 +105,7 @@ export interface EditManualReserveOption {
  */
 export interface ManualReserveOption extends EditManualReserveOption {
     programId?: ProgramId; // program ID undefined の場合は時刻指定予約
+    userId?: UserId;
     timeSpecifiedOption?: {
         name: string;
         channelId: ChannelId;
@@ -97,6 +126,7 @@ export interface GetReserveOption {
     type?: GetReserveType;
     isHalfWidth: boolean;
     ruleId?: RuleId;
+    userId?: UserId;
     offset?: number;
     limit?: number;
 }
@@ -117,6 +147,7 @@ export interface ReserveItem {
      * 予約情報
      */
     id: ReserveId;
+    userId?: UserId;
     ruleId?: RuleId;
     isSkip: boolean;
     isConflict: boolean;
@@ -143,6 +174,7 @@ export interface ReserveItem {
     encodeParentDirectoryName3?: string;
     encodeDirectory3?: string;
     isDeleteOriginalAfterEncode: boolean;
+    updateThumbnail?: boolean;
     /**
      * 番組情報
      */
@@ -240,6 +272,7 @@ export interface RuleKeywordInfo {
  */
 export interface AddRuleOption {
     isTimeSpecification: boolean;
+    userId?: UserId;
     searchOption: RuleSearchOption;
     reserveOption: RuleReserveOption;
     saveOption?: ReserveSaveOption;
@@ -333,15 +366,22 @@ export interface ReserveSaveOption {
  */
 export interface ReserveEncodedOption {
     mode1?: string; // エンコードモード
+    channelIds1?: ChannelId[]; // エンコードモード1対象局
+    channelId1?: ChannelId; // エンコードモード1対象局
     encodeParentDirectoryName1?: string; // 親保存ディレクトリ
     directory1?: string; // 保存先ディレクトリ
     mode2?: string;
+    channelIds2?: ChannelId[];
+    channelId2?: ChannelId;
     encodeParentDirectoryName2?: string;
     directory2?: string;
     mode3?: string;
+    channelIds3?: ChannelId[];
+    channelId3?: ChannelId;
     encodeParentDirectoryName3?: string;
     directory3?: string;
     isDeleteOriginalAfterEncode: boolean;
+    updateThumbnail?: boolean;
 }
 
 /**
@@ -360,6 +400,8 @@ export interface GetRuleOption {
     limit?: number;
     type?: GetReserveType;
     keyword?: string;
+    hasReserve?: boolean;
+    userId?: UserId;
 }
 
 /**
@@ -375,6 +417,7 @@ export interface Records {
  */
 export interface RecordedItem {
     id: RecordedId;
+    userId?: UserId;
     ruleId?: RuleId;
     programId?: ProgramId;
     channelId: ChannelId;
@@ -416,6 +459,30 @@ export interface VideoFile {
     size: number;
 }
 
+export interface VideoSubtitle {
+    subtitleIndex: number;
+    streamIndex: number;
+    codecName?: string;
+    language?: string;
+    title?: string;
+    isDefault: boolean;
+    isForced: boolean;
+    displayName: string;
+}
+
+export interface VideoSubtitles {
+    items: VideoSubtitle[];
+}
+
+export interface VideoSubtitleText {
+    subtitleText: string;
+}
+
+export interface VideoPreparedSubtitle {
+    subtitleFileKey: string;
+    subtitleText?: string;
+}
+
 export interface DropLogFile {
     id: DropLogFileId;
     errorCnt: number;
@@ -437,6 +504,8 @@ export interface RecordedTags {
     total: number;
 }
 
+export type RecordedEncodeModeMatch = 'include' | 'only';
+
 /**
  * recorded 取得オプション
  */
@@ -450,6 +519,37 @@ export interface GetRecordedOption {
     genre?: ProgramGenreLv1;
     keyword?: string;
     hasOriginalFile?: boolean;
+    encodeMode?: string;
+    encodeModes?: string[];
+    encodeModeMatch?: RecordedEncodeModeMatch;
+    hasDrop?: boolean;
+    hasError?: boolean;
+    hasScrambling?: boolean;
+    recordedStartAt?: UnixtimeMS;
+    recordedEndAt?: UnixtimeMS;
+    userId?: UserId;
+}
+
+export interface User {
+    id: UserId;
+    name: string;
+    createdAt: UnixtimeMS;
+}
+
+export interface Users {
+    users: User[];
+}
+
+export interface AddUserOption {
+    name: string;
+}
+
+export interface UpdateUserOption {
+    name: string;
+}
+
+export interface UpdateRecordedUserOption {
+    userId: UserId;
 }
 
 /**
@@ -468,12 +568,46 @@ export interface RecordedGenreListItem {
     genre: ProgramGenreLv1; // ジャンル
 }
 
+export interface RecordedEncodeListItem {
+    name: string; // config encode の name
+    suffix?: string; // config encode の suffix
+}
+
 /**
  * recorded が持つ検索オプションリスト
  */
 export interface RecordedSearchOptions {
     channels: RecordedChannelListItem[];
     genres: RecordedGenreListItem[];
+    encode: RecordedEncodeListItem[];
+}
+
+export interface RecordedCleanupPlanResult {
+    planPath: string;
+    recordedFileCount: number;
+    epgstationLikeRecordedFileCount: number;
+    otherRecordedFileCount: number;
+    recordedDirectoryCount: number;
+    missingVideoFileCount: number;
+    dropLogFileCount: number;
+    missingDropLogFileCount: number;
+    thumbnailFileCount: number;
+    missingThumbnailFileCount: number;
+}
+
+export interface RecordedCleanupExecuteOption {
+    planPath: string;
+}
+
+export interface RecordedCleanupExecuteResult {
+    deletedRecordedFileCount: number;
+    deletedRecordedDirectoryCount: number;
+    deletedDropLogFileCount: number;
+    deletedThumbnailFileCount: number;
+    removedMissingVideoFileCount: number;
+    removedMissingDropLogFileCount: number;
+    removedMissingThumbnailFileCount: number;
+    skippedCount: number;
 }
 
 /**
@@ -529,6 +663,7 @@ export interface Config {
         };
         recorded?: {
             ts?: {
+                m2tsll?: string[];
                 webm?: string[];
                 mp4?: string[];
                 hls?: string[];
@@ -540,7 +675,20 @@ export interface Config {
             };
         };
     };
+    watchConfig?: WatchConfig;
     kodiHosts?: string[];
+}
+
+export interface WatchConfig {
+    enabled: boolean;
+    encoder: 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
+    availableEncoders: ('FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC')[];
+    defaultLiveQuality?: string;
+    defaultRecordedQuality?: string;
+    liveQualities: string[];
+    recordedQualities: string[];
+    hevc10bit: boolean;
+    fps24: boolean;
 }
 
 /**
@@ -664,6 +812,7 @@ export interface AddEncodeProgramOption {
     directory?: string; // 親ディレクトリ以下のディレクトリ設定
     mode: string; // config encode の name
     removeOriginal: boolean;
+    updateThumbnail?: boolean;
 }
 
 export interface AddManualEncodeProgramOption {
@@ -674,6 +823,7 @@ export interface AddManualEncodeProgramOption {
     isSaveSameDirectory?: boolean; // ソースビデオファイルと同じ場所に保存する
     mode: string; // config encode の name
     removeOriginal: boolean;
+    updateThumbnail?: boolean;
 }
 
 /**
@@ -682,12 +832,20 @@ export interface AddManualEncodeProgramOption {
 export interface LiveStreamOption {
     channelId: ChannelId;
     mode: number; // config 設定
+    quality?: string;
+    encoder?: 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
+    isHevc?: boolean;
 }
 
 export interface RecordedStreanOption {
     videoFileId: VideoFileId;
     playPosition: number; // 再生位置 (秒)
     mode: number; // config 設定
+    quality?: string;
+    encoder?: 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
+    isHevc?: boolean;
+    subtitleIndex?: number;
+    subtitleFileKey?: string;
 }
 /**
  * ライブストリーム情報
@@ -731,6 +889,7 @@ export interface UploadVideoFileOption {
  */
 export interface CreateNewRecordedOption {
     ruleId?: RuleId;
+    userId?: UserId;
     channelId: ChannelId;
     startAt: UnixtimeMS;
     endAt: UnixtimeMS;

@@ -45,6 +45,10 @@ components:
             description: ルール id
             type: integer
 
+        UserId:
+            description: ユーザー id
+            type: integer
+
         ReserveId:
             description: 予約 id
             type: integer
@@ -302,6 +306,11 @@ components:
                                     description: 録画済み TS ファイルのストリーミング設定
                                     type: object
                                     properties:
+                                        m2tsll:
+                                            description: 録画済み TS ファイルの M2TS Low Latency (mpegts.js 用) ストリーミング設定
+                                            type: array
+                                            items:
+                                                type: string
                                         webm:
                                             description: 録画済み TS ファイルの WebM ストリーミング設定
                                             type: array
@@ -336,11 +345,69 @@ components:
                                             type: array
                                             items:
                                                 type: string
+                watchConfig:
+                    $ref: '#/components/schemas/WatchConfig'
                 kodiHosts:
                     description: kodi hosts
                     type: array
                     items:
                         type: string
+
+        WatchConfig:
+            description: Web 視聴設定
+            type: object
+            required:
+                - enabled
+                - encoder
+                - availableEncoders
+                - liveQualities
+                - recordedQualities
+                - hevc10bit
+                - fps24
+            properties:
+                enabled:
+                    description: KonomiTV 方式の Web 視聴設定が有効か
+                    type: boolean
+                encoder:
+                    description: Web 視聴に使用するエンコーダー
+                    type: string
+                    enum:
+                        - FFmpeg
+                        - QSVEncC
+                        - NVEncC
+                        - VCEEncC
+                availableEncoders:
+                    description: Web 視聴で選択可能なエンコーダー
+                    type: array
+                    items:
+                        type: string
+                        enum:
+                            - FFmpeg
+                            - QSVEncC
+                            - NVEncC
+                            - VCEEncC
+                defaultLiveQuality:
+                    description: ライブ視聴の標準画質
+                    type: string
+                defaultRecordedQuality:
+                    description: 録画視聴の標準画質
+                    type: string
+                liveQualities:
+                    description: ライブ視聴で選択可能な画質
+                    type: array
+                    items:
+                        type: string
+                recordedQualities:
+                    description: 録画視聴で選択可能な画質
+                    type: array
+                    items:
+                        type: string
+                hevc10bit:
+                    description: HEVC 10bit 出力を要求するか
+                    type: boolean
+                fps24:
+                    description: 24fps モードを使用するか
+                    type: boolean
 
         ChannelItems:
             type: array
@@ -381,6 +448,78 @@ components:
                     type: string
                 type:
                     type: number
+
+        ChannelJikkyoInfo:
+            description: NX-Jikkyo実況接続情報
+            type: object
+            required:
+                - jikkyoId
+                - watchSessionUrl
+                - commentSessionUrl
+            properties:
+                jikkyoId:
+                    description: 実況チャンネルID
+                    type: string
+                    nullable: true
+                watchSessionUrl:
+                    description: 視聴セッションWebSocket URL
+                    type: string
+                    nullable: true
+                commentSessionUrl:
+                    description: コメントセッションWebSocket URL
+                    type: string
+                    nullable: true
+
+        RecordedJikkyoComment:
+            description: 録画番組のNX-Jikkyo過去ログコメント
+            type: object
+            required:
+                - id
+                - time
+                - text
+                - color
+                - position
+                - size
+                - userId
+                - postedAt
+            properties:
+                id:
+                    type: integer
+                time:
+                    description: 録画開始からの表示位置(秒)
+                    type: number
+                text:
+                    type: string
+                color:
+                    type: string
+                position:
+                    type: string
+                    enum: [top, right, bottom]
+                size:
+                    type: string
+                    enum: [big, medium, small]
+                userId:
+                    type: string
+                postedAt:
+                    description: コメント投稿時刻(Unix time ms)
+                    type: number
+
+        RecordedJikkyoComments:
+            description: 録画番組のNX-Jikkyo過去ログ取得結果
+            type: object
+            required:
+                - isSuccess
+                - comments
+                - detail
+            properties:
+                isSuccess:
+                    type: boolean
+                comments:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/RecordedJikkyoComment'
+                detail:
+                    type: string
 
         ScheduleChannleItem:
             description: 番組表の放送局データ
@@ -558,6 +697,59 @@ components:
                     items:
                         $ref: '#/components/schemas/RuleKeywordItem'
 
+        User:
+            description: ユーザー情報
+            type: object
+            required:
+                - id
+                - name
+                - createdAt
+            properties:
+                id:
+                    $ref: '#/components/schemas/UserId'
+                name:
+                    type: string
+                createdAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+
+        Users:
+            description: ユーザー一覧
+            type: object
+            required:
+                - users
+            properties:
+                users:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/User'
+
+        AddUserOption:
+            description: ユーザー追加オプション
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
+
+        UpdateUserOption:
+            description: ユーザー更新オプション
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
+
+        UpdateRecordedUserOption:
+            description: 録画ユーザー更新オプション
+            type: object
+            required:
+                - userId
+            properties:
+                userId:
+                    $ref: '#/components/schemas/UserId'
+
         AddRuleOption:
             description: ルール追加プション
             type: object
@@ -569,6 +761,8 @@ components:
                 isTimeSpecification:
                     description: 時刻指定予約か
                     type: boolean
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 searchOption:
                     $ref: '#/components/schemas/RuleSearchOption'
                 reserveOption:
@@ -756,6 +950,14 @@ components:
                 mode1:
                     description: エンコードモード1
                     type: string
+                channelIds1:
+                    description: エンコードモード1対象局
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ChannelId'
+                channelId1:
+                    description: エンコードモード1対象局
+                    type: integer
                 encodeParentDirectoryName1:
                     description: エンコードモード1親ディレクトリ
                     type: string
@@ -765,6 +967,14 @@ components:
                 mode2:
                     description: エンコードモード2
                     type: string
+                channelIds2:
+                    description: エンコードモード2対象局
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ChannelId'
+                channelId2:
+                    description: エンコードモード2対象局
+                    type: integer
                 encodeParentDirectoryName2:
                     description: エンコードモード2親ディレクトリ
                     type: string
@@ -774,6 +984,14 @@ components:
                 mode3:
                     description: エンコードモード3
                     type: string
+                channelIds3:
+                    description: エンコードモード3対象局
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ChannelId'
+                channelId3:
+                    description: エンコードモード3対象局
+                    type: integer
                 encodeParentDirectoryName3:
                     description: エンコードモード3親ディレクトリ
                     type: string
@@ -782,6 +1000,9 @@ components:
                     type: string
                 isDeleteOriginalAfterEncode:
                     description: エンコード後に ts を削除するか
+                    type: boolean
+                updateThumbnail:
+                    description: エンコード完了時にサムネイルを再生成するか
                     type: boolean
 
         AddedRule:
@@ -802,6 +1023,8 @@ components:
                 allowEndLack:
                     description: 末尾切れを許すか
                     type: boolean
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 tags:
                     type: array
                     items:
@@ -817,6 +1040,8 @@ components:
             allOf:
                 - $ref: '#/components/schemas/EditManualReserveOption'
             properties:
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 programId:
                     $ref: '#/components/schemas/ProgramId'
                 timeSpecifiedOption:
@@ -865,6 +1090,8 @@ components:
             properties:
                 id:
                     $ref: '#/components/schemas/ReserveId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 ruleId:
                     $ref: '#/components/schemas/RuleId'
                 isSkip:
@@ -906,6 +1133,8 @@ components:
                 encodeDirectory3:
                     type: integer
                 isDeleteOriginalAfterEncode:
+                    type: boolean
+                updateThumbnail:
                     type: boolean
                 programId:
                     $ref: '#/components/schemas/ProgramId'
@@ -1045,6 +1274,8 @@ components:
             properties:
                 id:
                     $ref: '#/components/schemas/RecordedId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 ruleId:
                     $ref: '#/components/schemas/RuleId'
                 programId:
@@ -1126,6 +1357,8 @@ components:
             properties:
                 ruleId:
                     $ref: '#/components/schemas/RuleId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 channelId:
                     $ref: '#/components/schemas/ChannelId'
                 startAt:
@@ -1195,6 +1428,75 @@ components:
                 duration:
                     description: 動画長(秒)
                     type: number
+
+        VideoSubtitle:
+            description: ビデオファイル内の字幕トラック
+            type: object
+            required:
+                - subtitleIndex
+                - streamIndex
+                - isDefault
+                - isForced
+                - displayName
+            properties:
+                subtitleIndex:
+                    description: 字幕トラック内のインデックス
+                    type: integer
+                streamIndex:
+                    description: ffprobe のストリームインデックス
+                    type: integer
+                codecName:
+                    description: 字幕コーデック名
+                    type: string
+                language:
+                    description: 言語
+                    type: string
+                title:
+                    description: タイトル
+                    type: string
+                isDefault:
+                    description: デフォルト字幕か
+                    type: boolean
+                isForced:
+                    description: 強制字幕か
+                    type: boolean
+                displayName:
+                    description: UI 表示名
+                    type: string
+
+        VideoSubtitles:
+            description: ビデオファイル内の字幕トラック一覧
+            type: object
+            required:
+                - items
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/VideoSubtitle'
+
+        VideoSubtitleText:
+            description: ビデオファイル内の字幕本文
+            type: object
+            required:
+                - subtitleText
+            properties:
+                subtitleText:
+                    description: ASS形式の字幕本文
+                    type: string
+
+        VideoPreparedSubtitle:
+            description: 準備済み字幕ファイル
+            type: object
+            required:
+                - subtitleFileKey
+            properties:
+                subtitleFileKey:
+                    description: 一時字幕ファイルキー
+                    type: string
+                subtitleText:
+                    description: 準備済み字幕ファイル本文
+                    type: string
 
         DropLogFile:
             description: ドロップログファイル情報
@@ -1307,12 +1609,26 @@ components:
                 genre:
                     $ref: '#/components/schemas/ProgramGenreLv1'
 
+        RecordedEncodeListItem:
+            description: recorded 検索で選択できる encode のリスト
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    description: config encode の name
+                    type: string
+                suffix:
+                    description: config encode の suffix
+                    type: string
+
         RecordedSearchOptions:
             description: recorded が持つ検索オプション情報
             type: object
             required:
                 - channels
                 - genres
+                - encode
             properties:
                 channels:
                     type: array
@@ -1322,6 +1638,104 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/RecordedGenreListItem'
+                encode:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/RecordedEncodeListItem'
+
+        RecordedCleanupPlanResult:
+            description: recorded クリーンアップ候補リスト作成結果
+            type: object
+            required:
+                - planPath
+                - recordedFileCount
+                - epgstationLikeRecordedFileCount
+                - otherRecordedFileCount
+                - recordedDirectoryCount
+                - missingVideoFileCount
+                - dropLogFileCount
+                - missingDropLogFileCount
+                - thumbnailFileCount
+                - missingThumbnailFileCount
+            properties:
+                planPath:
+                    description: 作成した候補リストのパス
+                    type: string
+                recordedFileCount:
+                    description: DB 未登録の録画ファイル数
+                    type: integer
+                epgstationLikeRecordedFileCount:
+                    description: EPGStation の録画/エンコード出力らしい DB 未登録ファイル数
+                    type: integer
+                otherRecordedFileCount:
+                    description: その他の DB 未登録ファイル数
+                    type: integer
+                recordedDirectoryCount:
+                    description: DB 未登録の空録画ディレクトリ数
+                    type: integer
+                missingVideoFileCount:
+                    description: 実ファイルが存在しない DB ビデオファイル数
+                    type: integer
+                dropLogFileCount:
+                    description: DB 未登録の drop log ファイル数
+                    type: integer
+                missingDropLogFileCount:
+                    description: 実ファイルが存在しない DB drop log 数
+                    type: integer
+                thumbnailFileCount:
+                    description: DB 未登録の thumbnail ファイル数
+                    type: integer
+                missingThumbnailFileCount:
+                    description: 実ファイルが存在しない DB thumbnail 数
+                    type: integer
+
+        RecordedCleanupExecuteOption:
+            description: recorded クリーンアップ候補リスト実行オプション
+            type: object
+            required:
+                - planPath
+            properties:
+                planPath:
+                    description: 実行する候補リストのパス
+                    type: string
+
+        RecordedCleanupExecuteResult:
+            description: recorded クリーンアップ候補リスト実行結果
+            type: object
+            required:
+                - deletedRecordedFileCount
+                - deletedRecordedDirectoryCount
+                - deletedDropLogFileCount
+                - deletedThumbnailFileCount
+                - removedMissingVideoFileCount
+                - removedMissingDropLogFileCount
+                - removedMissingThumbnailFileCount
+                - skippedCount
+            properties:
+                deletedRecordedFileCount:
+                    description: 削除した DB 未登録録画ファイル数
+                    type: integer
+                deletedRecordedDirectoryCount:
+                    description: 削除した DB 未登録空録画ディレクトリ数
+                    type: integer
+                deletedDropLogFileCount:
+                    description: 削除した DB 未登録 drop log ファイル数
+                    type: integer
+                deletedThumbnailFileCount:
+                    description: 削除した DB 未登録 thumbnail ファイル数
+                    type: integer
+                removedMissingVideoFileCount:
+                    description: 削除した実ファイルなし DB ビデオファイル数
+                    type: integer
+                removedMissingDropLogFileCount:
+                    description: 削除した実ファイルなし DB drop log 数
+                    type: integer
+                removedMissingThumbnailFileCount:
+                    description: 削除した実ファイルなし DB thumbnail 数
+                    type: integer
+                skippedCount:
+                    description: 実行時検証でスキップした候補数
+                    type: integer
 
         SendVideoLinkToKodiOption:
             description: kodiへビデオリンクを送信するときのオプション
@@ -1434,6 +1848,10 @@ components:
                     description: 元ファイルを削除するか
                     type: boolean
 
+                updateThumbnail:
+                    description: エンコード完了時にサムネイルを再生成する
+                    type: boolean
+
         AddManualEncodeProgramOption:
             description: エンコード手動追加時のオプション
             type: object
@@ -1461,6 +1879,10 @@ components:
                     type: string
                 removeOriginal:
                     description: 元ファイルを削除するか
+                    type: boolean
+
+                updateThumbnail:
+                    description: エンコード完了時にサムネイルを再生成する
                     type: boolean
 
         AddedEncode:
@@ -1695,12 +2117,71 @@ components:
             schema:
                 type: string
 
+        QueryHasReserve:
+            description: 予約が存在するルールのみに絞り込むか
+            name: hasReserve
+            in: query
+            schema:
+                type: boolean
+
         QueryHasOriginalFile:
             description: オリジナルファイルを含むか
             name: hasOriginalFile
             in: query
             schema:
                 type: boolean
+
+        QueryRecordedEncodeMode:
+            description: エンコードプリセット名
+            name: encodeMode
+            in: query
+            schema:
+                type: string
+
+        QueryRecordedEncodeModeMatch:
+            description: エンコードプリセットの一致条件
+            name: encodeModeMatch
+            in: query
+            schema:
+                type: string
+                enum:
+                    - include
+                    - only
+
+        QueryRecordedHasDrop:
+            description: drop がある録画のみ
+            name: hasDrop
+            in: query
+            schema:
+                type: boolean
+
+        QueryRecordedHasError:
+            description: error がある録画のみ
+            name: hasError
+            in: query
+            schema:
+                type: boolean
+
+        QueryRecordedHasScrambling:
+            description: scrambling がある録画のみ
+            name: hasScrambling
+            in: query
+            schema:
+                type: boolean
+
+        QueryRecordedStartAt:
+            description: 録画開始日時下限
+            name: recordedStartAt
+            in: query
+            schema:
+                $ref: '#/components/schemas/UnixtimeMS'
+
+        QueryRecordedEndAt:
+            description: 録画開始日時上限
+            name: recordedEndAt
+            in: query
+            schema:
+                $ref: '#/components/schemas/UnixtimeMS'
 
         QueryName:
             description: name
@@ -1889,6 +2370,40 @@ components:
             required: true
             schema:
                 type: integer
+
+        WatchStreamQuality:
+            description: Web 視聴画質
+            in: query
+            name: quality
+            required: false
+            schema:
+                type: string
+
+        WatchStreamEncoder:
+            description: Web 視聴エンコーダー
+            in: query
+            name: encoder
+            required: false
+            schema:
+                type: string
+                enum:
+                    - FFmpeg
+                    - QSVEncC
+                    - NVEncC
+                    - VCEEncC
+
+        WatchStreamHevc:
+            description: HEVC でエンコードするか
+            in: query
+            name: hevc
+            required: false
+            schema:
+                type: string
+                enum:
+                    - 'true'
+                    - 'false'
+                    - '1'
+                    - '0'
 
         StreamPlayPosition:
             description: 再生位置

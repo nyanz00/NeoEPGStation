@@ -87,6 +87,8 @@ export enum RecordedFunctions {
     createNewRecorded = 'createNewRecorded',
     deleteVideoFile = 'deleteVideoFile',
     changeProtect = 'changeProtect',
+    createCleanupPlan = 'createCleanupPlan',
+    executeCleanupPlan = 'executeCleanupPlan',
     videoFileCleanup = 'videoFileCleanup',
     dropLogFileCleanup = 'dropLogFileCleanup',
 }
@@ -106,6 +108,7 @@ export enum RecordedTagFunctions {
  * Recording の関数定義
  */
 export enum RecordingFunctions {
+    getCurrentDropLogFiles = 'getCurrentDropLogFiles',
     resetTimer = 'resetTimer',
 }
 
@@ -128,6 +131,7 @@ export enum ThumbnailFunctions {
     regenerate = 'regenerate',
     fileCleanup = 'fileCleanup',
     add = 'add',
+    replace = 'replace',
     delete = 'delete',
 }
 
@@ -136,4 +140,5 @@ export enum ThumbnailFunctions {
  */
 export enum OperatorEncodeEventFunctions {
     emitFinishEncode = 'emitFinishEncode',
+    emitErrorEncode = 'emitErrorEncode',
 }

@@ -10,6 +10,7 @@
         ></EditTitleBar>
         <TitleBar v-else :title="title">
             <template v-slot:menu>
+                <UserSelector class="reserves-user-selector" v-model="selectedUserId" v-on:change="onUserChange"></UserSelector>
                 <ReservesMainMenu v-on:edit="onEdit"></ReservesMainMenu>
             </template>
         </TitleBar>
@@ -38,12 +39,14 @@ import ReservesMainMenu from '@/components/reserves/ReservesMainMenu.vue';
 import Snackbar from '@/components/snackbar/Snackbar.vue';
 import EditTitleBar from '@/components/titleBar/EditTitleBar.vue';
 import TitleBar from '@/components/titleBar/TitleBar.vue';
+import UserSelector from '@/components/user/UserSelector.vue';
 import container from '@/model/ModelContainer';
 import ISocketIOModel from '@/model/socketio/ISocketIOModel';
 import IScrollPositionState from '@/model/state/IScrollPositionState';
 import IReservesState from '@/model/state/reserve/IReservesState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
 import { ISettingStorageModel, ISettingValue } from '@/model/storage/setting/ISettingStorageModel';
+import { ActiveUserId, IActiveUserStorageModel } from '@/model/storage/user/IActiveUserStorageModel';
 import Util from '@/util/Util';
 import { Component, Vue, Watch } from 'vue-property-decorator';
 import { Route } from 'vue-router';
@@ -59,6 +62,7 @@ Component.registerHooks(['beforeRouteUpdate', 'beforeRouteLeave']);
         ReserveItems,
         Pagination,
         ReserveMultipleDeletionDialog,
+        UserSelector,
     },
 })
 export default class Reserves extends Vue {
@@ -72,6 +76,8 @@ export default class Reserves extends Vue {
     private scrollState: IScrollPositionState = container.get<IScrollPositionState>('IScrollPositionState');
     private snackbarState: ISnackbarState = container.get<ISnackbarState>('ISnackbarState');
     private socketIoModel: ISocketIOModel = container.get<ISocketIOModel>('ISocketIOModel');
+    private activeUserStorage: IActiveUserStorageModel = container.get<IActiveUserStorageModel>('IActiveUserStorageModel');
+    private selectedUserId: ActiveUserId = this.activeUserStorage.getSavedValue().userId;
     private onUpdateStatusCallback = (async (): Promise<void> => {
         await this.reservesState.fetchData(this.createFetchDataOption());
     }).bind(this);
@@ -163,6 +169,11 @@ export default class Reserves extends Vue {
         }
     }
 
+    public async onUserChange(): Promise<void> {
+        this.reservesState.clearDate();
+        await this.reservesState.fetchData(this.createFetchDataOption());
+    }
+
     @Watch('$route', { immediate: true, deep: true })
     public onUrlChange(): void {
         this.reservesState.clearDate();
@@ -193,12 +204,23 @@ export default class Reserves extends Vue {
 
         const type = this.$route.query.type;
 
-        return {
+        const option: apid.GetReserveOption = {
             type: typeof type === 'undefined' ? 'all' : type === 'normal' || type === 'conflict' || type === 'overlap' || type === 'skip' ? type : 'normal',
             isHalfWidth: this.settingValue.isHalfWidthDisplayed,
             offset: (Util.getPageNum(this.$route) - 1) * this.settingValue.reservesLength,
             limit: this.settingValue.reservesLength,
         };
+
+        if (typeof this.selectedUserId === 'number') {
+            option.userId = this.selectedUserId;
+        }
+
+        return option;
     }
 }
 </script>
+
+<style lang="sass" scoped>
+.reserves-user-selector
+    margin-right: 4px
+</style>

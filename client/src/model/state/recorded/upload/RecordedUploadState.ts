@@ -7,6 +7,7 @@ import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel';
 import IChannelModel from '../../../channels/IChannelModel';
 import IServerConfigModel from '../../../serverConfig/IServerConfigModel';
 import { ISettingStorageModel } from '../../../storage/setting/ISettingStorageModel';
+import { IActiveUserStorageModel } from '../../../storage/user/IActiveUserStorageModel';
 import IRecordedUploadState, { SelectorItem, UploadProgramOption, VideoFileItem } from './IRecordedUploadState';
 
 @injectable()
@@ -22,6 +23,7 @@ class RecordedUploadState implements IRecordedUploadState {
         genre1: undefined,
         subGenre1: undefined,
     };
+    public userId: apid.UserId | null = null;
     public videoFileItems: VideoFileItem[] = [];
 
     public ruleKeyword: string | null = null;
@@ -34,6 +36,7 @@ class RecordedUploadState implements IRecordedUploadState {
     private ruleApiModel: IRuleApiModel;
     private recordedApiModel: IRecordedApiModel;
     private videoApiModel: IVideoApiModel;
+    private activeUserStorage: IActiveUserStorageModel;
 
     private channelItems: SelectorItem[] = [];
     private genreItems: SelectorItem[] = [];
@@ -47,6 +50,7 @@ class RecordedUploadState implements IRecordedUploadState {
         @inject('IRuleApiModel') ruleApiModel: IRuleApiModel,
         @inject('IRecordedApiModel') recordedApiModel: IRecordedApiModel,
         @inject('IVideoApiModel') videoApiModel: IVideoApiModel,
+        @inject('IActiveUserStorageModel') activeUserStorage: IActiveUserStorageModel,
     ) {
         this.serverConfig = serverConfig;
         this.settingModel = settingModel;
@@ -54,6 +58,7 @@ class RecordedUploadState implements IRecordedUploadState {
         this.ruleApiModel = ruleApiModel;
         this.recordedApiModel = recordedApiModel;
         this.videoApiModel = videoApiModel;
+        this.activeUserStorage = activeUserStorage;
 
         this.genreItems = GenreUtil.getGenreListItems();
         for (let i = 0; i < GenreUtil.GENRE_MAX_NUM; i++) {
@@ -76,6 +81,7 @@ class RecordedUploadState implements IRecordedUploadState {
             genre1: undefined,
             subGenre1: undefined,
         };
+        this.userId = this.getDefaultUserId();
 
         this.videoItemCnt = 0;
         this.videoFileItems = [];
@@ -131,8 +137,30 @@ class RecordedUploadState implements IRecordedUploadState {
      * 放送局 item を返す
      * @return SelectorItem[]
      */
-    public getChannelItems(): SelectorItem[] {
-        return this.channelItems;
+    public getChannelItems(filter?: string | null): SelectorItem[] {
+        const normalizedFilter = this.normalizeChannelFilter(filter);
+
+        if (normalizedFilter === null) {
+            return this.channelItems;
+        }
+
+        return this.channelItems.filter(channel => {
+            return this.normalizeChannelFilter(channel.text)?.includes(normalizedFilter) === true;
+        });
+    }
+
+    private normalizeChannelFilter(value?: string | null): string | null {
+        if (typeof value !== 'string') {
+            return null;
+        }
+
+        const normalized = value
+            .normalize('NFKC')
+            .toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+
+        return normalized.length === 0 ? null : normalized;
     }
 
     /**
@@ -330,7 +358,17 @@ class RecordedUploadState implements IRecordedUploadState {
             option.subGenre1 = this.programOption.subGenre1;
         }
 
+        if (typeof this.userId === 'number') {
+            option.userId = this.userId;
+        }
+
         return option;
+    }
+
+    private getDefaultUserId(): apid.UserId | null {
+        const activeUserId = this.activeUserStorage.getSavedValue().userId;
+
+        return typeof activeUserId === 'number' ? activeUserId : null;
     }
 }
 

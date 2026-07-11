@@ -36,9 +36,9 @@ export default class RecordedDB implements IRecordedDB {
         let hasError = false;
         try {
             // 削除
-            await queryRunner.manager.delete(Thumbnail, {});
-            await queryRunner.manager.delete(VideoFile, {});
-            await queryRunner.manager.delete(Recorded, {});
+            await queryRunner.manager.clear(Thumbnail);
+            await queryRunner.manager.clear(VideoFile);
+            await queryRunner.manager.clear(Recorded);
 
             // 挿入処理
             for (const item of items) {
@@ -184,6 +184,26 @@ export default class RecordedDB implements IRecordedDB {
     }
 
     /**
+     * 指定した録画番組のユーザーを変更する
+     * @param recordedId: apid.RecordedId
+     * @param userId: apid.UserId
+     * @return Promise<void>
+     */
+    public async changeUser(recordedId: apid.RecordedId, userId: apid.UserId): Promise<void> {
+        const connection = await this.op.getConnection();
+        const queryBuilder = connection
+            .createQueryBuilder()
+            .update(Recorded)
+            .set({
+                userId,
+            })
+            .where({ id: recordedId });
+        await this.promieRetry.run(() => {
+            return queryBuilder.execute();
+        });
+    }
+
+    /**
      * 指定した録画番組情報を 1 件削除
      * @param recordedId: apid.RecordedId
      * @return Promise<void>
@@ -287,6 +307,7 @@ export default class RecordedDB implements IRecordedDB {
         let queryBuilder = connection.getRepository(Recorded).createQueryBuilder('recorded');
 
         const querys: { query: string; values: any }[] = [];
+        let needsDropLogFilter = false;
 
         // is recording
         if (typeof option.isRecording !== 'undefined') {
@@ -294,6 +315,15 @@ export default class RecordedDB implements IRecordedDB {
                 query: 'recorded.isRecording = :isRecording',
                 values: {
                     isRecording: option.isRecording,
+                },
+            });
+        }
+
+        if (typeof option.userId !== 'undefined') {
+            querys.push({
+                query: 'recorded.userId = :userId',
+                values: {
+                    userId: option.userId,
                 },
             });
         }
@@ -371,6 +401,94 @@ export default class RecordedDB implements IRecordedDB {
             });
         }
 
+        // recorded startAt
+        if (typeof option.recordedStartAt !== 'undefined') {
+            querys.push({
+                query: 'recorded.startAt >= :recordedStartAt',
+                values: {
+                    recordedStartAt: option.recordedStartAt,
+                },
+            });
+        }
+
+        if (typeof option.recordedEndAt !== 'undefined') {
+            querys.push({
+                query: 'recorded.startAt < :recordedEndAt',
+                values: {
+                    recordedEndAt: option.recordedEndAt,
+                },
+            });
+        }
+
+        // video file type
+        if (typeof option.searchVideoFiles !== 'undefined' && option.searchVideoFiles.length > 0) {
+            const values: any = {};
+            const existsSelectedFiles: string[] = [];
+            const selectedFileConditionsForOnly: string[] = [];
+
+            option.searchVideoFiles.forEach((file, index) => {
+                const typeKey = `searchVideoFileType${index.toString(10)}`;
+                const nameKey = `searchVideoFileName${index.toString(10)}`;
+                const selectedFileAlias = `searchVideoFile${index.toString(10)}`;
+                const selectedFileConditions = [
+                    `${selectedFileAlias}.recordedId = recorded.id`,
+                    `${selectedFileAlias}.type = :${typeKey}`,
+                ];
+                const selectedFileConditionsForOnlyItem = [`otherVideoFile.type = :${typeKey}`];
+                values[typeKey] = file.type;
+
+                if (typeof file.name === 'string') {
+                    selectedFileConditions.push(`${selectedFileAlias}.name = :${nameKey}`);
+                    selectedFileConditionsForOnlyItem.push(`otherVideoFile.name = :${nameKey}`);
+                    values[nameKey] = file.name;
+                }
+
+                existsSelectedFiles.push(
+                    `exists (select 1 from video_file ${selectedFileAlias} where ${selectedFileConditions.join(' and ')})`,
+                );
+                selectedFileConditionsForOnly.push(`(${selectedFileConditionsForOnlyItem.join(' and ')})`);
+            });
+
+            const existsSelectedFile = existsSelectedFiles.join(' and ');
+            const existsOtherFile =
+                'exists (select 1 from video_file otherVideoFile where otherVideoFile.recordedId = recorded.id ' +
+                'and not (' +
+                selectedFileConditionsForOnly.join(' or ') +
+                '))';
+
+            querys.push({
+                query:
+                    option.encodeModeMatch === 'only'
+                        ? existsSelectedFile + ' and not ' + existsOtherFile
+                        : existsSelectedFile,
+                values,
+            });
+        }
+
+        if (option.hasDrop === true) {
+            needsDropLogFilter = true;
+            querys.push({
+                query: 'dropLogFilter.dropCnt > 0',
+                values: {},
+            });
+        }
+
+        if (option.hasError === true) {
+            needsDropLogFilter = true;
+            querys.push({
+                query: 'dropLogFilter.errorCnt > 0',
+                values: {},
+            });
+        }
+
+        if (option.hasScrambling === true) {
+            needsDropLogFilter = true;
+            querys.push({
+                query: 'dropLogFilter.scramblingCnt > 0',
+                values: {},
+            });
+        }
+
         // オリジナルファイルだけを抽出する
         if (columnOption.isNeedVideoFiles === true && !!option.hasOriginalFile === true) {
             querys.push({
@@ -379,6 +497,10 @@ export default class RecordedDB implements IRecordedDB {
                     type: 'encoded',
                 },
             });
+        }
+
+        if (needsDropLogFilter === true) {
+            queryBuilder = queryBuilder.leftJoin('recorded.dropLogFile', 'dropLogFilter');
         }
 
         // where セット
@@ -476,6 +598,28 @@ export default class RecordedDB implements IRecordedDB {
         return await this.promieRetry.run(() => {
             return queryBuilder.getRawMany();
         });
+    }
+
+    public async findEncodedNameList(): Promise<string[]> {
+        const connection = await this.op.getConnection();
+
+        const queryBuilder = connection
+            .getRepository(VideoFile)
+            .createQueryBuilder('videoFile')
+            .select('videoFile.name', 'name')
+            .where('videoFile.type = :type', {
+                type: 'encoded',
+            })
+            .groupBy('videoFile.name')
+            .orderBy('videoFile.name', 'ASC');
+
+        const result = await this.promieRetry.run(() => {
+            return queryBuilder.getRawMany();
+        });
+
+        return result
+            .map(item => item.name)
+            .filter((name): name is string => typeof name === 'string' && name.length > 0);
     }
 
     /**

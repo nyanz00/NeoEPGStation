@@ -8,6 +8,7 @@ import RecordedHistory from './db/entities/RecordedHistory';
 import RecordedTag from './db/entities/RecordedTag';
 import Reserve from './db/entities/Reserve';
 import Thumbnail from './db/entities/Thumbnail';
+import TvUser from './db/entities/TvUser';
 import VideoFile from './db/entities/VideoFile';
 import IDBOperator from './model/db/IDBOperator';
 import IDropLogFileDB from './model/db/IDropLogFileDB';
@@ -17,6 +18,7 @@ import IRecordedTagDB from './model/db/IRecordedTagDB';
 import IReserveDB from './model/db/IReserveDB';
 import IRuleDB, { RuleWithCnt } from './model/db/IRuleDB';
 import IThumbnailDB from './model/db/IThumbnailDB';
+import ITvUserDB from './model/db/ITvUserDB';
 import IVideoFileDB from './model/db/IVideoFileDB';
 import IConnectionCheckModel from './model/IConnectionCheckModel';
 import ILogger from './model/ILogger';
@@ -28,6 +30,7 @@ install();
 containerSetter.set(container);
 
 interface BackupData {
+    tvUserItems?: TvUser[];
     ruleItems: RuleWithCnt[];
     reserveItems: Reserve[];
     recordedItems: Recorded[];
@@ -41,6 +44,7 @@ interface BackupData {
 class DBTools {
     private filePath: string;
     private mode: 'backup' | 'restore';
+    private backupType: 'full' | 'legacy';
 
     private log: ILogger;
     private connectionChecker: IConnectionCheckModel;
@@ -52,6 +56,7 @@ class DBTools {
     private reserveDB: IReserveDB;
     private ruleDB: IRuleDB;
     private thumbnailDB: IThumbnailDB;
+    private tvUserDB: ITvUserDB;
     private videoFileDB: IVideoFileDB;
 
     constructor() {
@@ -60,8 +65,10 @@ class DBTools {
             alias: {
                 m: 'mode',
                 o: 'output',
+                t: 'backup-type',
             },
-            string: ['output', 'mode'],
+            string: ['output', 'mode', 'backup-type'],
+            boolean: ['compatible'],
         });
 
         if (
@@ -79,8 +86,20 @@ class DBTools {
             process.exit(1);
         }
 
+        const backupType =
+            args.compatible === true
+                ? 'legacy'
+                : typeof args['backup-type'] === 'undefined'
+                  ? 'full'
+                  : args['backup-type'];
+        if (backupType !== 'full' && backupType !== 'legacy') {
+            console.error('backup-type の指定が間違っています');
+            process.exit(1);
+        }
+
         this.filePath = args.output;
         this.mode = args.mode;
+        this.backupType = backupType;
 
         const logger = container.get<ILoggerModel>('ILoggerModel');
         logger.initialize();
@@ -94,6 +113,7 @@ class DBTools {
         this.reserveDB = container.get<IReserveDB>('IReserveDB');
         this.ruleDB = container.get<IRuleDB>('IRuleDB');
         this.thumbnailDB = container.get<IThumbnailDB>('IThumbnailDB');
+        this.tvUserDB = container.get<ITvUserDB>('ITvUserDB');
         this.videoFileDB = container.get<IVideoFileDB>('IVideoFileDB');
     }
 
@@ -127,6 +147,9 @@ class DBTools {
 
         this.log.system.info('rule');
         const [ruleItems] = await this.ruleDB.findAll({}, true);
+
+        this.log.system.info('tv user');
+        const tvUserItems = await this.tvUserDB.findAll();
 
         this.log.system.info('reserve');
         const [reserveItems] = await this.reserveDB.findAll({ isHalfWidth: false });
@@ -167,6 +190,7 @@ class DBTools {
         const [recordedTagItems] = await this.recordedTagDB.findAll({});
 
         const backup: BackupData = {
+            tvUserItems: tvUserItems,
             ruleItems: ruleItems as RuleWithCnt[],
             reserveItems: reserveItems,
             recordedItems: recordedItems,
@@ -179,7 +203,13 @@ class DBTools {
 
         this.log.system.info('--- writing ---');
 
-        fs.writeFileSync(this.filePath, JSON.stringify(backup), { encoding: 'utf-8' });
+        fs.writeFileSync(
+            this.filePath,
+            JSON.stringify(this.backupType === 'legacy' ? this.createLegacyBackup(backup) : backup),
+            {
+                encoding: 'utf-8',
+            },
+        );
     }
 
     /**
@@ -210,6 +240,17 @@ class DBTools {
 
         // restore
         this.log.system.info('--- restore ---');
+        this.log.system.info('tv user');
+        if (Array.isArray(backup.tvUserItems) === true && backup.tvUserItems.length > 0) {
+            await this.tvUserDB.restore(backup.tvUserItems);
+            await this.tvUserDB.ensureDefaultUser();
+        } else {
+            await this.tvUserDB.ensureDefaultUser();
+        }
+        this.normalizeUserId(backup.ruleItems);
+        this.normalizeUserId(backup.reserveItems);
+        this.normalizeUserId(backup.recordedItems);
+
         this.log.system.info('rule');
         await this.ruleDB.restore(backup.ruleItems);
 
@@ -236,6 +277,43 @@ class DBTools {
 
         this.log.system.info('recorded tag');
         await this.recordedTagDB.restore(backup.recordedTagItems);
+    }
+
+    private createLegacyBackup(backup: BackupData): BackupData {
+        const legacyBackup = JSON.parse(JSON.stringify(backup)) as BackupData;
+        delete legacyBackup.tvUserItems;
+
+        this.deleteProperties(legacyBackup.ruleItems, [
+            'userId',
+            'channelTypes',
+            'encodeChannelId1',
+            'encodeChannelId2',
+            'encodeChannelId3',
+            'encodeChannelIds1',
+            'encodeChannelIds2',
+            'encodeChannelIds3',
+            'updateThumbnail',
+        ]);
+        this.deleteProperties(legacyBackup.reserveItems, ['userId', 'updateThumbnail']);
+        this.deleteProperties(legacyBackup.recordedItems, ['userId']);
+
+        return legacyBackup;
+    }
+
+    private normalizeUserId<T extends { userId?: number | null }>(items: T[]): void {
+        for (const item of items) {
+            if (typeof item.userId !== 'number') {
+                item.userId = 1;
+            }
+        }
+    }
+
+    private deleteProperties(items: any[], names: string[]): void {
+        for (const item of items) {
+            for (const name of names) {
+                delete item[name];
+            }
+        }
     }
 }
 

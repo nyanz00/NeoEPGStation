@@ -19,4 +19,8 @@ dist
 .cache
 data/upload/*
 data/key/*
+thirdparty/**
+!thirdparty/.gitkeep
+!thirdparty/tsreadex/
+!thirdparty/tsreadex/.gitkeep
 !.gitkeep

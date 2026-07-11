@@ -8,6 +8,9 @@ export default interface IRecordedApiModel {
     delete(recordedId: apid.RecordedId): Promise<void>;
     stopEncode(recordedId: apid.RecordedId): Promise<void>;
     changeProtect(recordedId: apid.RecordedId, isProtect: boolean): Promise<void>;
+    changeUser(recordedId: apid.RecordedId, option: apid.UpdateRecordedUserOption): Promise<void>;
+    createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult>;
+    executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult>;
     fileCleanup(): Promise<void>;
     addUploadedVideoFile(option: UploadedVideoFileOption): Promise<void>;
     createNewRecorded(option: apid.CreateNewRecordedOption): Promise<apid.RecordedId>;

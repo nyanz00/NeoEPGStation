@@ -1,4 +1,5 @@
 import * as apid from '../../../../../api';
+import ProcessUtil from '../../../../util/ProcessUtil';
 import IStreamBaseModel from './IStreamBaseModel';
 
 export type RecordedStreamModelProvider = () => Promise<IRecordedStreamBaseModel>;
@@ -8,6 +9,7 @@ export interface RecordedStreamOption {
     videoFileId: apid.VideoFileId;
     playPosition: number; // 再生位置(秒)
     cmd: string;
+    preprocessor?: ProcessUtil.Cmds;
 }
 
 export interface VideoFileInfo {

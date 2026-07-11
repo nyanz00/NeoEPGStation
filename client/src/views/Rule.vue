@@ -10,6 +10,8 @@
         ></EditTitleBar>
         <TitleBar v-else title="ルール">
             <template v-slot:menu>
+                <v-btn class="reserve-filter-button" :color="isReserveOnly === true ? 'primary' : undefined" small rounded outlined v-on:click="toggleReserveFilter">予約有</v-btn>
+                <UserSelector class="rule-user-selector" v-model="selectedUserId" v-on:change="onUserChange"></UserSelector>
                 <RuleSearchMenu></RuleSearchMenu>
                 <v-btn icon v-on:click="onEdit">
                     <v-icon>mdi-pencil</v-icon>
@@ -45,12 +47,14 @@ import RuleMultipleDeletionDialog from '@/components/rules/RuleMultipleDeletionD
 import RuleSearchMenu from '@/components/rules/RuleSearchMenu.vue';
 import EditTitleBar from '@/components/titleBar/EditTitleBar.vue';
 import TitleBar from '@/components/titleBar/TitleBar.vue';
+import UserSelector from '@/components/user/UserSelector.vue';
 import container from '@/model/ModelContainer';
 import ISocketIOModel from '@/model/socketio/ISocketIOModel';
 import IScrollPositionState from '@/model/state/IScrollPositionState';
 import IRuleState, { RuleFetchOption } from '@/model/state/rule/IRuleState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
 import { ISettingStorageModel, ISettingValue } from '@/model/storage/setting/ISettingStorageModel';
+import { ActiveUserId, IActiveUserStorageModel } from '@/model/storage/user/IActiveUserStorageModel';
 import Util from '@/util/Util';
 import { Component, Vue, Watch } from 'vue-property-decorator';
 import { Route } from 'vue-router';
@@ -66,6 +70,7 @@ Component.registerHooks(['beforeRouteUpdate', 'beforeRouteLeave']);
         RuleItems,
         Pagination,
         RuleMultipleDeletionDialog,
+        UserSelector,
     },
 })
 export default class Reserves extends Vue {
@@ -79,6 +84,8 @@ export default class Reserves extends Vue {
     private scrollState: IScrollPositionState = container.get<IScrollPositionState>('IScrollPositionState');
     private snackbarState: ISnackbarState = container.get<ISnackbarState>('ISnackbarState');
     private socketIoModel: ISocketIOModel = container.get<ISocketIOModel>('ISocketIOModel');
+    private activeUserStorage: IActiveUserStorageModel = container.get<IActiveUserStorageModel>('IActiveUserStorageModel');
+    private selectedUserId: ActiveUserId = this.activeUserStorage.getSavedValue().userId;
     private onUpdateStatusCallback = (async (): Promise<void> => {
         await this.ruleState.fetchData(this.createFetchDataOption());
     }).bind(this);
@@ -94,6 +101,10 @@ export default class Reserves extends Vue {
                   opacity: 0,
                   visibility: 'hidden',
               };
+    }
+
+    get isReserveOnly(): boolean {
+        return this.$route.query.hasReserve === 'true';
     }
 
     public created(): void {
@@ -140,6 +151,27 @@ export default class Reserves extends Vue {
 
     public onMultiplueDeletion(): void {
         this.isOpenMultiplueDeletionDialog = true;
+    }
+
+    public async toggleReserveFilter(): Promise<void> {
+        const query: any = { ...this.$route.query };
+        delete query.page;
+
+        if (this.isReserveOnly === true) {
+            delete query.hasReserve;
+        } else {
+            query.hasReserve = 'true';
+        }
+
+        await Util.move(this.$router, {
+            path: '/rule',
+            query,
+        });
+    }
+
+    public async onUserChange(): Promise<void> {
+        this.ruleState.clearData();
+        await this.ruleState.fetchData(this.createFetchDataOption());
     }
 
     public async onExecuteMultiplueDeletion(): Promise<void> {
@@ -199,6 +231,13 @@ export default class Reserves extends Vue {
         if (typeof this.$route.query.keyword === 'string') {
             option.keyword = this.$route.query.keyword;
         }
+        if (this.isReserveOnly === true) {
+            option.hasReserve = true;
+        }
+
+        if (typeof this.selectedUserId === 'number') {
+            option.userId = this.selectedUserId;
+        }
 
         return option;
     }
@@ -210,4 +249,10 @@ export default class Reserves extends Vue {
     .fab-space
         width: 100%
         height: 80px
+
+.reserve-filter-button
+    margin-right: 4px
+
+.rule-user-selector
+    margin-right: 4px
 </style>

@@ -65,7 +65,7 @@ export default class RecordedUtil implements IRecordedUtil {
             result.display.genre = genres;
         }
 
-        if (item.isRecording !== true && typeof item.dropLogFile !== 'undefined') {
+        if (typeof item.dropLogFile !== 'undefined') {
             let fileSize = 0;
             if (typeof item.videoFiles !== 'undefined') {
                 for (const v of item.videoFiles) {
@@ -73,8 +73,12 @@ export default class RecordedUtil implements IRecordedUtil {
                 }
             }
             const fileSizeStr = Util.getFileSizeStr(fileSize);
-            result.display.drop = `drop: ${item.dropLogFile.dropCnt}, error: ${item.dropLogFile.errorCnt}, scrambling: ${item.dropLogFile.scramblingCnt} ${fileSizeStr}`;
-            result.display.dropSimple = `${item.dropLogFile.dropCnt}/${item.dropLogFile.errorCnt}/${item.dropLogFile.scramblingCnt} ${fileSizeStr}`;
+            result.display.drop = `drop: ${item.dropLogFile.dropCnt}, error: ${item.dropLogFile.errorCnt}, scrambling: ${item.dropLogFile.scramblingCnt}`;
+            result.display.dropSimple = `${item.dropLogFile.dropCnt}/${item.dropLogFile.errorCnt}/${item.dropLogFile.scramblingCnt}`;
+            if (item.isRecording !== true) {
+                result.display.drop += ` ${fileSizeStr}`;
+                result.display.dropSimple += ` ${fileSizeStr}`;
+            }
 
             result.display.hasDrop = item.dropLogFile.dropCnt > 0 || item.dropLogFile.errorCnt > 0 || item.dropLogFile.scramblingCnt > 0;
         }

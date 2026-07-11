@@ -1,6 +1,7 @@
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../../../../api';
 import UaUtil from '../../../../util/UaUtil';
+import URLSchemeUtil from '../../../../util/URLSchemeUtil';
 import Util from '../../../../util/Util';
 import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel';
 import IServerConfigModel from '../../../serverConfig/IServerConfigModel';
@@ -81,15 +82,8 @@ export default class RecordedDetailState implements IRecordedDetailState {
         }
 
         // URL Schemeの準備
-        let fullVideoURL = location.host + this.getVideoRawURL(video);
-        if (urlScheme.match(/vlc-x-callback/)) {
-            fullVideoURL = encodeURIComponent(fullVideoURL);
-        }
-
-        return urlScheme
-            .replace(/PROTOCOL/g, location.protocol.replace(':', ''))
-            .replace(/ADDRESS/g, fullVideoURL)
-            .replace(/FILENAME/g, video.filename);
+        const fullVideoURL = location.host + this.getVideoRawURL(video);
+        return URLSchemeUtil.build(urlScheme, fullVideoURL, video.filename);
     }
 
     /**
@@ -131,15 +125,8 @@ export default class RecordedDetailState implements IRecordedDetailState {
         }
 
         // URL Schemeの準備
-        let fullVideoURL = location.host + this.getVideoDownloadRawURL(video);
-        if (urlScheme.match(/vlc-x-callback/)) {
-            fullVideoURL = encodeURIComponent(fullVideoURL);
-        }
-
-        return urlScheme
-            .replace(/PROTOCOL/g, location.protocol.replace(':', ''))
-            .replace(/ADDRESS/g, fullVideoURL)
-            .replace(/FILENAME/g, video.filename);
+        const fullVideoURL = location.host + this.getVideoDownloadRawURL(video);
+        return URLSchemeUtil.build(urlScheme, fullVideoURL, video.filename);
     }
 
     /**

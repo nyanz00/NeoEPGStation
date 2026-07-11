@@ -12,6 +12,12 @@ export default class Rule extends BaseEntity {
 
     @Column({
         type: 'integer',
+        nullable: true,
+    })
+    public userId: number | null = null;
+
+    @Column({
+        type: 'integer',
         default: 0,
     })
     public updateCnt: number = 0; // 更新時にカウントする 予約情報比較時に使用する
@@ -229,6 +235,18 @@ export default class Rule extends BaseEntity {
     public mode1: string | null = null; // エンコードモード1
 
     @Column({
+        type: 'bigint',
+        nullable: true,
+    })
+    public encodeChannelId1: number | null = null; // エンコードモード1対象局
+
+    @Column({
+        type: 'text',
+        nullable: true,
+    })
+    public encodeChannelIds1: string | null = null; // エンコードモード1対象局の array を JSON.stringify したもの
+
+    @Column({
         type: 'text',
         nullable: true,
     })
@@ -245,6 +263,18 @@ export default class Rule extends BaseEntity {
         nullable: true,
     })
     public mode2: string | null = null; // エンコードモード2
+
+    @Column({
+        type: 'bigint',
+        nullable: true,
+    })
+    public encodeChannelId2: number | null = null; // エンコードモード2対象局
+
+    @Column({
+        type: 'text',
+        nullable: true,
+    })
+    public encodeChannelIds2: string | null = null; // エンコードモード2対象局の array を JSON.stringify したもの
 
     @Column({
         type: 'text',
@@ -265,6 +295,18 @@ export default class Rule extends BaseEntity {
     public mode3: string | null = null; // エンコードモード1
 
     @Column({
+        type: 'bigint',
+        nullable: true,
+    })
+    public encodeChannelId3: number | null = null; // エンコードモード3対象局
+
+    @Column({
+        type: 'text',
+        nullable: true,
+    })
+    public encodeChannelIds3: string | null = null; // エンコードモード3対象局の array を JSON.stringify したもの
+
+    @Column({
         type: 'text',
         nullable: true,
     })
@@ -280,4 +322,9 @@ export default class Rule extends BaseEntity {
         default: false,
     })
     public isDeleteOriginalAfterEncode: boolean = false;
+
+    @Column({
+        default: false,
+    })
+    public updateThumbnail: boolean = false;
 }

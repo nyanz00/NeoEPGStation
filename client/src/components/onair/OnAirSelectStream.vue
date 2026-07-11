@@ -6,7 +6,7 @@
                     <div>{{ dialogState.getChannelItem().name }}</div>
                     <div class="d-flex">
                         <v-select
-                            v-if="isHiddenStreamTypes === false"
+                            v-if="isHiddenStreamTypes === false && dialogState.streamTypes.length > 1"
                             :items="dialogState.streamTypes"
                             v-model="dialogState.selectedStreamType"
                             v-on:change="updateStreamConfig"
@@ -114,10 +114,10 @@ export default class OnAirSelectStream extends Vue {
      * 視聴する
      */
     public async view(): Promise<void> {
-        if (this.dialogState.selectedStreamType === 'M2TS') {
+        if (this.dialogState.selectedStreamType === 'M2TS' && this.dialogState.useURLScheme === true) {
             // URL Scheme による再生
             this.m2tsViewOnURLScheme();
-        } else if (this.dialogState.selectedStreamType === 'M2TS-LL') {
+        } else if (this.dialogState.selectedStreamType === 'M2TS' || this.dialogState.selectedStreamType === 'M2TS-LL') {
             // 再生に対応しているか?
             if (Mpegts.isSupported() === false || Mpegts.getFeatureList().mseLivePlayback === false) {
                 this.snackbarState.open({
@@ -144,7 +144,7 @@ export default class OnAirSelectStream extends Vue {
                     query: {
                         type: this.dialogState.selectedStreamType.toLowerCase(),
                         channel: channel.id.toString(10),
-                        mode: this.dialogState.selectedStreamConfig.toString(10),
+                        ...this.dialogState.getWatchQuery(),
                     },
                 }).catch(err => {
                     this.snackbarState.open({
@@ -188,9 +188,9 @@ export default class OnAirSelectStream extends Vue {
             await Util.move(this.$router, {
                 path: '/onair/watch',
                 query: {
-                    type: 'm2tsll',
+                    type: this.dialogState.getWatchStreamType(),
                     channel: channel.id.toString(10),
-                    mode: this.dialogState.selectedStreamConfig.toString(10),
+                    ...this.dialogState.getWatchQuery(),
                 },
             }).catch(err => {
                 this.snackbarState.open({

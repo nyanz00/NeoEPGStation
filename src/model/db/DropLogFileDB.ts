@@ -34,10 +34,10 @@ export default class DropLogFileDB implements IDropLogFileDB {
         let hasError = false;
         try {
             // 削除
-            await queryRunner.manager.delete(Thumbnail, {});
-            await queryRunner.manager.delete(VideoFile, {});
-            await queryRunner.manager.delete(Recorded, {});
-            await queryRunner.manager.delete(DropLogFile, {});
+            await queryRunner.manager.clear(Thumbnail);
+            await queryRunner.manager.clear(VideoFile);
+            await queryRunner.manager.clear(Recorded);
+            await queryRunner.manager.clear(DropLogFile);
 
             // 挿入処理
             for (const item of items) {

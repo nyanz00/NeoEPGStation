@@ -1,7 +1,7 @@
 import { ChildProcess } from 'child_process';
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../api';
-import IOperatorEncodeEvent, { OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
+import IOperatorEncodeEvent, { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
 import IRecordedManageModel, {
     AddVideoFileOption,
     UploadedVideoFileOption,
@@ -274,6 +274,18 @@ export default class IPCServer implements IIPCServer {
             await this.recordedManage.changeProtect(recordedId, isProtect);
         };
 
+        // createCleanupPlan
+        index[RecordedFunctions.createCleanupPlan] = async () => {
+            return await this.recordedManage.createCleanupPlan();
+        };
+
+        // executeCleanupPlan
+        index[RecordedFunctions.executeCleanupPlan] = async msg => {
+            const planPath = this.getArgsValue<string>(msg, 'planPath');
+
+            return await this.recordedManage.executeCleanupPlan(planPath);
+        };
+
         // videoFileCleanup
         index[RecordedFunctions.videoFileCleanup] = async () => {
             await this.recordedManage.videoFileCleanup();
@@ -336,6 +348,10 @@ export default class IPCServer implements IIPCServer {
      */
     private getRecordingFunctions(): IFunctionIndex {
         const index: IFunctionIndex = {};
+
+        index[RecordingFunctions.getCurrentDropLogFiles] = async () => {
+            return this.recordingManage.getCurrentDropLogFiles();
+        };
 
         // resetTimer
         index[RecordingFunctions.resetTimer] = async () => {
@@ -419,6 +435,13 @@ export default class IPCServer implements IIPCServer {
             this.thumbnailManage.add(videoFileId);
         };
 
+        // replace
+        index[ThumbnailFunctions.replace] = async msg => {
+            const videoFileId = this.getArgsValue<apid.VideoFileId>(msg, 'videoFileId');
+
+            this.thumbnailManage.replace(videoFileId);
+        };
+
         // delete
         index[ThumbnailFunctions.delete] = async msg => {
             const thumbnailId = this.getArgsValue<apid.ThumbnailId>(msg, 'thumbnailId');
@@ -440,6 +463,13 @@ export default class IPCServer implements IIPCServer {
             const info = this.getArgsValue<OperatorFinishEncodeInfo>(msg, 'info');
 
             this.encodeEvent.emitFinishEncode(info);
+        };
+
+        // emitErrorEncode
+        index[OperatorEncodeEventFunctions.emitErrorEncode] = async msg => {
+            const info = this.getArgsValue<OperatorErrorEncodeInfo>(msg, 'info');
+
+            this.encodeEvent.emitErrorEncode(info);
         };
 
         return index;

@@ -59,6 +59,10 @@
                                     ></RecordedDetailPlayButton>
                                 </div>
                                 <div class="d-flex flex-wrap">
+                                    <RecordedDetailThumbnailButton
+                                        v-if="typeof recorded.display.videoFiles !== 'undefined'"
+                                        :videoFiles="recorded.display.videoFiles"
+                                    ></RecordedDetailThumbnailButton>
                                     <RecordedDetailEncodeButton :recordedItem="recorded.recordedItem" :videoFiles="recorded.display.videoFiles"></RecordedDetailEncodeButton>
                                     <RecordedDetailStopEncodeButton :recordedItem="recorded.recordedItem" v-on:stopEncode="stopEncode"></RecordedDetailStopEncodeButton>
                                 </div>
@@ -90,6 +94,7 @@ import RecordedDetailMoreButton from '@/components/recorded/detail/RecordedDetai
 import RecordedDetailPlayButton from '@/components/recorded/detail/RecordedDetailPlayButton.vue';
 import RecordedDetailSelectStreamDialog from '@/components/recorded/detail/RecordedDetailSelectStreamDialog.vue';
 import RecordedDetailStopEncodeButton from '@/components/recorded/detail/RecordedDetailStopEncodeButton.vue';
+import RecordedDetailThumbnailButton from '@/components/recorded/detail/RecordedDetailThumbnailButton.vue';
 import TitleBar from '@/components/titleBar/TitleBar.vue';
 import container from '@/model/ModelContainer';
 import ISocketIOModel from '@/model/socketio/ISocketIOModel';
@@ -112,6 +117,7 @@ Component.registerHooks(['beforeRouteUpdate', 'beforeRouteLeave']);
         RecordedDetailPlayButton,
         RecordedDetailEncodeButton,
         RecordedDetailStopEncodeButton,
+        RecordedDetailThumbnailButton,
         RecordedDetailMoreButton,
         RecordedDetailSelectStreamDialog,
         RecordedDetailKodiButton,
@@ -187,7 +193,13 @@ export default class RecordedDetail extends Vue {
     }
 
     public streaming(video: apid.VideoFile): void {
-        this.streamSelectDialogState.open(video, parseInt(this.$route.params.id, 10));
+        this.streamSelectDialogState.open(video, parseInt(this.$route.params.id, 10)).catch(err => {
+            this.snackbarState.open({
+                color: 'error',
+                text: 'ストリーミング設定の取得に失敗しました',
+            });
+            console.error(err);
+        });
     }
 
     public downloadVideo(video: apid.VideoFile): void {

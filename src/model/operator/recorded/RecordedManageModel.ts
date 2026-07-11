@@ -378,6 +378,7 @@ export default class RecordedManageModel implements IRecordedManageModel {
         const recorded = new Recorded();
         recorded.isRecording = false;
         recorded.isProtected = false;
+        recorded.userId = typeof option.userId === 'undefined' ? 1 : option.userId;
         if (typeof option.ruleId !== 'undefined') {
             recorded.ruleId = option.ruleId;
         }
@@ -503,6 +504,379 @@ export default class RecordedManageModel implements IRecordedManageModel {
             this.log.system.error('failed to historyCleanup');
             this.log.system.error(err);
         });
+    }
+
+    public async createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult> {
+        this.log.system.info('start create recorded cleanup plan');
+
+        const videoFiles = await this.videoFileDB.findAll();
+        const fileIndex: { [filePath: string]: boolean } = {};
+        const dirIndex: { [dirPath: string]: boolean } = {};
+        const missingVideoFiles: { id: number; path: string }[] = [];
+
+        for (const video of videoFiles) {
+            const videoFilePath = this.videoUtil.getFullFilePathFromVideoFile(video);
+            if (videoFilePath === null) {
+                continue;
+            }
+
+            if ((await this.checkFileExistence(videoFilePath)) === true) {
+                fileIndex[videoFilePath] = true;
+                const parentDir = path.dirname(videoFilePath).replace(new RegExp(`\\${path.sep}$`), '');
+                dirIndex[parentDir] = true;
+            } else {
+                missingVideoFiles.push({
+                    id: video.id,
+                    path: videoFilePath,
+                });
+            }
+        }
+
+        const recordedList: FileUtil.FileList = {
+            files: [],
+            directories: [],
+        };
+        for (const r of this.config.recorded) {
+            const list = await FileUtil.getFileList(r.path);
+            Array.prototype.push.apply(recordedList.files, list.files);
+            Array.prototype.push.apply(recordedList.directories, list.directories);
+            dirIndex[r.path] = true;
+        }
+        recordedList.directories.sort((dir1, dir2) => {
+            return dir2.length - dir1.length;
+        });
+
+        const epgstationLikeFiles: string[] = [];
+        const otherRecordedFiles: string[] = [];
+        for (const file of recordedList.files) {
+            if (typeof fileIndex[file] !== 'undefined') {
+                continue;
+            }
+
+            if (this.isEpgstationLikeRecordedFile(file) === true) {
+                epgstationLikeFiles.push(file);
+            } else {
+                otherRecordedFiles.push(file);
+            }
+        }
+
+        const unregisteredDirectories = recordedList.directories.filter(dir => {
+            return typeof dirIndex[dir] === 'undefined';
+        });
+
+        const dropLogs = await this.dropLogFileDB.findAll();
+        const dropLogFileIndex: { [filePath: string]: boolean } = {};
+        const missingDropLogs: { id: number; path: string }[] = [];
+        for (const dropLog of dropLogs) {
+            const filePath = this.getDropLogFilePath(dropLog);
+
+            if ((await this.checkFileExistence(filePath)) === true) {
+                dropLogFileIndex[filePath] = true;
+            } else {
+                missingDropLogs.push({
+                    id: dropLog.id,
+                    path: filePath,
+                });
+            }
+        }
+
+        const dropLogList = await FileUtil.getFileList(this.config.dropLog);
+        const unregisteredDropLogFiles = dropLogList.files.filter(file => {
+            return typeof dropLogFileIndex[file] === 'undefined';
+        });
+
+        const thumbnails = await this.thumbnailDB.findAll();
+        const thumbnailFileIndex: { [filePath: string]: boolean } = {};
+        const missingThumbnails: { id: number; path: string }[] = [];
+        for (const thumbnail of thumbnails) {
+            const filePath = this.getThumbnailPath(thumbnail);
+
+            if ((await this.checkFileExistence(filePath)) === true) {
+                thumbnailFileIndex[filePath] = true;
+            } else {
+                missingThumbnails.push({
+                    id: thumbnail.id,
+                    path: filePath,
+                });
+            }
+        }
+
+        const thumbnailList = await FileUtil.getFileList(this.config.thumbnail);
+        const unregisteredThumbnailFiles = thumbnailList.files.filter(file => {
+            return typeof thumbnailFileIndex[file] === 'undefined';
+        });
+
+        const planPath = await this.writeCleanupPlan({
+            missingVideoFiles,
+            epgstationLikeFiles,
+            otherRecordedFiles,
+            unregisteredDirectories,
+            missingDropLogs,
+            unregisteredDropLogFiles,
+            missingThumbnails,
+            unregisteredThumbnailFiles,
+        });
+
+        this.log.system.info(`created recorded cleanup plan: ${planPath}`);
+
+        return {
+            planPath,
+            recordedFileCount: epgstationLikeFiles.length + otherRecordedFiles.length,
+            epgstationLikeRecordedFileCount: epgstationLikeFiles.length,
+            otherRecordedFileCount: otherRecordedFiles.length,
+            recordedDirectoryCount: unregisteredDirectories.length,
+            missingVideoFileCount: missingVideoFiles.length,
+            dropLogFileCount: unregisteredDropLogFiles.length,
+            missingDropLogFileCount: missingDropLogs.length,
+            thumbnailFileCount: unregisteredThumbnailFiles.length,
+            missingThumbnailFileCount: missingThumbnails.length,
+        };
+    }
+
+    public async executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult> {
+        const resolvedPlanPath = path.resolve(planPath);
+        if (this.isPathInDir(resolvedPlanPath, this.getCleanupPlanDir()) === false) {
+            throw new Error('InvalidCleanupPlanPath');
+        }
+
+        this.log.system.info(`execute recorded cleanup plan: ${resolvedPlanPath}`);
+
+        const result: apid.RecordedCleanupExecuteResult = {
+            deletedRecordedFileCount: 0,
+            deletedRecordedDirectoryCount: 0,
+            deletedDropLogFileCount: 0,
+            deletedThumbnailFileCount: 0,
+            removedMissingVideoFileCount: 0,
+            removedMissingDropLogFileCount: 0,
+            removedMissingThumbnailFileCount: 0,
+            skippedCount: 0,
+        };
+        const lines = (await FileUtil.readFile(resolvedPlanPath)).split(/\r?\n/);
+
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.length === 0 || trimmedLine.startsWith('#') === true) {
+                continue;
+            }
+
+            const [command, value, comment] = trimmedLine.split('\t');
+            try {
+                if (command === 'DELETE_RECORDED_FILE') {
+                    if (this.isPathInRecordedDirs(value) === false) {
+                        throw new Error('InvalidRecordedFilePath');
+                    }
+                    await FileUtil.unlink(value);
+                    result.deletedRecordedFileCount++;
+                } else if (command === 'DELETE_RECORDED_DIR') {
+                    if (
+                        this.isPathInRecordedDirs(value) === false ||
+                        (await FileUtil.isEmptyDirectory(value)) === false
+                    ) {
+                        result.skippedCount++;
+                        continue;
+                    }
+                    await FileUtil.rmdir(value);
+                    result.deletedRecordedDirectoryCount++;
+                } else if (command === 'DELETE_DROP_LOG_FILE') {
+                    if (this.isPathInDir(value, this.config.dropLog) === false) {
+                        throw new Error('InvalidDropLogFilePath');
+                    }
+                    await FileUtil.unlink(value);
+                    result.deletedDropLogFileCount++;
+                } else if (command === 'DELETE_THUMBNAIL_FILE') {
+                    if (this.isPathInDir(value, this.config.thumbnail) === false) {
+                        throw new Error('InvalidThumbnailFilePath');
+                    }
+                    await FileUtil.unlink(value);
+                    result.deletedThumbnailFileCount++;
+                } else if (command === 'REMOVE_VIDEO_DB') {
+                    const videoFileId = parseInt(value, 10);
+                    const videoFile = await this.videoFileDB.findId(videoFileId);
+                    if (videoFile === null) {
+                        result.skippedCount++;
+                        continue;
+                    }
+
+                    const videoFilePath = this.videoUtil.getFullFilePathFromVideoFile(videoFile);
+                    if (videoFilePath !== null && (await this.checkFileExistence(videoFilePath)) === false) {
+                        await this.deleteVideoFile(videoFile.id).catch(() => {});
+                        result.removedMissingVideoFileCount++;
+                    } else {
+                        result.skippedCount++;
+                    }
+                } else if (command === 'REMOVE_DROP_LOG_DB') {
+                    const dropLogFileId = parseInt(value, 10);
+                    const dropLogFile = await this.dropLogFileDB.findId(dropLogFileId);
+                    if (dropLogFile === null) {
+                        result.skippedCount++;
+                        continue;
+                    }
+
+                    const dropLogFilePath = this.getDropLogFilePath(dropLogFile);
+                    if ((await this.checkFileExistence(dropLogFilePath)) === false) {
+                        await this.recordedDB.removeDropLogFileId(dropLogFile.id);
+                        await this.dropLogFileDB.deleteOnce(dropLogFile.id);
+                        result.removedMissingDropLogFileCount++;
+                    } else {
+                        result.skippedCount++;
+                    }
+                } else if (command === 'REMOVE_THUMBNAIL_DB') {
+                    const thumbnailId = parseInt(value, 10);
+                    const thumbnail = await this.thumbnailDB.findId(thumbnailId);
+                    if (thumbnail === null) {
+                        result.skippedCount++;
+                        continue;
+                    }
+
+                    const thumbnailPath = this.getThumbnailPath(thumbnail);
+                    if ((await this.checkFileExistence(thumbnailPath)) === false) {
+                        await this.thumbnailDB.deleteOnce(thumbnail.id);
+                        result.removedMissingThumbnailFileCount++;
+                    } else {
+                        result.skippedCount++;
+                    }
+                } else {
+                    result.skippedCount++;
+                }
+            } catch (err: any) {
+                result.skippedCount++;
+                this.log.system.error(`failed to execute cleanup line: ${command}\t${value}\t${comment}`);
+                this.log.system.error(err);
+            }
+        }
+
+        this.log.system.info(`execute recorded cleanup plan completed: ${resolvedPlanPath}`);
+
+        return result;
+    }
+
+    private async writeCleanupPlan(option: {
+        missingVideoFiles: { id: number; path: string }[];
+        epgstationLikeFiles: string[];
+        otherRecordedFiles: string[];
+        unregisteredDirectories: string[];
+        missingDropLogs: { id: number; path: string }[];
+        unregisteredDropLogFiles: string[];
+        missingThumbnails: { id: number; path: string }[];
+        unregisteredThumbnailFiles: string[];
+    }): Promise<string> {
+        const cleanupDir = this.getCleanupPlanDir();
+        await FileUtil.mkdir(cleanupDir);
+
+        const date = new Date();
+        const timestamp =
+            date.getFullYear().toString(10) +
+            (date.getMonth() + 1).toString(10).padStart(2, '0') +
+            date.getDate().toString(10).padStart(2, '0') +
+            '-' +
+            date.getHours().toString(10).padStart(2, '0') +
+            date.getMinutes().toString(10).padStart(2, '0') +
+            date.getSeconds().toString(10).padStart(2, '0');
+        const planPath = path.join(cleanupDir, `recorded-cleanup-${timestamp}.txt`);
+        const lines: string[] = [];
+
+        lines.push('# EPGStation cleanup plan');
+        lines.push('# Delete lines you do not want to execute, then run cleanup execution from EPGStation.');
+        lines.push('# Format: COMMAND<TAB>VALUE<TAB># comment');
+        lines.push('');
+        this.pushCleanupSection(lines, 'DB video file entries whose actual files are missing');
+        for (const item of option.missingVideoFiles) {
+            lines.push(`REMOVE_VIDEO_DB\t${item.id}\t# ${item.path}`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'Unregistered recorded files that look like EPGStation outputs');
+        for (const file of option.epgstationLikeFiles) {
+            lines.push(`DELETE_RECORDED_FILE\t${file}\t# epgstation-like`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'Unregistered recorded files that do not look like EPGStation outputs');
+        for (const file of option.otherRecordedFiles) {
+            lines.push(`DELETE_RECORDED_FILE\t${file}\t# other`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'Unregistered recorded directories, removed only if empty at execution time');
+        for (const dir of option.unregisteredDirectories) {
+            lines.push(`DELETE_RECORDED_DIR\t${dir}\t# empty-directory-only`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'DB drop log entries whose actual files are missing');
+        for (const item of option.missingDropLogs) {
+            lines.push(`REMOVE_DROP_LOG_DB\t${item.id}\t# ${item.path}`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'Unregistered drop log files');
+        for (const file of option.unregisteredDropLogFiles) {
+            lines.push(`DELETE_DROP_LOG_FILE\t${file}\t# drop-log`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'DB thumbnail entries whose actual files are missing');
+        for (const item of option.missingThumbnails) {
+            lines.push(`REMOVE_THUMBNAIL_DB\t${item.id}\t# ${item.path}`);
+        }
+        lines.push('');
+        this.pushCleanupSection(lines, 'Unregistered thumbnail files');
+        for (const file of option.unregisteredThumbnailFiles) {
+            lines.push(`DELETE_THUMBNAIL_FILE\t${file}\t# thumbnail`);
+        }
+        lines.push('');
+
+        await FileUtil.writeFile(planPath, lines.join('\r\n'));
+
+        return planPath;
+    }
+
+    private pushCleanupSection(lines: string[], title: string): void {
+        lines.push(`## ${title}`);
+    }
+
+    private getCleanupPlanDir(): string {
+        return path.join(process.cwd(), 'data', 'cleanup');
+    }
+
+    private isPathInRecordedDirs(filePath: string): boolean {
+        for (const recordedDir of this.config.recorded) {
+            if (this.isPathInDir(filePath, recordedDir.path) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private isPathInDir(filePath: string, dirPath: string): boolean {
+        const relative = path.relative(path.resolve(dirPath), path.resolve(filePath));
+
+        return relative.length === 0 || (relative.startsWith('..') === false && path.isAbsolute(relative) === false);
+    }
+
+    private isEpgstationLikeRecordedFile(filePath: string): boolean {
+        const baseName = path.basename(filePath);
+        for (const suffix of this.getEncodeSuffixes()) {
+            if (baseName.endsWith(suffix) === true) {
+                return true;
+            }
+        }
+
+        return this.createRecordedFormatRegex().test(baseName);
+    }
+
+    private getEncodeSuffixes(): string[] {
+        const suffixes: string[] = [];
+        for (const encode of this.config.encode) {
+            if (typeof encode.suffix === 'string' && encode.suffix.length > 0) {
+                suffixes.push(encode.suffix);
+            }
+        }
+
+        return suffixes;
+    }
+
+    private createRecordedFormatRegex(): RegExp {
+        const tokenPattern = /%[A-Z0-9_]+%/g;
+        const escaped = this.config.recordedFormat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(tokenPattern, '.+');
+        const extension = this.config.recordedFileExtension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        return new RegExp(`^${escaped}${extension}$`);
     }
 
     /**

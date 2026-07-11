@@ -25,6 +25,12 @@ export default class Recorded extends BaseEntity {
         type: 'integer',
         nullable: true,
     })
+    public userId: number | null = null;
+
+    @Column({
+        type: 'integer',
+        nullable: true,
+    })
     public reserveId!: number | null;
 
     @Column({

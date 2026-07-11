@@ -13,6 +13,7 @@ export default class GuideProgramDialogSettingStorageModel extends AbstractStora
         return {
             encode: NONE_ENCODE_OPTION,
             isDeleteOriginalAfterEncode: false,
+            updateThumbnail: false,
         };
     }
 

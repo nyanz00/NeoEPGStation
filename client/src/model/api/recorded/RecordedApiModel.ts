@@ -87,6 +87,16 @@ export default class RecordedApiModel implements IRecordedApiModel {
     }
 
     /**
+     * 録画のユーザーを変更
+     * @param recordedId: apid.RecordedId
+     * @param option: apid.UpdateRecordedUserOption
+     * @return Promise<void>
+     */
+    public async updateUser(recordedId: apid.RecordedId, option: apid.UpdateRecordedUserOption): Promise<void> {
+        await this.repository.put(`/recorded/${recordedId}/user`, option);
+    }
+
+    /**
      * 録画番組情報を新規作成
      * @param option: apid.CreateNewRecordedOption
      * @return Promise<apid.RecordedId>
@@ -95,6 +105,20 @@ export default class RecordedApiModel implements IRecordedApiModel {
         const result = await this.repository.post('recorded', option);
 
         return result.data.recordedId;
+    }
+
+    public async createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult> {
+        const result = await this.repository.post('/recorded/cleanupPlan');
+
+        return result.data;
+    }
+
+    public async executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult> {
+        const result = await this.repository.post('/recorded/cleanupExecute', {
+            planPath,
+        });
+
+        return result.data;
     }
 
     /**

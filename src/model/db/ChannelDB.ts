@@ -72,7 +72,7 @@ export default class ChannelDB implements IChannelDB {
         try {
             if (needesDeleted === true) {
                 // 削除
-                await queryRunner.manager.delete(Channel, {});
+                await queryRunner.manager.clear(Channel);
             }
 
             // 挿入処理
@@ -88,7 +88,7 @@ export default class ChannelDB implements IChannelDB {
 
             await queryRunner.commitTransaction();
         } catch (err: any) {
-            console.error(err);
+            this.log.system.error(err);
             hasError = true;
             await queryRunner.rollbackTransaction();
         } finally {

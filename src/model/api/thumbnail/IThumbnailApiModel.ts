@@ -5,5 +5,6 @@ export default interface IThumbnailApiModel {
     regenerate(): Promise<void>;
     fileCleanup(): Promise<void>;
     add(videoFileId: apid.VideoFileId): Promise<void>;
+    replace(videoFileId: apid.VideoFileId): Promise<void>;
     delete(thumbnailId: apid.ThumbnailId): Promise<void>;
 }

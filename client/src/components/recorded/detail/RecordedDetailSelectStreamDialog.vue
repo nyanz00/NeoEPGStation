@@ -19,6 +19,17 @@
                             :menu-props="{ auto: true }"
                         ></v-select>
                     </div>
+                    <div v-if="dialogState.subtitleItems.length > 0" class="mt-2">
+                        <v-select
+                            v-model="selectedSubtitleIndex"
+                            :items="dialogState.subtitleItems"
+                            item-text="text"
+                            item-value="value"
+                            label="字幕焼き込み"
+                            :menu-props="{ auto: true }"
+                        ></v-select>
+                        <div class="caption grey--text text--lighten-1">選んだ字幕トラックを映像に焼き込んで再生します</div>
+                    </div>
                 </div>
                 <v-card-actions>
                     <v-spacer></v-spacer>
@@ -32,27 +43,43 @@
 
 <script lang="ts">
 import container from '@/model/ModelContainer';
+import IVideoApiModel from '@/model/api/video/IVideoApiModel';
 import IRecordedDetailSelectStreamState from '@/model/state/recorded/detail/IRecordedDetailSelectStreamState';
 import ISnackbarState from '@/model/state/snackbar/ISnackbarState';
+import { ISettingStorageModel } from '@/model/storage/setting/ISettingStorageModel';
 import Util from '@/util/Util';
-import { Component, Prop, Vue, Watch } from 'vue-property-decorator';
-import * as apid from '../../../../../api';
+import { Component, Vue, Watch } from 'vue-property-decorator';
 
 @Component({})
 export default class RecordedDetailSelectStreamDialog extends Vue {
     public dialogState: IRecordedDetailSelectStreamState = container.get<IRecordedDetailSelectStreamState>('IRecordedDetailSelectStreamState');
     public isRemove: boolean = false;
+    public selectedSubtitleIndex: string = 'subtitle:none';
     // ストリーム視聴設定セレクタ再描画用
     public isHiddenStreamMode: boolean = false;
 
     private snackbarState: ISnackbarState = container.get<ISnackbarState>('ISnackbarState');
+    private settingModel: ISettingStorageModel = container.get<ISettingStorageModel>('ISettingStorageModel');
+    private videoApiModel: IVideoApiModel = container.get<IVideoApiModel>('IVideoApiModel');
 
     public beforeDestroy(): void {
         this.dialogState.close();
     }
 
     public updateModeItems(): void {
-        this.dialogState.updateModeItems();
+        this.selectedSubtitleIndex = 'subtitle:none';
+        this.dialogState
+            .updateModeItems()
+            .then(() => {
+                this.applyDefaultSubtitleSelection();
+            })
+            .catch(err => {
+                this.snackbarState.open({
+                    color: 'error',
+                    text: '字幕情報の取得に失敗しました',
+                });
+                console.error(err);
+            });
 
         // 再描画
         this.isHiddenStreamMode = true;
@@ -85,14 +112,104 @@ export default class RecordedDetailSelectStreamDialog extends Vue {
             return;
         }
 
-        await Util.move(this.$router, {
-            path: `/recorded/streaming/${this.dialogState.getVideoFileId()}`,
-            query: {
-                recordedId: recordedId.toString(),
-                streamingType: this.dialogState.selectedStreamType.toLowerCase(),
-                mode: this.dialogState.selectedStreamMode.toString(10),
-            },
+        const videoFileId = this.dialogState.getVideoFileId();
+        if (videoFileId === null) {
+            this.snackbarState.open({
+                color: 'error',
+                text: 'ビデオファイル ID が不正です',
+            });
+
+            return;
+        }
+
+        const path = `/recorded/streaming/${videoFileId}`;
+        const query: { [key: string]: string | undefined } = {
+            recordedId: recordedId.toString(),
+            streamingType: this.getStreamingType(),
+            mode: this.dialogState.selectedStreamMode.toString(10),
+            videoFileType: this.dialogState.getVideoFileType() ?? undefined,
+            ...this.getWatchQuery(),
+            timestamp: new Date().getTime().toString(10),
+        };
+        await this.prepareSelectedSubtitle(videoFileId, query);
+        const params = new URLSearchParams();
+        Object.keys(query).forEach(key => {
+            const value = query[key];
+            if (typeof value === 'string') {
+                params.set(key, value);
+            }
         });
+
+        await this.$router.push(`${path}?${params.toString()}`);
+    }
+
+    private getStreamingType(): string {
+        if (this.dialogState.selectedStreamType === 'M2TS-LL') {
+            return 'm2tsll';
+        }
+        if (this.dialogState.selectedStreamType === 'HLS-TS') {
+            return 'hls-ts';
+        }
+
+        return (this.dialogState.selectedStreamType ?? '').toLowerCase();
+    }
+
+    private getWatchQuery(): { [key: string]: string } {
+        const query: { [key: string]: string } = {};
+        const setting = this.settingModel.getSavedValue();
+        const selectedItem = this.dialogState.streamModeItems.find(item => item.value === this.dialogState.selectedStreamMode);
+
+        if (typeof selectedItem !== 'undefined') {
+            query.quality = selectedItem.text;
+        }
+        if (setting.watchStreamEncoder !== 'Config') {
+            query.encoder = setting.watchStreamEncoder;
+        }
+        query.hevc = setting.watchUseHevc === true ? '1' : '0';
+        const subtitleIndex = this.getSelectedSubtitleIndex();
+        if (subtitleIndex !== null) {
+            query.subtitleIndex = subtitleIndex;
+        }
+
+        return query;
+    }
+
+    private async prepareSelectedSubtitle(videoFileId: number, query: { [key: string]: string | undefined }): Promise<void> {
+        const subtitleIndex = this.getSelectedSubtitleIndex();
+        if (subtitleIndex === null) {
+            return;
+        }
+
+        query.subtitleIndex = subtitleIndex;
+        if (subtitleIndex === '-1') {
+            return;
+        }
+
+        const prepared = await this.videoApiModel.prepareSubtitle(videoFileId, parseInt(subtitleIndex, 10));
+        query.subtitleFileKey = prepared.subtitleFileKey;
+    }
+
+    private getSelectedSubtitleIndex(): string | null {
+        const prefix = 'subtitle:';
+        const selected = this.getSelectedSubtitleValue();
+        if (selected.startsWith(prefix) === false) {
+            return null;
+        }
+
+        const value = selected.slice(prefix.length);
+
+        return value === 'none' ? '-1' : value;
+    }
+
+    private getSelectedSubtitleValue(): string {
+        const selected = this.selectedSubtitleIndex as unknown;
+        if (typeof selected === 'string') {
+            return selected;
+        }
+
+        const value = (selected as { value?: unknown })?.value;
+
+        return typeof value === 'string' ? value : 'subtitle:none';
     }
 
     /**
@@ -100,6 +217,14 @@ export default class RecordedDetailSelectStreamDialog extends Vue {
      */
     @Watch('dialogState.isOpen', { immediate: true })
     public onChangeState(newState: boolean, oldState: boolean): void {
+        if (newState === true && oldState === false) {
+            this.selectedSubtitleIndex = 'subtitle:none';
+            this.$nextTick(async () => {
+                await Util.sleep(100);
+                this.applyDefaultSubtitleSelection();
+            });
+        }
+
         if (newState === false && oldState === true) {
             // close
             this.$nextTick(async () => {
@@ -111,6 +236,23 @@ export default class RecordedDetailSelectStreamDialog extends Vue {
                 });
             });
         }
+    }
+
+    @Watch('dialogState.subtitleItems', { deep: true })
+    public onSubtitleItemsChange(): void {
+        this.applyDefaultSubtitleSelection();
+    }
+
+    private applyDefaultSubtitleSelection(): void {
+        const selected = this.getSelectedSubtitleValue();
+        if (selected !== 'none' && selected !== 'subtitle:none') {
+            return;
+        }
+
+        const preferredKeyword = this.settingModel.getSavedValue().watchSubtitlePreferredKeyword.trim().toLowerCase();
+        const preferredSubtitle =
+            preferredKeyword.length === 0 ? undefined : this.dialogState.subtitleItems.find(item => item.text.toLowerCase().includes(preferredKeyword) === true);
+        this.selectedSubtitleIndex = preferredSubtitle?.value ?? 'subtitle:none';
     }
 }
 </script>

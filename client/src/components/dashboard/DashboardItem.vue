@@ -41,7 +41,6 @@ export default class DashboardItem extends Vue {
     }
 
     public onClickBage(e: Event): void {
-        console.log('click bage');
         if (typeof this.bage !== 'undefined' && this.bage > 0) {
             this.$emit('bage', e);
         }

@@ -62,6 +62,15 @@ export default class ThumbnailApiModel implements IThumbnailApiModel {
     }
 
     /**
+     * 指定したビデオファイルでサムネイルを置換させる
+     * @param videoFileId: apid.VideoFileId
+     * @return Promise<void>
+     */
+    public async replace(videoFileId: apid.VideoFileId): Promise<void> {
+        await this.ipc.thumbnail.replace(videoFileId);
+    }
+
+    /**
      * 指定した id サムネイルを削除
      * @param thumbnailId: apid.ThumbnailId
      * @return Promise<void>

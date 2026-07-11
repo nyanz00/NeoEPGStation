@@ -10,6 +10,7 @@ import IScheduleApiModel from '../../api/schedule/IScheduleApiModel';
 import IChannelModel from '../../channels/IChannelModel';
 import IServerConfigModel from '../../serverConfig/IServerConfigModel';
 import { ISettingStorageModel } from '../../storage/setting/ISettingStorageModel';
+import { IActiveUserStorageModel } from '../../storage/user/IActiveUserStorageModel';
 import IGuideProgramDialogState from '../guide/IGuideProgramDialogState';
 import IGuideReserveUtil, { ReserveStateItemIndex } from '../guide/IGuideReserveUtil';
 import IReserveStateUtil, { ReserveStateData } from '../reserve/IReserveStateUtil';
@@ -38,6 +39,7 @@ export default class SearchState implements ISearchState {
     public reserveOption: ReserveOption | null = null;
     public saveOption: SaveOption | null = null;
     public encodeOption: EncodedOption | null = null;
+    public userId: apid.UserId | null = null;
 
     // vuetify-datetime-picker のリセットがうまくできないため一瞬 false にすることでクリアする
     public isShowPeriod: boolean = true;
@@ -55,6 +57,7 @@ export default class SearchState implements ISearchState {
     private reserveIndexUtil: IGuideReserveUtil;
     private programDialogState: IGuideProgramDialogState;
     private settingModel: ISettingStorageModel;
+    private activeUserStorage: IActiveUserStorageModel;
 
     private genreItems: GenreItem[] = [];
     private startTimeItems: SelectorItem[] = [];
@@ -75,6 +78,7 @@ export default class SearchState implements ISearchState {
         @inject('IGuideReserveUtil') reserveIndexUtil: IGuideReserveUtil,
         @inject('IGuideProgramDialogState') programDialogState: IGuideProgramDialogState,
         @inject('ISettingStorageModel') settingModel: ISettingStorageModel,
+        @inject('IActiveUserStorageModel') activeUserStorage: IActiveUserStorageModel,
     ) {
         this.channelModel = channelModel;
         this.serverConfig = serverConfig;
@@ -85,6 +89,7 @@ export default class SearchState implements ISearchState {
         this.reserveIndexUtil = reserveIndexUtil;
         this.programDialogState = programDialogState;
         this.settingModel = settingModel;
+        this.activeUserStorage = activeUserStorage;
 
         // set genres
         for (const genre in event.Genre) {
@@ -138,6 +143,7 @@ export default class SearchState implements ISearchState {
         this.initReserveOption();
         this.initSaveOption();
         this.initEncodeOption();
+        this.userId = this.getDefaultUserId();
 
         this.genreSelect = -1;
 
@@ -297,15 +303,19 @@ export default class SearchState implements ISearchState {
     private initEncodeOption(): void {
         this.encodeOption = {
             mode1: null,
+            channelIds1: [],
             encodeParentDirectoryName1: null,
             directory1: null,
             mode2: null,
+            channelIds2: [],
             encodeParentDirectoryName2: null,
             directory2: null,
             mode3: null,
+            channelIds3: [],
             encodeParentDirectoryName3: null,
             directory3: null,
             isDeleteOriginalAfterEncode: this.settingModel.getSavedValue().isCheckDeleteOriginalAfterEncode,
+            updateThumbnail: false,
         };
     }
 
@@ -334,6 +344,12 @@ export default class SearchState implements ISearchState {
      */
     private setRuleOption(rule: apid.Rule): void {
         this.isTimeSpecification = rule.isTimeSpecification;
+        if (typeof rule.userId === 'number') {
+            this.userId = rule.userId;
+        } else {
+            this.userId = this.getDefaultUserId();
+        }
+
         if (this.isTimeSpecification === true) {
             this.setTimeReserveRuleSearchOption(rule.searchOption);
         } else {
@@ -447,8 +463,8 @@ export default class SearchState implements ISearchState {
 
         // 時刻 (レンジ)
         if (typeof searchOption.times !== 'undefined' && searchOption.times.length > 0) {
-            this.searchOption.startTime = searchOption.times[0].start;
-            this.searchOption.rangeTime = searchOption.times[0].range;
+            this.searchOption.startTime = this.normalizeRuleStartHour(searchOption.times[0].start);
+            this.searchOption.rangeTime = this.normalizeRuleRangeHour(searchOption.times[0].range);
             this.searchOption.week = this.convertRuleWeekToWeek(searchOption.times[0].week);
         }
 
@@ -522,6 +538,7 @@ export default class SearchState implements ISearchState {
         if (typeof encodeOption.mode1 !== 'undefined') {
             this.encodeOption.mode1 = encodeOption.mode1;
 
+            this.encodeOption.channelIds1 = this.normalizeEncodeChannelIds(encodeOption.channelIds1, encodeOption.channelId1);
             if (typeof encodeOption.encodeParentDirectoryName1 !== 'undefined') {
                 this.encodeOption.encodeParentDirectoryName1 = encodeOption.encodeParentDirectoryName1;
             }
@@ -533,6 +550,7 @@ export default class SearchState implements ISearchState {
         if (typeof encodeOption.mode2 !== 'undefined') {
             this.encodeOption.mode2 = encodeOption.mode2;
 
+            this.encodeOption.channelIds2 = this.normalizeEncodeChannelIds(encodeOption.channelIds2, encodeOption.channelId2);
             if (typeof encodeOption.encodeParentDirectoryName2 !== 'undefined') {
                 this.encodeOption.encodeParentDirectoryName2 = encodeOption.encodeParentDirectoryName2;
             }
@@ -544,6 +562,7 @@ export default class SearchState implements ISearchState {
         if (typeof encodeOption.mode3 !== 'undefined') {
             this.encodeOption.mode3 = encodeOption.mode3;
 
+            this.encodeOption.channelIds3 = this.normalizeEncodeChannelIds(encodeOption.channelIds3, encodeOption.channelId3);
             if (typeof encodeOption.encodeParentDirectoryName3 !== 'undefined') {
                 this.encodeOption.encodeParentDirectoryName3 = encodeOption.encodeParentDirectoryName3;
             }
@@ -553,6 +572,15 @@ export default class SearchState implements ISearchState {
         }
 
         this.encodeOption.isDeleteOriginalAfterEncode = encodeOption.isDeleteOriginalAfterEncode;
+        this.encodeOption.updateThumbnail = encodeOption.updateThumbnail === true;
+    }
+
+    private normalizeEncodeChannelIds(channelIds: apid.ChannelId[] | undefined, legacyChannelId: apid.ChannelId | undefined): apid.ChannelId[] {
+        if (typeof channelIds !== 'undefined') {
+            return channelIds.slice(0, channelIds.length);
+        }
+
+        return typeof legacyChannelId === 'number' ? [legacyChannelId] : [];
     }
 
     /**
@@ -597,13 +625,73 @@ export default class SearchState implements ISearchState {
      * 放送局 item を返す
      * @return SelectorItem[]
      */
-    public getChannelItems(): SelectorItem[] {
-        return this.channelModel.getChannels(this.settingModel.getSavedValue().isHalfWidthDisplayed).map(c => {
-            return {
-                text: c.name,
-                value: c.id,
+    public getChannelItems(filter?: string | null): SelectorItem[] {
+        const normalizedFilter = this.normalizeChannelFilter(filter);
+
+        return this.channelModel
+            .getChannels(this.settingModel.getSavedValue().isHalfWidthDisplayed)
+            .filter(c => {
+                if (normalizedFilter === null) {
+                    return true;
+                }
+
+                return this.normalizeChannelFilter(c.name)?.includes(normalizedFilter) === true;
+            })
+            .map(c => {
+                return {
+                    text: c.name,
+                    value: c.id,
+                };
+            });
+    }
+
+    private normalizeChannelFilter(value?: string | null): string | null {
+        if (typeof value !== 'string') {
+            return null;
+        }
+
+        const normalized = value
+            .normalize('NFKC')
+            .toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+
+        return normalized.length === 0 ? null : normalized;
+    }
+
+    public getEncodeChannelItems(): SelectorItem[] {
+        const isHalfWidth = this.settingModel.getSavedValue().isHalfWidthDisplayed;
+        const channels = this.channelModel.getChannels(isHalfWidth);
+        const channelIndex: { [channelId: number]: SelectorItem } = {};
+        const usedChannelIndex: { [channelId: number]: boolean } = {};
+        const result: SelectorItem[] = [];
+
+        for (const channel of channels) {
+            channelIndex[channel.id] = {
+                text: channel.name,
+                value: channel.id,
             };
-        });
+        }
+
+        if (this.searchResult !== null) {
+            for (const item of this.searchResult) {
+                const channel = channelIndex[item.program.channelId];
+                if (typeof channel === 'undefined' || usedChannelIndex[item.program.channelId] === true) {
+                    continue;
+                }
+                result.push(channel);
+                usedChannelIndex[item.program.channelId] = true;
+            }
+        }
+
+        for (const channel of channels) {
+            if (usedChannelIndex[channel.id] === true) {
+                continue;
+            }
+            result.push(channelIndex[channel.id]);
+        }
+
+        return result;
     }
 
     public getBroadcastWaveTypes(): apid.ChannelType[] {
@@ -792,6 +880,8 @@ export default class SearchState implements ISearchState {
         }
 
         // time range
+        this.searchOption.startTime = this.normalizeRuleStartHour(this.searchOption.startTime);
+        this.searchOption.rangeTime = this.normalizeRuleRangeHour(this.searchOption.rangeTime);
         if (typeof this.searchOption.startTime === 'undefined' || typeof this.searchOption.rangeTime === 'undefined') {
             this.searchOption.startTime = undefined;
             this.searchOption.rangeTime = undefined;
@@ -1023,9 +1113,11 @@ export default class SearchState implements ISearchState {
                 week: this.convertWeekToRuleWeek(option.week),
             },
         ];
-        if (typeof option.startTime !== 'undefined' && typeof option.rangeTime !== 'undefined') {
-            ruleOption.times[0].start = option.startTime;
-            ruleOption.times[0].range = option.rangeTime;
+        const startTime = this.normalizeRuleStartHour(option.startTime);
+        const rangeTime = this.normalizeRuleRangeHour(option.rangeTime);
+        if (typeof startTime !== 'undefined' && typeof rangeTime !== 'undefined') {
+            ruleOption.times[0].start = startTime;
+            ruleOption.times[0].range = rangeTime;
         }
 
         // isFree
@@ -1116,6 +1208,35 @@ export default class SearchState implements ISearchState {
             fri: (week & 0x20) !== 0,
             sat: (week & 0x40) !== 0,
         };
+    }
+
+    private normalizeRuleStartHour(value: number | string | null | undefined): number | undefined {
+        const hour = this.normalizeRuleHourValue(value);
+
+        return typeof hour === 'number' && 0 <= hour && hour <= 23 ? hour : undefined;
+    }
+
+    private normalizeRuleRangeHour(value: number | string | null | undefined): number | undefined {
+        const hour = this.normalizeRuleHourValue(value);
+
+        return typeof hour === 'number' && 1 <= hour && hour <= 23 ? hour : undefined;
+    }
+
+    private normalizeRuleHourValue(value: number | string | null | undefined): number | undefined {
+        if (value === null || typeof value === 'undefined') {
+            return undefined;
+        }
+
+        const num = typeof value === 'string' ? parseInt(value, 10) : value;
+        if (Number.isInteger(num) === false) {
+            return undefined;
+        }
+
+        if (num > 23 && num % (60 * 60) === 0) {
+            return num / (60 * 60);
+        }
+
+        return num;
     }
 
     /**
@@ -1238,7 +1359,17 @@ export default class SearchState implements ISearchState {
             rule.encodeOption = this.createReserveEncodedOption(this.encodeOption);
         }
 
+        if (typeof this.userId === 'number') {
+            rule.userId = this.userId;
+        }
+
         return rule;
+    }
+
+    private getDefaultUserId(): apid.UserId | null {
+        const activeUserId = this.activeUserStorage.getSavedValue().userId;
+
+        return typeof activeUserId === 'number' ? activeUserId : null;
     }
 
     /**
@@ -1342,6 +1473,7 @@ export default class SearchState implements ISearchState {
     private createReserveEncodedOption(option: EncodedOption): apid.ReserveEncodedOption | undefined {
         const encodeOption: apid.ReserveEncodedOption = {
             isDeleteOriginalAfterEncode: option.isDeleteOriginalAfterEncode,
+            updateThumbnail: option.updateThumbnail,
         };
 
         if (option.mode1 === null && option.mode2 === null && option.mode3 === null) {
@@ -1350,6 +1482,12 @@ export default class SearchState implements ISearchState {
 
         if (option.mode1 !== null) {
             encodeOption.mode1 = option.mode1;
+            if (option.channelIds1.length > 0) {
+                encodeOption.channelIds1 = option.channelIds1;
+                if (option.channelIds1.length === 1) {
+                    encodeOption.channelId1 = option.channelIds1[0];
+                }
+            }
             if (option.encodeParentDirectoryName1 !== null) {
                 encodeOption.encodeParentDirectoryName1 = option.encodeParentDirectoryName1;
             }
@@ -1360,6 +1498,12 @@ export default class SearchState implements ISearchState {
 
         if (option.mode2 !== null) {
             encodeOption.mode2 = option.mode2;
+            if (option.channelIds2.length > 0) {
+                encodeOption.channelIds2 = option.channelIds2;
+                if (option.channelIds2.length === 1) {
+                    encodeOption.channelId2 = option.channelIds2[0];
+                }
+            }
             if (option.encodeParentDirectoryName2 !== null) {
                 encodeOption.encodeParentDirectoryName2 = option.encodeParentDirectoryName2;
             }
@@ -1370,6 +1514,12 @@ export default class SearchState implements ISearchState {
 
         if (option.mode3 !== null) {
             encodeOption.mode3 = option.mode3;
+            if (option.channelIds3.length > 0) {
+                encodeOption.channelIds3 = option.channelIds3;
+                if (option.channelIds3.length === 1) {
+                    encodeOption.channelId3 = option.channelIds3[0];
+                }
+            }
             if (option.encodeParentDirectoryName3 !== null) {
                 encodeOption.encodeParentDirectoryName3 = option.encodeParentDirectoryName3;
             }

@@ -1,6 +1,6 @@
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../../api';
-import IEncodeEvent, { FinishEncodeInfo } from '../../event/IEncodeEvent';
+import IEncodeEvent, { ErrorEncodeInfo, FinishEncodeInfo } from '../../event/IEncodeEvent';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
 import IIPCClient from '../../ipc/IIPCClient';
@@ -76,6 +76,13 @@ export default class EncodeFinishModel implements IEncodeFinishModel {
             this.log.encode.error(err);
         }
 
+        if (info.updateThumbnail === true && newVideoFileId !== null) {
+            await this.ipc.thumbnail.replace(newVideoFileId).catch(err => {
+                this.log.encode.error(`replace thumbnail error: ${newVideoFileId}`);
+                this.log.encode.error(err);
+            });
+        }
+
         if (info.removeOriginal === true) {
             // delete source video file
             await this.ipc.recorded.deleteVideoFile(info.videoFileId, true);
@@ -94,8 +101,13 @@ export default class EncodeFinishModel implements IEncodeFinishModel {
     /**
      * エンコード失敗処理
      */
-    private errorEncode(): void {
+    private async errorEncode(info: ErrorEncodeInfo): Promise<void> {
         this.socket.notifyClient();
+        await this.ipc.encodeEvent.emitErrorEncode({
+            recordedId: info.recordedId,
+            videoFileId: info.videoFileId,
+            mode: info.mode,
+        });
     }
 
     /**

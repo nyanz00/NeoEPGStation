@@ -130,6 +130,9 @@ class Configuration implements IConfiguration {
         // thumbnail のパス整形
         newConfig.thumbnail = this.directoryFormatting(newConfig.thumbnail);
 
+        // channelLogo のパス整形
+        newConfig.channelLogo = this.directoryFormatting(newConfig.channelLogo);
+
         // streamfiles のパス整形
         newConfig.streamFilePath = this.directoryFormatting(newConfig.streamFilePath);
 
@@ -242,6 +245,7 @@ namespace Configuration {
             '%FFMPEG% -ss %THUMBNAIL_POSITION% -y -i %INPUT% -vframes 1 -f image2 -s %THUMBNAIL_SIZE% %OUTPUT%',
         thumbnailSize: '480x270',
         thumbnailPosition: 5,
+        channelLogo: path.join(__dirname, '..', '..', 'channel-logo'),
         dropLog: path.join(__dirname, '..', '..', 'drop'),
         uploadTempDir: path.join(__dirname, '..', '..', 'data', 'upload'),
         isEnabledDropCheck: false,

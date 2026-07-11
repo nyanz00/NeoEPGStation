@@ -30,6 +30,9 @@ export const get: Operation = async (req, res) => {
             videoFileId: parseInt(req.params.videoFileId, 10),
             playPosition: parseInt(req.query.ss as string, 10),
             mode: parseInt(req.query.mode as string, 10),
+            quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
+            encoder: parseWatchEncoder(req.query.encoder),
+            isHevc: req.query.hevc === '1' || req.query.hevc === 'true',
         });
         keepTimer = setInterval(() => {
             streamApiModel.keep(result.streamId);
@@ -60,6 +63,12 @@ export const get: Operation = async (req, res) => {
     });
 
     result.stream.pipe(res);
+};
+
+const parseWatchEncoder = (encoder: any): 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC' | undefined => {
+    return encoder === 'FFmpeg' || encoder === 'QSVEncC' || encoder === 'NVEncC' || encoder === 'VCEEncC'
+        ? encoder
+        : undefined;
 };
 
 get.apiDoc = {

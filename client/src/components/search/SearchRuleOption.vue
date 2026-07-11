@@ -10,6 +10,7 @@
                                 <div class="d-flex flex-wrap">
                                     <v-checkbox class="mx-1 my-0" v-model="searchState.reserveOption.enable" label="有効"></v-checkbox>
                                     <v-checkbox class="mx-1 my-0" v-model="searchState.reserveOption.allowEndLack" label="状況に応じて末尾がかけることを許可"></v-checkbox>
+                                    <UserSelector v-model="searchState.userId" class="ml-1" :includeMaster="false"></UserSelector>
                                 </div>
                             </SearchOptionRow>
                         </v-expansion-panel-content>
@@ -51,6 +52,11 @@
                         <v-expansion-panel-header>エンコード1</v-expansion-panel-header>
                         <v-expansion-panel-content>
                             <SearchOptionRow>
+                                <EncodeChannelMultiSelect
+                                    v-model="searchState.encodeOption.channelIds1"
+                                    :items="searchState.getEncodeChannelItems()"
+                                    label="channel1"
+                                ></EncodeChannelMultiSelect>
                                 <v-select
                                     class="encode-mode"
                                     v-model="searchState.encodeOption.mode1"
@@ -75,6 +81,11 @@
                         <v-expansion-panel-header>エンコード2</v-expansion-panel-header>
                         <v-expansion-panel-content>
                             <SearchOptionRow>
+                                <EncodeChannelMultiSelect
+                                    v-model="searchState.encodeOption.channelIds2"
+                                    :items="searchState.getEncodeChannelItems()"
+                                    label="channel2"
+                                ></EncodeChannelMultiSelect>
                                 <v-select
                                     class="encode-mode"
                                     v-model="searchState.encodeOption.mode2"
@@ -99,6 +110,11 @@
                         <v-expansion-panel-header>エンコード3</v-expansion-panel-header>
                         <v-expansion-panel-content>
                             <SearchOptionRow>
+                                <EncodeChannelMultiSelect
+                                    v-model="searchState.encodeOption.channelIds3"
+                                    :items="searchState.getEncodeChannelItems()"
+                                    label="channel3"
+                                ></EncodeChannelMultiSelect>
                                 <v-select
                                     class="encode-mode"
                                     v-model="searchState.encodeOption.mode3"
@@ -127,6 +143,14 @@
                             </SearchOptionRow>
                         </v-expansion-panel-content>
                     </v-expansion-panel>
+                    <v-expansion-panel v-if="searchState.isEnableEncodeMode() === true">
+                        <v-expansion-panel-header>サムネイル</v-expansion-panel-header>
+                        <v-expansion-panel-content>
+                            <SearchOptionRow>
+                                <v-checkbox class="mx-1 my-0" v-model="searchState.encodeOption.updateThumbnail" label="エンコード完了時にサムネイルを再生成する"></v-checkbox>
+                            </SearchOptionRow>
+                        </v-expansion-panel-content>
+                    </v-expansion-panel>
                 </v-expansion-panels>
             </div>
             <v-divider></v-divider>
@@ -141,14 +165,18 @@
 </template>
 
 <script lang="ts">
+import EncodeChannelMultiSelect from '@/components/search/EncodeChannelMultiSelect.vue';
 import SearchOptionRow from '@/components/search/SearchOptionRow.vue';
+import UserSelector from '@/components/user/UserSelector.vue';
 import container from '@/model/ModelContainer';
 import ISearchState from '@/model/state/search/ISearchState';
 import { Component, Prop, Vue } from 'vue-property-decorator';
 
 @Component({
     components: {
+        EncodeChannelMultiSelect,
         SearchOptionRow,
+        UserSelector,
     },
 })
 export default class SearchRuleOption extends Vue {
@@ -176,6 +204,8 @@ export default class SearchRuleOption extends Vue {
         max-width: 150px
     .encode-mode
         max-width: 150px
+    .encode-channel
+        max-width: 180px
     .option-panels
         .v-expansion-panel-header
             padding: 6px 0

@@ -5,5 +5,6 @@ export default interface IDropCheckerModel {
     start(logDirPath: string, srcFilePath: string, readableStream: stream.Readable): Promise<void>;
     stop(): Promise<void>;
     getFilePath(): string | null;
+    getCurrentResult(): aribts.Result | null;
     getResult(): Promise<aribts.Result>;
 }

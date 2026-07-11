@@ -11,6 +11,9 @@ export const get: Operation = async (req, res) => {
             videoFileId: parseInt(req.params.videoFileId, 10),
             playPosition: parseInt(req.query.ss as string, 10),
             mode: parseInt(req.query.mode as string, 10),
+            quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
+            encoder: parseWatchEncoder(req.query.encoder),
+            isHevc: req.query.hevc === '1' || req.query.hevc === 'true',
         });
         api.responseJSON(res, 200, {
             streamId: streamId,
@@ -18,6 +21,12 @@ export const get: Operation = async (req, res) => {
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
+};
+
+const parseWatchEncoder = (encoder: any): 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC' | undefined => {
+    return encoder === 'FFmpeg' || encoder === 'QSVEncC' || encoder === 'NVEncC' || encoder === 'VCEEncC'
+        ? encoder
+        : undefined;
 };
 
 get.apiDoc = {
