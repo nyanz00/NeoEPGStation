@@ -736,6 +736,28 @@ class EncoderModel implements IEncoderModel {
                 : null;
         const amatsukazeStartedAt = Date.now();
         if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
+            try {
+                await FileUtil.stat(amatsukazeOutputDir);
+            } catch (e: any) {
+                this.log.encode.info(`mkdirp amatsukaze output: ${amatsukazeOutputDir}`);
+                await FileUtil.mkdir(amatsukazeOutputDir);
+            }
+            if (
+                outputFilePath !== null &&
+                typeof amatsukazeConfig.temporaryOutputDir !== 'undefined' &&
+                amatsukazeConfig.temporaryOutputDir.length > 0 &&
+                (amatsukazeConfig.outputNameMatch || 'exact') === 'exact'
+            ) {
+                const outputExtension = amatsukazeConfig.outputExtension || path.extname(outputFilePath);
+                const candidatePath = this.getAmatsukazeExactOutputCandidatePath(
+                    inputFilePath,
+                    amatsukazeOutputDir,
+                    outputExtension,
+                );
+                if ((await this.existsFile(candidatePath)) === true) {
+                    throw new Error(`AmatsukazeTemporaryOutputAlreadyExists: ${candidatePath}`);
+                }
+            }
             this.startAmatsukazePushClient(amatsukazeConfig, inputFilePath);
         }
 
@@ -969,11 +991,19 @@ class EncoderModel implements IEncoderModel {
         const sourceDir = path.dirname(inputFilePath);
         const outputDir = path.dirname(outputFilePath);
 
+        if (typeof amatsukaze.temporaryOutputDir !== 'undefined' && amatsukaze.temporaryOutputDir.length > 0) {
+            return this.replaceAmatsukazeOutputDirVariables(amatsukaze.temporaryOutputDir, sourceDir, outputDir);
+        }
+
         if (typeof amatsukaze.outputDir !== 'undefined' && amatsukaze.outputDir.length > 0) {
-            return amatsukaze.outputDir.replace(/%SOURCE_DIR%/g, sourceDir).replace(/%OUTPUT_DIR%/g, outputDir);
+            return this.replaceAmatsukazeOutputDirVariables(amatsukaze.outputDir, sourceDir, outputDir);
         }
 
         return amatsukaze.outputDirMode === 'source' ? sourceDir : outputDir;
+    }
+
+    private replaceAmatsukazeOutputDirVariables(value: string, sourceDir: string, outputDir: string): string {
+        return value.replace(/%SOURCE_DIR%/g, sourceDir).replace(/%OUTPUT_DIR%/g, outputDir);
     }
 
     private createEncodeCommand(cmd: string | undefined, amatsukaze: AmatsukazeEncodeConfig | undefined): string {
@@ -1040,6 +1070,15 @@ class EncoderModel implements IEncoderModel {
         let isReadyForOutputScan = false;
 
         this.log.encode.info(`wait amatsukaze output: ${outputFilePath}`);
+        if ((amatsukaze.outputNameMatch || 'exact') === 'exact') {
+            this.log.encode.info(
+                `amatsukaze exact output candidate: ${this.getAmatsukazeExactOutputCandidatePath(
+                    inputFilePath,
+                    outputDirPath,
+                    outputExtension,
+                )}`,
+            );
+        }
 
         while (this.isCanceld === false) {
             const pushStatus = this.amatsukazePushSubscription?.getStatus();
@@ -1091,13 +1130,13 @@ class EncoderModel implements IEncoderModel {
                     outputExtension,
                     amatsukaze.outputNameMatch || 'exact',
                     startedAt,
+                    typeof amatsukaze.temporaryOutputDir !== 'undefined' && amatsukaze.temporaryOutputDir.length > 0,
                 );
 
                 if (found !== null) {
                     if (candidate !== null && candidate.path === found.path && candidate.size === found.size) {
                         if (Date.now() - candidate.stableSince >= stableMs) {
-                            this.log.encode.info(`rename amatsukaze output: ${found.path} -> ${outputFilePath}`);
-                            await FileUtil.rename(found.path, outputFilePath);
+                            await this.moveAmatsukazeOutput(found.path, outputFilePath);
                             await Util.sleep(finishDelayMs);
 
                             return;
@@ -1142,8 +1181,23 @@ class EncoderModel implements IEncoderModel {
         outputExtension: string,
         outputNameMatch: 'exact' | 'prefix',
         startedAt: number,
+        ignoreStartedAt: boolean,
     ): Promise<{ path: string; size: number } | null> {
         const inputBaseName = path.basename(inputFilePath, path.extname(inputFilePath));
+
+        if (outputNameMatch === 'exact') {
+            const expectedPath = this.getAmatsukazeExactOutputCandidatePath(
+                inputFilePath,
+                outputDirPath,
+                outputExtension,
+            );
+            if (expectedPath === outputFilePath) {
+                return null;
+            }
+
+            return this.getAmatsukazeOutputCandidate(expectedPath, startedAt, ignoreStartedAt);
+        }
+
         const files = await FileUtil.readDir(outputDirPath);
         const candidates: { path: string; size: number; mtimeMs: number }[] = [];
 
@@ -1153,10 +1207,7 @@ class EncoderModel implements IEncoderModel {
             }
 
             const outputBaseName = path.basename(file, path.extname(file));
-            if (outputNameMatch === 'exact' && outputBaseName !== inputBaseName) {
-                continue;
-            }
-            if (outputNameMatch === 'prefix' && outputBaseName.startsWith(inputBaseName) === false) {
+            if (outputBaseName.startsWith(inputBaseName) === false) {
                 continue;
             }
 
@@ -1167,7 +1218,7 @@ class EncoderModel implements IEncoderModel {
 
             try {
                 const stats = await FileUtil.stat(filePath);
-                if (stats.isFile() === false || stats.mtimeMs < startedAt - 5000) {
+                if (stats.isFile() === false || (ignoreStartedAt === false && stats.mtimeMs < startedAt - 5000)) {
                     continue;
                 }
                 candidates.push({
@@ -1183,6 +1234,46 @@ class EncoderModel implements IEncoderModel {
         candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
         return candidates.length === 0 ? null : candidates[0];
+    }
+
+    private getAmatsukazeExactOutputCandidatePath(
+        inputFilePath: string,
+        outputDirPath: string,
+        outputExtension: string,
+    ): string {
+        const inputBaseName = path.basename(inputFilePath, path.extname(inputFilePath));
+
+        return path.join(outputDirPath, `${inputBaseName}${outputExtension}`);
+    }
+
+    private async getAmatsukazeOutputCandidate(
+        filePath: string,
+        startedAt: number,
+        ignoreStartedAt: boolean,
+    ): Promise<{ path: string; size: number } | null> {
+        try {
+            const stats = await FileUtil.stat(filePath);
+            if (stats.isFile() === false || (ignoreStartedAt === false && stats.mtimeMs < startedAt - 5000)) {
+                return null;
+            }
+
+            return {
+                path: filePath,
+                size: stats.size,
+            };
+        } catch (err: any) {
+            return null;
+        }
+    }
+
+    private async moveAmatsukazeOutput(sourcePath: string, outputFilePath: string): Promise<void> {
+        this.log.encode.info(`move amatsukaze output: ${sourcePath} -> ${outputFilePath}`);
+        try {
+            await FileUtil.rename(sourcePath, outputFilePath);
+        } catch (err: any) {
+            this.log.encode.info(`rename amatsukaze output failed; copy instead: ${err.message || err}`);
+            await FileUtil.move(sourcePath, outputFilePath);
+        }
     }
 
     /**
