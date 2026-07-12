@@ -103,12 +103,10 @@ urlscheme:
 #     liveQualities:
 #         - 1080p
 #         - 720p
-#         - 720p-hevc
 #         - 480p
 #     recordedQualities:
 #         - 1080p
 #         - 720p
-#         - 720p-hevc
 #         - 480p
 #     hevc10bit: false
 #     fps24: false
