@@ -919,7 +919,13 @@ class EncoderModel implements IEncoderModel {
 
         // プロセスの即時終了対応
         if (ProcessUtil.isExited(this.childProcess) === true) {
-            await handleProcessExit(this.childProcess.exitCode, this.childProcess.signalCode);
+            // Amatsukaze の追加コマンドはすぐ終了するため、ここで出力待ちまで await すると
+            // EncodeManageModel の queue 操作用ロックをエンコード完了まで占有してしまう。
+            // 終了処理は継続させつつ start() 自体は返し、後続を待機 queue へ追加可能にする。
+            void handleProcessExit(this.childProcess.exitCode, this.childProcess.signalCode).catch(err => {
+                this.log.encode.error(`immediate encode process exit handling failed: ${this.encodeOption?.encodeId}`);
+                this.log.encode.error(err);
+            });
             this.childProcess.removeAllListeners();
         }
     }

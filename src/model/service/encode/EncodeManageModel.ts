@@ -52,25 +52,30 @@ class EncodeManageModel implements IEncodeManageModel {
             throw new Error('CncurrentEncodeNumIsZero');
         }
 
-        // 実行権取得
-        const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.ADD_ENCODE_PRIPORITY);
-
-        // encoder を生成する
+        // ロック中に provider の生成処理を待たないよう、encoder は先に準備する
         const encoder = await this.encoderModelProvider();
         const option = this.createEncodeOption(addOption);
         encoder.setOption(option);
 
-        // queue に積む
-        this.waitQueue.push(encoder);
-        this.emitNeedsCheckQueue();
+        // 実行権取得
+        const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.ADD_ENCODE_PRIPORITY);
 
-        this.log.encode.info(`add new encode: ${option.encodeId}`);
-
-        // 実行権開放
-        this.executeManagementModel.unLockExecution(exeId);
+        try {
+            // queue に積む
+            this.waitQueue.push(encoder);
+            this.log.encode.info(`add new encode: ${option.encodeId}`);
+        } finally {
+            // 追加処理で例外が発生しても、以降の queue 操作を止めない
+            this.executeManagementModel.unLockExecution(exeId);
+        }
 
         // イベント発行
         this.encodeEvent.emitAddEncode(option.encodeId);
+
+        // 追加用ロックを解放してから、別ターンで実行可能な queue を開始する
+        process.nextTick(() => {
+            this.emitNeedsCheckQueue();
+        });
 
         return option.encodeId;
     }
