@@ -1,5 +1,6 @@
 import { ChildProcess } from 'child_process';
 import * as events from 'events';
+import * as iconv from 'iconv-lite';
 import { inject, injectable } from 'inversify';
 import * as net from 'net';
 import * as path from 'path';
@@ -25,6 +26,7 @@ import IRecordingUtilModel from '../../operator/recording/IRecordingUtilModel';
 interface AmatsukazeOutputCandidate {
     path: string;
     size: number;
+    mtimeMs: number;
     stableSince: number;
 }
 
@@ -143,6 +145,34 @@ class AmatsukazePushConnection {
                 this.stop();
             }
         }, AmatsukazePushConnection.IDLE_CLOSE_DELAY_MS);
+    }
+
+    public canClaimFallbackConsole(subscriptionId: number, consoleId: number): boolean {
+        for (const subscription of this.subscriptions.values()) {
+            if (subscription.id !== subscriptionId && subscription.getConsoleId() === consoleId) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public canClaimTask(subscriptionId: number, taskId: number): boolean {
+        for (const subscription of this.subscriptions.values()) {
+            if (subscription.id !== subscriptionId && subscription.getTaskId() === taskId) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public claimConsoleFromQueue(subscriptionId: number, consoleId: number): void {
+        for (const subscription of this.subscriptions.values()) {
+            if (subscription.id !== subscriptionId) {
+                subscription.releaseFallbackConsoleClaim(consoleId);
+            }
+        }
     }
 
     public sendFrame(frame: Buffer): boolean {
@@ -320,6 +350,7 @@ class AmatsukazePushSubscription {
     };
     private taskId: number | null = null;
     private consoleTail: string = '';
+    private consoleMatchSource: 'none' | 'fallback' | 'queue' = 'none';
 
     constructor(
         public readonly id: number,
@@ -341,6 +372,29 @@ class AmatsukazePushSubscription {
 
     public getTaskId(): number | null {
         return this.taskId;
+    }
+
+    public getConsoleId(): number | null {
+        return this.status.consoleId;
+    }
+
+    public releaseFallbackConsoleClaim(consoleId: number): void {
+        if (this.consoleMatchSource !== 'fallback' || this.status.consoleId !== consoleId) {
+            return;
+        }
+
+        this.consoleMatchSource = 'none';
+        this.status = {
+            ...this.status,
+            isMatched: this.taskId !== null,
+            consoleId: null,
+            log: null,
+            percent: null,
+            isReadyForOutputScan: false,
+            errorMessage: null,
+            updatedAt: Date.now(),
+        };
+        this.onUpdate(this.getStatus());
     }
 
     public cancelTask(): Promise<boolean> {
@@ -367,7 +421,14 @@ class AmatsukazePushSubscription {
     }
 
     public handleConsoleUpdate(index: number, text: string): void {
-        if (index >= 0 && this.status.consoleId === null && this.isMatchingConsoleText(text)) {
+        if (
+            index >= 0 &&
+            this.status.consoleId === null &&
+            this.isInputPathCp932Lossless() &&
+            this.connection.canClaimFallbackConsole(this.id, index) &&
+            this.isMatchingConsoleText(text)
+        ) {
+            this.consoleMatchSource = 'fallback';
             this.status = {
                 ...this.status,
                 isMatched: true,
@@ -389,7 +450,8 @@ class AmatsukazePushSubscription {
                 continue;
             }
 
-            const percent = this.parsePercent(trimmed);
+            // A title such as "[100%]" is not an encode progress report.
+            const percent = this.isMatchingConsoleText(trimmed) ? null : this.parsePercent(trimmed);
             this.status = {
                 ...this.status,
                 log: trimmed,
@@ -435,71 +497,103 @@ class AmatsukazePushSubscription {
             return false;
         }
 
-        let isMatched = false;
-        for (const item of AmatsukazePushConnection.readTags(queueUpdate, 'Item')) {
-            const srcPath = this.readTag(item, 'SrcPath');
-            if (typeof srcPath !== 'string' || this.isMatchingConsoleText(srcPath) === false) {
-                continue;
-            }
-
-            isMatched = true;
-            const id = Number(this.readTag(item, 'Id'));
-            if (Number.isNaN(id) === false) {
-                this.taskId = id;
-            }
-
-            const state = this.readTag(item, 'State') ?? '';
-            const stateLabel = this.readTag(item, 'StateLabel') ?? '';
-            const isPending = this.isPendingState(state, stateLabel);
-            if (isPending === true) {
-                this.status = {
-                    ...this.status,
-                    isMatched: true,
-                    isPending: true,
-                    pendingMessage: stateLabel || state || 'pending',
-                    updatedAt: Date.now(),
-                };
-                continue;
-            }
-            if (state.includes('Succeeded') || state.includes('Completed')) {
-                this.status = {
-                    ...this.status,
-                    percent: 1,
-                    isReadyForOutputScan: true,
-                    isPending: false,
-                    pendingMessage: null,
-                    updatedAt: Date.now(),
-                };
-            } else if (state.includes('Failed') || state.includes('Canceled')) {
-                this.status = {
-                    ...this.status,
-                    isPending: false,
-                    pendingMessage: null,
-                    errorMessage: state,
-                    updatedAt: Date.now(),
-                };
-            } else {
-                this.status = {
-                    ...this.status,
-                    isMatched: true,
-                    isPending: false,
-                    pendingMessage: null,
-                    updatedAt: Date.now(),
-                };
-            }
+        const matchingItems = AmatsukazePushConnection.readTags(queueUpdate, 'Item')
+            .map(item => ({
+                consoleId: Number(this.readTag(item, 'ConsoleId')),
+                id: Number(this.readTag(item, 'Id')),
+                srcPath: this.readTag(item, 'SrcPath'),
+                state: this.readTag(item, 'State') ?? '',
+                stateLabel: this.readTag(item, 'StateLabel') ?? '',
+            }))
+            .filter(item => typeof item.srcPath === 'string' && this.isMatchingQueuePath(item.srcPath));
+        const matchedItem =
+            this.taskId === null
+                ? matchingItems
+                      .filter(item => Number.isNaN(item.id) === false && this.connection.canClaimTask(this.id, item.id))
+                      .sort((a, b) => b.id - a.id)[0]
+                : matchingItems.find(item => item.id === this.taskId);
+        if (typeof matchedItem === 'undefined') {
+            return false;
         }
 
-        if (isMatched === true) {
-            this.onUpdate(this.getStatus());
+        if (Number.isNaN(matchedItem.id) === false) {
+            this.taskId = matchedItem.id;
         }
 
-        return isMatched;
+        const normalizedState = matchedItem.state.trim().toLowerCase();
+        if (
+            Number.isNaN(matchedItem.consoleId) === false &&
+            matchedItem.consoleId >= 0 &&
+            ['encoding', 'complete', 'failed', 'prefailed', 'canceled'].includes(normalizedState)
+        ) {
+            this.matchConsoleFromQueue(matchedItem.consoleId);
+        }
+
+        const isPending = this.isPendingState(matchedItem.state, matchedItem.stateLabel);
+        if (isPending === true) {
+            this.status = {
+                ...this.status,
+                isMatched: true,
+                isPending: true,
+                pendingMessage: matchedItem.stateLabel || matchedItem.state || 'pending',
+                updatedAt: Date.now(),
+            };
+        } else if (normalizedState === 'complete') {
+            this.status = {
+                ...this.status,
+                isMatched: true,
+                percent: 1,
+                isReadyForOutputScan: true,
+                isPending: false,
+                pendingMessage: null,
+                updatedAt: Date.now(),
+            };
+        } else if (['failed', 'prefailed', 'canceled'].includes(normalizedState)) {
+            this.status = {
+                ...this.status,
+                isMatched: true,
+                isPending: false,
+                pendingMessage: null,
+                errorMessage: matchedItem.state,
+                updatedAt: Date.now(),
+            };
+        } else {
+            this.status = {
+                ...this.status,
+                isMatched: true,
+                isPending: false,
+                pendingMessage: null,
+                updatedAt: Date.now(),
+            };
+        }
+
+        this.onUpdate(this.getStatus());
+
+        return true;
+    }
+
+    private matchConsoleFromQueue(consoleId: number): void {
+        this.connection.claimConsoleFromQueue(this.id, consoleId);
+        if (this.status.consoleId !== consoleId || this.consoleMatchSource !== 'queue') {
+            this.onLog(`amatsukaze push matched console by queue: ${consoleId}`);
+        }
+        this.consoleMatchSource = 'queue';
+        this.status = {
+            ...this.status,
+            isMatched: true,
+            consoleId,
+            isPending: false,
+            pendingMessage: null,
+            updatedAt: Date.now(),
+        };
     }
 
     private isPendingState(state: string, stateLabel: string): boolean {
         const text = `${state} ${stateLabel}`.toLowerCase();
 
         return (
+            state.trim().toLowerCase() === 'queue' ||
+            state.trim().toLowerCase() === 'logopending' ||
             text.includes('pending') ||
             text.includes('ペンディング') ||
             (text.includes('ロゴ') &&
@@ -531,7 +625,50 @@ class AmatsukazePushSubscription {
         const normalizedText = path.normalize(text).toLowerCase();
         const normalizedInput = path.normalize(this.inputFilePath).toLowerCase();
 
-        return normalizedText.includes(normalizedInput) || text.includes(path.basename(this.inputFilePath));
+        if (normalizedText.includes(normalizedInput) || text.includes(path.basename(this.inputFilePath))) {
+            return true;
+        }
+
+        // Console updates use CP932 and replace unsupported characters, while queue updates arrive as UTF-8.
+        const comparableTexts = this.getMatchingTextVariants(text);
+        const comparableInputs = [
+            ...this.getMatchingTextVariants(this.inputFilePath),
+            ...this.getMatchingTextVariants(path.basename(this.inputFilePath)),
+        ];
+
+        return comparableTexts.some(comparableText =>
+            comparableInputs.some(
+                comparableInput => comparableInput.length > 0 && comparableText.includes(comparableInput),
+            ),
+        );
+    }
+
+    private isMatchingQueuePath(srcPath: string): boolean {
+        const inputPaths = this.getUnicodePathVariants(this.inputFilePath);
+
+        return this.getUnicodePathVariants(srcPath).some(value => inputPaths.includes(value));
+    }
+
+    private getUnicodePathVariants(value: string): string[] {
+        const normalized = path.normalize(value).toLowerCase();
+
+        return [...new Set([normalized, normalized.normalize('NFC')])];
+    }
+
+    private getMatchingTextVariants(text: string): string[] {
+        const normalized = path.normalize(text).toLowerCase();
+
+        return [...new Set([normalized, normalized.normalize('NFC')].map(value => this.toCp932MatchingText(value)))];
+    }
+
+    private toCp932MatchingText(text: string): string {
+        return iconv.decode(iconv.encode(text, 'cp932'), 'cp932').normalize('NFC');
+    }
+
+    private isInputPathCp932Lossless(): boolean {
+        const normalizedInput = path.normalize(this.inputFilePath).normalize('NFC');
+
+        return this.toCp932MatchingText(normalizedInput) === normalizedInput;
     }
 
     private parsePercent(line: string): number | null {
@@ -1140,7 +1277,12 @@ class EncoderModel implements IEncoderModel {
                 );
 
                 if (found !== null) {
-                    if (candidate !== null && candidate.path === found.path && candidate.size === found.size) {
+                    if (
+                        candidate !== null &&
+                        candidate.path === found.path &&
+                        candidate.size === found.size &&
+                        candidate.mtimeMs === found.mtimeMs
+                    ) {
                         if (Date.now() - candidate.stableSince >= stableMs) {
                             await this.moveAmatsukazeOutput(found.path, outputFilePath);
                             await Util.sleep(finishDelayMs);
@@ -1151,6 +1293,7 @@ class EncoderModel implements IEncoderModel {
                         candidate = {
                             path: found.path,
                             size: found.size,
+                            mtimeMs: found.mtimeMs,
                             stableSince: Date.now(),
                         };
                     }
@@ -1188,7 +1331,7 @@ class EncoderModel implements IEncoderModel {
         outputNameMatch: 'exact' | 'prefix',
         startedAt: number,
         ignoreStartedAt: boolean,
-    ): Promise<{ path: string; size: number } | null> {
+    ): Promise<{ path: string; size: number; mtimeMs: number } | null> {
         const inputBaseName = path.basename(inputFilePath, path.extname(inputFilePath));
 
         if (outputNameMatch === 'exact') {
@@ -1213,7 +1356,12 @@ class EncoderModel implements IEncoderModel {
             }
 
             const outputBaseName = path.basename(file, path.extname(file));
-            if (outputBaseName.startsWith(inputBaseName) === false) {
+            if (
+                outputBaseName
+                    .normalize('NFC')
+                    .toLowerCase()
+                    .startsWith(inputBaseName.normalize('NFC').toLowerCase()) === false
+            ) {
                 continue;
             }
 
@@ -1256,7 +1404,7 @@ class EncoderModel implements IEncoderModel {
         filePath: string,
         startedAt: number,
         ignoreStartedAt: boolean,
-    ): Promise<{ path: string; size: number } | null> {
+    ): Promise<{ path: string; size: number; mtimeMs: number } | null> {
         try {
             const stats = await FileUtil.stat(filePath);
             if (stats.isFile() === false || (ignoreStartedAt === false && stats.mtimeMs < startedAt - 5000)) {
@@ -1266,6 +1414,7 @@ class EncoderModel implements IEncoderModel {
             return {
                 path: filePath,
                 size: stats.size,
+                mtimeMs: stats.mtimeMs,
             };
         } catch (err: any) {
             return null;
@@ -1479,11 +1628,14 @@ class EncoderModel implements IEncoderModel {
 
         if (isError === true) {
             // 出力ファイルを削除
-            if (outputFilePath !== null) {
+            if (outputFilePath !== null && (await this.existsFile(outputFilePath)) === true) {
                 this.log.encode.info(`delete encode output file: ${outputFilePath}`);
                 await Util.sleep(1000);
 
                 await FileUtil.unlink(outputFilePath).catch(err => {
+                    if (err?.code === 'ENOENT') {
+                        return;
+                    }
                     this.log.encode.error(`delete encode output file failed: ${outputFilePath}`);
                     this.log.encode.error(err);
                 });
