@@ -107,6 +107,7 @@ export default class EncodeFinishModel implements IEncodeFinishModel {
             recordedId: info.recordedId,
             videoFileId: info.videoFileId,
             mode: info.mode,
+            encoderMessage: info.encoderMessage,
         });
     }
 

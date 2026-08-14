@@ -37,7 +37,7 @@ npm run install-win-service
 npm run uninstall-win-service
 ```
 
-インストールされるサービス名は`epgstation-nyanz`です。
+現在のNeoEPGStationでインストールされるサービス名は`NeoEPGStation`です。旧名`epgstation-nyanz`で登録済みの場合は、`npm run uninstall-win-service-legacy`で削除できます。
 
 ## 主な変更点
 

@@ -1,19 +1,21 @@
 {
-    "name": "epgstation",
-    "version": "2.10.0",
+    "name": "neoepgstation",
+    "version": "1.0.0-beta.1",
     "description": "DTV Software in Japan.",
     "main": "dist/index.js",
+    "packageManager": "pnpm@10.34.5",
     "engines": {
         "node": "^20.19.0 || ^22.13.0 || >=24.11.0"
     },
     "scripts": {
         "all-install": "npm i --no-save && cd client && npm i --no-save",
         "start": "node dist/index.js",
-        "build": "npm run build-server && npm run build-client",
-        "build-server": "npm run lint && npm run format && npm run compile",
-        "build-client": "cd client && npm run build",
-        "lint": "eslint --fix --ext .ts src/",
+        "build": "node scripts/run-package-scripts.cjs build-server build-client",
+        "build-server": "node scripts/run-package-scripts.cjs lint format validate-api compile",
+        "build-client": "node scripts/run-package-scripts.cjs --cwd client build",
+        "lint": "eslint --fix src/",
         "format": "prettier --check --write src/**/*.ts",
+        "validate-api": "node scripts/validate-openapi.js",
         "compile": "tsc",
         "watch": "tsc --watch",
         "update-tsreadex": "powershell -ExecutionPolicy Bypass -File scripts/update-tsreadex.ps1",
@@ -21,70 +23,83 @@
         "orm-run": "typeorm migration:run -d ./ormconfig.js",
         "backup": "node dist/DBTools.js -m backup -o",
         "restore": "node dist/DBTools.js -m restore -o",
+        "reset-viewer-lock": "node dist/ViewerProfilePinReset.js",
+        "reset-viewer-pin": "node dist/ViewerProfilePinReset.js",
+        "wipe-viewer-credentials": "node dist/ViewerProfilePinReset.js --wipe-credentials",
         "v1migrate": "node dist/V1MigrationTool.js -i",
-        "install-win-service": "winser -i -a -n epgstation-nyanz --displayname epgstation-nyanz",
-        "uninstall-win-service": "winser -r -x -n epgstation-nyanz",
+        "install-win-service": "winser -i -a -n NeoEPGStation --displayname NeoEPGStation",
+        "uninstall-win-service": "winser -r -x -n NeoEPGStation",
+        "uninstall-win-service-legacy": "winser -r -x -n epgstation-nyanz",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/l3tnun/EPGStation-V2.git"
+        "url": "git+https://github.com/nyanz00/NeoEPGStation.git"
     },
     "author": "l3tnun",
     "license": "MIT",
     "bugs": {
-        "url": "https://github.com/l3tnun/EPGStation-V2/issues"
+        "url": "https://github.com/nyanz00/NeoEPGStation/issues"
     },
-    "homepage": "https://github.com/l3tnun/EPGStation-V2#readme",
+    "homepage": "https://github.com/nyanz00/NeoEPGStation#readme",
     "dependencies": {
         "arib-subtitle-timedmetadater": "4.0.10",
         "aribts": "2.1.12",
-        "axios": "1.18.1",
+        "axios": "1.19.0",
         "better-sqlite3": "12.4.6",
-        "body-parser": "1.20.5",
+        "body-parser": "1.20.6",
         "cors": "2.8.6",
         "diskusage-ng": "1.0.4",
         "eventsource": "2.0.2",
         "express": "4.22.2",
         "express-openapi": "12.1.3",
         "file-type": "16.5.4",
-        "iconv-lite": "0.7.2",
+        "iconv-lite": "0.7.3",
         "inversify": "6.0.2",
-        "js-yaml": "5.2.0",
+        "js-yaml": "5.2.3",
         "lodash": "4.18.1",
         "log4js": "6.9.1",
         "minimist": "1.2.8",
-        "mirakurun": "3.9.0-rc.4",
+        "mirakurun": "https://github.com/nyanz00/Mirakurun/archive/refs/tags/4.1.3-nyanz.1.tar.gz",
         "mkdirp": "3.0.1",
         "multer": "2.2.0",
-        "mysql2": "3.15.3",
+        "mysql2": "3.23.2",
         "openapi-types": "12.1.3",
+        "playwright-core": "1.62.1",
         "reflect-metadata": "0.2.2",
         "socket.io": "4.8.3",
         "source-map-support": "0.5.21",
-        "swagger-ui-dist": "5.32.8",
-        "typeorm": "1.0.0",
-        "url-join": "4.0.1"
+        "swagger-ui-dist": "5.32.12",
+        "typeorm": "1.1.0",
+        "url-join": "4.0.1",
+        "ws": "8.21.3"
     },
     "devDependencies": {
-        "@types/body-parser": "1.19.5",
+        "@eslint/js": "9.39.5",
+        "@types/body-parser": "1.19.6",
+        "@types/cors": "2.8.19",
         "@types/eventsource": "1.1.15",
         "@types/express": "4.17.21",
         "@types/js-yaml": "4.0.9",
-        "@types/lodash": "4.17.24",
+        "@types/lodash": "4.17.25",
         "@types/minimist": "1.2.5",
         "@types/mkdirp": "1.0.2",
-        "@types/multer": "2.1.0",
-        "@types/node": "18.11.9",
+        "@types/multer": "2.2.0",
+        "@types/node": "20.19.43",
         "@types/socket.io": "3.0.1",
         "@types/source-map-support": "0.5.10",
+        "@types/serve-static": "1.13.10",
+        "@types/swagger-ui-dist": "3.30.6",
         "@types/url-join": "4.0.3",
-        "@typescript-eslint/eslint-plugin": "7.8.0",
-        "@typescript-eslint/parser": "7.8.0",
-        "eslint": "8.57.0",
-        "eslint-config-prettier": "8.10.0",
-        "prettier": "3.2.5",
-        "typescript": "5.4.5",
+        "@types/ws": "8.18.1",
+        "eslint": "9.39.5",
+        "eslint-config-prettier": "10.1.8",
+        "eventemitter3": "2.0.3",
+        "globals": "17.9.0",
+        "openapi-schema-validator": "12.1.3",
+        "prettier": "3.9.6",
+        "typescript": "5.9.3",
+        "typescript-eslint": "8.66.0",
         "winser": "1.0.3"
     },
     "overrides": {
@@ -97,7 +112,10 @@
         },
         "eslint": {
             "ajv": "6.15.0",
-            "minimatch": "3.1.5"
+            "minimatch": {
+                ".": "3.1.5",
+                "brace-expansion": "1.1.18"
+            }
         },
         "flat-cache": {
             "flatted": "3.4.2"
@@ -105,17 +123,20 @@
         "glob": {
             "minimatch": "3.1.5"
         },
+        "body-parser": "1.20.6",
+        "braces": "3.0.3",
+        "fast-uri": "3.1.5",
+        "js-yaml": "5.2.3",
         "jsonrpc2-ws": {
-            "ws": "8.21.0"
+            "uuid": "11.1.1",
+            "ws": "8.21.3"
         },
         "log4js": {
             "flatted": "3.4.2"
         },
-        "minimatch@3.1.5": {
-            "brace-expansion": "1.1.15"
-        },
+        "micromatch": "4.0.8",
         "minimatch@9.0.4": {
-            "brace-expansion": "2.1.1"
+            "brace-expansion": "2.1.4"
         },
         "mirakurun": {
             "express": "4.22.2",
@@ -130,12 +151,13 @@
             "tar-fs": "2.1.5"
         },
         "node-gyp": "12.4.0",
+        "picomatch": "2.3.2",
         "socket.io": {
             "socket.io-adapter": "2.5.8",
-            "socket.io-parser": "4.2.6"
+            "socket.io-parser": "4.2.7"
         },
         "socket.io-adapter": {
-            "ws": "8.21.0"
+            "ws": "8.21.3"
         },
         "tar": "7.5.19"
     }

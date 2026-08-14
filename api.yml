@@ -265,6 +265,9 @@ components:
                 isEnableEncodedRecordedStream:
                     description: 録画済みのエンコード済みファイルのストリーミングが有効か
                     type: boolean
+                developerMode:
+                    description: 開発者向け設定を Web UI に表示する
+                    type: boolean
                 streamConfig:
                     description: ストリーミング設定
                     type: object
@@ -307,7 +310,9 @@ components:
                                     type: object
                                     properties:
                                         m2tsll:
-                                            description: 録画済み TS ファイルの M2TS Low Latency (mpegts.js 用) ストリーミング設定
+                                            description:
+                                                録画済み TS ファイルの M2TS Low Latency (mpegts.js 用)
+                                                ストリーミング設定
                                             type: array
                                             items:
                                                 type: string
@@ -468,6 +473,45 @@ components:
                 commentSessionUrl:
                     description: コメントセッションWebSocket URL
                     type: string
+                    nullable: true
+                nicoliveWatchSessionError:
+                    description: 本家ニコニコ実況への接続失敗理由
+                    type: string
+                    nullable: true
+                canPost:
+                    description: 現在の視聴者プロフィールでコメント投稿できるか
+                    type: boolean
+                postingTarget:
+                    description: コメント投稿先
+                    type: string
+                    enum:
+                        - nicolive
+                        - nx-jikkyo
+                    nullable: true
+
+        ChannelJikkyoStatuses:
+            description: 放送局ごとのNX-Jikkyo実況勢い
+            type: array
+            items:
+                $ref: '#/components/schemas/ChannelJikkyoStatus'
+
+        ChannelJikkyoStatus:
+            description: 放送局のNX-Jikkyo実況勢い
+            type: object
+            required:
+                - channelId
+                - jikkyoId
+                - force
+            properties:
+                channelId:
+                    $ref: '#/components/schemas/ChannelId'
+                jikkyoId:
+                    description: 実況チャンネルID
+                    type: string
+                    nullable: true
+                force:
+                    description: 現在の実況勢い (コメント/分)
+                    type: number
                     nullable: true
 
         RecordedJikkyoComment:
@@ -672,6 +716,9 @@ components:
                 reservesCnt:
                     description: 予約件数
                     type: integer
+                annictId:
+                    description: Annict経由で作成されたルールに紐づく作品ID
+                    type: integer
             allOf:
                 - $ref: '#/components/schemas/AddRuleOption'
 
@@ -749,6 +796,61 @@ components:
             properties:
                 userId:
                     $ref: '#/components/schemas/UserId'
+
+        BulkUpdateRecordedUserOption:
+            description: 録画ユーザー一括更新オプション
+            type: object
+            required:
+                - recordedIds
+                - userId
+            properties:
+                recordedIds:
+                    type: array
+                    minItems: 1
+                    uniqueItems: true
+                    items:
+                        $ref: '#/components/schemas/RecordedId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
+
+        MoveRecordedSubDirectoryOption:
+            description: 録画ファイル一括サブディレクトリ移動オプション
+            type: object
+            required:
+                - recordedIds
+                - subDirectory
+            properties:
+                recordedIds:
+                    type: array
+                    minItems: 1
+                    uniqueItems: true
+                    items:
+                        $ref: '#/components/schemas/RecordedId'
+                subDirectory:
+                    type: string
+
+        RecordedSubDirectories:
+            description: 録画保存先に存在するサブディレクトリ
+            type: object
+            required:
+                - directories
+            properties:
+                directories:
+                    type: array
+                    items:
+                        type: string
+
+        BulkRecordedOperationResult:
+            description: 録画一括操作結果
+            type: object
+            required:
+                - updatedCount
+                - movedFileCount
+            properties:
+                updatedCount:
+                    type: integer
+                movedFileCount:
+                    type: integer
 
         AddRuleOption:
             description: ルール追加プション
@@ -1346,6 +1448,377 @@ components:
                     description: 自動録画削除対象外か
                     type: boolean
 
+        DiscordNotificationCondition:
+            description: 録画終了Discord通知の件数条件
+            type: object
+            properties:
+                dropMin:
+                    type: integer
+                    minimum: 0
+                dropMax:
+                    type: integer
+                    minimum: 0
+                errorMin:
+                    type: integer
+                    minimum: 0
+                errorMax:
+                    type: integer
+                    minimum: 0
+                scramblingMin:
+                    type: integer
+                    minimum: 0
+                scramblingMax:
+                    type: integer
+                    minimum: 0
+
+        DiscordNotificationDestination:
+            description: Discord通知送信プリセット
+            type: object
+            required:
+                - id
+                - name
+                - username
+                - configured
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                username:
+                    type: string
+                configured:
+                    type: boolean
+
+        UpdateDiscordNotificationDestination:
+            description: Discord通知送信プリセット更新値
+            type: object
+            required:
+                - id
+                - name
+                - username
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                username:
+                    type: string
+                webhookUrl:
+                    type: string
+                clearWebhook:
+                    type: boolean
+
+        DiscordNotificationRule:
+            description: Discord通知ルール
+            type: object
+            required:
+                - id
+                - name
+                - enabled
+                - event
+                - destinationId
+                - message
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                enabled:
+                    type: boolean
+                event:
+                    type: string
+                    enum:
+                        - recording_start
+                        - recording_finish
+                        - recording_failed
+                        - encode_finish
+                        - encode_failed
+                destinationId:
+                    type: string
+                message:
+                    type: string
+                condition:
+                    $ref: '#/components/schemas/DiscordNotificationCondition'
+
+        DiscordNotificationSettings:
+            description: Discord通知設定
+            type: object
+            required:
+                - enabled
+                - destinations
+                - rules
+            properties:
+                enabled:
+                    type: boolean
+                destinations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DiscordNotificationDestination'
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DiscordNotificationRule'
+
+        UpdateDiscordNotificationSettings:
+            description: Discord通知設定更新値
+            type: object
+            required:
+                - enabled
+                - destinations
+                - rules
+            properties:
+                enabled:
+                    type: boolean
+                destinations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/UpdateDiscordNotificationDestination'
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DiscordNotificationRule'
+
+        TwitterAccountInfo:
+            description: 連携中のTwitterアカウント
+            type: object
+            required:
+                - name
+                - screenName
+            properties:
+                name:
+                    type: string
+                screenName:
+                    type: string
+                iconUrl:
+                    type: string
+
+        TwitterStatus:
+            description: 視聴者プロフィールのTwitter連携状態
+            type: object
+            required:
+                - configured
+            properties:
+                configured:
+                    type: boolean
+                viewerProfileId:
+                    type: integer
+                account:
+                    $ref: '#/components/schemas/TwitterAccountInfo'
+
+        TwitterTweet:
+            description: Twitterパネルに表示するポスト
+            type: object
+            required:
+                - id
+                - url
+                - text
+                - authorName
+                - authorScreenName
+                - imageUrls
+                - replyCount
+                - retweetCount
+                - likeCount
+                - retweeted
+                - liked
+            properties:
+                id:
+                    type: string
+                url:
+                    type: string
+                text:
+                    type: string
+                authorName:
+                    type: string
+                authorScreenName:
+                    type: string
+                authorIconUrl:
+                    type: string
+                createdAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+                imageUrls:
+                    type: array
+                    items:
+                        type: string
+                replyCount:
+                    type: integer
+                retweetCount:
+                    type: integer
+                likeCount:
+                    type: integer
+                retweeted:
+                    type: boolean
+                liked:
+                    type: boolean
+
+        TwitterTimeline:
+            description: Twitterパネル内のポスト一覧
+            type: object
+            required:
+                - tweets
+                - refreshedAt
+            properties:
+                tweets:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TwitterTweet'
+                refreshedAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+
+        AnnictRecordedEpisodeInfo:
+            description: 録画番組とAnnictエピソードの対応および視聴状態
+            type: object
+            required:
+                - state
+                - writeConfigured
+                - watched
+                - canUnwatch
+            properties:
+                state:
+                    type: string
+                    enum:
+                        - unlinked
+                        - pending
+                        - matched
+                annictId:
+                    description: Annict作品ID
+                    type: integer
+                programAnnictId:
+                    description: Annict放送予定ID
+                    type: integer
+                episodeAnnictId:
+                    description: AnnictエピソードID
+                    type: integer
+                episodeNumber:
+                    type: integer
+                episodeNumberText:
+                    type: string
+                episodeTitle:
+                    type: string
+                pendingReason:
+                    type: string
+                    enum:
+                        - not_checked
+                        - program_not_found
+                        - program_ambiguous
+                        - episode_unavailable
+                        - annict_unavailable
+                lastCheckedAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+                viewerProfileId:
+                    type: integer
+                writeConfigured:
+                    type: boolean
+                watched:
+                    type: boolean
+                canUnwatch:
+                    description: EPGStationが作成したAnnict視聴記録を安全に削除できるか
+                    type: boolean
+
+        AnnictEpisodeWatchOption:
+            description: Annictエピソード視聴記録後の処理
+            type: object
+            required:
+                - markWorkWatchedOnFinalEpisode
+                - disableRulesOnFinalEpisode
+            properties:
+                markWorkWatchedOnFinalEpisode:
+                    type: boolean
+                disableRulesOnFinalEpisode:
+                    type: boolean
+
+        RecordedPlayback:
+            description: ユーザーごとの録画再生位置と実再生時間
+            type: object
+            required:
+                - position
+                - duration
+                - watchedSeconds
+            properties:
+                position:
+                    type: number
+                    minimum: 0
+                duration:
+                    type: number
+                    minimum: 0
+                watchedSeconds:
+                    description: シークを除いて実際に再生した累計秒数
+                    type: number
+                    minimum: 0
+                updatedAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+
+        UpdateRecordedPlaybackOption:
+            description: 録画再生進捗の更新
+            type: object
+            required:
+                - position
+                - duration
+                - watchedSecondsDelta
+                - observedAt
+            properties:
+                position:
+                    type: number
+                    minimum: 0
+                duration:
+                    type: number
+                    exclusiveMinimum: 0
+                watchedSecondsDelta:
+                    description: 前回通知以降にシークせず再生した秒数
+                    type: number
+                    minimum: 0
+                    maximum: 30
+                observedAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+                historyLimit:
+                    description: ユーザーごとに保持する視聴履歴の最大件数
+                    type: integer
+                    minimum: 1
+                    maximum: 200
+
+        RecordedPlaybackHistoryItem:
+            description: ユーザーごとの録画視聴履歴
+            type: object
+            required:
+                - recorded
+                - playback
+            properties:
+                recorded:
+                    $ref: '#/components/schemas/RecordedItem'
+                playback:
+                    $ref: '#/components/schemas/RecordedPlayback'
+
+        RecordedPlaybackHistory:
+            description: ユーザーごとの録画視聴履歴一覧
+            type: object
+            required:
+                - items
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/RecordedPlaybackHistoryItem'
+
+        RecordedPlaybackHistorySettings:
+            description: アクティブユーザーの視聴履歴保存設定
+            type: object
+            required:
+                - enabled
+            properties:
+                enabled:
+                    type: boolean
+
+        RecordedListPosition:
+            description: 録画済み一覧における対象録画のページ位置
+            type: object
+            required:
+                - page
+            properties:
+                page:
+                    type: integer
+                    minimum: 1
+                userId:
+                    $ref: '#/components/schemas/UserId'
+
         CreateNewRecordedOption:
             description: 新規追加する録画番組情報
             type: object
@@ -1497,6 +1970,81 @@ components:
                 subtitleText:
                     description: 準備済み字幕ファイル本文
                     type: string
+        SubtitleTransferOption:
+            description: MKV字幕移植オプション
+            type: object
+            required:
+                - sourceVideoFileId
+                - subtitleIndex
+                - title
+            properties:
+                sourceVideoFileId:
+                    type: integer
+                subtitleIndex:
+                    type: integer
+                title:
+                    type: string
+                    minLength: 1
+                    maxLength: 128
+        SubtitleRenameOption:
+            description: MKV字幕名変更オプション
+            type: object
+            required:
+                - title
+            properties:
+                title:
+                    type: string
+                    minLength: 1
+                    maxLength: 128
+        SubtitleReorderOption:
+            description: MKV字幕トラック並び替えオプション
+            type: object
+            required:
+                - subtitleIndices
+            properties:
+                subtitleIndices:
+                    description: 並び替え後の字幕トラックインデックス
+                    type: array
+                    minItems: 1
+                    uniqueItems: true
+                    items:
+                        type: integer
+                        minimum: 0
+        SubtitleTransferTask:
+            description: MKV字幕移植タスク
+            type: object
+            required:
+                - id
+                - sourceVideoFileId
+                - targetVideoFileId
+                - subtitleIndex
+                - title
+                - status
+                - createdAt
+                - updatedAt
+            properties:
+                id:
+                    type: string
+                sourceVideoFileId:
+                    type: integer
+                targetVideoFileId:
+                    type: integer
+                subtitleIndex:
+                    type: integer
+                title:
+                    type: string
+                status:
+                    type: string
+                    enum:
+                        - running
+                        - completed
+                        - failed
+                error:
+                    type: string
+                createdAt:
+                    type: integer
+                updatedAt:
+                    type: integer
 
         DropLogFile:
             description: ドロップログファイル情報
@@ -1821,6 +2369,25 @@ components:
                     items:
                         $ref: '#/components/schemas/EncodeProgramItem'
 
+        EncodeQueueOrderOption:
+            description: 待機中エンコードの実行順
+            type: object
+            required:
+                - encodeIds
+                - expectedEncodeIds
+            properties:
+                encodeIds:
+                    type: array
+                    uniqueItems: true
+                    items:
+                        $ref: '#/components/schemas/EncodeId'
+                expectedEncodeIds:
+                    description: 並べ替え開始時点の待機中エンコードID
+                    type: array
+                    uniqueItems: true
+                    items:
+                        $ref: '#/components/schemas/EncodeId'
+
         AddEncodeProgramOption:
             description: エンコード追加時のオプション
             type: object
@@ -1964,6 +2531,7 @@ components:
                 - available
                 - used
                 - total
+                - breakdown
             properties:
                 name:
                     description: ディスク名
@@ -1977,17 +2545,408 @@ components:
                 total:
                     description: 総容量 (byte)
                     type: integer
+                breakdown:
+                    $ref: '#/components/schemas/StorageBreakdown'
+
+        StorageBreakdown:
+            description: ディスク使用量の内訳
+            type: object
+            required:
+                - recorded
+                - dropLogs
+                - thumbnails
+                - other
+            properties:
+                recorded:
+                    description: EPGStation管理下の録画・エンコード済み動画容量 (byte)
+                    type: integer
+                dropLogs:
+                    description: EPGStationのドロップログ容量 (byte)
+                    type: integer
+                thumbnails:
+                    description: EPGStationのサムネイル容量 (byte)
+                    type: integer
+                other:
+                    description: 上記以外のディスク使用量 (byte)
+                    type: integer
+
+        SystemCpuInfo:
+            description: CPU情報
+            type: object
+            required:
+                - model
+                - logicalCores
+                - usagePercent
+            properties:
+                model:
+                    type: string
+                logicalCores:
+                    type: integer
+                usagePercent:
+                    type: number
+
+        SystemMemoryInfo:
+            description: メモリ使用状況
+            type: object
+            required:
+                - available
+                - used
+                - total
+                - usagePercent
+            properties:
+                available:
+                    description: 空き容量 (byte)
+                    type: integer
+                used:
+                    description: 使用量 (byte)
+                    type: integer
+                total:
+                    description: 総容量 (byte)
+                    type: integer
+                usagePercent:
+                    type: number
+
+        SystemGpuInfo:
+            description: GPU情報
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
+                usagePercent:
+                    type: number
+                memoryTotal:
+                    description: GPUメモリ総容量 (byte)
+                    type: integer
+                memoryUsed:
+                    description: GPUメモリ使用量 (byte)
+                    type: integer
+
+        SystemProcessInfo:
+            description: NeoEPGStationサーバープロセス情報
+            type: object
+            required:
+                - pid
+                - uptime
+                - memoryUsed
+            properties:
+                pid:
+                    type: integer
+                uptime:
+                    description: プロセス稼働時間 (秒)
+                    type: number
+                memoryUsed:
+                    description: RSSメモリ使用量 (byte)
+                    type: integer
+
+        SystemResourceInfo:
+            description: サーバーマシン情報
+            type: object
+            required:
+                - hostname
+                - platform
+                - arch
+                - uptime
+                - sampledAt
+                - cpu
+                - memory
+                - process
+            properties:
+                hostname:
+                    type: string
+                platform:
+                    type: string
+                arch:
+                    type: string
+                uptime:
+                    description: OS稼働時間 (秒)
+                    type: number
+                sampledAt:
+                    description: 計測日時 (Unix time ms)
+                    type: integer
+                cpu:
+                    $ref: '#/components/schemas/SystemCpuInfo'
+                memory:
+                    $ref: '#/components/schemas/SystemMemoryInfo'
+                process:
+                    $ref: '#/components/schemas/SystemProcessInfo'
+
+        SystemGpuList:
+            description: GPU情報一覧
+            type: object
+            required:
+                - items
+                - sampledAt
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/SystemGpuInfo'
+                sampledAt:
+                    description: 計測日時 (Unix time ms)
+                    type: integer
+
+        SystemStorageVolume:
+            description: PCに接続されているストレージ
+            type: object
+            required:
+                - id
+                - name
+                - path
+                - type
+                - available
+                - used
+                - total
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                path:
+                    type: string
+                type:
+                    type: string
+                    enum:
+                        - fixed
+                        - removable
+                        - network
+                        - other
+                available:
+                    description: 空き容量 (byte)
+                    type: integer
+                used:
+                    description: 使用量 (byte)
+                    type: integer
+                total:
+                    description: 総容量 (byte)
+                    type: integer
+
+        SystemStorageVolumeList:
+            description: 接続ストレージ一覧
+            type: object
+            required:
+                - items
+                - sampledAt
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/SystemStorageVolume'
+                sampledAt:
+                    description: 計測日時 (Unix time ms)
+                    type: integer
+
+        SystemLogInfo:
+            description: NeoEPGStationログ末尾
+            type: object
+            required:
+                - source
+                - category
+                - fileName
+                - exists
+                - size
+                - lines
+                - truncated
+            properties:
+                source:
+                    type: string
+                    enum:
+                        - Operator
+                        - Service
+                        - EPGUpdater
+                category:
+                    type: string
+                    enum:
+                        - system
+                        - access
+                        - stream
+                        - encode
+                fileName:
+                    type: string
+                exists:
+                    type: boolean
+                size:
+                    description: ログファイルサイズ (byte)
+                    type: integer
+                updatedAt:
+                    description: 最終更新日時 (Unix time ms)
+                    type: integer
+                lines:
+                    type: array
+                    items:
+                        type: string
+                truncated:
+                    description: 指定行数より古いログが存在するか
+                    type: boolean
+
+        SystemMirakurunChannel:
+            description: Mirakurunが選局中のチャンネル
+            type: object
+            required:
+                - type
+                - channel
+            properties:
+                type:
+                    $ref: '#/components/schemas/ChannelType'
+                channel:
+                    type: string
+                name:
+                    type: string
+
+        SystemMirakurunTunerUser:
+            description: Mirakurunチューナーの利用者
+            type: object
+            required:
+                - id
+                - priority
+                - packetCount
+                - dropCount
+            properties:
+                id:
+                    type: string
+                priority:
+                    type: integer
+                agent:
+                    type: string
+                url:
+                    type: string
+                channel:
+                    $ref: '#/components/schemas/SystemMirakurunChannel'
+                networkId:
+                    type: integer
+                serviceId:
+                    type: integer
+                eventId:
+                    type: integer
+                packetCount:
+                    type: integer
+                dropCount:
+                    type: integer
+
+        SystemMirakurunTuner:
+            description: Mirakurunチューナー状態
+            type: object
+            required:
+                - index
+                - name
+                - types
+                - pid
+                - isAvailable
+                - isRemote
+                - isFree
+                - isUsing
+                - isFault
+                - users
+            properties:
+                index:
+                    type: integer
+                name:
+                    type: string
+                types:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/ChannelType'
+                pid:
+                    type: integer
+                isAvailable:
+                    type: boolean
+                isRemote:
+                    type: boolean
+                isFree:
+                    type: boolean
+                isUsing:
+                    type: boolean
+                isFault:
+                    type: boolean
+                users:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/SystemMirakurunTunerUser'
+
+        SystemMirakurunInfo:
+            description: Mirakurun接続状態とチューナー状態
+            type: object
+            required:
+                - connected
+                - sampledAt
+                - responseTimeMs
+                - tuners
+            properties:
+                connected:
+                    type: boolean
+                sampledAt:
+                    description: 取得日時 (Unix time ms)
+                    type: integer
+                responseTimeMs:
+                    description: Mirakurun APIの応答時間 (ms)
+                    type: integer
+                version:
+                    type: string
+                error:
+                    type: string
+                epg:
+                    type: object
+                    required:
+                        - gatheringNetworks
+                        - storedEvents
+                    properties:
+                        gatheringNetworks:
+                            type: array
+                            items:
+                                type: integer
+                        storedEvents:
+                            type: integer
+                streamCount:
+                    type: object
+                    required:
+                        - tunerDevice
+                        - tsFilter
+                        - decoder
+                    properties:
+                        tunerDevice:
+                            type: integer
+                        tsFilter:
+                            type: integer
+                        decoder:
+                            type: integer
+                errorCount:
+                    type: object
+                    required:
+                        - uncaughtException
+                        - unhandledRejection
+                        - bufferOverflow
+                        - tunerDeviceRespawn
+                        - decoderRespawn
+                    properties:
+                        uncaughtException:
+                            type: integer
+                        unhandledRejection:
+                            type: integer
+                        bufferOverflow:
+                            type: integer
+                        tunerDeviceRespawn:
+                            type: integer
+                        decoderRespawn:
+                            type: integer
+                tuners:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/SystemMirakurunTuner'
 
         StorageInfo:
             description: ストレージ情報
             type: object
             required:
                 - items
+                - system
             properties:
                 items:
                     type: array
                     items:
                         $ref: '#/components/schemas/StorageItem'
+                system:
+                    $ref: '#/components/schemas/SystemResourceInfo'
 
         Error:
             type: object

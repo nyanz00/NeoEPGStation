@@ -1,5 +1,7 @@
 import * as apid from '../../../../api';
 
+export type RuleApiModelProvider = () => Promise<IRuleApiModel>;
+
 export default interface IRuleApiModel {
     add(rule: apid.AddRuleOption): Promise<apid.RuleId>;
     get(ruleId: apid.RuleId): Promise<apid.Rule | null>;

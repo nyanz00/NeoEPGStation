@@ -1,8 +1,12 @@
 import * as path from 'path';
 import * as events from 'events';
+import { createHash } from 'crypto';
+import * as os from 'os';
 import { inject, injectable } from 'inversify';
 import { cloneDeep } from 'lodash';
 import * as apid from '../../../../api';
+import EncodeTask from '../../../db/entities/EncodeTask';
+import IDBOperator from '../../db/IDBOperator';
 import IEncodeEvent from '../../event/IEncodeEvent';
 import IConfiguration from '../../IConfiguration';
 import IExecutionManagementModel from '../../IExecutionManagementModel';
@@ -22,6 +26,10 @@ class EncodeManageModel implements IEncodeManageModel {
     private waitQueue: IEncoderModel[] = [];
     private runningQueue: IEncoderModel[] = [];
     private idCnt: number = 1;
+    private readonly ownerFingerprint = createHash('sha256')
+        .update(`${os.hostname()}\0${path.resolve(process.cwd())}`)
+        .digest('hex');
+    private readonly restorePromise: Promise<void>;
 
     private listener: events.EventEmitter = new events.EventEmitter();
 
@@ -31,6 +39,7 @@ class EncodeManageModel implements IEncodeManageModel {
         @inject('IExecutionManagementModel') executeManagementModel: IExecutionManagementModel,
         @inject('EncoderModelProvider') encoderModelProvider: EncoderModelProvider,
         @inject('IEncodeEvent') encodeEvent: IEncodeEvent,
+        @inject('IDBOperator') private dbOperator: IDBOperator,
     ) {
         this.log = logger.getLogger();
         this.configure = configure;
@@ -40,6 +49,7 @@ class EncodeManageModel implements IEncodeManageModel {
         this.encodeEvent = encodeEvent;
 
         this.listener.on(EncodeManageModel.NEEDS_CHECK_QUEUE_EVENT, this.checkQueue.bind(this));
+        this.restorePromise = this.restorePersistedQueue();
     }
 
     /**
@@ -48,6 +58,7 @@ class EncodeManageModel implements IEncodeManageModel {
      * @return apid.EncodeId
      */
     public async push(addOption: apid.AddEncodeProgramOption): Promise<apid.EncodeId> {
+        await this.restorePromise;
         if (this.concurrentEncodeNum <= 0) {
             throw new Error('CncurrentEncodeNumIsZero');
         }
@@ -63,6 +74,7 @@ class EncodeManageModel implements IEncodeManageModel {
         try {
             // queue に積む
             this.waitQueue.push(encoder);
+            await this.saveTask(option, 'waiting', this.waitQueue.length - 1, 0);
             this.log.encode.info(`add new encode: ${option.encodeId}`);
         } finally {
             // 追加処理で例外が発生しても、以降の queue 操作を止めない
@@ -112,69 +124,45 @@ class EncodeManageModel implements IEncodeManageModel {
      * @return Promise<void>
      */
     private async checkQueue(): Promise<void> {
+        await this.restorePromise;
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(
             EncodeManageModel.CREATE_ENCODING_PROCESS_PRIPORITY,
         );
-
-        // runningQueue がロック中 or 同時エンコード最大数に達している or waitQueue が空の場合はスルー
-        if (this.runningQueue.length >= this.concurrentEncodeNum || this.waitQueue.length === 0) {
-            // 実行権開放
-            this.executeManagementModel.unLockExecution(exeId);
-
-            return;
-        }
-
-        // waitQueue から取り出す
-        const encoder = this.waitQueue.shift();
-        if (typeof encoder === 'undefined') {
-            // 実行権開放
-            this.executeManagementModel.unLockExecution(exeId);
-
-            return;
-        }
-
-        // encodeOption が無い場合は何もしない
-        const encodeOption = encoder.getEncodeOption();
-        if (encodeOption === null) {
-            // 実行権開放
-            this.executeManagementModel.unLockExecution(exeId);
-            this.log.encode.warn('encodeOption is null'); // encoder 生成時にセットされているはずなので警告を出す
-
-            return;
-        }
-
-        // runningQueue に積む
-        this.runningQueue.push(encoder);
-
-        // エンコード終了時の処理をセット
-        encoder.setOnFinish((isError, outputFilePath, isCanceled) => {
-            this.onFinish(isError, outputFilePath, encodeOption, isCanceled);
-        });
-
-        // エンコードプロセス開始
-        let needsFinalize = false;
         try {
-            await encoder.start();
-        } catch (err: any) {
-            this.log.encode.error(`create encode process error: ${encoder.getEncodeId()}`);
-            this.log.encode.error(err);
+            if (this.runningQueue.length >= this.concurrentEncodeNum || this.waitQueue.length === 0) return;
 
-            needsFinalize = true;
+            const encoder = this.waitQueue.shift();
+            if (typeof encoder === 'undefined') return;
 
-            // エラー通知
-            this.encodeEvent.emitErrorEncode({
-                recordedId: encodeOption.recordedId,
-                videoFileId: encodeOption.sourceVideoFileId,
-                mode: encodeOption.mode,
+            const encodeOption = encoder.getEncodeOption();
+            if (encodeOption === null) {
+                this.log.encode.warn('encodeOption is null');
+                return;
+            }
+
+            this.runningQueue.push(encoder);
+            await this.saveTask(encodeOption, 'running', this.runningQueue.length - 1, Date.now());
+            encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
+                this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
             });
-        }
 
-        // 実行権開放
-        this.executeManagementModel.unLockExecution(exeId);
-
-        if (needsFinalize === true) {
-            this.finalize(encodeOption.encodeId);
+            try {
+                await encoder.start();
+                await this.saveOutputFilePath(encodeOption.encodeId, encoder.getOutputFilePath());
+            } catch (err: any) {
+                this.log.encode.error(`create encode process error: ${encoder.getEncodeId()}`);
+                this.log.encode.error(err);
+                this.encodeEvent.emitErrorEncode({
+                    recordedId: encodeOption.recordedId,
+                    videoFileId: encodeOption.sourceVideoFileId,
+                    mode: encodeOption.mode,
+                    encoderMessage: err instanceof Error ? err.message : String(err),
+                });
+                process.nextTick(() => void this.finalize(encodeOption.encodeId));
+            }
+        } finally {
+            this.executeManagementModel.unLockExecution(exeId);
         }
     }
 
@@ -189,6 +177,7 @@ class EncodeManageModel implements IEncodeManageModel {
         outputFilePath: string | null,
         encodeOption: EncodeOption,
         isCanceled: boolean,
+        encoderMessage?: string,
     ): void {
         if (isError) {
             // エラー通知
@@ -197,6 +186,7 @@ class EncodeManageModel implements IEncodeManageModel {
                     recordedId: encodeOption.recordedId,
                     videoFileId: encodeOption.sourceVideoFileId,
                     mode: encodeOption.mode,
+                    encoderMessage,
                 });
             }
         } else {
@@ -287,14 +277,15 @@ class EncodeManageModel implements IEncodeManageModel {
     private async finalize(encodeId: apid.EncodeId): Promise<void> {
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.CLEAR_QUEUE_PRIPORITY);
-
-        // runningQueue から encodeId の要素を削除する
-        this.runningQueue = this.runningQueue.filter(q => {
-            return q.getEncodeId() !== encodeId;
-        });
-
-        // 実行権開放
-        this.executeManagementModel.unLockExecution(exeId);
+        try {
+            // runningQueue から encodeId の要素を削除する
+            this.runningQueue = this.runningQueue.filter(q => {
+                return q.getEncodeId() !== encodeId;
+            });
+            await this.deleteTask(encodeId);
+        } finally {
+            this.executeManagementModel.unLockExecution(exeId);
+        }
 
         process.nextTick(() => {
             this.emitNeedsCheckQueue();
@@ -306,30 +297,73 @@ class EncodeManageModel implements IEncodeManageModel {
      * @param encodeId: apid.EncodeId
      */
     public async cancel(encodeId: apid.EncodeId): Promise<void> {
+        await this.restorePromise;
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.CANCEL_ENCODE_PRIPORITY);
+        try {
+            this.log.encode.info(`cancel encode: ${encodeId}`);
 
-        this.log.encode.info(`cancel encode: ${encodeId}`);
+            // runningQueue にあるので プロセスを殺す
+            const runningQueueItem = this.getRunnginQueueItem(encodeId);
+            if (typeof runningQueueItem !== 'undefined') {
+                await runningQueueItem.cancel();
+            } else {
+                // waitQueue から削除
+                this.waitQueue = this.waitQueue.filter(q => {
+                    return q.getEncodeId() !== encodeId;
+                });
 
-        // runningQueue にあるので プロセスを殺す
-        const runningQueueItem = this.getRunnginQueueItem(encodeId);
-        if (typeof runningQueueItem !== 'undefined') {
-            await runningQueueItem.cancel();
-        } else {
-            // waitQueue から削除
-            this.waitQueue = this.waitQueue.filter(q => {
-                return q.getEncodeId() !== encodeId;
-            });
-
-            process.nextTick(() => {
-                this.emitNeedsCheckQueue();
-            });
+                process.nextTick(() => {
+                    this.emitNeedsCheckQueue();
+                });
+            }
+            await this.deleteTask(encodeId);
+        } finally {
+            this.executeManagementModel.unLockExecution(exeId);
         }
-
-        this.executeManagementModel.unLockExecution(exeId);
 
         // イベント発行
         this.encodeEvent.emitCancelEncode(encodeId);
+    }
+
+    /**
+     * 待機中エンコードの実行順を変更する
+     * @param encodeIds 先頭から順に並べた待機中エンコードID
+     */
+    public async reorderWaitQueue(encodeIds: apid.EncodeId[], expectedEncodeIds: apid.EncodeId[]): Promise<void> {
+        await this.restorePromise;
+        const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.REORDER_ENCODE_PRIORITY);
+
+        try {
+            const queueById = new Map<apid.EncodeId, IEncoderModel>();
+            const currentIds: apid.EncodeId[] = [];
+            for (const item of this.waitQueue) {
+                const encodeId = item.getEncodeId();
+                if (encodeId !== null) {
+                    queueById.set(encodeId, item);
+                    currentIds.push(encodeId);
+                }
+            }
+
+            const uniqueIds = new Set(encodeIds);
+            if (
+                currentIds.length !== expectedEncodeIds.length ||
+                currentIds.some((encodeId, index) => encodeId !== expectedEncodeIds[index]) ||
+                uniqueIds.size !== encodeIds.length ||
+                encodeIds.length !== this.waitQueue.length ||
+                encodeIds.some(encodeId => !queueById.has(encodeId))
+            ) {
+                throw new Error('EncodeQueueChangedError');
+            }
+
+            this.waitQueue = encodeIds.map(encodeId => queueById.get(encodeId) as IEncoderModel);
+            await this.saveWaitQueuePositions();
+            this.log.encode.info(`reorder encode queue: ${encodeIds.join(',')}`);
+        } finally {
+            this.executeManagementModel.unLockExecution(exeId);
+        }
+
+        this.encodeEvent.emitUpdateEncodeProgress();
     }
 
     /**
@@ -388,6 +422,7 @@ class EncodeManageModel implements IEncodeManageModel {
      * @return Promise<void>
      */
     public async cancelEncodeByRecordedId(recordedId: apid.RecordedId): Promise<void> {
+        await this.restorePromise;
         const encodeIds: apid.EncodeId[] = [];
 
         // recordedId に該当する encodedId を取り出す
@@ -479,6 +514,121 @@ class EncodeManageModel implements IEncodeManageModel {
 
         return queueInfo;
     }
+
+    private async restorePersistedQueue(): Promise<void> {
+        try {
+            const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+            const tasks = await repository.find({ order: { position: 'ASC', encodeId: 'ASC' } });
+            let maxEncodeId = 0;
+
+            for (const task of tasks) {
+                maxEncodeId = Math.max(maxEncodeId, task.encodeId);
+                if (task.ownerFingerprint !== this.ownerFingerprint) {
+                    if (task.status !== 'paused') {
+                        task.status = 'paused';
+                        task.updatedAt = Date.now();
+                        await repository.save(task);
+                    }
+                    this.log.encode.warn(
+                        `encode task ${task.encodeId} belongs to another server or install path; automatic restore skipped`,
+                    );
+                    continue;
+                }
+                if (task.status !== 'waiting' && task.status !== 'running') continue;
+
+                let option: EncodeOption;
+                try {
+                    option = JSON.parse(task.optionJson) as EncodeOption;
+                } catch (err: any) {
+                    task.status = 'needs_attention';
+                    task.updatedAt = Date.now();
+                    await repository.save(task);
+                    this.log.encode.error(`persisted encode task is invalid: ${task.encodeId}`);
+                    this.log.encode.error(err);
+                    continue;
+                }
+
+                const encodeConfig = this.configure.getConfig().encode.find(item => item.name === option.mode);
+                if (typeof encodeConfig === 'undefined') {
+                    task.status = 'needs_attention';
+                    task.updatedAt = Date.now();
+                    await repository.save(task);
+                    this.log.encode.warn(`encode mode is missing for persisted task: ${task.encodeId} ${option.mode}`);
+                    continue;
+                }
+
+                if (task.status === 'running' && encodeConfig.type === 'amatsukaze') {
+                    option.resumeExistingAmatsukaze = true;
+                    option.recoveryStartedAt = Number(task.startedAt) || Number(task.updatedAt);
+                    if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
+                    this.log.encode.info(`resume Amatsukaze task monitoring: ${task.encodeId}`);
+                } else if (task.status === 'running') {
+                    if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
+                    this.log.encode.warn(`restart interrupted internal encode from beginning: ${task.encodeId}`);
+                } else {
+                    this.log.encode.info(`restore waiting encode: ${task.encodeId}`);
+                }
+
+                const encoder = await this.encoderModelProvider();
+                encoder.setOption(option);
+                this.waitQueue.push(encoder);
+            }
+
+            this.idCnt = Math.max(this.idCnt, maxEncodeId + 1);
+            await this.saveWaitQueuePositions();
+            if (this.waitQueue.length > 0) {
+                process.nextTick(() => this.emitNeedsCheckQueue());
+            }
+        } catch (err: any) {
+            this.log.encode.error('restore persisted encode queue failed');
+            this.log.encode.error(err);
+            throw err;
+        }
+    }
+
+    private async saveTask(
+        option: EncodeOption,
+        status: 'waiting' | 'running',
+        position: number,
+        startedAt: number,
+    ): Promise<void> {
+        const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+        const current = await repository.findOne({ where: { encodeId: option.encodeId } });
+        const now = Date.now();
+        await repository.save({
+            encodeId: option.encodeId,
+            optionJson: JSON.stringify(option),
+            status,
+            position,
+            ownerFingerprint: this.ownerFingerprint,
+            startedAt:
+                status === 'running'
+                    ? (option.recoveryStartedAt ?? (startedAt > 0 ? startedAt : now))
+                    : current === null
+                      ? 0
+                      : Number(current.startedAt),
+            outputFilePath: current?.outputFilePath ?? null,
+            createdAt: current === null ? now : Number(current.createdAt),
+            updatedAt: now,
+        });
+    }
+
+    private async deleteTask(encodeId: apid.EncodeId): Promise<void> {
+        const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+        await repository.delete({ encodeId });
+    }
+
+    private async saveOutputFilePath(encodeId: apid.EncodeId, outputFilePath: string | null): Promise<void> {
+        const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+        await repository.update({ encodeId }, { outputFilePath, updatedAt: Date.now() });
+    }
+
+    private async saveWaitQueuePositions(): Promise<void> {
+        for (let position = 0; position < this.waitQueue.length; position++) {
+            const option = this.waitQueue[position].getEncodeOption();
+            if (option !== null) await this.saveTask(option, 'waiting', position, 0);
+        }
+    }
 }
 
 namespace EncodeManageModel {
@@ -487,6 +637,7 @@ namespace EncodeManageModel {
     export const CANCEL_ENCODE_PRIPORITY = 1;
     export const ADD_ENCODE_PRIPORITY = 2;
     export const CREATE_ENCODING_PROCESS_PRIPORITY = 2;
+    export const REORDER_ENCODE_PRIORITY = 3;
     export const CLEAR_QUEUE_PRIPORITY = 3;
     export const NEEDS_CHECK_QUEUE_EVENT = 'needsCheckQueue';
     export const ENCODE_PRIPORITY = 10;

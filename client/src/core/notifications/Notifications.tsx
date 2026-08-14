@@ -16,7 +16,7 @@ export function NotificationProvider({ children }: { children: ReactNode }): Rea
     return (
         <NotificationContext.Provider value={value}>
             {children}
-            <Snackbar open={state !== null} autoHideDuration={4_000} onClose={() => setState(null)}>
+            <Snackbar open={state !== null} autoHideDuration={3_000} onClose={() => setState(null)}>
                 <Alert severity={state?.severity ?? 'info'} onClose={() => setState(null)} variant="filled">
                     {state?.message}
                 </Alert>

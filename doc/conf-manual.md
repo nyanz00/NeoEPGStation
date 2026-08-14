@@ -815,6 +815,7 @@ recordingFailedCommand: '/usr/bin/logger recfailed'
 | VIDEOFILEID            | number \| null | video file id                          |
 | OUTPUTPATH             | string \| null | エンコードしたビデオファイルのフルパス |
 | MODE                   | string         | エンコードモード名                     |
+| ENCODER_MESSAGE        | string         | エンコーダーの最終メッセージ（失敗時） |
 | CHANNELID              | number         | channel id                             |
 | CHANNELNAME            | string \| null | 放送局名                               |
 | HALF_WIDTH_CHANNELNAME | string \| null | 放送局名(半角)                         |

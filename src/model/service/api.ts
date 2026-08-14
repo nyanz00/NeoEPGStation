@@ -37,7 +37,6 @@ export const responseServerError = (res: express.Response, err?: string): expres
     return res;
 };
 
-// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export const responseJSON = (res: express.Response, code: number, body?: any): express.Response => {
     res.status(code);
     // non-cache
@@ -73,7 +72,7 @@ export const responseFile = (
         throw new Error('file path is derectory');
     }
 
-    const responseHeaders: any = {};
+    const responseHeaders: Record<string, string | number> = {};
     if (download) {
         responseHeaders['Content-Type'] = 'application/octet-stream';
         responseHeaders['Content-disposition'] = `attachment; filename*=utf-8'ja'${encodeURIComponent(
@@ -92,61 +91,78 @@ export const responseFile = (
 
         return;
     }
-
-    const start: number = rangeRequest.Start;
-    const end: number = rangeRequest.End;
-
-    if (start >= stat.size || end >= stat.size) {
-        responseHeaders['Content-Range'] = 'bytes */' + stat.size;
+    if (rangeRequest === false) {
+        responseHeaders['Content-Range'] = `bytes */${stat.size.toString(10)}`;
+        responseHeaders['Content-Length'] = 0;
+        responseHeaders['Accept-Ranges'] = 'bytes';
         sendResponse(416, req, res, responseHeaders, null);
 
         return;
     }
 
+    const start: number = rangeRequest.start;
+    const end: number = rangeRequest.end;
+
     responseHeaders['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
-    responseHeaders['Content-Length'] = start === end ? 0 : end - start + 1;
+    responseHeaders['Content-Length'] = end - start + 1;
     responseHeaders['Accept-Ranges'] = 'bytes';
 
     const option = { start: start, end: end };
-    const stream = fs.createReadStream(filePath, option);
+    const stream = req.method === 'HEAD' ? null : fs.createReadStream(filePath, option);
     sendResponse(206, req, res, responseHeaders, stream);
 };
 
 const readRangeHeader = (
     range: string | string[] | undefined | null,
     totalLength: number,
-): { Start: number; End: number } | null => {
+): { start: number; end: number } | null | false => {
     if (typeof range !== 'string' || range === null || range.length === 0) {
         return null;
     }
+    if (totalLength <= 0) {
+        return false;
+    }
 
-    const array = range.split(/bytes=([0-9]*)-([0-9]*)/);
-    const start = parseInt(array[1], 10);
-    const end = parseInt(array[2], 10);
-    const result = {
-        Start: isNaN(start) ? 0 : start,
-        End: isNaN(end) ? totalLength - 1 : end,
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+    if (match === null || (match[1].length === 0 && match[2].length === 0)) {
+        return false;
+    }
+
+    if (match[1].length === 0) {
+        const suffixLength = Number(match[2]);
+        if (Number.isSafeInteger(suffixLength) === false || suffixLength <= 0) {
+            return false;
+        }
+
+        return {
+            start: Math.max(totalLength - suffixLength, 0),
+            end: totalLength - 1,
+        };
+    }
+
+    const start = Number(match[1]);
+    const requestedEnd = match[2].length === 0 ? totalLength - 1 : Number(match[2]);
+    if (
+        Number.isSafeInteger(start) === false ||
+        Number.isSafeInteger(requestedEnd) === false ||
+        start < 0 ||
+        start >= totalLength ||
+        requestedEnd < start
+    ) {
+        return false;
+    }
+
+    return {
+        start,
+        end: Math.min(requestedEnd, totalLength - 1),
     };
-
-    if (!isNaN(start) && isNaN(end)) {
-        result.Start = start;
-        result.End = totalLength - 1;
-    }
-
-    if (isNaN(start) && !isNaN(end)) {
-        result.Start = totalLength - end;
-        result.End = totalLength - 1;
-    }
-
-    return result;
 };
 
 const sendResponse = (
     code: number,
     req: express.Request,
     res: express.Response,
-    // eslint-disable-next-line @typescript-eslint/ban-types
-    responseHeaders: {},
+    responseHeaders: Record<string, string | number>,
     readable: fs.ReadStream | null,
 ): void => {
     res.status(code);

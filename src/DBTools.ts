@@ -1,16 +1,25 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import minimist from 'minimist';
 import 'reflect-metadata';
 import { install } from 'source-map-support';
+import AnnictRuleLink from './db/entities/AnnictRuleLink';
+import AnnictEpisodeWatch from './db/entities/AnnictEpisodeWatch';
+import AnnictRecordedEpisode from './db/entities/AnnictRecordedEpisode';
 import DropLogFile from './db/entities/DropLogFile';
 import Recorded from './db/entities/Recorded';
 import RecordedHistory from './db/entities/RecordedHistory';
+import RecordedPlayback from './db/entities/RecordedPlayback';
 import RecordedTag from './db/entities/RecordedTag';
 import Reserve from './db/entities/Reserve';
 import Thumbnail from './db/entities/Thumbnail';
 import TvUser from './db/entities/TvUser';
 import VideoFile from './db/entities/VideoFile';
+import ViewerCredential from './db/entities/ViewerCredential';
+import ViewerProfile from './db/entities/ViewerProfile';
+import ViewerProfileSession from './db/entities/ViewerProfileSession';
 import IDBOperator from './model/db/IDBOperator';
+import IAnnictRuleLinkDB from './model/db/IAnnictRuleLinkDB';
 import IDropLogFileDB from './model/db/IDropLogFileDB';
 import IRecordedDB from './model/db/IRecordedDB';
 import IRecordedHistoryDB from './model/db/IRecordedHistoryDB';
@@ -31,6 +40,14 @@ containerSetter.set(container);
 
 interface BackupData {
     tvUserItems?: TvUser[];
+    annictRuleLinkItems?: AnnictRuleLink[];
+    viewerProfileItems?: ViewerProfile[];
+    annictCredentialItems?: ViewerCredential[];
+    annictRecordedEpisodeItems?: AnnictRecordedEpisode[];
+    annictEpisodeWatchItems?: AnnictEpisodeWatch[];
+    recordedPlaybackItems?: RecordedPlayback[];
+    annictSettings?: unknown;
+    discordNotificationSettings?: unknown;
     ruleItems: RuleWithCnt[];
     reserveItems: Reserve[];
     recordedItems: Recorded[];
@@ -42,11 +59,13 @@ interface BackupData {
 }
 
 class DBTools {
+    private readonly dataRoot = path.join(__dirname, '..', 'data');
     private filePath: string;
     private mode: 'backup' | 'restore';
     private backupType: 'full' | 'legacy';
 
     private log: ILogger;
+    private annictRuleLinkDB: IAnnictRuleLinkDB;
     private connectionChecker: IConnectionCheckModel;
     private dbOperator: IDBOperator;
     private dropLogFileDB: IDropLogFileDB;
@@ -104,6 +123,7 @@ class DBTools {
         const logger = container.get<ILoggerModel>('ILoggerModel');
         logger.initialize();
         this.log = logger.getLogger();
+        this.annictRuleLinkDB = container.get<IAnnictRuleLinkDB>('IAnnictRuleLinkDB');
         this.connectionChecker = container.get<IConnectionCheckModel>('IConnectionCheckModel');
         this.dbOperator = container.get<IDBOperator>('IDBOperator');
         this.dropLogFileDB = container.get<IDropLogFileDB>('IDropLogFileDB');
@@ -148,8 +168,19 @@ class DBTools {
         this.log.system.info('rule');
         const [ruleItems] = await this.ruleDB.findAll({}, true);
 
+        this.log.system.info('annict rule link');
+        const annictRuleLinkItems = await this.annictRuleLinkDB.findAll();
+
         this.log.system.info('tv user');
         const tvUserItems = await this.tvUserDB.findAll();
+
+        const connection = await this.dbOperator.getConnection();
+        this.log.system.info('viewer profile');
+        const viewerProfileItems = await connection.getRepository(ViewerProfile).find();
+        this.log.system.info('annict credential');
+        const annictCredentialItems = await connection.getRepository(ViewerCredential).find({
+            where: { provider: 'annict' },
+        });
 
         this.log.system.info('reserve');
         const [reserveItems] = await this.reserveDB.findAll({ isHalfWidth: false });
@@ -189,8 +220,25 @@ class DBTools {
         this.log.system.info('recorded tag');
         const [recordedTagItems] = await this.recordedTagDB.findAll({});
 
+        this.log.system.info('annict recorded episode');
+        const annictRecordedEpisodeItems = await connection.getRepository(AnnictRecordedEpisode).find();
+        this.log.system.info('annict episode watch');
+        const annictEpisodeWatchItems = await connection.getRepository(AnnictEpisodeWatch).find();
+        this.log.system.info('recorded playback');
+        const recordedPlaybackItems = await connection.getRepository(RecordedPlayback).find();
+
         const backup: BackupData = {
             tvUserItems: tvUserItems,
+            annictRuleLinkItems: annictRuleLinkItems,
+            viewerProfileItems,
+            annictCredentialItems,
+            annictRecordedEpisodeItems,
+            annictEpisodeWatchItems,
+            recordedPlaybackItems,
+            annictSettings: this.readOptionalJson(path.join(this.dataRoot, 'annict', 'settings.json')),
+            discordNotificationSettings: this.readOptionalJson(
+                path.join(this.dataRoot, 'viewer-profiles', 'discord-notification.json'),
+            ),
             ruleItems: ruleItems as RuleWithCnt[],
             reserveItems: reserveItems,
             recordedItems: recordedItems,
@@ -247,12 +295,35 @@ class DBTools {
         } else {
             await this.tvUserDB.ensureDefaultUser();
         }
+        const connection = await this.dbOperator.getConnection();
+        await connection.getRepository(AnnictEpisodeWatch).delete({});
+        await connection.getRepository(AnnictRuleLink).delete({});
+        await connection.getRepository(ViewerCredential).delete({});
+        await connection.getRepository(ViewerProfileSession).delete({});
+        await connection.getRepository(AnnictRecordedEpisode).delete({});
+        await connection.getRepository(RecordedPlayback).delete({});
+        await connection.getRepository(ViewerProfile).delete({});
+
+        this.log.system.info('viewer profile');
+        if (Array.isArray(backup.viewerProfileItems) && backup.viewerProfileItems.length > 0) {
+            await connection.getRepository(ViewerProfile).save(backup.viewerProfileItems, { chunk: 100 });
+        }
+        this.log.system.info('annict credential');
+        if (Array.isArray(backup.annictCredentialItems) && backup.annictCredentialItems.length > 0) {
+            await connection.getRepository(ViewerCredential).save(backup.annictCredentialItems, { chunk: 100 });
+        }
         this.normalizeUserId(backup.ruleItems);
         this.normalizeUserId(backup.reserveItems);
         this.normalizeUserId(backup.recordedItems);
 
         this.log.system.info('rule');
         await this.ruleDB.restore(backup.ruleItems);
+
+        this.log.system.info('annict rule link');
+        await this.annictRuleLinkDB.restore(
+            Array.isArray(backup.annictRuleLinkItems) ? backup.annictRuleLinkItems : [],
+            backup.ruleItems.map(rule => rule.id),
+        );
 
         this.log.system.info('reserve');
         await this.reserveDB.restore(backup.reserveItems);
@@ -277,11 +348,41 @@ class DBTools {
 
         this.log.system.info('recorded tag');
         await this.recordedTagDB.restore(backup.recordedTagItems);
+
+        this.log.system.info('annict recorded episode');
+        if (Array.isArray(backup.annictRecordedEpisodeItems) && backup.annictRecordedEpisodeItems.length > 0) {
+            await connection
+                .getRepository(AnnictRecordedEpisode)
+                .save(backup.annictRecordedEpisodeItems, { chunk: 100 });
+        }
+        this.log.system.info('annict episode watch');
+        if (Array.isArray(backup.annictEpisodeWatchItems) && backup.annictEpisodeWatchItems.length > 0) {
+            await connection.getRepository(AnnictEpisodeWatch).save(backup.annictEpisodeWatchItems, { chunk: 100 });
+        }
+        this.log.system.info('recorded playback');
+        if (Array.isArray(backup.recordedPlaybackItems) && backup.recordedPlaybackItems.length > 0) {
+            await connection.getRepository(RecordedPlayback).save(backup.recordedPlaybackItems, { chunk: 100 });
+        }
+
+        this.writeOptionalJson(path.join(this.dataRoot, 'annict', 'settings.json'), backup.annictSettings);
+        fs.rmSync(path.join(this.dataRoot, 'annict', 'write-token.json'), { force: true });
+        this.writeOptionalJson(
+            path.join(this.dataRoot, 'viewer-profiles', 'discord-notification.json'),
+            backup.discordNotificationSettings,
+        );
     }
 
     private createLegacyBackup(backup: BackupData): BackupData {
         const legacyBackup = JSON.parse(JSON.stringify(backup)) as BackupData;
         delete legacyBackup.tvUserItems;
+        delete legacyBackup.annictRuleLinkItems;
+        delete legacyBackup.viewerProfileItems;
+        delete legacyBackup.annictCredentialItems;
+        delete legacyBackup.annictRecordedEpisodeItems;
+        delete legacyBackup.annictEpisodeWatchItems;
+        delete legacyBackup.recordedPlaybackItems;
+        delete legacyBackup.annictSettings;
+        delete legacyBackup.discordNotificationSettings;
 
         this.deleteProperties(legacyBackup.ruleItems, [
             'userId',
@@ -314,6 +415,23 @@ class DBTools {
                 delete item[name];
             }
         }
+    }
+
+    private readOptionalJson(filePath: string): unknown {
+        try {
+            return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        } catch (err: any) {
+            if (err?.code === 'ENOENT') return undefined;
+            throw err;
+        }
+    }
+
+    private writeOptionalJson(filePath: string, value: unknown): void {
+        if (typeof value === 'undefined') return;
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        const temporaryPath = `${filePath}.restore-${process.pid.toString(10)}`;
+        fs.writeFileSync(temporaryPath, JSON.stringify(value), { encoding: 'utf8', mode: 0o600 });
+        fs.renameSync(temporaryPath, filePath);
     }
 }
 

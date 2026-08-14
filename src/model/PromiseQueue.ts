@@ -10,15 +10,15 @@ export default class PromiseQueue {
      * @return Promise<T>
      */
     public add<T>(job: () => Promise<T>): Promise<T> {
-        return new Promise<T>((resolve: (result: T) => void, reject: (error: Error) => void) => {
-            this.queue = this.queue
-                .then(job)
-                .then((result: T) => {
-                    resolve(result);
-                })
-                .catch(err => {
-                    reject(err);
-                });
-        });
+        const result = this.queue.then(job);
+
+        // A failed job must not leave the shared queue rejected. Callers still
+        // receive the original rejection, while later jobs can continue.
+        this.queue = result.then(
+            () => undefined,
+            () => undefined,
+        );
+
+        return result;
     }
 }

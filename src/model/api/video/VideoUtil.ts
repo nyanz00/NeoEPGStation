@@ -6,10 +6,11 @@ import * as os from 'os';
 import * as path from 'path';
 import * as apid from '../../../../api';
 import VideoFile from '../../../db/entities/VideoFile';
+import { analyzeMpegTsTime } from '../../../util/MpegTsTimeUtil';
 import IVideoFileDB from '../../db/IVideoFileDB';
 import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
-import IVideoUtil, { PreparedSubtitleInfo, VideoInfo, VideoSubtitleInfo } from './IVideoUtil';
+import IVideoUtil, { PreparedSubtitleInfo, VideoInfo, VideoRecordingTimeInfo, VideoSubtitleInfo } from './IVideoUtil';
 
 interface PreparedSubtitleEntry {
     filePath: string;
@@ -24,6 +25,8 @@ export default class VideoUtil implements IVideoUtil {
     private config: IConfigFile;
     private videoFileDB: IVideoFileDB;
     private preparedSubtitles: Map<string, PreparedSubtitleEntry> = new Map();
+    private preparedSubtitleKeysBySource: Map<string, string> = new Map();
+    private preparingSubtitlesBySource: Map<string, Promise<PreparedSubtitleInfo>> = new Map();
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
@@ -67,25 +70,71 @@ export default class VideoUtil implements IVideoUtil {
 
     public getInfo(filePath: string): Promise<VideoInfo> {
         return new Promise<VideoInfo>((resolve, reject) => {
-            execFile(this.config.ffprobe, ['-v', '0', '-show_format', '-of', 'json', filePath], (err, stdout) => {
-                if (err) {
-                    reject(err);
+            execFile(
+                this.config.ffprobe,
+                [
+                    '-v',
+                    '0',
+                    '-select_streams',
+                    'v:0',
+                    '-show_entries',
+                    'format=duration,size,bit_rate:stream=codec_name,pix_fmt',
+                    '-of',
+                    'json',
+                    filePath,
+                ],
+                (err, stdout) => {
+                    if (err) {
+                        reject(err);
 
-                    return;
-                }
+                        return;
+                    }
 
-                try {
-                    const result = <any>JSON.parse(stdout);
-                    resolve({
-                        duration: parseFloat(result.format.duration),
-                        size: parseInt(result.format.size, 10),
-                        bitRate: parseFloat(result.format.bit_rate),
-                    });
-                } catch (err: any) {
-                    reject(err);
-                }
-            });
+                    try {
+                        const result = <any>JSON.parse(stdout);
+                        const videoStream = Array.isArray(result.streams) ? result.streams[0] : undefined;
+                        resolve({
+                            duration: parseFloat(result.format.duration),
+                            size: parseInt(result.format.size, 10),
+                            bitRate: parseFloat(result.format.bit_rate),
+                            videoCodecName:
+                                typeof videoStream?.codec_name === 'string' ? videoStream.codec_name : undefined,
+                            videoPixelFormat:
+                                typeof videoStream?.pix_fmt === 'string' ? videoStream.pix_fmt : undefined,
+                        });
+                    } catch (err: any) {
+                        reject(err);
+                    }
+                },
+            );
         });
+    }
+
+    public async getMpegTsRecordingTime(filePath: string): Promise<VideoRecordingTimeInfo | null> {
+        const timeInfo = await analyzeMpegTsTime(filePath);
+        if (timeInfo === null) {
+            return null;
+        }
+
+        let duration = timeInfo.pcrDuration;
+        try {
+            const videoInfo = await this.getInfo(filePath);
+            if (Number.isFinite(videoInfo.duration) === true && videoInfo.duration > 0) {
+                // KonomiTVと同様、通常はffprobeの動画長を使用し、取得できないTSではPCR差分へフォールバックする。
+                duration = videoInfo.duration;
+            }
+        } catch {
+            // ffprobeが録画中ファイルを解析できない場合も、TS内PCRから算出した長さは利用できる。
+        }
+        if (duration === null || Number.isFinite(duration) === false || duration <= 0) {
+            return null;
+        }
+
+        return {
+            startAt: timeInfo.startAt,
+            endAt: timeInfo.startAt + duration * 1000,
+            duration,
+        };
     }
 
     public getMpegTsServiceId(filePath: string): Promise<number | null> {
@@ -177,6 +226,41 @@ export default class VideoUtil implements IVideoUtil {
 
         await fs.promises.mkdir(VideoUtil.PREPARED_SUBTITLE_ROOT, { recursive: true });
 
+        const sourceStat = await fs.promises.stat(filePath);
+        const sourceKey = [
+            path.resolve(filePath),
+            sourceStat.size.toString(10),
+            sourceStat.mtimeMs.toString(10),
+            subtitleIndex.toString(10),
+        ].join('|');
+        const cachedKey = this.preparedSubtitleKeysBySource.get(sourceKey);
+        if (typeof cachedKey !== 'undefined') {
+            const cachedPath = this.getPreparedSubtitlePath(cachedKey);
+            if (typeof cachedPath !== 'undefined') {
+                return { key: cachedKey, filePath: cachedPath };
+            }
+            this.preparedSubtitleKeysBySource.delete(sourceKey);
+        }
+
+        const preparing = this.preparingSubtitlesBySource.get(sourceKey);
+        if (typeof preparing !== 'undefined') return preparing;
+
+        const promise = this.createPreparedSubtitle(filePath, subtitleIndex, sourceKey);
+        this.preparingSubtitlesBySource.set(sourceKey, promise);
+        try {
+            return await promise;
+        } finally {
+            if (this.preparingSubtitlesBySource.get(sourceKey) === promise) {
+                this.preparingSubtitlesBySource.delete(sourceKey);
+            }
+        }
+    }
+
+    private async createPreparedSubtitle(
+        filePath: string,
+        subtitleIndex: number,
+        sourceKey: string,
+    ): Promise<PreparedSubtitleInfo> {
         const key = crypto.randomBytes(16).toString('hex');
         const outputPath = path.join(VideoUtil.PREPARED_SUBTITLE_ROOT, `${key}.ass`);
         const args = [
@@ -214,6 +298,7 @@ export default class VideoUtil implements IVideoUtil {
             filePath: outputPath,
             createdAt: Date.now(),
         });
+        this.preparedSubtitleKeysBySource.set(sourceKey, key);
 
         return {
             key: key,
@@ -277,9 +362,12 @@ export default class VideoUtil implements IVideoUtil {
 
         if (fs.existsSync(prepared.filePath) === false) {
             this.preparedSubtitles.delete(key);
+            this.deletePreparedSubtitleSourceKeys(key);
 
             return undefined;
         }
+
+        prepared.createdAt = Date.now();
 
         return prepared.filePath;
     }
@@ -297,7 +385,14 @@ export default class VideoUtil implements IVideoUtil {
             ) {
                 fs.promises.rm(prepared.filePath, { force: true }).catch(() => {});
                 this.preparedSubtitles.delete(key);
+                this.deletePreparedSubtitleSourceKeys(key);
             }
+        }
+    }
+
+    private deletePreparedSubtitleSourceKeys(preparedKey: string): void {
+        for (const [sourceKey, key] of this.preparedSubtitleKeysBySource.entries()) {
+            if (key === preparedKey) this.preparedSubtitleKeysBySource.delete(sourceKey);
         }
     }
 }

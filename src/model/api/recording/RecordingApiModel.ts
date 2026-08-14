@@ -54,6 +54,24 @@ export default class RecordingApiModel implements IRecordingApiModel {
     }
 
     /**
+     * 録画ファイルを残したまま録画を停止する
+     * @param recordedId: recorded id
+     */
+    public async stop(recordedId: apid.RecordedId): Promise<void> {
+        const recorded = await this.recordedDB.findId(recordedId);
+        if (recorded === null || recorded.isRecording === false) {
+            throw new Error('RecordingIsNotFound');
+        }
+        if (recorded.reserveId === null) {
+            throw new Error('ReserveIdIsNull');
+        }
+
+        // 予約取消の既存経路は recording.cancel(reserveId, false) を呼ぶため、
+        // ここまで録画したファイルを残したまま正常な終了処理へ進む。
+        await this.ipc.reserveation.cancel(recorded.reserveId);
+    }
+
+    /**
      * タイマーを再設定する
      * @return Promise<void>
      */

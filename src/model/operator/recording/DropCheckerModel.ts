@@ -17,6 +17,10 @@ class DropCheckerModel implements IDropCheckerModel {
     private dest: string | null = null;
     private result: aribts.Result | null = null;
     private pidIndex: { [key: number]: string } = {};
+    private ecmPids: Set<number> = new Set<number>();
+    private mediaPids: Set<number> = new Set<number>();
+    private boundaryEcmDrops: Map<number, number> = new Map<number, number>();
+    private recordingEndAt: number | null = null;
     private time: Date | null = null;
     private hasError: boolean = false; // パケットチェック中にエラーを検知したか？
     private isFinished: boolean = false; // 終了処理が終わっているか？
@@ -41,7 +45,21 @@ class DropCheckerModel implements IDropCheckerModel {
      * @param stream: stream.Readable drop をチェックするストリーム
      * @return Promise<void>
      */
-    public async start(logDirPath: string, srcFilePath: string, readableStream: stream.Readable): Promise<void> {
+    public async start(
+        logDirPath: string,
+        srcFilePath: string,
+        readableStream: stream.Readable,
+        recordingEndAt?: number,
+    ): Promise<void> {
+        this.result = null;
+        this.pidIndex = {};
+        this.ecmPids.clear();
+        this.mediaPids.clear();
+        this.boundaryEcmDrops.clear();
+        this.recordingEndAt = typeof recordingEndAt === 'number' ? recordingEndAt : null;
+        this.time = null;
+        this.hasError = false;
+        this.isFinished = false;
         this.dest = await this.getLogFilePath(logDirPath, srcFilePath);
 
         // 空ファイル生成
@@ -69,26 +87,37 @@ class DropCheckerModel implements IDropCheckerModel {
         });
 
         this.tsSectionUpdater.on('pmt', tsSection => {
-            const streams = tsSection.decode().streams;
+            const programMap = tsSection.decode();
+            this.setConditionalAccessPids(programMap.program_info);
+
+            const streams = programMap.streams;
             for (const s of streams) {
                 this.setIndex(s.stream_type, s.elementary_PID);
+                this.setConditionalAccessPids(s.ES_info);
             }
         });
 
         this.tsPacketAnalyzer.on('packetError', (pid, counter, expected) => {
             this.appendFile(
-                `error: (pid: ${this.pidToString(pid)}, counter: ${counter || '-'}, expected: ${
-                    expected || '-'
-                }, time: ${this.getTime()})\n`,
+                `error: (pid: ${this.pidToString(pid)}, counter: ${this.formatCounter(
+                    counter,
+                )}, expected: ${this.formatCounter(expected)}, time: ${this.getTime()})\n`,
             );
             this.hasError = true;
         });
 
         this.tsPacketAnalyzer.on('packetDrop', (pid, counter, expected) => {
+            const isBoundaryEcmDrop = this.ecmPids.has(pid) && this.isAtRecordingEndBoundary();
+            if (isBoundaryEcmDrop) {
+                this.boundaryEcmDrops.set(pid, (this.boundaryEcmDrops.get(pid) ?? 0) + 1);
+            }
+
             this.appendFile(
-                `drop (pid: ${this.pidToString(pid)}, counter: ${counter || '-'}, expected: ${
-                    expected || '-'
-                }, time: ${this.getTime()})\n`,
+                `drop (pid: ${this.pidToString(pid)}, counter: ${this.formatCounter(
+                    counter,
+                )}, expected: ${this.formatCounter(expected)}, time: ${this.getTime()})${
+                    isBoundaryEcmDrop ? ' [ECM boundary]' : ''
+                }\n`,
             );
             this.hasError = true;
         });
@@ -142,12 +171,24 @@ class DropCheckerModel implements IDropCheckerModel {
         }
         this.tsPacketAnalyzer.removeAllListeners('finish');
 
-        const result = this.tsPacketAnalyzer.getResult();
+        const rawResult = this.tsPacketAnalyzer.getResult();
+        const adjusted = this.adjustBoundaryEcmDrops(rawResult);
+        const result = adjusted.result;
         this.result = result;
         this.listener.emit(DropCheckerModel.FINISH_EVENT);
 
         if (this.hasError) {
             await this.appendFile('\n').catch(err => {
+                this.log.system.error(`append error: ${this.dest}`);
+                this.log.system.error(err);
+            });
+        }
+        for (const ignored of adjusted.ignored) {
+            await this.appendFile(
+                `quality drop ignored (pid: ${this.pidToString(
+                    ignored.pid,
+                )}, count: ${ignored.count}, reason: ECM continuity change at program boundary)\n`,
+            ).catch(err => {
                 this.log.system.error(`append error: ${this.dest}`);
                 this.log.system.error(err);
             });
@@ -246,6 +287,99 @@ class DropCheckerModel implements IDropCheckerModel {
         }
 
         this.pidIndex[pid] = name;
+        if (this.isMediaStreamType(streamType)) {
+            this.mediaPids.add(pid);
+        }
+    }
+
+    /**
+     * PMT の限定受信関連記述子から ECM PID を登録する
+     */
+    private setConditionalAccessPids(descriptors: any): void {
+        if (descriptors === null || typeof descriptors?.decode !== 'function') {
+            return;
+        }
+
+        try {
+            for (const descriptor of descriptors.decode()) {
+                if (descriptor === null || typeof descriptor?.getDescriptorTag !== 'function') {
+                    continue;
+                }
+
+                const tag = descriptor.getDescriptorTag();
+                if (tag !== 0x09 && tag !== 0xf6 && tag !== 0xf8) {
+                    continue;
+                }
+
+                const decoded = descriptor.decode();
+                const pid =
+                    tag === 0x09 ? decoded.CA_PID : tag === 0xf6 ? decoded.PID : decoded.conditional_playback_PID;
+                if (typeof pid !== 'number' || pid === 0x1fff) {
+                    continue;
+                }
+
+                this.ecmPids.add(pid);
+                this.pidIndex[pid] = 'ECM';
+            }
+        } catch (err: any) {
+            this.log.system.warn('failed to decode conditional access descriptor in PMT');
+            this.log.system.warn(err);
+        }
+    }
+
+    private isMediaStreamType(streamType: number): boolean {
+        return [0x01, 0x02, 0x03, 0x04, 0x0f, 0x10, 0x11, 0x1b, 0x24, 0x81].includes(streamType);
+    }
+
+    private isAtRecordingEndBoundary(): boolean {
+        if (this.recordingEndAt === null) {
+            return false;
+        }
+
+        const currentTime = this.time?.getTime() ?? Date.now();
+        return (
+            currentTime >= this.recordingEndAt - DropCheckerModel.END_BOUNDARY_BEFORE_MS &&
+            currentTime <= this.recordingEndAt + DropCheckerModel.END_BOUNDARY_AFTER_MS
+        );
+    }
+
+    private adjustBoundaryEcmDrops(result: aribts.Result): {
+        result: aribts.Result;
+        ignored: Array<{ pid: number; count: number }>;
+    } {
+        const adjusted: aribts.Result = {};
+        for (const pid of Object.keys(result)) {
+            const pidNum = parseInt(pid, 10);
+            adjusted[pidNum] = { ...result[pidNum] };
+        }
+
+        const hasMediaDamage = Array.from(this.mediaPids).some(pid => {
+            const item = result[pid];
+            return typeof item !== 'undefined' && (item.error > 0 || item.drop > 0);
+        });
+        const hasScrambling = Object.keys(result).some(pid => result[parseInt(pid, 10)].scrambling > 0);
+        const ignored: Array<{ pid: number; count: number }> = [];
+
+        if (hasMediaDamage || hasScrambling) {
+            return { result: adjusted, ignored };
+        }
+
+        for (const [pid, candidateCount] of this.boundaryEcmDrops) {
+            const item = adjusted[pid];
+            if (typeof item === 'undefined' || item.error > 0 || item.drop === 0) {
+                continue;
+            }
+
+            const count = Math.min(candidateCount, item.drop);
+            item.drop -= count;
+            ignored.push({ pid, count });
+        }
+
+        return { result: adjusted, ignored };
+    }
+
+    private formatCounter(value: number | undefined): string {
+        return typeof value === 'number' ? value.toString(10) : '-';
     }
 
     /**
@@ -408,7 +542,11 @@ class DropCheckerModel implements IDropCheckerModel {
             return null;
         }
 
-        return this.tsPacketAnalyzer.getResult();
+        return this.adjustBoundaryEcmDrops(this.tsPacketAnalyzer.getResult()).result;
+    }
+
+    public setRecordingEndAt(recordingEndAt: number): void {
+        this.recordingEndAt = recordingEndAt;
     }
 
     /**
@@ -451,6 +589,8 @@ class DropCheckerModel implements IDropCheckerModel {
 
 namespace DropCheckerModel {
     export const FINISH_EVENT = 'finish_event';
+    export const END_BOUNDARY_BEFORE_MS = 2 * 1000;
+    export const END_BOUNDARY_AFTER_MS = 5 * 1000;
 }
 
 export default DropCheckerModel;

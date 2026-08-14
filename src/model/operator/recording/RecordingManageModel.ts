@@ -224,6 +224,16 @@ class RecordingManageModel implements IRecordingManageModel {
                         this.recordingIndex[reserve.id] = newRecorder;
                     }
                 } else {
+                    if (
+                        diff.preserveActiveRecordings === true &&
+                        recorder.isRecordingActive() === true &&
+                        (reserve.isSkip === true || reserve.isOverlap === true)
+                    ) {
+                        this.log.system.info(
+                            `preserve active recording after reservation became duplicate: ${reserve.id}`,
+                        );
+                        continue;
+                    }
                     this.log.system.debug(`update recording: ${reserve.id}`);
                     await recorder.update(reserve, diff.isSuppressLog).catch(err => {
                         this.log.system.error(`update recording error: ${reserve.id}`);
@@ -241,6 +251,10 @@ class RecordingManageModel implements IRecordingManageModel {
             for (const reserve of diff.delete) {
                 const recorder = this.recordingIndex[reserve.id];
                 if (typeof recorder !== 'undefined') {
+                    if (diff.preserveActiveRecordings === true && recorder.isRecordingActive() === true) {
+                        this.log.system.info(`preserve active recording after reservation deletion: ${reserve.id}`);
+                        continue;
+                    }
                     this.log.system.debug(`delete recording: ${reserve.id}`);
                     await this.cancel(reserve.id, false).catch(err => {
                         this.log.system.error(`delete recording error: ${reserve.id}`);

@@ -1,4 +1,13 @@
 port: 8888
+# Tailscale MagicDNS の証明書を初回から自動取得し、有効期限前に無停止更新します。
+# Tailscale 管理画面で MagicDNS と HTTPS Certificates を有効にしてから使用してください。
+# tailscaleHttps:
+#     enabled: true
+#     port: 443
+#     # 通常は tailscale status --json から自動取得するため指定不要です。
+#     # hostname: neoepgstation.example-tailnet.ts.net
+#     renewBeforeDays: 30
+#     checkIntervalHours: 24
 mirakurunPath: http+unix://%2Fvar%2Frun%2Fmirakurun.sock/
 
 dbtype: sqlite
@@ -106,11 +115,31 @@ urlscheme:
 #         - 720p
 #         - 720p-hevc
 #         - 480p
+#         - 軽量
 #     recordedQualities:
 #         - 1080p
 #         - 720p
 #         - 720p-hevc
 #         - 480p
+#         - 軽量
+#     # 独自の画質プロファイルを追加できます。ここで指定した名前を
+#     # liveQualities / recordedQualities に追加すると画質選択欄へ表示されます。
+#     # 「プロファイル名-hevc」も定義すると、HEVC選択時だけ別の設定を使用できます。
+#     qualities:
+#         軽量:
+#             width: 960
+#             height: 540
+#             videoBitrate: 2500K
+#             videoBitrateMax: 3500K
+#             audioBitrate: 160K
+#             is60fps: false
+#         軽量-hevc:
+#             width: 960
+#             height: 540
+#             videoBitrate: 1300K
+#             videoBitrateMax: 2000K
+#             audioBitrate: 160K
+#             isHevc: true
 #     hevc10bit: false
 #     fps24: false
 

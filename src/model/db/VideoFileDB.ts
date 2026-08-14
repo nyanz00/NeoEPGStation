@@ -3,7 +3,7 @@ import * as apid from '../../../api';
 import VideoFile from '../../db/entities/VideoFile';
 import IPromiseRetry from '../IPromiseRetry';
 import IDBOperator from './IDBOperator';
-import IVideoFileDB, { UpdateFilePathOption } from './IVideoFileDB';
+import IVideoFileDB, { UpdateFilePathOption, VideoFileSizeSummary } from './IVideoFileDB';
 
 @injectable()
 export default class VideoFileDB implements IVideoFileDB {
@@ -73,24 +73,42 @@ export default class VideoFileDB implements IVideoFileDB {
      * @return Promise<void>
      */
     public async updateFilePath(option: UpdateFilePathOption): Promise<void> {
-        const videoFile = await this.findId(option.videoFileId);
-        if (videoFile === null) {
-            throw new Error('VideoFileIsNull');
+        await this.updateFilePaths([option]);
+    }
+
+    /**
+     * 複数のビデオファイルパスを同一トランザクションで変更
+     */
+    public async updateFilePaths(options: UpdateFilePathOption[]): Promise<void> {
+        if (options.length === 0) {
+            return;
         }
 
         const connection = await this.op.getConnection();
-        const queryBuilder = connection
-            .createQueryBuilder()
-            .update(VideoFile)
-            .set({
-                parentDirectoryName: option.parentDirectoryName,
-                filePath: option.filePath,
-            })
-            .where({ id: option.videoFileId });
-
-        await this.promieRetry.run(() => {
-            return queryBuilder.execute();
-        });
+        const queryRunner = connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            for (const option of options) {
+                const result = await queryRunner.manager.update(
+                    VideoFile,
+                    { id: option.videoFileId },
+                    {
+                        parentDirectoryName: option.parentDirectoryName,
+                        filePath: option.filePath,
+                    },
+                );
+                if (result.affected !== 1) {
+                    throw new Error('VideoFileIsNull');
+                }
+            }
+            await queryRunner.commitTransaction();
+        } catch (err) {
+            await queryRunner.rollbackTransaction();
+            throw err;
+        } finally {
+            await queryRunner.release();
+        }
     }
 
     /**
@@ -179,5 +197,26 @@ export default class VideoFileDB implements IVideoFileDB {
         return await this.promieRetry.run(() => {
             return queryBuilder.getMany();
         });
+    }
+
+    /**
+     * 録画ディレクトリ名ごとの管理動画ファイル容量を取得する
+     */
+    public async getSizeSummaries(): Promise<VideoFileSizeSummary[]> {
+        const connection = await this.op.getConnection();
+        const queryBuilder = connection
+            .getRepository(VideoFile)
+            .createQueryBuilder('videoFile')
+            .select('videoFile.parentDirectoryName', 'parentDirectoryName')
+            .addSelect('SUM(videoFile.size)', 'size')
+            .groupBy('videoFile.parentDirectoryName');
+        const rows = await this.promieRetry.run(() => {
+            return queryBuilder.getRawMany<{ parentDirectoryName: string; size: string | number | null }>();
+        });
+
+        return rows.map(row => ({
+            parentDirectoryName: row.parentDirectoryName,
+            size: Math.max(0, Number(row.size) || 0),
+        }));
     }
 }

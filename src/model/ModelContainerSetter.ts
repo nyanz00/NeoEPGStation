@@ -1,6 +1,14 @@
 import { Container } from 'inversify';
 
 import ApiUtil from './api/ApiUtil';
+import AnnictApiModel from './api/annict/AnnictApiModel';
+import IAnnictApiModel from './api/annict/IAnnictApiModel';
+import BlueskyApiModel from './api/bluesky/BlueskyApiModel';
+import IBlueskyApiModel from './api/bluesky/IBlueskyApiModel';
+import MisskeyApiModel from './api/misskey/MisskeyApiModel';
+import IMisskeyApiModel from './api/misskey/IMisskeyApiModel';
+import INiconicoApiModel from './api/niconico/INiconicoApiModel';
+import NiconicoApiModel from './api/niconico/NiconicoApiModel';
 import ChannelApiModel from './api/channel/ChannelApiModel';
 import IChannelApiModel from './api/channel/IChannelApiModel';
 import ConfigApiModel from './api/config/ConfigApiModel';
@@ -16,7 +24,9 @@ import IRecordedItemUtil from './api/IRecordedItemUtil';
 import IJikkyoApiModel from './api/jikkyo/IJikkyoApiModel';
 import JikkyoApiModel from './api/jikkyo/JikkyoApiModel';
 import IRecordedApiModel from './api/recorded/IRecordedApiModel';
+import IRecordedPlaybackApiModel from './api/recorded/IRecordedPlaybackApiModel';
 import RecordedApiModel from './api/recorded/RecordedApiModel';
+import RecordedPlaybackApiModel from './api/recorded/RecordedPlaybackApiModel';
 import RecordedItemUtil from './api/RecordedItemUtil';
 import IRecordedTagApiModel from './api/recordedTag/IRecordedTagApiModel';
 import RecordedTagApiModel from './api/recordedTag/RecordedTagApiModel';
@@ -24,47 +34,61 @@ import IRecordingApiModel from './api/recording/IRecordingApiModel';
 import RecordingApiModel from './api/recording/RecordingApiModel';
 import IReserveApiModel from './api/reserve/IReserveApiModel';
 import ReserveApiModel from './api/reserve/ReserveApiModel';
-import IRuleApiModel from './api/rule/IRuleApiModel';
+import IRuleApiModel, { RuleApiModelProvider } from './api/rule/IRuleApiModel';
 import RuleApiModel from './api/rule/RuleApiModel';
 import IScheduleApiModel from './api/schedule/IScheduleApiModel';
 import ScheduleApiModel from './api/schedule/ScheduleApiModel';
 import IStorageApiModel from './api/storage/IStorageApiModel';
 import StorageApiModel from './api/storage/StorageApiModel';
+import IMirakurunStatusApiModel from './api/system/IMirakurunStatusApiModel';
+import MirakurunStatusApiModel from './api/system/MirakurunStatusApiModel';
 import IStreamApiModel from './api/stream/IStreamApiModel';
 import StreamApiModel from './api/stream/StreamApiModel';
 import IThumbnailApiModel from './api/thumbnail/IThumbnailApiModel';
 import ThumbnailApiModel from './api/thumbnail/ThumbnailApiModel';
+import ITwitterApiModel from './api/twitter/ITwitterApiModel';
+import TwitterApiModel from './api/twitter/TwitterApiModel';
 import IUserApiModel from './api/user/IUserApiModel';
 import UserApiModel from './api/user/UserApiModel';
+import IViewerProfileApiModel from './api/viewerProfile/IViewerProfileApiModel';
+import ViewerProfileApiModel from './api/viewerProfile/ViewerProfileApiModel';
 import IVideoApiModel from './api/video/IVideoApiModel';
 import IVideoUtil from './api/video/IVideoUtil';
 import VideoApiModel from './api/video/VideoApiModel';
 import VideoUtil from './api/video/VideoUtil';
 import Configuration from './Configuration';
 import ConnectionCheckModel from './ConnectionCheckModel';
+import AnnictEpisodeDB from './db/AnnictEpisodeDB';
+import AnnictRuleLinkDB from './db/AnnictRuleLinkDB';
 import ChannelDB from './db/ChannelDB';
 import DBOperator from './db/DBOperator';
 import DropLogFileDB from './db/DropLogFileDB';
+import IAnnictEpisodeDB from './db/IAnnictEpisodeDB';
+import IAnnictRuleLinkDB from './db/IAnnictRuleLinkDB';
 import IChannelDB from './db/IChannelDB';
 import IDBOperator from './db/IDBOperator';
 import IDropLogFileDB from './db/IDropLogFileDB';
 import IProgramDB from './db/IProgramDB';
 import IRecordedDB from './db/IRecordedDB';
 import IRecordedHistoryDB from './db/IRecordedHistoryDB';
+import IRecordedPlaybackDB from './db/IRecordedPlaybackDB';
 import IRecordedTagDB from './db/IRecordedTagDB';
 import IReserveDB from './db/IReserveDB';
 import IRuleDB from './db/IRuleDB';
 import IThumbnailDB from './db/IThumbnailDB';
 import ITvUserDB from './db/ITvUserDB';
+import IViewerProfileDB from './db/IViewerProfileDB';
 import IVideoFileDB from './db/IVideoFileDB';
 import ProgramDB from './db/ProgramDB';
 import RecordedDB from './db/RecordedDB';
 import RecordedHistoryDB from './db/RecordedHistoryDB';
+import RecordedPlaybackDB from './db/RecordedPlaybackDB';
 import RecordedTagDB from './db/RecordedTagDB';
 import ReserveDB from './db/ReserveDB';
 import RuleDB from './db/RuleDB';
 import ThumbnailDB from './db/ThumbnailDB';
 import TvUserDB from './db/TvUserDB';
+import ViewerProfileDB from './db/ViewerProfileDB';
 import VideoFileDB from './db/VideoFileDB';
 import EPGUpdateExecutorManageModel from './epgUpdater/EPGUpdateExecutorManageModel';
 import EPGUpdateManageModel from './epgUpdater/EPGUpdateManageModel';
@@ -108,6 +132,8 @@ import LoggerModel from './LoggerModel';
 import MirakurunClientModel from './MirakurunClientModel';
 import ExternalCommandManageModel from './operator/externalCommand/ExternalCommandManageModel';
 import IExternalCommandManageModel from './operator/externalCommand/IExternalCommandManageModel';
+import DiscordNotificationModel from './operator/discord/DiscordNotificationModel';
+import IDiscordNotificationModel from './operator/discord/IDiscordNotificationModel';
 import IReserveOptionChecker from './operator/IReserveOptionChecker';
 import IRecordedManageModel from './operator/recorded/IRecordedManageModel';
 import RecordedManageModel from './operator/recorded/RecordedManageModel';
@@ -197,9 +223,15 @@ export const set = (container: Container): void => {
 
     container.bind<IRecordedHistoryDB>('IRecordedHistoryDB').to(RecordedHistoryDB).inSingletonScope();
 
+    container.bind<IRecordedPlaybackDB>('IRecordedPlaybackDB').to(RecordedPlaybackDB).inSingletonScope();
+
     container.bind<IReserveDB>('IReserveDB').to(ReserveDB).inSingletonScope();
 
     container.bind<IRuleDB>('IRuleDB').to(RuleDB).inRequestScope();
+
+    container.bind<IAnnictEpisodeDB>('IAnnictEpisodeDB').to(AnnictEpisodeDB).inSingletonScope();
+
+    container.bind<IAnnictRuleLinkDB>('IAnnictRuleLinkDB').to(AnnictRuleLinkDB).inSingletonScope();
 
     container.bind<IThumbnailDB>('IThumbnailDB').to(ThumbnailDB).inSingletonScope();
 
@@ -208,6 +240,8 @@ export const set = (container: Container): void => {
     container.bind<IDropLogFileDB>('IDropLogFileDB').to(DropLogFileDB).inSingletonScope();
 
     container.bind<ITvUserDB>('ITvUserDB').to(TvUserDB).inSingletonScope();
+
+    container.bind<IViewerProfileDB>('IViewerProfileDB').to(ViewerProfileDB).inSingletonScope();
 
     container.bind<IRuleEvent>('IRuleEvent').to(RuleEvent).inSingletonScope();
 
@@ -284,6 +318,11 @@ export const set = (container: Container): void => {
         .to(ExternalCommandManageModel)
         .inSingletonScope();
 
+    container
+        .bind<IDiscordNotificationModel>('IDiscordNotificationModel')
+        .to(DiscordNotificationModel)
+        .inSingletonScope();
+
     container.bind<IServiceServer>('IServiceServer').to(ServiceServer).inSingletonScope();
 
     container.bind<IApiUtil>('IApiUtil').to(ApiUtil).inSingletonScope();
@@ -293,6 +332,21 @@ export const set = (container: Container): void => {
     container.bind<IConfigApiModel>('IConfigApiModel').to(ConfigApiModel).inSingletonScope();
 
     container.bind<IChannelApiModel>('IChannelApiModel').to(ChannelApiModel).inSingletonScope();
+
+    container.bind<IAnnictApiModel>('IAnnictApiModel').to(AnnictApiModel).inSingletonScope();
+
+    container.bind<IViewerProfileApiModel>('IViewerProfileApiModel').to(ViewerProfileApiModel).inSingletonScope();
+
+    container.bind<ITwitterApiModel>('ITwitterApiModel').to(TwitterApiModel).inSingletonScope();
+
+    container.bind<IBlueskyApiModel>('IBlueskyApiModel').to(BlueskyApiModel).inSingletonScope();
+    container.bind<IMisskeyApiModel>('IMisskeyApiModel').to(MisskeyApiModel).inSingletonScope();
+    container.bind<INiconicoApiModel>('INiconicoApiModel').to(NiconicoApiModel).inSingletonScope();
+
+    container
+        .bind<IRecordedPlaybackApiModel>('IRecordedPlaybackApiModel')
+        .to(RecordedPlaybackApiModel)
+        .inSingletonScope();
 
     container.bind<IScheduleApiModel>('IScheduleApiModel').to(ScheduleApiModel).inSingletonScope();
 
@@ -307,6 +361,9 @@ export const set = (container: Container): void => {
     container.bind<IRecordedTagApiModel>('IRecordedTagApiModel').to(RecordedTagApiModel).inSingletonScope();
 
     container.bind<IRuleApiModel>('IRuleApiModel').to(RuleApiModel).inSingletonScope();
+    container.bind<RuleApiModelProvider>('RuleApiModelProvider').toProvider(context => {
+        return () => Promise.resolve(context.container.get<IRuleApiModel>('IRuleApiModel'));
+    });
 
     container.bind<IThumbnailApiModel>('IThumbnailApiModel').to(ThumbnailApiModel).inSingletonScope();
 
@@ -418,4 +475,5 @@ export const set = (container: Container): void => {
     container.bind<IStreamApiModel>('IStreamApiModel').to(StreamApiModel).inSingletonScope();
 
     container.bind<IStorageApiModel>('IStorageApiModel').to(StorageApiModel).inSingletonScope();
+    container.bind<IMirakurunStatusApiModel>('IMirakurunStatusApiModel').to(MirakurunStatusApiModel).inSingletonScope();
 };

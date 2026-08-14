@@ -4,13 +4,56 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#101418" />
-        <link rel="manifest" href="./manifest.json" crossorigin="use-credentials" />
-        <link rel="icon" href="./icon/favicon.png" />
-        <link rel="apple-touch-icon" href="./icon/ios.png" sizes="180x180" />
-        <title>EPGStation</title>
+        <script>
+            (() => {
+                const iconSets = {
+                    neo: {
+                        manifest: 'manifest.json',
+                        favicon: 'favicon-neo.png',
+                        ios: 'ios-neo.png',
+                    },
+                    'nyanz-tv': {
+                        manifest: 'manifest-nyanzTV.json',
+                        favicon: 'favicon-nyanzTV.png',
+                        ios: 'ios-nyanzTV.png',
+                    },
+                    original: {
+                        manifest: 'manifest-original.json',
+                        favicon: 'favicon.png',
+                        ios: 'ios.png',
+                    },
+                };
+                let iconSetId = 'neo';
+                try {
+                    const saved = JSON.parse(localStorage.getItem('settings') ?? '{}');
+                    if (typeof saved.appIconSet === 'string' && iconSets[saved.appIconSet] !== undefined) {
+                        iconSetId = saved.appIconSet;
+                    }
+                } catch {
+                    // Use the default icon when saved settings cannot be read.
+                }
+                const iconSet = iconSets[iconSetId];
+                const appendLink = (id, rel, href, attributes = {}) => {
+                    const link = document.createElement('link');
+                    link.id = id;
+                    link.rel = rel;
+                    link.href = href;
+                    Object.entries(attributes).forEach(([name, value]) => link.setAttribute(name, value));
+                    document.head.appendChild(link);
+                };
+                appendLink('app-manifest', 'manifest', `./${iconSet.manifest}?icon-set=${iconSetId}&v=2`, {
+                    crossorigin: 'use-credentials',
+                });
+                appendLink('app-favicon', 'icon', `./icon/${iconSet.favicon}?v=2`);
+                appendLink('app-apple-touch-icon', 'apple-touch-icon', `./icon/${iconSet.ios}?v=2`, {
+                    sizes: '180x180',
+                });
+            })();
+        </script>
+        <title>NeoEPGStation</title>
     </head>
     <body>
-        <noscript>EPGStationを使用するにはJavaScriptを有効にしてください。</noscript>
+        <noscript>NeoEPGStationを使用するにはJavaScriptを有効にしてください。</noscript>
         <div id="root"></div>
         <script type="module" src="/src/main.tsx"></script>
     </body>

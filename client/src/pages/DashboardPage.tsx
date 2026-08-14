@@ -1,11 +1,13 @@
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import { Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, IconButton, Stack, Typography } from '@mui/material';
-import { useQueries, useQueryClient } from '@tanstack/react-query';
-import type { RecordedItem, ReserveItem } from '../../../api';
-import type { ReactNode } from 'react';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ChannelItem, RecordedItem, ReserveItem } from '../../../api';
+import { type ReactNode, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { api } from '../core/api/queries';
+import { appIconAssetUrl, getAppIconSet } from '../core/icons/appIcons';
 import { useActiveUser } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
@@ -19,17 +21,49 @@ function formatDate(value: number): string {
     }).format(new Date(value));
 }
 
-function ProgramCard({ item, onClick }: { item: RecordedItem | ReserveItem; onClick?: () => void }): ReactNode {
+function ProgramCard({ item, channel, thumbnailId, onClick }: { item: RecordedItem | ReserveItem; channel?: ChannelItem; thumbnailId?: number; onClick?: () => void }): ReactNode {
+    const showThumbnail = thumbnailId !== undefined || channel !== undefined;
     return (
-        <Card variant="outlined">
-            <CardActionArea disabled={onClick === undefined} onClick={onClick}>
-                <CardContent sx={{ py: 1.5 }}>
+        <Card variant="outlined" sx={{ overflow: 'hidden' }}>
+            <CardActionArea
+                disabled={onClick === undefined}
+                onClick={onClick}
+                sx={{
+                    minHeight: showThumbnail ? 100 : undefined,
+                    display: showThumbnail ? 'flex' : 'block',
+                    alignItems: 'stretch',
+                }}
+            >
+                {showThumbnail && (
+                    <ProgramThumbnail
+                        thumbnailId={thumbnailId}
+                        channel={channel}
+                        sx={{
+                            width: { xs: 128, sm: '34%' },
+                            maxWidth: 180,
+                            minHeight: 100,
+                            alignSelf: 'stretch',
+                            borderRadius: 0,
+                        }}
+                    />
+                )}
+                <CardContent sx={{ minWidth: 0, flex: 1, py: 1.25, px: 1.5, '&:last-child': { pb: 1.25 } }}>
                     <Typography variant="subtitle2" noWrap title={item.name}>
                         {item.name}
                     </Typography>
+                    {channel !== undefined && (
+                        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                            {channel.name}
+                        </Typography>
+                    )}
                     <Typography variant="caption" color="text.secondary">
                         {formatDate(item.startAt)} - {formatDate(item.endAt)}
                     </Typography>
+                    {item.description !== undefined && (
+                        <Typography variant="caption" noWrap title={item.description} sx={{ display: 'block', mt: 0.25 }}>
+                            {item.description}
+                        </Typography>
+                    )}
                 </CardContent>
             </CardActionArea>
         </Card>
@@ -67,10 +101,14 @@ function DashboardColumn({ title, total, children, morePath, badge }: DashboardC
 
 export function DashboardPage(): ReactNode {
     const settings = useSettings();
+    const appIcon = getAppIconSet(settings.appIconSet);
+    const logoIcon = settings.isAppLogoLinkedToIcon ? appIcon.original : 'nyanz-smile.png';
     const activeUser = useActiveUser();
+    const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const version = useQuery({ queryKey: ['version'], queryFn: api.getVersion, staleTime: 60_000 });
     const userId = typeof activeUser === 'number' ? activeUser : undefined;
-    const [recording, recorded, reserves, reserveCounts] = useQueries({
+    const [recording, recorded, reserves, reserveCounts, channels] = useQueries({
         queries: [
             {
                 queryKey: ['recording', userId, settings.isHalfWidthDisplayed],
@@ -88,15 +126,28 @@ export function DashboardPage(): ReactNode {
                 queryKey: ['reserve-counts'],
                 queryFn: api.getReserveCounts,
             },
+            {
+                queryKey: ['channels'],
+                queryFn: api.getChannels,
+                staleTime: 60_000,
+            },
         ],
     });
+    const channelMap = useMemo(() => new Map(channels.data?.map(channel => [channel.id, channel])), [channels.data]);
     const isPending = recording.isPending || recorded.isPending || reserves.isPending || reserveCounts.isPending;
     const error = recording.error ?? recorded.error ?? reserves.error ?? reserveCounts.error;
 
     return (
         <>
             <PageHeader
-                title="ダッシュボード"
+                title={
+                    <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        <Typography component="h1" variant="h6" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '1.25rem' } }}>
+                            NeoEPGStation v{version.data?.version ?? '1.0.0-beta.1'}
+                        </Typography>
+                        {!settings.isAppLogoHidden && <Box component="img" src={appIconAssetUrl(logoIcon)} alt="" sx={{ height: 25, width: 'auto', flex: '0 0 auto' }} />}
+                    </Box>
+                }
                 actions={
                     <IconButton onClick={() => void queryClient.invalidateQueries()} aria-label="更新">
                         <RefreshOutlined />
@@ -122,13 +173,25 @@ export function DashboardPage(): ReactNode {
                 >
                     <DashboardColumn title="録画中" total={recording.data?.total} morePath="/recording">
                         {recording.data?.records.map(item => (
-                            <ProgramCard key={item.id} item={item} />
+                            <ProgramCard
+                                key={item.id}
+                                item={item}
+                                thumbnailId={item.thumbnails?.[0]}
+                                channel={channelMap.get(item.channelId)}
+                                onClick={() => void navigate(`/recorded/detail/${item.id}`)}
+                            />
                         ))}
                         {recording.data?.records.length === 0 && <Typography color="text.secondary">録画中の番組はありません</Typography>}
                     </DashboardColumn>
                     <DashboardColumn title="録画済み" total={recorded.data?.total} morePath="/recorded">
                         {recorded.data?.records.map(item => (
-                            <ProgramCard key={item.id} item={item} onClick={() => (location.hash = `#/recorded/detail/${item.id}`)} />
+                            <ProgramCard
+                                key={item.id}
+                                item={item}
+                                thumbnailId={item.thumbnails?.[0]}
+                                channel={channelMap.get(item.channelId)}
+                                onClick={() => void navigate(`/recorded/detail/${item.id}`)}
+                            />
                         ))}
                         {recorded.data?.records.length === 0 && <Typography color="text.secondary">録画済み番組はありません</Typography>}
                     </DashboardColumn>

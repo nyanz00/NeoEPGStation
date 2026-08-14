@@ -57,7 +57,7 @@ export default class MirakurunClientModel implements IMirakurunClientModel {
             this.client.basePath = path.posix.join(urlObject.pathname, this.client.basePath);
         }
 
-        this.client.userAgent = `${pkg.name}/${pkg.version}`;
+        this.client.userAgent = `NeoEPGStation/${pkg.version}`;
     }
 
     /**

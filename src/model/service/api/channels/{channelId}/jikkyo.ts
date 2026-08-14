@@ -1,13 +1,20 @@
 import { Operation } from 'express-openapi';
-import IChannelApiModel from '../../../../api/channel/IChannelApiModel';
+import INiconicoApiModel from '../../../../api/niconico/INiconicoApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';
+import { getViewerProfileId } from '../../viewerProfileSession';
 
 export const get: Operation = async (req, res) => {
-    const channelApiModel = container.get<IChannelApiModel>('IChannelApiModel');
+    const niconicoApiModel = container.get<INiconicoApiModel>('INiconicoApiModel');
 
     try {
-        const result = await channelApiModel.getJikkyoInfo(parseInt(req.params.channelId, 10));
+        let viewerProfileId: number | undefined;
+        try {
+            viewerProfileId = await getViewerProfileId(req);
+        } catch {
+            viewerProfileId = undefined;
+        }
+        const result = await niconicoApiModel.getJikkyoInfo(parseInt(req.params.channelId, 10), viewerProfileId);
         res.status(200).json(result);
     } catch (err: any) {
         api.responseServerError(res, err.message);

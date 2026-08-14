@@ -7,13 +7,20 @@ export interface UpdateFilePathOption {
     filePath: string;
 }
 
+export interface VideoFileSizeSummary {
+    parentDirectoryName: string;
+    size: number;
+}
+
 export default interface IVideoFileDB {
     restore(items: VideoFile[]): Promise<void>;
     insertOnce(videoFile: VideoFile): Promise<apid.VideoFileId>;
     updateFilePath(option: UpdateFilePathOption): Promise<void>;
+    updateFilePaths(options: UpdateFilePathOption[]): Promise<void>;
     updateSize(videoFileId: apid.VideoFileId, size: number): Promise<void>;
     deleteOnce(VideoFileId: apid.VideoFileId): Promise<void>;
     deleteRecordedId(recordedId: apid.RecordedId): Promise<void>;
     findId(videoFileId: apid.VideoFileId): Promise<VideoFile | null>;
     findAll(): Promise<VideoFile[]>;
+    getSizeSummaries(): Promise<VideoFileSizeSummary[]>;
 }

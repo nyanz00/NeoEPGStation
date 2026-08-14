@@ -14,6 +14,7 @@ import * as containerSetter from './model/ModelContainerSetter';
 import IRecordingManageModel from './model/operator/recording/IRecordingManageModel';
 import IReservationManageModel from './model/operator/reservation/IReservationManageModel';
 import IStorageManageModel from './model/operator/storage/IStorageManageModel';
+import ProcessUtil from './util/ProcessUtil';
 install();
 
 containerSetter.set(container);
@@ -29,11 +30,15 @@ const init = async () => {
     process.on('uncaughtException', err => {
         log.system.fatal(`uncaughtException: ${err.message}`);
         log.system.fatal(err);
+        process.exitCode = 1;
+        setImmediate(() => process.exit(1));
     });
 
     process.on('unhandledRejection', err => {
         log.system.fatal('unhandledRejection');
         log.system.fatal(err);
+        process.exitCode = 1;
+        setImmediate(() => process.exit(1));
     });
 
     const config = container.get<IConfiguration>('IConfiguration').getConfig();
@@ -92,32 +97,60 @@ const runOperator = async () => {
 /**
  * Service 起動処理
  */
+let serviceRestartCount = 0;
 const runService = async () => {
+    const startedAt = Date.now();
     const child = child_process.spawn(
         process.argv[0],
         [path.join(__dirname, 'model', 'service', 'ServiceExecutor.js')],
         {
-            stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+            stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         },
     );
 
-    // 終了したら再起動
     const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
-    child.once('exit', () => {
-        log.system.fatal('service process is down');
-        log.system.fatal('restart service');
-        runService();
+    let isRestartScheduled = false;
+    let lastHeartbeatAt = Date.now();
+    let isHeartbeatTerminationStarted = false;
+    child.on('message', message => {
+        if ((message as any)?.type === 'heartbeat') lastHeartbeatAt = Date.now();
     });
-    child.once('error', () => {
-        runService();
+    const heartbeatMonitor = setInterval(() => {
+        if (Date.now() - lastHeartbeatAt <= 20_000 || isHeartbeatTerminationStarted) return;
+        isHeartbeatTerminationStarted = true;
+        log.system.fatal('service heartbeat timed out; terminate stalled service process');
+        void ProcessUtil.kill(child).catch(err => {
+            log.system.fatal(`failed to terminate stalled service: ${err instanceof Error ? err.message : err}`);
+        });
+    }, 5_000);
+    heartbeatMonitor.unref();
+    const scheduleRestart = (reason: string): void => {
+        if (isRestartScheduled) return;
+        isRestartScheduled = true;
+        const uptime = Date.now() - startedAt;
+        serviceRestartCount = uptime >= 30_000 ? 0 : serviceRestartCount + 1;
+        const delay = Math.min(30_000, 1_000 * 2 ** Math.min(serviceRestartCount, 5));
+        log.system.fatal(`service process is down: ${reason}`);
+        log.system.fatal(`restart service in ${delay.toString(10)} ms`);
+        setTimeout(() => {
+            void runService();
+        }, delay);
+    };
+    child.once('exit', (code, signal) => {
+        clearInterval(heartbeatMonitor);
+        scheduleRestart(`code=${code?.toString(10) ?? 'null'}, signal=${signal ?? 'null'}`);
+    });
+    child.once('error', err => {
+        log.system.fatal(`service process spawn error: ${err.stack ?? err.message}`);
+        scheduleRestart('spawn error');
     });
 
-    // buffer が埋まらないようにする
-    if (child.stdout !== null) {
-        child.stdout.on('data', () => {});
-    }
     if (child.stderr !== null) {
-        child.stderr.on('data', () => {});
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (data: string) => {
+            const message = data.trimEnd();
+            if (message.length > 0) log.system.fatal(`service stderr:\n${message}`);
+        });
     }
 
     // IPC 通信設定

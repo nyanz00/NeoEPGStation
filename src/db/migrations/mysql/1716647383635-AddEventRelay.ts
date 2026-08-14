@@ -1,4 +1,3 @@
-/* eslint-disable max-len */
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddEventRelay1716647383635 implements MigrationInterface {

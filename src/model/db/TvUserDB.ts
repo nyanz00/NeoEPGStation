@@ -90,6 +90,12 @@ export default class TvUserDB implements ITvUserDB {
         });
     }
 
+    public async updateRecordedHistoryEnabled(userId: apid.UserId, enabled: boolean): Promise<void> {
+        const connection = await this.op.getConnection();
+        const repository = connection.getRepository(TvUser);
+        await this.promieRetry.run(() => repository.update(userId, { isRecordedHistoryEnabled: enabled }));
+    }
+
     public async ensureDefaultUser(): Promise<TvUser> {
         const users = await this.findAll();
         if (users.length > 0) {

@@ -12,6 +12,7 @@ export type RecordedHistoryId = number;
 export type VideoFileId = number;
 export type VideoFileType = 'ts' | 'encoded';
 export type UserId = number;
+export type ViewerProfileId = number;
 export type ThumbnailId = number;
 export type DropLogFileId = number;
 export type RecordedTagId = number;
@@ -63,10 +64,367 @@ export interface ChannelItem {
     type?: number;
 }
 
+export interface AnnictStatus {
+    configured: boolean;
+    writeConfigured: boolean;
+    viewerProfileId?: ViewerProfileId;
+}
+
+export interface TwitterAccountInfo {
+    name: string;
+    screenName: string;
+    iconUrl?: string;
+}
+
+export interface TwitterStatus {
+    configured: boolean;
+    viewerProfileId?: ViewerProfileId;
+    account?: TwitterAccountInfo;
+}
+
+export interface TwitterTweet {
+    source?: 'twitter' | 'bluesky' | 'misskey';
+    id: string;
+    url: string;
+    text: string;
+    authorName: string;
+    authorScreenName: string;
+    authorIconUrl?: string;
+    createdAt?: UnixtimeMS;
+    imageUrls: string[];
+    replyCount: number;
+    retweetCount: number;
+    likeCount: number;
+    retweeted: boolean;
+    liked: boolean;
+}
+
+export interface TwitterTimeline {
+    tweets: TwitterTweet[];
+    refreshedAt: UnixtimeMS;
+}
+
+export interface BlueskyAccountInfo {
+    name: string;
+    handle: string;
+    did: string;
+    iconUrl?: string;
+}
+
+export interface BlueskyStatus {
+    configured: boolean;
+    viewerProfileId?: ViewerProfileId;
+    account?: BlueskyAccountInfo;
+}
+
+export type MisskeyVisibility = 'public' | 'home' | 'followers';
+
+export interface MisskeyAccountInfo {
+    name: string;
+    username: string;
+    userId: string;
+    instance: string;
+    iconUrl?: string;
+}
+
+export interface MisskeyStatus {
+    configured: boolean;
+    viewerProfileId?: ViewerProfileId;
+    visibility?: MisskeyVisibility;
+    account?: MisskeyAccountInfo;
+}
+
+export interface MisskeyAuthorizationStart {
+    sessionId: string;
+    authorizationUrl: string;
+    expiresAt: UnixtimeMS;
+}
+
+export interface MisskeyAuthorizationCheck {
+    completed: boolean;
+    status?: MisskeyStatus;
+}
+
+export interface ViewerProfile {
+    id: ViewerProfileId;
+    name: string;
+    tvUserId?: UserId;
+    annictConfigured: boolean;
+    lockRequired: boolean;
+    recoveryCodeConfigured: boolean;
+    /** @deprecated lockRequiredを使用してください */
+    pinRequired: boolean;
+    createdAt: UnixtimeMS;
+}
+
+export interface ViewerProfiles {
+    profiles: ViewerProfile[];
+}
+
+export interface CreateViewerProfileOption {
+    password?: string;
+    /** @deprecated passwordを使用してください */
+    pin?: string;
+    tvUserId: UserId;
+}
+
+export interface UnlockViewerProfileOption {
+    password: string;
+    /** @deprecated passwordを使用してください */
+    pin?: string;
+}
+
+export interface ViewerProfileSession {
+    sessionToken: string;
+    recoveryCode?: string;
+}
+
+export interface ViewerProfileRecoveryCode {
+    recoveryCode: string;
+}
+
+export type AnnictViewerStatusKind = 'wanna_watch' | 'watching' | 'watched' | 'on_hold' | 'stop_watching' | 'no_select';
+
+export interface AnnictViewerStatus {
+    annictId: number;
+    kind: AnnictViewerStatusKind;
+}
+
+export interface AnnictViewerStatuses {
+    statuses: AnnictViewerStatus[];
+}
+
+export type AnnictRecordedEpisodeState = 'unlinked' | 'pending' | 'matched';
+
+export type AnnictRecordedEpisodePendingReason =
+    'not_checked' | 'program_not_found' | 'program_ambiguous' | 'episode_unavailable' | 'annict_unavailable';
+
+export interface AnnictRecordedEpisodeInfo {
+    state: AnnictRecordedEpisodeState;
+    annictId?: number;
+    programAnnictId?: number;
+    episodeAnnictId?: number;
+    episodeNumber?: number;
+    episodeNumberText?: string;
+    episodeTitle?: string;
+    pendingReason?: AnnictRecordedEpisodePendingReason;
+    lastCheckedAt?: UnixtimeMS;
+    viewerProfileId?: ViewerProfileId;
+    writeConfigured: boolean;
+    watched: boolean;
+    canUnwatch: boolean;
+}
+
+export interface AnnictEpisodeWatchOption {
+    markWorkWatchedOnFinalEpisode: boolean;
+    disableRulesOnFinalEpisode: boolean;
+}
+
+export interface RecordedPlayback {
+    position: number;
+    duration: number;
+    watchedSeconds: number;
+    updatedAt?: UnixtimeMS;
+}
+
+export interface UpdateRecordedPlaybackOption {
+    position: number;
+    duration: number;
+    watchedSecondsDelta: number;
+    observedAt: UnixtimeMS;
+    historyLimit?: number;
+}
+
+export interface RecordedPlaybackHistoryItem {
+    recorded: RecordedItem;
+    playback: RecordedPlayback;
+}
+
+export interface RecordedPlaybackHistory {
+    items: RecordedPlaybackHistoryItem[];
+}
+
+export interface RecordedPlaybackHistorySettings {
+    enabled: boolean;
+}
+
+export interface RecordedListPosition {
+    page: number;
+    userId?: UserId;
+}
+
+export interface AnnictLocalChannel {
+    id: ChannelId;
+    name: string;
+    channelType: ChannelType;
+}
+
+export interface AnnictWorkSummary {
+    annictId: number;
+    title: string;
+    titleKana?: string;
+    seasonName?: string;
+    seasonYear?: number;
+    media?: string;
+    imageUrl?: string;
+    malAnimeId?: string;
+    watchersCount?: number;
+    releasedOn?: string;
+    releasedOnAbout?: string;
+    firstProgramStartedAt?: string;
+}
+
+export interface AnnictWorkList {
+    season: string;
+    works: AnnictWorkSummary[];
+    rerun?: boolean;
+    cachedAt: number;
+    stale: boolean;
+}
+
+export interface AnnictProgram {
+    annictId: number;
+    startedAt: string;
+    channelAnnictId?: number;
+    channelName: string;
+    episodeNumber?: number;
+    episodeNumberText?: string;
+    episodeTitle?: string;
+    episodeNumberEstimated?: boolean;
+    firstBroadcast?: boolean;
+    rebroadcast: boolean;
+    localChannels: AnnictLocalChannel[];
+}
+
+export interface AnnictCast {
+    annictId: number;
+    name: string;
+    characterName?: string;
+    personName?: string;
+}
+
+export interface AnnictStaff {
+    annictId: number;
+    name: string;
+    role?: string;
+}
+
+export interface AnnictWorkDetail extends AnnictWorkSummary {
+    titleEn?: string;
+    synopsis?: string;
+    synopsisSource?: string;
+    releasedOn?: string;
+    releasedOnAbout?: string;
+    officialSiteUrl?: string;
+    officialSiteUrlEn?: string;
+    twitterUsername?: string;
+    twitterHashtag?: string;
+    wikipediaUrl?: string;
+    wikipediaUrlEn?: string;
+    syobocalTid?: number;
+    casts: AnnictCast[];
+    staffs: AnnictStaff[];
+    programs: AnnictProgram[];
+    programsError?: string;
+    cachedAt: number;
+    stale: boolean;
+}
+
 export interface ChannelJikkyoInfo {
     jikkyoId: string | null;
     watchSessionUrl: string | null;
     commentSessionUrl: string | null;
+    nicoliveWatchSessionError?: string | null;
+    canPost?: boolean;
+    postingTarget?: 'nicolive' | 'nx-jikkyo' | null;
+}
+
+export interface ChannelJikkyoStatus {
+    channelId: ChannelId;
+    jikkyoId: string | null;
+    force: number | null;
+}
+
+export interface NiconicoAccountInfo {
+    userId: string;
+    name: string;
+    isPremium: boolean;
+}
+
+export interface NiconicoStatus {
+    configured: boolean;
+    viewerProfileId?: ViewerProfileId;
+    account?: NiconicoAccountInfo;
+}
+
+export interface NiconicoLoginOption {
+    cookiesText: string;
+}
+
+export interface NiconicoLoginResult {
+    status: 'connected';
+    account?: NiconicoAccountInfo;
+}
+
+export interface NiconicoCommentOption {
+    channelId: ChannelId;
+    text: string;
+    color: string;
+    position: JikkyoCommentPosition;
+    size: JikkyoCommentSize;
+}
+
+export type DiscordNotificationEvent =
+    'recording_start' | 'recording_finish' | 'recording_failed' | 'encode_finish' | 'encode_failed';
+
+export interface DiscordNotificationDestination {
+    id: string;
+    name: string;
+    username: string;
+    configured: boolean;
+}
+
+export interface DiscordNotificationCondition {
+    dropMin?: number;
+    dropMax?: number;
+    errorMin?: number;
+    errorMax?: number;
+    scramblingMin?: number;
+    scramblingMax?: number;
+}
+
+export interface DiscordNotificationRule {
+    id: string;
+    name: string;
+    enabled: boolean;
+    event: DiscordNotificationEvent;
+    destinationId: string;
+    message: string;
+    condition?: DiscordNotificationCondition;
+}
+
+export interface DiscordNotificationSettings {
+    enabled: boolean;
+    destinations: DiscordNotificationDestination[];
+    rules: DiscordNotificationRule[];
+}
+
+export interface UpdateDiscordNotificationDestination {
+    id: string;
+    name: string;
+    username: string;
+    webhookUrl?: string;
+    clearWebhook?: boolean;
+}
+
+export interface UpdateDiscordNotificationSettings {
+    enabled: boolean;
+    destinations: UpdateDiscordNotificationDestination[];
+    rules: DiscordNotificationRule[];
+}
+
+export interface TestDiscordNotificationOption {
+    destinationId: string;
 }
 
 export type JikkyoCommentPosition = 'top' | 'right' | 'bottom';
@@ -253,6 +611,7 @@ export interface BroadcastStatus {
 export interface Rule extends AddRuleOption {
     id: RuleId;
     reservesCnt?: number;
+    annictId?: number;
 }
 
 export interface RuleKeywordItem {
@@ -483,6 +842,34 @@ export interface VideoPreparedSubtitle {
     subtitleText?: string;
 }
 
+export interface SubtitleTransferOption {
+    sourceVideoFileId: VideoFileId;
+    subtitleIndex: number;
+    title: string;
+}
+
+export interface SubtitleRenameOption {
+    title: string;
+}
+
+export interface SubtitleReorderOption {
+    subtitleIndices: number[];
+}
+
+export type SubtitleTransferTaskStatus = 'running' | 'completed' | 'failed';
+
+export interface SubtitleTransferTask {
+    id: string;
+    sourceVideoFileId: VideoFileId;
+    targetVideoFileId: VideoFileId;
+    subtitleIndex: number;
+    title: string;
+    status: SubtitleTransferTaskStatus;
+    error?: string;
+    createdAt: UnixtimeMS;
+    updatedAt: UnixtimeMS;
+}
+
 export interface DropLogFile {
     id: DropLogFileId;
     errorCnt: number;
@@ -550,6 +937,25 @@ export interface UpdateUserOption {
 
 export interface UpdateRecordedUserOption {
     userId: UserId;
+}
+
+export interface BulkUpdateRecordedUserOption {
+    recordedIds: RecordedId[];
+    userId: UserId;
+}
+
+export interface MoveRecordedSubDirectoryOption {
+    recordedIds: RecordedId[];
+    subDirectory: string;
+}
+
+export interface RecordedSubDirectories {
+    directories: string[];
+}
+
+export interface BulkRecordedOperationResult {
+    updatedCount: number;
+    movedFileCount: number;
 }
 
 /**
@@ -651,6 +1057,7 @@ export interface Config {
     isEnableTSLiveStream: boolean;
     isEnableTSRecordedStream: boolean;
     isEnableEncodedRecordedStream: boolean;
+    developerMode?: boolean;
     streamConfig?: {
         live?: {
             ts?: {
@@ -794,6 +1201,11 @@ export interface EncodeInfo {
     waitItems: EncodeProgramItem[]; // エンコード待ち
 }
 
+export interface EncodeQueueOrderOption {
+    encodeIds: EncodeId[];
+    expectedEncodeIds: EncodeId[];
+}
+
 export interface EncodeProgramItem {
     id: EncodeId;
     mode: string;
@@ -841,11 +1253,16 @@ export interface RecordedStreanOption {
     videoFileId: VideoFileId;
     playPosition: number; // 再生位置 (秒)
     mode: number; // config 設定
+    vodSessionId?: string; // VOD HLS 視聴クライアント識別子
     quality?: string;
     encoder?: 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
     isHevc?: boolean;
     subtitleIndex?: number;
     subtitleFileKey?: string;
+    subtitleSize?: number;
+    subtitleOpacity?: number;
+    subtitleOutlineSize?: number;
+    subtitleOutlineOpacity?: number;
 }
 /**
  * ライブストリーム情報
@@ -925,6 +1342,138 @@ export interface DiskUsage {
  */
 export interface StorageItem extends DiskUsage {
     name: string;
+    breakdown: StorageBreakdown;
+}
+
+export interface StorageBreakdown {
+    recorded: number;
+    dropLogs: number;
+    thumbnails: number;
+    other: number;
+}
+
+export interface SystemCpuInfo {
+    model: string;
+    logicalCores: number;
+    usagePercent: number;
+}
+
+export interface SystemMemoryInfo extends DiskUsage {
+    usagePercent: number;
+}
+
+export interface SystemGpuInfo {
+    name: string;
+    usagePercent?: number;
+    memoryTotal?: number;
+    memoryUsed?: number;
+}
+
+export interface SystemProcessInfo {
+    pid: number;
+    uptime: number;
+    memoryUsed: number;
+}
+
+export interface SystemResourceInfo {
+    hostname: string;
+    platform: string;
+    arch: string;
+    uptime: number;
+    sampledAt: number;
+    cpu: SystemCpuInfo;
+    memory: SystemMemoryInfo;
+    process: SystemProcessInfo;
+}
+
+export interface SystemGpuList {
+    items: SystemGpuInfo[];
+    sampledAt: number;
+}
+
+export type SystemStorageVolumeType = 'fixed' | 'removable' | 'network' | 'other';
+
+export interface SystemStorageVolume extends DiskUsage {
+    id: string;
+    name: string;
+    path: string;
+    type: SystemStorageVolumeType;
+}
+
+export interface SystemStorageVolumeList {
+    items: SystemStorageVolume[];
+    sampledAt: number;
+}
+
+export type SystemLogSource = 'Operator' | 'Service' | 'EPGUpdater';
+export type SystemLogCategory = 'system' | 'access' | 'stream' | 'encode';
+
+export interface SystemLogInfo {
+    source: SystemLogSource;
+    category: SystemLogCategory;
+    fileName: string;
+    exists: boolean;
+    size: number;
+    updatedAt?: number;
+    lines: string[];
+    truncated: boolean;
+}
+
+export interface SystemMirakurunChannel {
+    type: ChannelType;
+    channel: string;
+    name?: string;
+}
+
+export interface SystemMirakurunTunerUser {
+    id: string;
+    priority: number;
+    agent?: string;
+    url?: string;
+    channel?: SystemMirakurunChannel;
+    networkId?: number;
+    serviceId?: number;
+    eventId?: number;
+    packetCount: number;
+    dropCount: number;
+}
+
+export interface SystemMirakurunTuner {
+    index: number;
+    name: string;
+    types: ChannelType[];
+    pid: number;
+    isAvailable: boolean;
+    isRemote: boolean;
+    isFree: boolean;
+    isUsing: boolean;
+    isFault: boolean;
+    users: SystemMirakurunTunerUser[];
+}
+
+export interface SystemMirakurunInfo {
+    connected: boolean;
+    sampledAt: number;
+    responseTimeMs: number;
+    version?: string;
+    error?: string;
+    epg?: {
+        gatheringNetworks: number[];
+        storedEvents: number;
+    };
+    streamCount?: {
+        tunerDevice: number;
+        tsFilter: number;
+        decoder: number;
+    };
+    errorCount?: {
+        uncaughtException: number;
+        unhandledRejection: number;
+        bufferOverflow: number;
+        tunerDeviceRespawn: number;
+        decoderRespawn: number;
+    };
+    tuners: SystemMirakurunTuner[];
 }
 
 /**
@@ -932,6 +1481,7 @@ export interface StorageItem extends DiskUsage {
  */
 export interface StorageInfo {
     items: StorageItem[];
+    system: SystemResourceInfo;
 }
 
 /**

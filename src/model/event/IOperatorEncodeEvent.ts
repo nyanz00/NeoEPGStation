@@ -13,6 +13,7 @@ export interface OperatorErrorEncodeInfo {
     recordedId: apid.RecordedId;
     videoFileId: apid.VideoFileId;
     mode: string;
+    encoderMessage?: string;
 }
 
 export default interface IOperatorEncodeEvent {

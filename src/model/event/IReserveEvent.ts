@@ -5,6 +5,7 @@ export interface IReserveUpdateValues {
     update?: Reserve[];
     delete?: Reserve[];
     isSuppressLog: boolean;
+    preserveActiveRecordings?: boolean;
 }
 
 export default interface IReserveEvent {

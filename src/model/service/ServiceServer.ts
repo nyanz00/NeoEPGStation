@@ -8,10 +8,12 @@ import * as https from 'https';
 import { inject, injectable } from 'inversify';
 import * as yaml from 'js-yaml';
 import * as log4js from 'log4js';
+import { createRequire } from 'module';
 import { mkdirp } from 'mkdirp';
 import multer from 'multer';
 import { OpenAPIV3 } from 'openapi-types';
 import * as path from 'path';
+import * as swaggerdist from 'swagger-ui-dist';
 import urljoin from 'url-join';
 import FileUtil from '../../util/FileUtil';
 import IConfigFile from '../IConfigFile';
@@ -20,9 +22,7 @@ import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
 import IServiceServer from './IServiceServer';
 import ISocketIOManageModel from './socketio/ISocketIOManageModel';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const swaggerdist = require('swagger-ui-dist');
+import TailscaleCertificateManager, { TailscaleCertificate } from './TailscaleCertificateManager';
 
 @injectable()
 class ServiceServer implements IServiceServer {
@@ -30,6 +30,9 @@ class ServiceServer implements IServiceServer {
     private config: IConfigFile;
     private socketIoManageModel: ISocketIOManageModel;
     private app = express();
+    private apiInitialization!: Promise<unknown>;
+    private tailscaleCertificateManager: TailscaleCertificateManager | null = null;
+    private tailscaleHttpsServers: https.Server[] = [];
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -55,7 +58,7 @@ class ServiceServer implements IServiceServer {
         }
         this.setSwaggerUI();
         this.createUploadDir();
-        this.initOpenApi(api);
+        this.apiInitialization = this.initOpenApi(api);
         this.setMime();
         this.setStaticFiles();
     }
@@ -84,7 +87,7 @@ class ServiceServer implements IServiceServer {
 
         // set title and version
         const pkg = <any>JSON.parse(fs.readFileSync(ServiceServer.PACKAGE_JSON, 'utf-8'));
-        api.info.title = pkg.name;
+        api.info.title = 'NeoEPGStation';
         api.info.version = pkg.version;
 
         return api;
@@ -94,8 +97,8 @@ class ServiceServer implements IServiceServer {
      * Open Api 設定
      * @param api: OpenAPIV3.Document
      */
-    private initOpenApi(api: OpenAPIV3.Document): void {
-        openapi.initialize({
+    private initOpenApi(api: OpenAPIV3.Document): Promise<unknown> {
+        return openapi.initialize({
             apiDoc: api,
             app: this.app,
             docsPath: '/docs',
@@ -119,8 +122,37 @@ class ServiceServer implements IServiceServer {
                 };
             },
             exposeApiDocs: true,
-            paths: ServiceServer.API_DIR,
+            paths: this.getApiRoutes(ServiceServer.API_DIR),
         });
+    }
+
+    /**
+     * API operation filesをURLへ変換する。
+     *
+     * fs-routesがglob 13と組み合わされたWindows環境では、ネストした
+     * routeにOSのパス区切り文字 (`\\`) が残る。Expressへ渡す前に
+     * アプリ側で列挙し、URLの区切り文字 (`/`) へ正規化する。
+     */
+    private getApiRoutes(apiDir: string): Array<{ path: string; module: unknown }> {
+        const routes: Array<{ path: string; module: unknown }> = [];
+        const loadModule = createRequire(__filename);
+        const visit = (directory: string): void => {
+            for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+                const filePath = path.join(directory, entry.name);
+                if (entry.isDirectory()) {
+                    visit(filePath);
+                } else if (entry.isFile() && entry.name.endsWith('.js')) {
+                    const relativePath = path.relative(apiDir, filePath).split(path.sep).join('/');
+                    routes.push({
+                        path: `/${relativePath.replace(/(?:index)?\.js$/, '')}`,
+                        module: loadModule(filePath),
+                    });
+                }
+            }
+        };
+
+        visit(apiDir);
+        return routes;
     }
 
     /**
@@ -262,8 +294,9 @@ class ServiceServer implements IServiceServer {
     /**
      * http server 起動
      */
-    public start(): void {
-        const sokcetioServers: http.Server[] = [];
+    public async start(): Promise<void> {
+        await this.apiInitialization;
+        const socketioServers: http.Server[] = [];
 
         // http
         if (typeof this.config.port !== 'undefined') {
@@ -276,14 +309,14 @@ class ServiceServer implements IServiceServer {
 
             // socket.io
             if (socketioPort === this.config.port) {
-                sokcetioServers.push(server);
+                socketioServers.push(server);
             } else {
                 const socketIOServer = http.createServer();
                 socketIOServer.listen(this.config.socketioPort, () => {
                     this.log.system.info(`http SocketIO listening on ${this.config.socketioPort}`);
                 });
 
-                sokcetioServers.push(socketIOServer);
+                socketioServers.push(socketIOServer);
             }
         }
 
@@ -314,17 +347,110 @@ class ServiceServer implements IServiceServer {
 
             // socket.io
             if (typeof this.config.https.socketioPort === 'undefined') {
-                sokcetioServers.push(httpsServer);
+                socketioServers.push(httpsServer);
             } else {
                 const socketIOServer = https.createServer(option);
-                sokcetioServers.push(socketIOServer);
+                socketioServers.push(socketIOServer);
                 socketIOServer.listen(this.config.https.socketioPort, () => {
                     this.log.system.info(`https SocketIO listening on ${this.config.socketioPort}`);
                 });
             }
         }
 
-        this.socketIoManageModel.initialize(sokcetioServers);
+        // Tailscale の証明書取得には時間がかかる場合があるため、既存の
+        // HTTP/HTTPS 用 Socket.IO は先に利用可能な状態にする。
+        this.socketIoManageModel.initialize(socketioServers);
+
+        if (this.config.tailscaleHttps?.enabled === true) {
+            this.tailscaleCertificateManager = new TailscaleCertificateManager(
+                this.config.tailscaleHttps,
+                this.log,
+                ServiceServer.ROOT_DIR,
+            );
+            try {
+                const certificate = await this.tailscaleCertificateManager.initialize();
+                const servers = this.createTailscaleHttpsServers(certificate);
+                this.tailscaleHttpsServers = servers.all;
+                this.socketIoManageModel.initialize(servers.socketio);
+            } catch (err: any) {
+                this.log.system.error('Tailscale HTTPS could not be started');
+                this.log.system.error(err);
+                if (typeof this.config.port === 'undefined') {
+                    throw err;
+                }
+            }
+
+            this.tailscaleCertificateManager.start(certificate => {
+                if (this.tailscaleHttpsServers.length === 0) {
+                    try {
+                        const servers = this.createTailscaleHttpsServers(certificate);
+                        this.tailscaleHttpsServers = servers.all;
+                        this.socketIoManageModel.initialize(servers.socketio);
+                    } catch (err: any) {
+                        this.log.system.error('Tailscale HTTPS could not be started after certificate acquisition');
+                        this.log.system.error(err);
+                    }
+                    return;
+                }
+
+                try {
+                    for (const server of this.tailscaleHttpsServers) {
+                        server.setSecureContext({
+                            cert: certificate.cert,
+                            key: certificate.key,
+                        });
+                    }
+                    this.log.system.info(
+                        `Tailscale HTTPS certificate activated for ${certificate.hostname}, valid until ${certificate.validTo.toISOString()}`,
+                    );
+                } catch (err: any) {
+                    this.log.system.error('Failed to activate the renewed Tailscale HTTPS certificate');
+                    this.log.system.error(err);
+                }
+            });
+        }
+    }
+
+    private createTailscaleHttpsServers(certificate: TailscaleCertificate): {
+        all: https.Server[];
+        socketio: https.Server[];
+    } {
+        if (this.config.tailscaleHttps?.enabled !== true) {
+            throw new Error('TailscaleHttpsIsNotEnabled');
+        }
+
+        const option: https.ServerOptions = {
+            cert: certificate.cert,
+            key: certificate.key,
+        };
+        const all: https.Server[] = [];
+        const socketio: https.Server[] = [];
+        const httpsServer = https.createServer(option, this.app);
+        all.push(httpsServer);
+        httpsServer.listen(this.config.tailscaleHttps.port, () => {
+            if (this.config.tailscaleHttps?.enabled === true) {
+                this.log.system.info(
+                    `Tailscale https server listening on ${this.config.tailscaleHttps.port.toString(10)} for ${certificate.hostname}`,
+                );
+            }
+        });
+
+        if (typeof this.config.tailscaleHttps.socketioPort === 'undefined') {
+            socketio.push(httpsServer);
+        } else {
+            const socketIOServer = https.createServer(option);
+            all.push(socketIOServer);
+            socketio.push(socketIOServer);
+            socketIOServer.listen(this.config.tailscaleHttps.socketioPort, () => {
+                if (this.config.tailscaleHttps?.enabled === true) {
+                    this.log.system.info(
+                        `Tailscale https SocketIO listening on ${this.config.tailscaleHttps.socketioPort?.toString(10)}`,
+                    );
+                }
+            });
+        }
+
+        return { all, socketio };
     }
 }
 

@@ -9,6 +9,17 @@ export interface HttpsConfig {
     socketioPort?: number;
 }
 
+export interface TailscaleHttpsConfig {
+    enabled: boolean;
+    port: number;
+    socketioPort?: number;
+    hostname?: string;
+    tailscalePath?: string;
+    certificateDirectory?: string;
+    renewBeforeDays?: number;
+    checkIntervalHours?: number;
+}
+
 export interface RecordedDirInfo {
     name: string;
     path: string;
@@ -95,6 +106,7 @@ export default interface IConfigFile {
     socketioPort?: number;
     clientSocketioPort?: number;
     https?: HttpsConfig;
+    tailscaleHttps?: TailscaleHttpsConfig;
     mirakurunPath: string;
 
     subDirectory?: string;
@@ -140,6 +152,9 @@ export default interface IConfigFile {
     // 放送局除外設定
     excludeChannels?: apid.ChannelId[];
     excludeSids?: apid.ServiceId[];
+
+    // 開発者向け設定を Web UI に表示する
+    developerMode?: boolean;
 
     // priority 設定
     recPriority: number;

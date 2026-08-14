@@ -39,19 +39,33 @@ class ExecutionManagementModel implements IExecutionManagementModel {
         this.exeQueue.splice(position, 0, exeQueueData);
 
         return new Promise<string>((resolve: (value: string) => void, reject: (err: Error) => void) => {
+            let isSettled = false;
+
             // タイムアウト設定
             const timerId = setTimeout(() => {
+                if (isSettled === true) {
+                    return;
+                }
+                isSettled = true;
                 this.log.system.error(`get execution error: ${priority}`);
                 // listener から削除
                 this.exeEventEmitter.removeListener(ExecutionManagementModel.UNLOCK_EVENT, onDone);
+
+                // タイムアウトした要求を queue に残すと、後からこの id が lockId に
+                // なったまま解除する呼び出し元が存在せず、以降の処理が停止する。
+                const queueIndex = this.exeQueue.findIndex(queue => queue.id === exeQueueData.id);
+                if (queueIndex !== -1) {
+                    this.exeQueue.splice(queueIndex, 1);
+                }
 
                 reject(new Error('GetExecutionTimeoutError'));
             }, timeout);
 
             const onDone = (id: string) => {
-                if (id !== exeQueueData.id) {
+                if (id !== exeQueueData.id || isSettled === true) {
                     return;
                 }
+                isSettled = true;
 
                 // タイマー停止
                 clearTimeout(timerId);

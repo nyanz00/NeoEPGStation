@@ -10,6 +10,9 @@ const parseWatchEncoder = (encoder: any): 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCE
 };
 
 const parseBoolean = (value: unknown): boolean | undefined => {
+    if (typeof value === 'boolean') {
+        return value;
+    }
     if (value === 'true' || value === '1') {
         return true;
     }
@@ -21,13 +24,21 @@ const parseBoolean = (value: unknown): boolean | undefined => {
 };
 
 const parseOptionalInteger = (value: unknown): number | undefined => {
+    if (typeof value === 'number') {
+        return Number.isSafeInteger(value) ? value : undefined;
+    }
     if (typeof value !== 'string' || value.length === 0) {
         return undefined;
     }
 
-    const parsed = parseInt(value, 10);
+    const parsed = Number(value);
 
-    return Number.isNaN(parsed) === true ? undefined : parsed;
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+};
+
+const parsePercent = (value: unknown, minimum: number, maximum: number): number | undefined => {
+    const parsed = parseOptionalInteger(value);
+    return typeof parsed === 'number' && parsed >= minimum && parsed <= maximum ? parsed : undefined;
 };
 
 export const get: Operation = async (req, res) => {
@@ -53,13 +64,18 @@ export const get: Operation = async (req, res) => {
         result = await streamApiModel.createRecordedVODHLSSegmentStream(
             {
                 videoFileId: parseInt(req.params.videoFileId, 10),
-                playPosition: parseInt(req.query.ss as string, 10),
+                playPosition: parseFloat(req.query.ss as string),
                 mode: parseInt(req.query.mode as string, 10),
+                vodSessionId: typeof req.query.vodSessionId === 'string' ? req.query.vodSessionId : undefined,
                 quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
                 encoder: parseWatchEncoder(req.query.encoder),
                 isHevc: parseBoolean(req.query.hevc),
                 subtitleIndex: parseOptionalInteger(req.query.subtitleIndex),
                 subtitleFileKey: typeof req.query.subtitleFileKey === 'string' ? req.query.subtitleFileKey : undefined,
+                subtitleSize: parsePercent(req.query.subtitleSize, 50, 250),
+                subtitleOpacity: parsePercent(req.query.subtitleOpacity, 10, 300),
+                subtitleOutlineSize: parsePercent(req.query.subtitleOutlineSize, 0, 300),
+                subtitleOutlineOpacity: parsePercent(req.query.subtitleOutlineOpacity, 0, 300),
             },
             parseInt(req.params.sequence, 10),
         );
@@ -114,6 +130,12 @@ get.apiDoc = {
             $ref: '#/components/parameters/StreamMode',
         },
         {
+            name: 'vodSessionId',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', maxLength: 128 },
+        },
+        {
             $ref: '#/components/parameters/WatchStreamQuality',
         },
         {
@@ -129,6 +151,30 @@ get.apiDoc = {
             schema: {
                 type: 'integer',
             },
+        },
+        {
+            name: 'subtitleSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 50, maximum: 250, default: 100 },
+        },
+        {
+            name: 'subtitleOpacity',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 10, maximum: 300, default: 100 },
+        },
+        {
+            name: 'subtitleOutlineSize',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 0, maximum: 300, default: 100 },
+        },
+        {
+            name: 'subtitleOutlineOpacity',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 0, maximum: 300, default: 100 },
         },
     ],
     responses: {

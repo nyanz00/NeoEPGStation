@@ -22,6 +22,7 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
     const queryClient = useQueryClient();
 
     useEffect(() => {
+        onConnectionChange(false);
         const options = {
             path: withBasePath('/socket.io'),
             timeout: 3_000,
@@ -30,17 +31,31 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
         let socket: Socket = target === undefined ? io(options) : io(target, options);
 
         const invalidateStatus = (): void => {
-            const statusRoots = new Set(['recording', 'recorded', 'reserves', 'reserve-counts', 'encode']);
+            const statusRoots = new Set([
+                'onair',
+                'recording',
+                'recorded',
+                'recorded-detail',
+                'reserves',
+                'reserve-counts',
+                'reserve-lists',
+                'rules',
+                'encode',
+                'storages',
+                'system',
+            ]);
             void queryClient.invalidateQueries({
                 predicate: query => statusRoots.has(String(query.queryKey[0])),
             });
         };
         const connect = (): void => onConnectionChange(true);
         const disconnect = (): void => onConnectionChange(false);
+        const connectError = (): void => onConnectionChange(false);
 
         const bind = (nextSocket: Socket): void => {
             nextSocket.on('connect', connect);
             nextSocket.on('disconnect', disconnect);
+            nextSocket.on('connect_error', connectError);
             nextSocket.on('updateStatus', invalidateStatus);
             nextSocket.on('updateEncode', invalidateStatus);
         };
@@ -49,6 +64,7 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
         if (target !== undefined) {
             socket.once('connect_error', () => {
                 socket.close();
+                onConnectionChange(false);
                 socket = io(options);
                 bind(socket);
             });

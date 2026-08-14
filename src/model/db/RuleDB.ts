@@ -585,20 +585,13 @@ export default class RuleDB implements IRuleDB {
         }
 
         if (option.hasReserve === true) {
-            const reserveQuery = connection
-                .createQueryBuilder()
-                .subQuery()
-                .select('1')
-                .from(Reserve, 'reserve')
-                .where('reserve.ruleId = rule.id');
+            queryBuilder = queryBuilder.innerJoin(Reserve, 'reserve', 'reserve.ruleId = rule.id').distinct(true);
             if (typeof option.userId !== 'undefined') {
-                reserveQuery.andWhere('reserve.userId = :userId');
+                queryBuilder = queryBuilder.andWhere('reserve.userId = :reserveUserId', {
+                    reserveUserId: option.userId,
+                });
             }
-            this.setReserveTypeQuery(reserveQuery, option.type);
-
-            queryBuilder = queryBuilder
-                .andWhere(`exists (${reserveQuery.getQuery()})`)
-                .setParameters(reserveQuery.getParameters());
+            this.setReserveTypeQuery(queryBuilder, option.type);
         }
 
         // offset

@@ -1,4 +1,5 @@
 import { Operation } from 'express-openapi';
+import IAnnictApiModel from '../../../../api/annict/IAnnictApiModel';
 import IRuleApiModel from '../../../../api/rule/IRuleApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';
@@ -7,7 +8,11 @@ export const put: Operation = async (req, res) => {
     const ruleApiModel = container.get<IRuleApiModel>('IRuleApiModel');
 
     try {
-        await ruleApiModel.disable(parseInt(req.params.ruleId, 10));
+        const ruleId = parseInt(req.params.ruleId, 10);
+        await ruleApiModel.disable(ruleId);
+        if (req.query.syncAnnictStopWatching !== 'false') {
+            await container.get<IAnnictApiModel>('IAnnictApiModel').syncDisabledRule(ruleId);
+        }
 
         api.responseJSON(res, 200, { code: 200 });
     } catch (err: any) {
@@ -22,6 +27,13 @@ put.apiDoc = {
     parameters: [
         {
             $ref: '#/components/parameters/PathRuleId',
+        },
+        {
+            name: 'syncAnnictStopWatching',
+            in: 'query',
+            required: false,
+            description: 'Annict経由の最後の有効ルールなら作品を「中止」にする',
+            schema: { type: 'boolean', default: true },
         },
     ],
     responses: {

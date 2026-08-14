@@ -34,11 +34,14 @@ interface EncodedVodHlsSegmentCommandOption extends RecordedVodHlsSegmentCommand
     subtitleIndex?: number;
 }
 
-interface EncodedVodHlsContinuousCommandOption extends Omit<RecordedVodHlsSegmentCommandOption, 'start' | 'duration'> {
+interface EncodedVodHlsContinuousCommandOption extends Omit<RecordedVodHlsSegmentCommandOption, 'duration'> {
     input: string;
+    inputVideoCodec?: string;
+    inputPixelFormat?: string;
     playlistPath: string;
     segmentDuration: number;
     segmentPath: string;
+    startSequence: number;
     subtitlePath?: string;
 }
 
@@ -360,7 +363,7 @@ namespace WatchStreamProfileUtil {
 
     export const buildRecordedVodHlsContinuousCommand = (
         config: IConfigFile,
-        option: Omit<RecordedVodHlsSegmentCommandOption, 'start' | 'duration'>,
+        option: Omit<RecordedVodHlsSegmentCommandOption, 'duration'>,
     ): string => {
         const qualityName = option.qualityName ?? getRecordedDisplayQualityNames(config)[0];
         if (typeof qualityName === 'undefined') {
@@ -375,6 +378,7 @@ namespace WatchStreamProfileUtil {
                 encoder,
                 quality,
                 config.watch,
+                option.start,
             );
         }
 
@@ -397,6 +401,7 @@ namespace WatchStreamProfileUtil {
             `-c:a aac -ar 48000 -b:a ${quality.audioBitrate} -ac 2`,
             '-c:d copy',
             videoOptions,
+            `-output_ts_offset ${Math.max(0, option.start).toFixed(3)}`,
             '-muxdelay 0 -muxpreload 0 -y -f mpegts pipe:1',
         ].join(' ');
     };
@@ -414,7 +419,7 @@ namespace WatchStreamProfileUtil {
         const encoder = getEncoder(config, option.encoder);
         const videoCodec = getFFmpegVideoCodec(encoder, quality);
         const escapedInput = option.input.replace(/"/g, '\\"');
-        const videoFilter = buildEncodedVideoFilter(option.input, quality, option.subtitleIndex);
+        const videoFilter = buildEncodedVideoFilter(option.input, quality, option.subtitleIndex, option.start);
         const videoOptions = [
             `-c:v ${videoCodec}`,
             `-vf ${videoFilter}`,
@@ -452,15 +457,26 @@ namespace WatchStreamProfileUtil {
         const quality = getQualityForRequest(config.watch, qualityName, option.isHevc);
         const encoder = getEncoder(config, option.encoder);
         const videoCodec = getFFmpegVideoCodec(encoder, quality);
-        const videoFilter = buildEncodedVideoFilter(option.subtitlePath, quality);
+        const hardwareDecode = getHardwareDecodeConfig(encoder, option.inputVideoCodec, option.inputPixelFormat);
+        const videoFilter = buildEncodedVideoFilter(
+            option.subtitlePath,
+            quality,
+            undefined,
+            option.start,
+            hardwareDecode?.filterType,
+        );
         const args = [
             '-hide_banner',
             '-loglevel',
             'warning',
+            ...(hardwareDecode?.globalOptions ?? []),
             '-dual_mono_mode',
             'main',
             '-fflags',
             '+genpts',
+            '-ss',
+            Math.max(0, option.start).toFixed(3),
+            ...(hardwareDecode?.inputOptions ?? []),
             '-i',
             option.input,
             '-map',
@@ -508,6 +524,10 @@ namespace WatchStreamProfileUtil {
             'mpegts',
             '-hls_flags',
             'independent_segments',
+            '-start_number',
+            option.startSequence.toString(10),
+            '-output_ts_offset',
+            Math.max(0, option.start).toFixed(3),
             '-hls_segment_filename',
             option.segmentPath,
             '-y',
@@ -546,9 +566,29 @@ namespace WatchStreamProfileUtil {
         subtitleSource: string | undefined,
         quality: WatchQuality,
         subtitleIndex?: number,
+        subtitleTimeOffset = 0,
+        hardwareFilter?: HardwareFilterType,
     ): string => {
         const filters: string[] = [];
+        const hardwareScale =
+            hardwareFilter === 'qsv'
+                ? `scale_qsv=w=${quality.width}:h=${quality.height}:format=nv12`
+                : hardwareFilter === 'cuda'
+                  ? `scale_cuda=w=${quality.width}:h=${quality.height}:format=nv12`
+                  : undefined;
+        if (typeof subtitleSource !== 'undefined' && typeof hardwareScale !== 'undefined') {
+            // Resize and convert on the GPU first. libass still needs a software
+            // frame, but downloading the final-size NV12 frame is substantially
+            // cheaper than copying the source frame and scaling it on the CPU.
+            filters.push(hardwareScale, 'hwdownload', 'format=nv12');
+        }
         if (typeof subtitleSource !== 'undefined') {
+            const offset = Math.max(0, subtitleTimeOffset);
+            if (offset > 0) {
+                // Input seeking resets video PTS to zero. Temporarily restore the original
+                // program timeline while libass selects events, then return to zero-based PTS.
+                filters.push(`setpts=PTS+${offset.toFixed(3)}/TB`);
+            }
             if (typeof subtitleIndex === 'undefined') {
                 filters.push(`ass=${escapeFFmpegFilterPath(subtitleSource)}`);
             } else {
@@ -556,10 +596,62 @@ namespace WatchStreamProfileUtil {
                 subtitleOption.push(`si=${subtitleIndex.toString(10)}`);
                 filters.push(`subtitles=${subtitleOption.join(':')}`);
             }
+            if (offset > 0) {
+                filters.push(`setpts=PTS-${offset.toFixed(3)}/TB`);
+            }
         }
-        filters.push(`scale=${quality.width}:${quality.height}`);
+        if (typeof subtitleSource === 'undefined' && typeof hardwareScale !== 'undefined') {
+            filters.push(hardwareScale);
+        } else if (typeof hardwareScale === 'undefined') {
+            filters.push(`scale=${quality.width}:${quality.height}`);
+        }
 
         return filters.join(',');
+    };
+
+    type HardwareFilterType = 'qsv' | 'cuda';
+
+    interface HardwareDecodeConfig {
+        filterType: HardwareFilterType;
+        globalOptions: string[];
+        inputOptions: string[];
+    }
+
+    const getHardwareDecodeConfig = (
+        encoder: WatchStreamEncoder,
+        codecName: string | undefined,
+        pixelFormat: string | undefined,
+    ): HardwareDecodeConfig | undefined => {
+        if (
+            (encoder !== 'QSVEncC' && encoder !== 'NVEncC') ||
+            typeof codecName === 'undefined' ||
+            typeof pixelFormat === 'undefined'
+        ) {
+            return undefined;
+        }
+
+        const supportedCodecs =
+            encoder === 'QSVEncC'
+                ? new Set(['av1', 'h264', 'hevc', 'mjpeg', 'mpeg2video', 'vp9'])
+                : new Set(['av1', 'h264', 'hevc', 'mjpeg', 'mpeg1video', 'mpeg2video', 'mpeg4', 'vc1', 'vp8', 'vp9']);
+        if (supportedCodecs.has(codecName.toLowerCase()) === false) {
+            return undefined;
+        }
+
+        const normalizedPixelFormat = pixelFormat.toLowerCase();
+        const is8Bit420 = normalizedPixelFormat === 'nv12' || normalizedPixelFormat === 'yuv420p';
+        const is10Bit420 = normalizedPixelFormat === 'p010le' || normalizedPixelFormat === 'yuv420p10le';
+        if (is8Bit420 === false && is10Bit420 === false) {
+            return undefined;
+        }
+
+        const filterType: HardwareFilterType = encoder === 'QSVEncC' ? 'qsv' : 'cuda';
+        const deviceName = filterType;
+        return {
+            filterType,
+            globalOptions: ['-init_hw_device', `${filterType}=${deviceName}`, '-filter_hw_device', deviceName],
+            inputOptions: ['-hwaccel', filterType, '-hwaccel_device', deviceName, '-hwaccel_output_format', filterType],
+        };
     };
 
     const escapeFFmpegFilterPath = (value: string): string => {
@@ -945,6 +1037,7 @@ namespace WatchStreamProfileUtil {
         encoder: Exclude<WatchStreamEncoder, 'FFmpeg'>,
         quality: WatchQuality,
         watch: WatchStreamConfig | undefined,
+        start: number,
     ): string => {
         const options: string[] = [
             '--input-format mpegts --input-probesize 1000K --input-analyze 0.7',
@@ -973,6 +1066,8 @@ namespace WatchStreamProfileUtil {
             `--output-res ${quality.width}x${quality.height}`,
             `--audio-codec aac:aac_coder=twoloop --audio-bitrate ${quality.audioBitrate}`,
             '--audio-samplerate 48000 --audio-filter volume=2.0 --audio-ignore-decode-error 30',
+            `-m output_ts_offset:${Math.max(0, start).toFixed(3)}`,
+            '--offset-video-dts-advance',
             '--output-format mpegts',
             '--output -',
         ].filter(item => item.length > 0);

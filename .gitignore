@@ -19,6 +19,9 @@ dist
 .cache
 data/upload/*
 data/key/*
+data/annict/
+data/viewer-profiles/
+data/tls/
 thirdparty/**
 !thirdparty/.gitkeep
 !thirdparty/tsreadex/

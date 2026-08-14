@@ -334,6 +334,7 @@ export default class RecordingStreamCreator implements IRecordingStreamCreator {
         }
 
         // timer 再設定
+        clearTimeout(this.timerIndex[reserve.id]);
         this.timerIndex[reserve.id] = setTimeout(
             () => {
                 this.destroyStream(reserve);

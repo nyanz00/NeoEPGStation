@@ -32,7 +32,12 @@ class StreamManageModel implements IStreamManageModel {
     public async start(stream: IStreamBaseModel<any>): Promise<apid.StreamId> {
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(StreamManageModel.START_STREAM_PRIORITY);
+        let isUnlocked = false;
         const finalize = () => {
+            if (isUnlocked === true) {
+                return;
+            }
+            isUnlocked = true;
             this.executeManagementModel.unLockExecution(exeId);
         };
 
@@ -40,6 +45,15 @@ class StreamManageModel implements IStreamManageModel {
         const streamId = this.getEmptyStreamId();
         this.streams[streamId] = stream;
         this.log.stream.info(`start stream: ${streamId.toString(10)}`);
+
+        // プロセスが start() 中に即時終了しても終了通知を取り逃がさないよう、
+        // 開始処理より前に登録する。
+        stream.setExitStream(() => {
+            this.stop(streamId).catch(err => {
+                this.log.stream.error(`exit stream cleanup error ${streamId}`);
+                this.log.stream.error(err);
+            });
+        });
 
         try {
             await stream.start(streamId);
@@ -50,12 +64,6 @@ class StreamManageModel implements IStreamManageModel {
             await this.stop(streamId);
             throw err;
         }
-
-        // stream 停止時に停止させる
-        stream.setExitStream(async () => {
-            finalize();
-            await this.stop(streamId).catch();
-        });
 
         finalize();
         this.socketIO.notifyClient();
@@ -89,27 +97,37 @@ class StreamManageModel implements IStreamManageModel {
         const exeId = await this.executeManagementModel.getExecution(
             isForce ? StreamManageModel.FOURCE_STOP_STREAM_PRIORITY : StreamManageModel.STOP_STREAM_PRIORITY,
         );
+        let isUnlocked = false;
         const finalize = () => {
+            if (isUnlocked === true) {
+                return;
+            }
+            isUnlocked = true;
             this.executeManagementModel.unLockExecution(exeId);
         };
 
-        if (typeof this.streams[streamId] === 'undefined') {
+        const stream = this.streams[streamId];
+        if (typeof stream === 'undefined') {
             finalize();
 
             return;
         }
 
-        await this.streams[streamId].stop().catch(err => {
+        try {
+            await stream.stop();
+        } catch (err: any) {
             this.log.stream.error(`stop stream error ${streamId}`);
-            finalize();
+            this.log.stream.error(err);
             throw err;
-        });
-        delete this.streams[streamId];
-
-        finalize();
-        this.socketIO.notifyClient();
-
-        this.log.stream.info(`stop stream ${streamId}`);
+        } finally {
+            // 停止処理の一部が失敗しても管理表と実行ロックを残さない。
+            if (this.streams[streamId] === stream) {
+                delete this.streams[streamId];
+            }
+            finalize();
+            this.socketIO.notifyClient();
+            this.log.stream.info(`stop stream ${streamId}`);
+        }
     }
 
     /**

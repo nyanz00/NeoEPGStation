@@ -1,4 +1,5 @@
 import { Operation } from 'express-openapi';
+import IAnnictApiModel from '../../../api/annict/IAnnictApiModel';
 import IRuleApiModel from '../../../api/rule/IRuleApiModel';
 import container from '../../../ModelContainer';
 import * as api from '../../api';
@@ -61,7 +62,9 @@ export const del: Operation = async (req, res) => {
     const ruleApiModel = container.get<IRuleApiModel>('IRuleApiModel');
 
     try {
-        await ruleApiModel.delete(parseInt(req.params.ruleId, 10));
+        const ruleId = parseInt(req.params.ruleId, 10);
+        await ruleApiModel.delete(ruleId);
+        await container.get<IAnnictApiModel>('IAnnictApiModel').unlinkRule(ruleId);
         api.responseJSON(res, 200, {
             code: 200,
         });
@@ -100,9 +103,20 @@ export const put: Operation = async (req, res) => {
     const ruleApiModel = container.get<IRuleApiModel>('IRuleApiModel');
 
     const rule = req.body;
-    rule.id = parseInt(req.params.ruleId, 10);
+    const ruleId = parseInt(req.params.ruleId, 10);
+    rule.id = ruleId;
     try {
+        const previous = await ruleApiModel.get(ruleId);
         await ruleApiModel.update(rule);
+        if (
+            previous?.reserveOption.enable === true &&
+            rule.reserveOption?.enable === false &&
+            req.query.syncAnnictStopWatching !== 'false'
+        ) {
+            await container.get<IAnnictApiModel>('IAnnictApiModel').syncDisabledRule(ruleId);
+        } else if (previous?.reserveOption.enable === false && rule.reserveOption?.enable === true) {
+            await container.get<IAnnictApiModel>('IAnnictApiModel').syncEnabledRule(ruleId);
+        }
         api.responseJSON(res, 200, {
             code: 200,
         });
@@ -118,6 +132,13 @@ put.apiDoc = {
     parameters: [
         {
             $ref: '#/components/parameters/PathRuleId',
+        },
+        {
+            name: 'syncAnnictStopWatching',
+            in: 'query',
+            required: false,
+            description: '無効化時、Annict経由の最後の有効ルールなら作品を「中止」にする',
+            schema: { type: 'boolean', default: true },
         },
     ],
     requestBody: {

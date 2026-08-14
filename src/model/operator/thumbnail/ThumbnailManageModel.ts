@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
@@ -15,14 +15,16 @@ import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
-import { IPromiseQueue } from '../../IPromiseQueue';
 import IThumbnailManageModel from './IThumbnailManageModel';
 
 @injectable()
 export default class ThumbnailManageModel implements IThumbnailManageModel {
     private log: ILogger;
     private config: IConfigFile;
-    private queue: IPromiseQueue;
+    private queue: Promise<void> = Promise.resolve();
+    private recordingTimers: Map<apid.VideoFileId, NodeJS.Timeout> = new Map();
+    private recordingAttempts: Map<apid.VideoFileId, number> = new Map();
+    private recordingProcesses: Map<apid.VideoFileId, ChildProcess> = new Map();
     private recordedDB: IRecordedDB;
     private videoFileDB: IVideoFileDB;
     private thumbnailDB: IThumbnailDB;
@@ -32,7 +34,6 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
         @inject('IConfiguration') configuration: IConfiguration,
-        @inject('IPromiseQueue') queue: IPromiseQueue,
         @inject('IRecordedDB') recordedDB: IRecordedDB,
         @inject('IVideoFileDB') videoFileDB: IVideoFileDB,
         @inject('IThumbnailDB') thumbnailDB: IThumbnailDB,
@@ -41,7 +42,6 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     ) {
         this.log = logger.getLogger();
         this.config = configuration.getConfig();
-        this.queue = queue;
         this.recordedDB = recordedDB;
         this.videoFileDB = videoFileDB;
         this.thumbnailDB = thumbnailDB;
@@ -56,30 +56,87 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     public add(videoFileId: apid.VideoFileId): void {
         this.log.system.info(`add thumbnail queue: ${videoFileId}`);
 
-        this.queue.add<void>(() => {
-            return this.create(videoFileId).catch(err => {
-                this.log.system.error(`create thumbnail error: ${videoFileId}`);
-                this.log.system.error(err);
-            });
+        this.enqueue(() => this.createIfNeeded(videoFileId)).catch(err => {
+            this.log.system.error(`create thumbnail error: ${videoFileId}`);
+            this.log.system.error(err);
         });
+    }
+
+    /** 録画開始後、追記中のTSから早期サムネイルを一度だけ生成する。 */
+    public addDuringRecording(videoFileId: apid.VideoFileId): void {
+        this.stopDuringRecording(videoFileId);
+        this.recordingAttempts.set(videoFileId, 0);
+        this.scheduleRecordingThumbnail(videoFileId, ThumbnailManageModel.INITIAL_RECORDING_DELAY);
+    }
+
+    /** 録画終了・削除時に未実行の早期生成を止める。生成済み画像はそのまま使用する。 */
+    public stopDuringRecording(videoFileId: apid.VideoFileId): void {
+        const timer = this.recordingTimers.get(videoFileId);
+        if (timer !== undefined) clearTimeout(timer);
+        const child = this.recordingProcesses.get(videoFileId);
+        if (child !== undefined) child.kill();
+        this.recordingTimers.delete(videoFileId);
+        this.recordingAttempts.delete(videoFileId);
+        this.recordingProcesses.delete(videoFileId);
     }
 
     public replace(videoFileId: apid.VideoFileId): void {
         this.log.system.info(`replace thumbnail queue: ${videoFileId}`);
 
-        this.queue.add<void>(() => {
-            return this.replaceRecordedThumbnail(videoFileId).catch(err => {
-                this.log.system.error(`replace thumbnail error: ${videoFileId}`);
-                this.log.system.error(err);
-            });
+        this.enqueue(() => this.replaceRecordedThumbnail(videoFileId)).catch(err => {
+            this.log.system.error(`replace thumbnail error: ${videoFileId}`);
+            this.log.system.error(err);
         });
+    }
+
+    private enqueue<T>(job: () => Promise<T>): Promise<T> {
+        const result = this.queue.then(job);
+        this.queue = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    private scheduleRecordingThumbnail(videoFileId: apid.VideoFileId, delay: number): void {
+        const timer = setTimeout(() => {
+            this.recordingTimers.delete(videoFileId);
+            if (this.recordingAttempts.has(videoFileId) === false) return;
+            const attempt = (this.recordingAttempts.get(videoFileId) ?? 0) + 1;
+            this.recordingAttempts.set(videoFileId, attempt);
+            this.log.system.info(`create recording thumbnail: ${videoFileId}, attempt: ${attempt}`);
+            this.enqueue(() => this.createIfNeeded(videoFileId, true))
+                .then(() => {
+                    this.recordingAttempts.delete(videoFileId);
+                })
+                .catch(err => {
+                    this.log.system.warn(`create recording thumbnail failed: ${videoFileId}, attempt: ${attempt}`);
+                    this.log.system.debug(err);
+                    if (this.recordingAttempts.has(videoFileId) === false) return;
+                    if (attempt < ThumbnailManageModel.MAX_RECORDING_ATTEMPTS) {
+                        this.scheduleRecordingThumbnail(videoFileId, ThumbnailManageModel.RETRY_RECORDING_DELAY);
+                    } else {
+                        this.recordingAttempts.delete(videoFileId);
+                    }
+                });
+        }, delay);
+        this.recordingTimers.set(videoFileId, timer);
+    }
+
+    private async createIfNeeded(videoFileId: apid.VideoFileId, isDuringRecording: boolean = false): Promise<void> {
+        const videoFile = await this.videoFileDB.findId(videoFileId);
+        if (videoFile === null) throw new Error('VideoFileIsNotFound');
+        const recorded = await this.recordedDB.findId(videoFile.recordedId);
+        if (recorded === null) throw new Error('RecordedIsNotFound');
+        if (typeof recorded.thumbnails !== 'undefined' && recorded.thumbnails.length > 0) return;
+        await this.create(videoFileId, isDuringRecording);
     }
 
     /**
      * サムネイル生成をして生成したファイルを Thumbnail に登録する
      * @param videoFileId: apid.VideoFileId
      */
-    private async create(videoFileId: apid.VideoFileId): Promise<void> {
+    private async create(videoFileId: apid.VideoFileId, isDuringRecording: boolean = false): Promise<void> {
         const videoFile = await this.videoFileDB.findId(videoFileId);
         const videoFilePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
         if (videoFile === null || videoFilePath === null) {
@@ -105,6 +162,7 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
 
         const fileName = await this.getSaveFileName(videoFile.recordedId);
         const output = path.join(this.config.thumbnail, fileName);
+        const temporaryOutput = `${output}.tmp-${process.pid}-${Date.now()}.jpg`;
         const cmdStr = this.config.thumbnailCmd.replace(/%FFMPEG%/g, this.config.ffmpeg);
         const cmds = ProcessUtil.parseCmdStr(cmdStr);
 
@@ -112,13 +170,14 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
         for (let i = 0; i < cmds.args.length; i++) {
             cmds.args[i] = cmds.args[i]
                 .replace(/%INPUT%/, videoFilePath)
-                .replace(/%OUTPUT%/, output)
+                .replace(/%OUTPUT%/, temporaryOutput)
                 .replace(/%THUMBNAIL_POSITION%/, `${this.config.thumbnailPosition.toString(10)}`)
                 .replace(/%THUMBNAIL_SIZE%/, this.config.thumbnailSize);
         }
 
         // run ffmpeg
         const child = spawn(cmds.bin, cmds.args);
+        if (isDuringRecording) this.recordingProcesses.set(videoFileId, child);
 
         // debug 用
         if (child.stderr !== null) {
@@ -132,11 +191,31 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
 
         // プロセス終了処理
         const endProcessing = async (code: number | null): Promise<boolean> => {
+            if (this.recordingProcesses.get(videoFileId) === child) this.recordingProcesses.delete(videoFileId);
             if (code !== 0) {
                 this.log.system.error(`create thumbnail cmd error: ${code}`);
+                await FileUtil.unlink(temporaryOutput).catch(() => {});
+                return false;
+            }
+            try {
+                const stat = await FileUtil.stat(temporaryOutput);
+                if (stat.size === 0) throw new Error('ThumbnailFileIsEmpty');
+                await FileUtil.rename(temporaryOutput, output);
+            } catch (err: any) {
+                this.log.system.error(`create thumbnail file error: ${videoFileId}`);
+                this.log.system.error(err);
+                await FileUtil.unlink(temporaryOutput).catch(() => {});
                 return false;
             }
             this.log.system.info(`create thumbnail: ${videoFileId}, ${output}`);
+
+            const currentVideoFile = await this.videoFileDB.findId(videoFileId);
+            const currentRecorded =
+                currentVideoFile === null ? null : await this.recordedDB.findId(currentVideoFile.recordedId);
+            if (currentVideoFile === null || currentRecorded === null) {
+                await FileUtil.unlink(output).catch(() => {});
+                return false;
+            }
 
             // add DB
             const thumbnail = new Thumbnail();
@@ -172,7 +251,9 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
             });
 
             child.on('error', err => {
+                if (this.recordingProcesses.get(videoFileId) === child) this.recordingProcesses.delete(videoFileId);
                 this.log.system.error(`create thumbnail failed: ${videoFileId}`);
+                FileUtil.unlink(temporaryOutput).catch(() => {});
                 reject(err);
             });
 
@@ -384,4 +465,8 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
             return false;
         }
     }
+
+    private static readonly INITIAL_RECORDING_DELAY = 15 * 1000;
+    private static readonly RETRY_RECORDING_DELAY = 15 * 1000;
+    private static readonly MAX_RECORDING_ATTEMPTS = 3;
 }

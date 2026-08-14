@@ -275,8 +275,12 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
         const cmds = ProcessUtil.parseCmdStr(cmd);
 
         const channel = await this.channelDB.findId(recorded.channelId);
+        const recordPath =
+            typeof recorded.videoFiles === 'undefined' || recorded.videoFiles.length === 0
+                ? null
+                : await this.videoUtil.getFullFilePathFromId(recorded.videoFiles[0].id);
 
-        return new Promise<void>(async resolve => {
+        return new Promise<void>(resolve => {
             const child = spawn(cmds.bin, cmds.args, {
                 stdio: 'ignore',
                 env: {
@@ -296,10 +300,7 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
                     HALF_WIDTH_DESCRIPTION: recorded.halfWidthDescription,
                     EXTENDED: recorded.extended,
                     HALF_WIDTH_EXTENDED: recorded.halfWidthExtended,
-                    RECPATH:
-                        typeof recorded.videoFiles === 'undefined' || recorded.videoFiles.length < 0
-                            ? null
-                            : await this.videoUtil.getFullFilePathFromId(recorded.videoFiles[0].id),
+                    RECPATH: recordPath,
                     LOGPATH:
                         typeof recorded.dropLogFile === 'undefined' || recorded.dropLogFile === null
                             ? null
@@ -341,9 +342,12 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
     /**
      * 外部コマンドを実行する
      * @param cmd string
-     * @param info OperatorFinishEncodeInfo
+     * @param info OperatorFinishEncodeInfo | OperatorErrorEncodeInfo
      */
-    private async createFinishEncodeCmd(cmd: string, info: OperatorFinishEncodeInfo): Promise<void> {
+    private async createFinishEncodeCmd(
+        cmd: string,
+        info: OperatorFinishEncodeInfo | OperatorErrorEncodeInfo,
+    ): Promise<void> {
         this.log.system.info(`execute cmd: ${cmd}`);
 
         const cmds = ProcessUtil.parseCmdStr(cmd);
@@ -359,17 +363,19 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
         if (channel === null) {
             throw new Error('ChannelIsNotFound');
         }
+        const outputPath =
+            info.videoFileId === null ? null : await this.videoUtil.getFullFilePathFromId(info.videoFileId);
 
-        return new Promise<void>(async resolve => {
+        return new Promise<void>(resolve => {
             const child = spawn(cmds.bin, cmds.args, {
                 stdio: 'ignore',
                 env: {
                     PATH: process.env['PATH'],
                     RECORDEDID: info.recordedId,
                     VIDEOFILEID: info.videoFileId === null ? '' : info.videoFileId,
-                    OUTPUTPATH:
-                        info.videoFileId === null ? null : await this.videoUtil.getFullFilePathFromId(info.videoFileId),
+                    OUTPUTPATH: outputPath,
                     MODE: info.mode,
+                    ENCODER_MESSAGE: 'encoderMessage' in info ? this.normalizeEncoderMessage(info.encoderMessage) : '',
                     NAME: recorded.name,
                     HALF_WIDTH_NAME: recorded.halfWidthName,
                     DESCRIPTION: recorded.description || '',
@@ -408,5 +414,14 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
                 resolve();
             }
         });
+    }
+
+    private normalizeEncoderMessage(message?: string): string {
+        const lines = (message ?? '')
+            .replace(new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g'), '')
+            .split(/\r?\n|\r/)
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+        return (lines[lines.length - 1] ?? '').slice(0, 2_048);
     }
 }

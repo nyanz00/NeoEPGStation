@@ -1,4 +1,5 @@
 import { Operation } from 'express-openapi';
+import IAnnictApiModel from '../../../../api/annict/IAnnictApiModel';
 import IRuleApiModel from '../../../../api/rule/IRuleApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';
@@ -7,7 +8,9 @@ export const put: Operation = async (req, res) => {
     const ruleApiModel = container.get<IRuleApiModel>('IRuleApiModel');
 
     try {
-        await ruleApiModel.enable(parseInt(req.params.ruleId, 10));
+        const ruleId = parseInt(req.params.ruleId, 10);
+        await ruleApiModel.enable(ruleId);
+        await container.get<IAnnictApiModel>('IAnnictApiModel').syncEnabledRule(ruleId);
 
         api.responseJSON(res, 200, { code: 200 });
     } catch (err: any) {

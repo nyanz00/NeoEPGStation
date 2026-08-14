@@ -4,6 +4,8 @@ export interface VideoInfo {
     duration: number; // sec
     size: number; // byte
     bitRate: number; // bps
+    videoCodecName?: string;
+    videoPixelFormat?: string;
 }
 
 export interface VideoSubtitleInfo {
@@ -22,11 +24,18 @@ export interface PreparedSubtitleInfo {
     filePath: string;
 }
 
+export interface VideoRecordingTimeInfo {
+    startAt: number;
+    endAt: number;
+    duration: number;
+}
+
 export default interface IVideoUtil {
     getFullFilePathFromId(videoFileId: apid.VideoFileId): Promise<string | null>;
     getFullFilePathFromVideoFile(videoFile: VideoFile): string | null;
     getParentDirPath(name: string): string | null;
     getInfo(filePath: string): Promise<VideoInfo>;
+    getMpegTsRecordingTime(filePath: string): Promise<VideoRecordingTimeInfo | null>;
     getMpegTsServiceId(filePath: string): Promise<number | null>;
     getSubtitles(filePath: string): Promise<VideoSubtitleInfo[]>;
     getSubtitleText(filePath: string, subtitleIndex: number): Promise<string>;

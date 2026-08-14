@@ -23,7 +23,8 @@ export const get: Operation = async (req, res) => {
 
     let isClosed: boolean = false;
     let result: StreamResponse;
-    let keepTimer: NodeJS.Timer;
+    let keepTimer: NodeJS.Timeout;
+    let stopPromise: Promise<void> | null = null;
 
     const stop = async () => {
         clearInterval(keepTimer);
@@ -32,13 +33,17 @@ export const get: Operation = async (req, res) => {
             return;
         }
 
-        await streamApiModel.stop(result.streamId, true);
+        stopPromise ??=
+            typeof result.release === 'function' ? result.release() : streamApiModel.stop(result.streamId, true);
+        await stopPromise;
     };
 
-    req.on('close', async () => {
+    const close = () => {
         isClosed = true;
-        await stop();
-    });
+        void stop().catch(() => {});
+    };
+    req.once('aborted', close);
+    res.once('close', close);
 
     try {
         result = await streamApiModel.startLiveM2TsStream({

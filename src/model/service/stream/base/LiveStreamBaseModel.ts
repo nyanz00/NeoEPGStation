@@ -69,6 +69,7 @@ export default abstract class LiveStreamBaseModel
             output: this.getStreamType() === 'LiveHLS' ? `${this.config.streamFilePath}\/stream${streamId}.m3u8` : null,
             cmd: cmd,
             priority: LiveStreamBaseModel.ENCODE_PROCESS_PRIORITY,
+            preserveStdout: this.getStreamType() !== 'LiveHLS',
         };
     }
 
@@ -242,7 +243,7 @@ export default abstract class LiveStreamBaseModel
         }
 
         if (this.preProcessProcess !== null) {
-            await ProcessUtil.kill(this.preProcessProcess);
+            await ProcessUtil.kill(this.preProcessProcess, 0);
         }
 
         if (this.id3MetadataTransoform !== null) {
@@ -251,7 +252,7 @@ export default abstract class LiveStreamBaseModel
         }
 
         if (this.streamProcess !== null) {
-            await ProcessUtil.kill(this.streamProcess);
+            await ProcessUtil.kill(this.streamProcess, 0);
         }
 
         if (this.getStreamType() === 'LiveHLS') {

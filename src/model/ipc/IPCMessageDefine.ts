@@ -1,6 +1,6 @@
 import * as apid from '../../../api';
 
-export type MessageId = number;
+export type MessageId = string;
 
 /**
  * 親プロセスから子プロセスへのメッセージ

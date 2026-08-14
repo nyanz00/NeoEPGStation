@@ -1,26 +1,57 @@
 import { useSyncExternalStore } from 'react';
+import { isAppIconSetId, type AppIconSetId } from '../icons/appIcons';
+import { defaultAppThemePresetId, defaultCustomThemeColor, isAppThemePresetId, normalizeCustomThemeColor, type AppThemePresetId } from '../theme/themePresets';
+import { defaultSideNavigationOrder, normalizeHiddenSideNavigationItems, normalizeSideNavigationOrder, type SideNavigationItemId } from '../navigation';
 
 export type GuideViewMode = 'sequential' | 'minimum' | 'all';
 export type WatchStreamEncoderSetting = 'Config' | 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
+export type WebKitPlaybackMode = 'standard' | 'ios26';
+export type AnnictAutoWatchMode = 'disabled' | 'start' | 'progress';
 
 export interface AppSettings {
     isEnablePWA: boolean;
+    appIconSet: AppIconSetId;
+    isAppLogoLinkedToIcon: boolean;
+    isAppLogoHidden: boolean;
     shouldUseOSColorTheme: boolean;
     isForceDarkTheme: boolean;
+    themeColorPreset: AppThemePresetId;
+    customThemeColor: string;
+    isCustomCssEnabled: boolean;
+    customCss: string;
+    isEmphasizeLightThemeEdges: boolean;
     isHalfWidthDisplayed: boolean;
+    sideNavigationOrder: SideNavigationItemId[];
+    hiddenSideNavigationItems: SideNavigationItemId[];
     isOnAirTabListView: boolean;
     isPreferredPlayingLiveM2TSOnWeb: boolean;
     onAirM2TSViewURLScheme: string | null;
     watchStreamEncoder: WatchStreamEncoderSetting;
     watchDefaultQuality: string | null;
     watchUseHevc: boolean;
+    webkitPlaybackMode: WebKitPlaybackMode;
     watchLowLatency: boolean;
-    watchSubtitlePreferredKeyword: string;
-    watchPlaySubtitlePreferredKeyword: string;
+    watchStreamingBufferedStart: boolean;
+    watchSubtitlePreferredKeywords: string[];
+    watchStreamingSubtitleSizePercent: number;
+    watchStreamingSubtitleOpacityPercent: number;
+    watchStreamingSubtitleOutlineSizePercent: number;
+    watchStreamingSubtitleOutlineOpacityPercent: number;
+    watchPlaySubtitleDanmaku: boolean;
+    watchResumePlayback: boolean;
+    watchHistoryLength: number;
+    annictAutoWatchMode: AnnictAutoWatchMode;
+    annictAutoWatchThresholdPercent: number;
+    annictAutoWatchOnDownload: boolean;
+    annictStopWatchingOnRuleDisable: boolean;
+    annictMarkWatchedOnFinalEpisode: boolean;
+    annictDisableRulesOnFinalEpisode: boolean;
+    annictSupplementalChannelIds: number[];
     guideMode: GuideViewMode;
     guideLength: number;
     isForceDisableDarkThemeForGuide: boolean;
     isShowOnlyFreePrograms: boolean;
+    isShowInformationalChannels: boolean;
     isEnableDisplayForEachBroadcastWave: boolean;
     isIncludeChannelIdWhenSearching: boolean;
     isIncludeGenreWhenSearching: boolean;
@@ -50,22 +81,48 @@ const isAndroid = /Android/.test(navigator.userAgent);
 
 export const defaultSettings: AppSettings = {
     isEnablePWA: true,
+    appIconSet: 'neo',
+    isAppLogoLinkedToIcon: false,
+    isAppLogoHidden: false,
     shouldUseOSColorTheme: true,
     isForceDarkTheme: false,
+    themeColorPreset: defaultAppThemePresetId,
+    customThemeColor: defaultCustomThemeColor,
+    isCustomCssEnabled: false,
+    customCss: '',
+    isEmphasizeLightThemeEdges: true,
     isHalfWidthDisplayed: true,
+    sideNavigationOrder: [...defaultSideNavigationOrder],
+    hiddenSideNavigationItems: [],
     isOnAirTabListView: true,
     isPreferredPlayingLiveM2TSOnWeb: true,
     onAirM2TSViewURLScheme: null,
     watchStreamEncoder: 'Config',
     watchDefaultQuality: null,
     watchUseHevc: false,
+    webkitPlaybackMode: 'standard',
     watchLowLatency: true,
-    watchSubtitlePreferredKeyword: '',
-    watchPlaySubtitlePreferredKeyword: '',
+    watchStreamingBufferedStart: false,
+    watchSubtitlePreferredKeywords: ['', '', ''],
+    watchStreamingSubtitleSizePercent: 100,
+    watchStreamingSubtitleOpacityPercent: 100,
+    watchStreamingSubtitleOutlineSizePercent: 100,
+    watchStreamingSubtitleOutlineOpacityPercent: 100,
+    watchPlaySubtitleDanmaku: false,
+    watchResumePlayback: true,
+    watchHistoryLength: 50,
+    annictAutoWatchMode: 'disabled',
+    annictAutoWatchThresholdPercent: 90,
+    annictAutoWatchOnDownload: false,
+    annictStopWatchingOnRuleDisable: true,
+    annictMarkWatchedOnFinalEpisode: true,
+    annictDisableRulesOnFinalEpisode: true,
+    annictSupplementalChannelIds: [],
     guideMode: isAppleMobile ? 'all' : 'sequential',
     guideLength: 24,
     isForceDisableDarkThemeForGuide: false,
     isShowOnlyFreePrograms: false,
+    isShowInformationalChannels: false,
     isEnableDisplayForEachBroadcastWave: false,
     isIncludeChannelIdWhenSearching: true,
     isIncludeGenreWhenSearching: true,
@@ -93,7 +150,62 @@ export const defaultSettings: AppSettings = {
 function loadSettings(): AppSettings {
     try {
         const saved = localStorage.getItem('settings');
-        return saved === null ? defaultSettings : { ...defaultSettings, ...JSON.parse(saved) };
+        const parsed =
+            saved === null
+                ? {}
+                : (JSON.parse(saved) as Partial<AppSettings> & {
+                      watchSubtitlePreferredKeyword?: unknown;
+                      watchPlaySubtitlePreferredKeyword?: unknown;
+                  });
+        let showInformationalChannels = parsed.isShowInformationalChannels;
+        if (typeof showInformationalChannels !== 'boolean') {
+            try {
+                const legacy = JSON.parse(localStorage.getItem('GuideChannelDisplaySetting') ?? 'null') as { showInformationalChannels?: unknown } | null;
+                showInformationalChannels = legacy?.showInformationalChannels === true;
+            } catch {
+                showInformationalChannels = false;
+            }
+        }
+        const annictAutoWatchMode: AnnictAutoWatchMode = ['disabled', 'start', 'progress'].includes(String(parsed.annictAutoWatchMode))
+            ? (parsed.annictAutoWatchMode as AnnictAutoWatchMode)
+            : defaultSettings.annictAutoWatchMode;
+        const threshold = Number(parsed.annictAutoWatchThresholdPercent);
+        const historyLength = Number(parsed.watchHistoryLength);
+        return {
+            ...defaultSettings,
+            ...parsed,
+            appIconSet: isAppIconSetId(parsed.appIconSet) ? parsed.appIconSet : defaultSettings.appIconSet,
+            isAppLogoLinkedToIcon: parsed.isAppLogoLinkedToIcon === true,
+            isAppLogoHidden: parsed.isAppLogoHidden === true,
+            themeColorPreset: isAppThemePresetId(parsed.themeColorPreset) ? parsed.themeColorPreset : defaultSettings.themeColorPreset,
+            customThemeColor: normalizeCustomThemeColor(parsed.customThemeColor),
+            isCustomCssEnabled: parsed.isCustomCssEnabled === true,
+            customCss: typeof parsed.customCss === 'string' ? parsed.customCss : '',
+            isShowInformationalChannels: showInformationalChannels,
+            sideNavigationOrder: normalizeSideNavigationOrder(parsed.sideNavigationOrder),
+            hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(parsed.hiddenSideNavigationItems),
+            watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(
+                parsed.watchSubtitlePreferredKeywords,
+                parsed.watchSubtitlePreferredKeyword,
+                parsed.watchPlaySubtitlePreferredKeyword,
+            ),
+            watchStreamingSubtitleSizePercent: normalizePercent(parsed.watchStreamingSubtitleSizePercent, 50, 250, 100),
+            watchStreamingSubtitleOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOpacityPercent, 10, 300, 100),
+            watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
+            watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
+            watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
+            webkitPlaybackMode: parsed.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
+            annictSupplementalChannelIds: normalizeChannelIds(parsed.annictSupplementalChannelIds),
+            annictAutoWatchMode,
+            annictAutoWatchThresholdPercent:
+                Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
+            watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
+            reservesLength: normalizeListLength(parsed.reservesLength, defaultSettings.reservesLength, 1_000),
+            recordingLength: normalizeListLength(parsed.recordingLength, defaultSettings.recordingLength, 1_000),
+            recordedLength: normalizeListLength(parsed.recordedLength, defaultSettings.recordedLength, 1_000),
+            searchLength: normalizeListLength(parsed.searchLength, defaultSettings.searchLength, 10_000),
+            rulesLength: normalizeListLength(parsed.rulesLength, defaultSettings.rulesLength, 1_000),
+        };
     } catch {
         return defaultSettings;
     }
@@ -109,9 +221,38 @@ export const settingsStore = {
         return () => listeners.delete(listener);
     },
     save(value: AppSettings): void {
-        snapshot = value;
+        const threshold = Number(value.annictAutoWatchThresholdPercent);
+        const historyLength = Number(value.watchHistoryLength);
+        snapshot = {
+            ...value,
+            appIconSet: isAppIconSetId(value.appIconSet) ? value.appIconSet : defaultSettings.appIconSet,
+            isAppLogoLinkedToIcon: value.isAppLogoLinkedToIcon === true,
+            isAppLogoHidden: value.isAppLogoHidden === true,
+            themeColorPreset: isAppThemePresetId(value.themeColorPreset) ? value.themeColorPreset : defaultSettings.themeColorPreset,
+            customThemeColor: normalizeCustomThemeColor(value.customThemeColor),
+            isCustomCssEnabled: value.isCustomCssEnabled === true,
+            customCss: typeof value.customCss === 'string' ? value.customCss : '',
+            sideNavigationOrder: normalizeSideNavigationOrder(value.sideNavigationOrder),
+            hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(value.hiddenSideNavigationItems),
+            watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(value.watchSubtitlePreferredKeywords),
+            watchStreamingSubtitleSizePercent: normalizePercent(value.watchStreamingSubtitleSizePercent, 50, 250, 100),
+            watchStreamingSubtitleOpacityPercent: normalizePercent(value.watchStreamingSubtitleOpacityPercent, 10, 300, 100),
+            watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
+            watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
+            watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
+            webkitPlaybackMode: value.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
+            annictSupplementalChannelIds: normalizeChannelIds(value.annictSupplementalChannelIds),
+            annictAutoWatchThresholdPercent:
+                Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
+            watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
+            reservesLength: normalizeListLength(value.reservesLength, defaultSettings.reservesLength, 1_000),
+            recordingLength: normalizeListLength(value.recordingLength, defaultSettings.recordingLength, 1_000),
+            recordedLength: normalizeListLength(value.recordedLength, defaultSettings.recordedLength, 1_000),
+            searchLength: normalizeListLength(value.searchLength, defaultSettings.searchLength, 10_000),
+            rulesLength: normalizeListLength(value.rulesLength, defaultSettings.rulesLength, 1_000),
+        };
         try {
-            localStorage.setItem('settings', JSON.stringify(value));
+            localStorage.setItem('settings', JSON.stringify(snapshot));
         } catch {
             // The in-memory value remains usable when storage is unavailable.
         }
@@ -121,4 +262,27 @@ export const settingsStore = {
 
 export function useSettings(): AppSettings {
     return useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot);
+}
+
+function normalizeSubtitlePreferredKeywords(value: unknown, ...legacyValues: unknown[]): string[] {
+    const values = Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string')
+        : legacyValues.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+    const uniqueValues = values.filter((item, index) => item.trim().length === 0 || values.indexOf(item) === index);
+    return [...uniqueValues, ...Array.from({ length: Math.max(0, 3 - uniqueValues.length) }, () => '')];
+}
+
+function normalizeChannelIds(value: unknown): number[] {
+    if (!Array.isArray(value)) return [];
+    return Array.from(new Set(value.filter((item): item is number => Number.isInteger(item) && item > 0)));
+}
+
+function normalizePercent(value: unknown, minimum: number, maximum: number, fallback: number): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? Math.round(parsed) : fallback;
+}
+
+function normalizeListLength(value: unknown, fallback: number, maximum: number): number {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= maximum ? parsed : fallback;
 }

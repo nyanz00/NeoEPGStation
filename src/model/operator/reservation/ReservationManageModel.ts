@@ -623,6 +623,10 @@ class ReservationManageModel implements IReservationManageModel {
             this.executeManagementModel.unLockExecution(exeId);
         };
 
+        return this.updateLocked(reserveId, isSuppressLog, finalize).finally(finalize);
+    }
+
+    private async updateLocked(reserveId: apid.ReserveId, isSuppressLog: boolean, finalize: () => void): Promise<void> {
         if (isSuppressLog === false) {
             this.log.system.info(`update reservation: ${reserveId}`);
         }
@@ -720,11 +724,13 @@ class ReservationManageModel implements IReservationManageModel {
      * @param ruleId: rule id
      * @param isSuppressLog ログ出力を抑えるか
      * @param isFirstUpdate: boolean 初回更新か?
+     * @param preserveActiveRecordings 録画中の削除対象を自然終了まで保持するか
      */
     public async updateRule(
         ruleId: apid.RuleId,
         isSuppressLog: boolean = false,
         isFirstUpdate: boolean = false,
+        preserveActiveRecordings: boolean = false,
     ): Promise<void> {
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(
@@ -734,6 +740,18 @@ class ReservationManageModel implements IReservationManageModel {
             this.executeManagementModel.unLockExecution(exeId);
         };
 
+        return this.updateRuleLocked(ruleId, isSuppressLog, isFirstUpdate, preserveActiveRecordings, finalize).finally(
+            finalize,
+        );
+    }
+
+    private async updateRuleLocked(
+        ruleId: apid.RuleId,
+        isSuppressLog: boolean,
+        isFirstUpdate: boolean,
+        preserveActiveRecordings: boolean,
+        finalize: () => void,
+    ): Promise<void> {
         if (isSuppressLog === false) {
             this.log.system.info(`update rule reservation: ${ruleId}`);
         }
@@ -941,6 +959,10 @@ class ReservationManageModel implements IReservationManageModel {
             throw err;
         });
 
+        if (preserveActiveRecordings === true) {
+            diff.preserveActiveRecordings = true;
+        }
+
         finalize();
 
         if (isSuppressLog === false) {
@@ -1143,7 +1165,7 @@ class ReservationManageModel implements IReservationManageModel {
     private createReserveKey(reserve: Reserve): string {
         return (
             (reserve.programId === null
-                ? `${reserve.startAt}-${reserve.endAt}-${reserve.channel}`
+                ? `${reserve.startAt}-${reserve.endAt}-${reserve.channelId}`
                 : `${reserve.programId}`) + `-${reserve.ruleId}`
         );
     }
@@ -1483,6 +1505,14 @@ class ReservationManageModel implements IReservationManageModel {
             this.executeManagementModel.unLockExecution(exeId);
         };
 
+        return this.editLocked(reserveId, option, finalize).finally(finalize);
+    }
+
+    private async editLocked(
+        reserveId: apid.ReserveId,
+        option: apid.EditManualReserveOption,
+        finalize: () => void,
+    ): Promise<void> {
         this.log.system.info(`edit reservation: ${reserveId}`);
 
         // オプションチェック

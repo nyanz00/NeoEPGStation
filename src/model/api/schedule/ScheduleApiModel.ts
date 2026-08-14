@@ -144,14 +144,49 @@ export default class ScheduleApiModel implements IScheduleApiModel {
     public async getBroadcastingSchedule(option: apid.BroadcastingScheduleOption): Promise<apid.Schedule[]> {
         const channels = await this.channelDB.findAll(true);
         const programs = await this.programDB.findBroadcasting(option);
+        const scheduleIndex = new Map(
+            this.createSchedule(channels, programs, option.isHalfWidth, true).map(schedule => [
+                schedule.channel.id,
+                {
+                    ...schedule,
+                    programs: schedule.programs.length > 1 ? [schedule.programs[0]] : schedule.programs,
+                },
+            ]),
+        );
 
-        return this.createSchedule(channels, programs, option.isHalfWidth, true).map(s => {
-            if (s.programs.length > 1) {
-                s.programs = [s.programs[0]];
-            }
-
-            return s;
+        return channels.flatMap(channel => {
+            const schedule = scheduleIndex.get(channel.id);
+            if (schedule !== undefined) return [schedule];
+            if (this.isSubchannel(channel)) return [];
+            return [
+                {
+                    channel: this.toScheduleChannleItem(channel, option.isHalfWidth),
+                    programs: [],
+                },
+            ];
         });
+    }
+
+    /**
+     * 現在番組がないときに放映中一覧から隠すサブチャンネルかを判定する。
+     * 地デジは ARIB TR-B14 のサービス ID 構造、BS は既知のマルチ編成 SID を使用する。
+     */
+    private isSubchannel(channel: Channel): boolean {
+        if (channel.channelType === 'GR' || channel.channelType.startsWith('GR-ALT')) {
+            return (channel.serviceId & 0x0187) !== 0;
+        }
+        if (channel.channelType !== 'BS') return false;
+        return (
+            channel.serviceId === 102 ||
+            channel.serviceId === 104 ||
+            (142 <= channel.serviceId && channel.serviceId <= 149) ||
+            (152 <= channel.serviceId && channel.serviceId <= 159) ||
+            (162 <= channel.serviceId && channel.serviceId <= 169) ||
+            (172 <= channel.serviceId && channel.serviceId <= 179) ||
+            (182 <= channel.serviceId && channel.serviceId <= 189) ||
+            channel.serviceId === 232 ||
+            channel.serviceId === 233
+        );
     }
 
     /**

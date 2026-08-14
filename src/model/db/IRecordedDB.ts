@@ -25,10 +25,13 @@ export default interface IRecordedDB {
     removeRuleId(ruleId: apid.RuleId): Promise<void>;
     changeProtect(recordedId: apid.RecordedId, isProtect: boolean): Promise<void>;
     changeUser(recordedId: apid.RecordedId, userId: apid.UserId): Promise<void>;
+    changeUsers(recordedIds: apid.RecordedId[], userId: apid.UserId): Promise<void>;
     deleteOnce(recordedId: apid.RecordedId): Promise<void>;
+    exists(recordedId: apid.RecordedId): Promise<boolean>;
     findId(recordedId: apid.RecordedId): Promise<Recorded | null>;
     findIds(recordedIds: apid.RecordedId[]): Promise<Recorded[]>;
     findAll(option: FindAllOption, columnOption: RecordedColumnOption): Promise<[Recorded[], number]>;
+    countRecordedBefore(recorded: Recorded): Promise<number>;
     findChannelList(): Promise<apid.RecordedChannelListItem[]>;
     findGenreList(): Promise<apid.RecordedGenreListItem[]>;
     findEncodedNameList(): Promise<string[]>;

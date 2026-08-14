@@ -6,6 +6,7 @@ import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
 import IChannelApiModel from '../channel/IChannelApiModel';
 import IRecordedApiModel from '../recorded/IRecordedApiModel';
+import IVideoApiModel from '../video/IVideoApiModel';
 import IJikkyoApiModel from './IJikkyoApiModel';
 
 interface KakologChat {
@@ -58,24 +59,34 @@ export default class JikkyoApiModel implements IJikkyoApiModel {
     private readonly configuration: IConfiguration;
     private readonly channelApiModel: IChannelApiModel;
     private readonly recordedApiModel: IRecordedApiModel;
+    private readonly videoApiModel: IVideoApiModel;
     private readonly log: ILogger;
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
         @inject('IChannelApiModel') channelApiModel: IChannelApiModel,
         @inject('IRecordedApiModel') recordedApiModel: IRecordedApiModel,
+        @inject('IVideoApiModel') videoApiModel: IVideoApiModel,
         @inject('ILoggerModel') logger: ILoggerModel,
     ) {
         this.configuration = configuration;
         this.channelApiModel = channelApiModel;
         this.recordedApiModel = recordedApiModel;
+        this.videoApiModel = videoApiModel;
         this.log = logger.getLogger();
     }
 
-    public async getRecordedComments(recordedId: apid.RecordedId): Promise<apid.RecordedJikkyoComments> {
+    public async getRecordedComments(
+        recordedId: apid.RecordedId,
+        videoFileId: apid.VideoFileId,
+    ): Promise<apid.RecordedJikkyoComments> {
         const recorded = await this.recordedApiModel.get(recordedId, false);
         if (recorded === null) {
             return this.failure('録画情報が見つかりません。');
+        }
+        const videoFile = recorded.videoFiles?.find(video => video.id === videoFileId);
+        if (typeof videoFile === 'undefined' || videoFile.type !== 'ts') {
+            return this.failure('指定されたTS録画ファイルが見つかりません。');
         }
 
         const jikkyoInfo = await this.channelApiModel.getJikkyoInfo(recorded.channelId);
@@ -84,10 +95,26 @@ export default class JikkyoApiModel implements IJikkyoApiModel {
         }
 
         const config = this.configuration.getConfig();
-        const startTime = Math.floor(recorded.startAt / 1000) - config.timeSpecifiedStartMargin;
-        const endTime = Math.ceil(recorded.endAt / 1000) + config.timeSpecifiedEndMargin;
+        const analyzedTime = await this.videoApiModel.getMpegTsRecordingTime(videoFileId).catch(err => {
+            this.log.stream.warn(
+                `failed to analyze MPEG-TS recording time: recordedId=${recordedId.toString(10)}, ` +
+                    `videoFileId=${videoFileId.toString(10)}, error=${String(err)}`,
+            );
+            return null;
+        });
+        const fallbackStartAt = recorded.startAt - config.timeSpecifiedStartMargin * 1000;
+        const fallbackDuration =
+            analyzedTime === null ? await this.videoApiModel.getDuration(videoFileId).catch(() => null) : null;
+        const startAt = analyzedTime?.startAt ?? fallbackStartAt;
+        const fileEndAt =
+            analyzedTime?.endAt ??
+            (fallbackDuration === null ? Math.min(recorded.endAt, Date.now()) : startAt + fallbackDuration * 1000);
+        const endAt = Math.min(fileEndAt, Date.now());
+        const startTime = Math.floor(startAt / 1000);
+        const endTime = Math.max(startTime + 1, Math.ceil(endAt / 1000));
         this.log.stream.info(
             `request recorded NX-Jikkyo comments: recordedId=${recordedId.toString(10)}, ` +
+                `videoFileId=${videoFileId.toString(10)}, source=${analyzedTime === null ? 'fallback' : 'tot-pcr'}, ` +
                 `jk=${jikkyoInfo.jikkyoId.toString()}, start=${startTime.toString(10)}, end=${endTime.toString(10)}`,
         );
         const response = await axios

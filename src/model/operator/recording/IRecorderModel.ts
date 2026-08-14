@@ -13,5 +13,6 @@ export default interface IRecorderModel {
     cancel(isPlanToDelete: boolean): Promise<void>;
     update(newReserve: Reserve, isSuppressLog: boolean): Promise<void>;
     getCurrentDropLogFile(): RecordingDropLogFile | null;
+    isRecordingActive(): boolean;
     resetTimer(): boolean;
 }

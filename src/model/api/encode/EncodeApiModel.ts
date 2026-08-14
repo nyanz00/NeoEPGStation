@@ -158,4 +158,11 @@ export default class EncodeApiModel implements IEncodeApiModel {
     public async cancel(encodeId: apid.EncodeId): Promise<void> {
         await this.encodeManage.cancel(encodeId);
     }
+
+    /**
+     * 待機中エンコードの実行順を変更する
+     */
+    public async reorder(option: apid.EncodeQueueOrderOption): Promise<void> {
+        await this.encodeManage.reorderWaitQueue(option.encodeIds, option.expectedEncodeIds);
+    }
 }

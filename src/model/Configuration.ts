@@ -90,9 +90,44 @@ class Configuration implements IConfiguration {
     private formatConfig(newConfig: IConfigFile): IConfigFile {
         this.setTemplateValues(newConfig);
 
+        const isTailscaleHttpsEnabled = newConfig.tailscaleHttps?.enabled === true;
+        if (isTailscaleHttpsEnabled && typeof newConfig.https !== 'undefined') {
+            this.log.system.fatal('https and tailscaleHttps cannot be enabled at the same time');
+            throw new Error('HttpsConfigConflict');
+        }
+        if (
+            isTailscaleHttpsEnabled &&
+            (typeof newConfig.tailscaleHttps?.port !== 'number' ||
+                Number.isSafeInteger(newConfig.tailscaleHttps.port) === false ||
+                newConfig.tailscaleHttps.port <= 0 ||
+                newConfig.tailscaleHttps.port > 65535)
+        ) {
+            this.log.system.fatal('tailscaleHttps port setting error');
+            throw new Error('TailscaleHttpsPortSettingError');
+        }
+        if (
+            isTailscaleHttpsEnabled &&
+            newConfig.tailscaleHttps?.renewBeforeDays !== undefined &&
+            (Number.isFinite(newConfig.tailscaleHttps.renewBeforeDays) === false ||
+                newConfig.tailscaleHttps.renewBeforeDays <= 0)
+        ) {
+            this.log.system.fatal('tailscaleHttps renewBeforeDays setting error');
+            throw new Error('TailscaleHttpsRenewSettingError');
+        }
+        if (
+            isTailscaleHttpsEnabled &&
+            newConfig.tailscaleHttps?.checkIntervalHours !== undefined &&
+            (Number.isFinite(newConfig.tailscaleHttps.checkIntervalHours) === false ||
+                newConfig.tailscaleHttps.checkIntervalHours <= 0)
+        ) {
+            this.log.system.fatal('tailscaleHttps checkIntervalHours setting error');
+            throw new Error('TailscaleHttpsIntervalSettingError');
+        }
+
         // http or https の設定が存在するかチェック
         if (
             typeof newConfig.port === 'undefined' &&
+            isTailscaleHttpsEnabled === false &&
             (typeof newConfig.https === 'undefined' ||
                 typeof newConfig.https.port === 'undefined' ||
                 typeof newConfig.https.key === 'undefined' ||
@@ -104,7 +139,13 @@ class Configuration implements IConfiguration {
 
         // set apiServes
         if (newConfig.apiServers.length === 0) {
-            newConfig.apiServers.push(`http://localhost:${newConfig.port}`);
+            if (typeof newConfig.port !== 'undefined') {
+                newConfig.apiServers.push(`http://localhost:${newConfig.port}`);
+            } else if (typeof newConfig.tailscaleHttps?.hostname !== 'undefined') {
+                newConfig.apiServers.push(
+                    `https://${newConfig.tailscaleHttps.hostname}:${newConfig.tailscaleHttps.port.toString(10)}`,
+                );
+            }
         }
 
         // subDirectory のパス整形

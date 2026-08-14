@@ -80,7 +80,7 @@
         > npm run install-win-service
         ```
 
-    -   サービス名と表示名はどちらも `epgstation-nyanz` です
+    -   サービス名と表示名はどちらも `NeoEPGStation` です
     -   インストール時にサービスを開始するため、別途 `net start` を実行する必要はありません
 
 -   手動で終了する場合
@@ -92,13 +92,19 @@
 -   自動起動した EPGStation を終了する場合
 
     ```
-    > net stop epgstation-nyanz
+    > net stop NeoEPGStation
     ```
 
     -   サービスから削除する場合は以下のコマンドを管理者権限で実行します
 
     ```
     > npm run uninstall-win-service
+    ```
+
+    旧EPGStation-nyanzのサービスが残っている場合は、次のコマンドで停止・削除できます。
+
+    ```powershell
+    > npm run uninstall-win-service-legacy
     ```
 
 ## Tips

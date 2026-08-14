@@ -190,6 +190,16 @@ export default class RecordedDB implements IRecordedDB {
      * @return Promise<void>
      */
     public async changeUser(recordedId: apid.RecordedId, userId: apid.UserId): Promise<void> {
+        await this.changeUsers([recordedId], userId);
+    }
+
+    /**
+     * 指定した複数の録画番組のユーザーを変更する
+     */
+    public async changeUsers(recordedIds: apid.RecordedId[], userId: apid.UserId): Promise<void> {
+        if (recordedIds.length === 0) {
+            return;
+        }
         const connection = await this.op.getConnection();
         const queryBuilder = connection
             .createQueryBuilder()
@@ -197,7 +207,7 @@ export default class RecordedDB implements IRecordedDB {
             .set({
                 userId,
             })
-            .where({ id: recordedId });
+            .where({ id: In(recordedIds) });
         await this.promieRetry.run(() => {
             return queryBuilder.execute();
         });
@@ -223,6 +233,14 @@ export default class RecordedDB implements IRecordedDB {
      * @param recordedId: apid.RecordedId
      * @return Recorded
      */
+    public async exists(recordedId: apid.RecordedId): Promise<boolean> {
+        const connection = await this.op.getConnection();
+        const queryBuilder = connection.getRepository(Recorded).createQueryBuilder('recorded').where({
+            id: recordedId,
+        });
+        return (await this.promieRetry.run(() => queryBuilder.getCount())) > 0;
+    }
+
     public async findId(recordedId: apid.RecordedId): Promise<Recorded | null> {
         const connection = await this.op.getConnection();
 
@@ -286,7 +304,9 @@ export default class RecordedDB implements IRecordedDB {
             }
         }
 
-        queryBuilder = queryBuilder.orderBy('recorded.startAt', isReverse ? 'ASC' : 'DESC');
+        queryBuilder = queryBuilder
+            .orderBy('recorded.startAt', isReverse ? 'ASC' : 'DESC')
+            .addOrderBy('recorded.id', isReverse ? 'ASC' : 'DESC');
 
         const result = await this.promieRetry.run(() => {
             return queryBuilder.getMany();
@@ -519,7 +539,9 @@ export default class RecordedDB implements IRecordedDB {
         }
 
         // order by
-        queryBuilder = queryBuilder.orderBy('recorded.startAt', option.isReverse ? 'ASC' : 'DESC');
+        queryBuilder = queryBuilder
+            .orderBy('recorded.startAt', option.isReverse ? 'ASC' : 'DESC')
+            .addOrderBy('recorded.id', option.isReverse ? 'ASC' : 'DESC');
 
         // videoFiles
         if (columnOption.isNeedVideoFiles === true) {
@@ -561,6 +583,22 @@ export default class RecordedDB implements IRecordedDB {
 
             return [result, total];
         }
+    }
+
+    public async countRecordedBefore(recorded: Recorded): Promise<number> {
+        const connection = await this.op.getConnection();
+        const queryBuilder = connection
+            .getRepository(Recorded)
+            .createQueryBuilder('recorded')
+            .where('recorded.isRecording = :isRecording', { isRecording: false })
+            .andWhere('(recorded.startAt > :startAt OR (recorded.startAt = :startAt AND recorded.id > :recordedId))', {
+                startAt: recorded.startAt,
+                recordedId: recorded.id,
+            });
+        if (recorded.userId !== null && typeof recorded.userId !== 'undefined') {
+            queryBuilder.andWhere('recorded.userId = :userId', { userId: recorded.userId });
+        }
+        return this.promieRetry.run(() => queryBuilder.getCount());
     }
 
     /**

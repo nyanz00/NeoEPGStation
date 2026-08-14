@@ -1,4 +1,4 @@
-import { ChildProcess, exec, spawn } from 'child_process';
+import { ChildProcess, execFile, spawn } from 'child_process';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import internal, { Readable } from 'stream';
@@ -211,7 +211,7 @@ export default abstract class RecordedStreamBaseModel
      */
     private getVideoInfo(filePath: string): Promise<VideoFileInfo> {
         return new Promise<VideoFileInfo>((resolve, reject) => {
-            exec(`${this.config.ffprobe} -v 0 -show_format -of json "${filePath}"`, (err, std) => {
+            execFile(this.config.ffprobe, ['-v', '0', '-show_format', '-of', 'json', filePath], (err, std) => {
                 if (err) {
                     reject(err);
 
@@ -262,6 +262,7 @@ export default abstract class RecordedStreamBaseModel
                     : null,
             cmd: cmd,
             priority: RecordedStreamBaseModel.ENCODE_PROCESS_PRIORITY,
+            preserveStdout: this.getStreamType() !== 'RecordedHLS',
         };
 
         return option;
@@ -348,11 +349,11 @@ export default abstract class RecordedStreamBaseModel
         }
 
         if (this.preProcessProcess !== null) {
-            await ProcessUtil.kill(this.preProcessProcess);
+            await ProcessUtil.kill(this.preProcessProcess, 0);
         }
 
         if (this.streamProcess !== null) {
-            await ProcessUtil.kill(this.streamProcess);
+            await ProcessUtil.kill(this.streamProcess, 0);
         }
 
         if (this.getStreamType() === 'RecordedHLS') {

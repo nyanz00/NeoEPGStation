@@ -3,6 +3,7 @@ import { inject, injectable } from 'inversify';
 import * as apid from '../../../api';
 import Recorded from '../../db/entities/Recorded';
 import Reserve from '../../db/entities/Reserve';
+import { RecordingResult } from './IRecordingEvent';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
 import IRecordingEvent from './IRecordingEvent';
@@ -71,8 +72,13 @@ class RecordingEvent implements IRecordingEvent {
      * @param recorded: Recorded
      * @param isNeedDeleteReservation: boolean true 予約の削除が必要
      */
-    public emitFinishRecording(reserve: Reserve, recorded: Recorded, isNeedDeleteReservation: boolean): void {
-        this.emitter.emit(RecordingEvent.FINISH_RECORDING_EVENT, reserve, recorded, isNeedDeleteReservation);
+    public emitFinishRecording(
+        reserve: Reserve,
+        recorded: Recorded,
+        isNeedDeleteReservation: boolean,
+        result: RecordingResult = 'success',
+    ): void {
+        this.emitter.emit(RecordingEvent.FINISH_RECORDING_EVENT, reserve, recorded, isNeedDeleteReservation, result);
     }
 
     /**
@@ -172,13 +178,18 @@ class RecordingEvent implements IRecordingEvent {
      * @param callback: (reserve: Reserve, rrecorded: Recorded, isNeedDeleteReservation: boolean) => void
      */
     public setFinishRecording(
-        callback: (reserve: Reserve, recorded: Recorded, isNeedDeleteReservation: boolean) => void,
+        callback: (
+            reserve: Reserve,
+            recorded: Recorded,
+            isNeedDeleteReservation: boolean,
+            result: RecordingResult,
+        ) => void,
     ): void {
         this.emitter.on(
             RecordingEvent.FINISH_RECORDING_EVENT,
-            async (reserve: Reserve, recorded: Recorded, isNeedDeleteReservation: boolean) => {
+            async (reserve: Reserve, recorded: Recorded, isNeedDeleteReservation: boolean, result: RecordingResult) => {
                 try {
-                    await callback(reserve, recorded, isNeedDeleteReservation);
+                    await callback(reserve, recorded, isNeedDeleteReservation, result);
                 } catch (err: any) {
                     this.log.system.error(err);
                 }

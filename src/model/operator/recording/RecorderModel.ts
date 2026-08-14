@@ -270,6 +270,21 @@ class RecorderModel implements IRecorderModel {
         }
     }
 
+    private async waitForRecordingFileClosed(): Promise<void> {
+        const recFile = this.recFile;
+        if (recFile === null) return;
+
+        try {
+            await stream.promises.finished(recFile);
+        } catch (err: any) {
+            this.log.system.error(`finish recFile error: ${this.reserve.id}`);
+            this.log.system.error(err);
+            throw err;
+        } finally {
+            if (this.recFile === recFile) this.recFile = null;
+        }
+    }
+
     /**
      * 録画処理
      */
@@ -323,7 +338,7 @@ class RecorderModel implements IRecorderModel {
         if (this.config.isEnabledDropCheck === true) {
             let dropFilePath: string | null = null;
             try {
-                await this.dropChecker.start(this.config.dropLog, recPath.fullPath, this.stream);
+                await this.dropChecker.start(this.config.dropLog, recPath.fullPath, this.stream, this.reserve.endAt);
                 dropFilePath = this.dropChecker.getFilePath();
             } catch (err: any) {
                 this.log.system.error(`drop check error: ${recPath.fullPath}`);
@@ -442,6 +457,7 @@ class RecorderModel implements IRecorderModel {
             videoFile.recordedId = this.recordedId;
             this.log.system.info(`create video file: ${videoFile.filePath}`);
             this.videoFileId = await this.videoFileDB.insertOnce(videoFile);
+            videoFile.id = this.videoFileId;
             this.videoFileFulPath = recPath.fullPath;
 
             recorded.videoFiles = [videoFile];
@@ -503,7 +519,7 @@ class RecorderModel implements IRecorderModel {
 
         // 録画終了処理
         this.isNeedDeleteReservation = false;
-        await this.recEnd().catch(e => {
+        await this.recEnd('failed').catch(e => {
             this.log.system.error(`recEnd error reserveId: ${this.reserve.id} recordedId: ${this.recordedId}`);
             this.log.system.error(e);
         });
@@ -608,11 +624,12 @@ class RecorderModel implements IRecorderModel {
     /**
      * 録画終了処理
      */
-    private async recEnd(): Promise<void> {
+    private async recEnd(result: 'success' | 'failed' = 'success'): Promise<void> {
         this.log.system.info(`start recEnd reserveId: ${this.reserve.id} recordedId: ${this.recordedId}`);
 
         // stream 停止
         this.destroyStream();
+        await this.waitForRecordingFileClosed();
 
         // イベントリレーのチェック用タイマーをクリア
         if (this.eventRelayTimerId !== null) {
@@ -695,7 +712,7 @@ class RecorderModel implements IRecorderModel {
                 this.log.system.info(
                     `emit finish recording reserveId: ${this.reserve.id}, recordedId: ${this.recordedId}, isNeedDeleteReservation: ${this.isNeedDeleteReservation}`,
                 );
-                this.recordingEvent.emitFinishRecording(this.reserve, recorded, this.isNeedDeleteReservation);
+                this.recordingEvent.emitFinishRecording(this.reserve, recorded, this.isNeedDeleteReservation, result);
             }
         } else {
             this.log.system.info('failed to recording: recorded id is null');
@@ -820,6 +837,13 @@ class RecorderModel implements IRecorderModel {
     }
 
     /**
+     * 録画ストリームが開始済みか
+     */
+    public isRecordingActive(): boolean {
+        return this.isRecording;
+    }
+
+    /**
      * 予約情報を更新する
      * @param newReserve: 新しい予約情報
      * @param isSuppressLog: boolean ログ出力を抑えるか
@@ -911,6 +935,7 @@ class RecorderModel implements IRecorderModel {
             }
         }
 
+        this.dropChecker.setRecordingEndAt(newReserve.endAt);
         this.reserve = newReserve;
 
         // update recorded DB

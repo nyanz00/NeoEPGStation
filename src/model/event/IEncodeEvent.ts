@@ -15,6 +15,7 @@ export interface ErrorEncodeInfo {
     recordedId: apid.RecordedId;
     videoFileId: apid.VideoFileId;
     mode: string;
+    encoderMessage?: string;
 }
 
 export default interface IEncodeEvent {

@@ -2,13 +2,16 @@ import { inject, injectable } from 'inversify';
 import { mkdirp } from 'mkdirp';
 import * as path from 'path';
 import * as apid from '../../../../api';
+import AnnictRecordedEpisode from '../../../db/entities/AnnictRecordedEpisode';
 import DropLogFile from '../../../db/entities/DropLogFile';
 import Recorded from '../../../db/entities/Recorded';
+import RecordedPlayback from '../../../db/entities/RecordedPlayback';
 import Thumbnail from '../../../db/entities/Thumbnail';
 import VideoFile from '../../../db/entities/VideoFile';
 import FileUtil from '../../../util/FileUtil';
 import StrUtil from '../../../util/StrUtil';
 import IVideoUtil from '../../api/video/IVideoUtil';
+import IDBOperator from '../../db/IDBOperator';
 import IDropLogFileDB from '../../db/IDropLogFileDB';
 import IRecordedDB from '../../db/IRecordedDB';
 import IRecordedHistoryDB from '../../db/IRecordedHistoryDB';
@@ -32,6 +35,7 @@ export default class RecordedManageModel implements IRecordedManageModel {
     private thumbnailDB: IThumbnailDB;
     private dropLogFileDB: IDropLogFileDB;
     private recordedHistoryDB: IRecordedHistoryDB;
+    private dbOperator: IDBOperator;
     private recordingManageModel: IRecordingManageModel;
     private recordedEvent: IRecordedEvent;
     private videoUtil: IVideoUtil;
@@ -45,6 +49,7 @@ export default class RecordedManageModel implements IRecordedManageModel {
         @inject('IThumbnailDB') thumbnailDB: IThumbnailDB,
         @inject('IDropLogFileDB') dropLogFileDB: IDropLogFileDB,
         @inject('IRecordedHistoryDB') recordedHistoryDB: IRecordedHistoryDB,
+        @inject('IDBOperator') dbOperator: IDBOperator,
         @inject('IRecordingManageModel')
         recordingManageModel: IRecordingManageModel,
         @inject('IRecordedEvent') recordedEvent: IRecordedEvent,
@@ -58,6 +63,7 @@ export default class RecordedManageModel implements IRecordedManageModel {
         this.thumbnailDB = thumbnailDB;
         this.dropLogFileDB = dropLogFileDB;
         this.recordedHistoryDB = recordedHistoryDB;
+        this.dbOperator = dbOperator;
         this.recordingManageModel = recordingManageModel;
         this.recordedEvent = recordedEvent;
         this.videoUtil = videoUtil;
@@ -100,15 +106,14 @@ export default class RecordedManageModel implements IRecordedManageModel {
         const hasThumbnails = typeof recorded.thumbnails !== 'undefined' && recorded.thumbnails.length > 0;
         const hasVideoFiles = typeof recorded.videoFiles !== 'undefined' && recorded.videoFiles.length > 0;
 
+        const fileDeleteErrors: string[] = [];
+
         // サムネイル実ファイル削除
         if (hasThumbnails === true && typeof recorded.thumbnails !== 'undefined') {
             for (const t of recorded.thumbnails) {
                 const filePath = this.getThumbnailPath(t);
                 this.log.system.info(`delete: ${filePath}`);
-                await FileUtil.unlink(filePath).catch(err => {
-                    this.log.system.error(`failed to delete ${filePath}`);
-                    this.log.system.error(err);
-                });
+                await this.deleteRecordedFile(filePath, fileDeleteErrors);
             }
         }
 
@@ -125,14 +130,12 @@ export default class RecordedManageModel implements IRecordedManageModel {
                     this.log.system.error(`get video file path error: ${v.id}`);
                     this.log.system.error(err);
                     this.log.system.error(v);
+                    fileDeleteErrors.push(`録画ファイルの場所を取得できませんでした: ${v.name}`);
                     continue;
                 }
 
                 this.log.system.info(`delete: ${filePath}`);
-                await FileUtil.unlink(filePath).catch(err => {
-                    this.log.system.error(`failed to delete ${filePath}`);
-                    this.log.system.error(err);
-                });
+                await this.deleteRecordedFile(filePath, fileDeleteErrors);
             }
         }
 
@@ -140,46 +143,51 @@ export default class RecordedManageModel implements IRecordedManageModel {
         if (typeof recorded.dropLogFile !== 'undefined' && recorded.dropLogFile !== null) {
             const filePath = this.getDropLogFilePath(recorded.dropLogFile);
             this.log.system.info(`delete: ${filePath}`);
-            await FileUtil.unlink(filePath).catch(err => {
-                this.log.system.error(`failed to delete ${filePath}`);
-                this.log.system.error(err);
-            });
+            await this.deleteRecordedFile(filePath, fileDeleteErrors);
         }
 
-        // DB からサムネイル情報削除
-        if (hasThumbnails === true) {
-            this.thumbnailDB.deleteRecordedId(recordedId).catch(err => {
-                this.log.system.error(`falied to delete thumbnail data: ${recordedId}`);
-                this.log.system.error(err);
-            });
+        if (fileDeleteErrors.length > 0) {
+            throw new Error(`録画ファイルの削除に失敗しました: ${fileDeleteErrors.join('、')}`);
         }
 
-        // DB から録画ファイル情報削除
-        if (hasVideoFiles === true) {
-            await this.videoFileDB.deleteRecordedId(recordedId).catch(err => {
-                this.log.system.error(`falied to delete video data: ${recordedId}`);
-                this.log.system.error(err);
-            });
-        }
-
-        // DB から録画情報削除
-        await this.recordedDB.deleteOnce(recordedId).catch(err => {
-            this.log.system.error(`falied to delete recorded data: ${recordedId}`);
-            this.log.system.error(err);
-        });
-
-        // DB からドロップログファイル情報削除
-        if (typeof recorded.dropLogFile !== 'undefined' && recorded.dropLogFile !== null) {
-            await this.dropLogFileDB.deleteOnce(recorded.dropLogFile.id).catch(err => {
-                this.log.system.error(`failed to delete drop log data: ${recorded.dropLogFile?.id}`);
-                this.log.system.error(err);
-            });
+        const connection = await this.dbOperator.getConnection();
+        const queryRunner = connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            await queryRunner.manager.delete(Thumbnail, { recordedId });
+            await queryRunner.manager.delete(VideoFile, { recordedId });
+            await queryRunner.manager.delete(RecordedPlayback, { recordedId });
+            // Annict側の視聴済み記録は維持し、録画とのローカル対応だけを削除する。
+            await queryRunner.manager.delete(AnnictRecordedEpisode, { recordedId });
+            await queryRunner.manager.delete(Recorded, { id: recordedId });
+            if (recorded.dropLogFile !== undefined && recorded.dropLogFile !== null) {
+                await queryRunner.manager.delete(DropLogFile, { id: recorded.dropLogFile.id });
+            }
+            await queryRunner.commitTransaction();
+        } catch (err) {
+            await queryRunner.rollbackTransaction();
+            throw err;
+        } finally {
+            await queryRunner.release();
         }
 
         this.log.system.info(`successful delete recorded: ${recordedId}`);
 
         // イベント発行
         this.recordedEvent.emitDeleteRecorded(recorded);
+    }
+
+    private async deleteRecordedFile(filePath: string, errors: string[]): Promise<void> {
+        try {
+            await FileUtil.unlink(filePath);
+        } catch (err: any) {
+            // A previous partial attempt may already have removed this file. Retrying the DB cleanup remains safe.
+            if (err?.code === 'ENOENT') return;
+            this.log.system.error(`failed to delete ${filePath}`);
+            this.log.system.error(err);
+            errors.push(filePath);
+        }
     }
 
     /**
@@ -281,11 +289,10 @@ export default class RecordedManageModel implements IRecordedManageModel {
 
         // サブディレクトリ
         let dirPath = parentDirPath;
+        let formattedSubDirectory: string | undefined;
         if (typeof option.subDirectory !== 'undefined') {
-            dirPath = path.join(
-                dirPath,
-                await this.recordingUtilModel.formatFilePathString(option.subDirectory, recorded),
-            );
+            formattedSubDirectory = await this.recordingUtilModel.formatFilePathString(option.subDirectory, recorded);
+            dirPath = this.resolvePathInsideDirectory(parentDirPath, formattedSubDirectory);
 
             // check dir
             try {
@@ -298,7 +305,7 @@ export default class RecordedManageModel implements IRecordedManageModel {
         }
 
         // コピー先のファイルパスを生成する
-        const filePath = await this.getUploadedVideoFilePath(dirPath, option.fileName);
+        const filePath = await this.getUploadedVideoFilePath(dirPath, path.basename(option.fileName));
 
         // アップロードされたファイルを保存先へ移動する
         try {
@@ -324,12 +331,9 @@ export default class RecordedManageModel implements IRecordedManageModel {
                 recordedId: option.recordedId,
                 parentDirectoryName: option.parentDirectoryName,
                 filePath:
-                    typeof option.subDirectory === 'undefined'
+                    typeof formattedSubDirectory === 'undefined'
                         ? fileName
-                        : path.join(
-                              await this.recordingUtilModel.formatFilePathString(option.subDirectory, recorded),
-                              fileName,
-                          ),
+                        : path.join(formattedSubDirectory, fileName),
                 type: option.fileType,
                 name: option.viewName,
             });
@@ -365,6 +369,19 @@ export default class RecordedManageModel implements IRecordedManageModel {
         } catch (err: any) {
             return filePath;
         }
+    }
+
+    private resolvePathInsideDirectory(parentDirectory: string, subDirectory: string): string {
+        const parent = path.resolve(parentDirectory);
+        const target = path.resolve(parent, subDirectory);
+        const relative = path.relative(parent, target);
+        if (
+            relative === '' ||
+            (path.isAbsolute(relative) === false && relative !== '..' && relative.startsWith(`..${path.sep}`) === false)
+        ) {
+            return target;
+        }
+        throw new Error('SubDirectoryOutsideRecordedRoot');
     }
 
     /**

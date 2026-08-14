@@ -19,6 +19,8 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
     private maxEncode: number;
     private childs: ChildProcessInfo[] = [];
     private listener: events.EventEmitter = new events.EventEmitter();
+    private createQueue: Promise<void> = Promise.resolve();
+    private nextProcessId: number = 0;
 
     constructor(@inject('ILoggerModel') logeer: ILoggerModel, @inject('IConfiguration') configure: IConfiguration) {
         this.log = logeer.getLogger();
@@ -32,6 +34,20 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
      * @return Promise<ChildProcess>
      */
     public create(option: CreateProcessOption): Promise<ChildProcess> {
+        const operation = this.createQueue.then(() => this.createProcess(option));
+        this.createQueue = operation.then(
+            () => undefined,
+            () => undefined,
+        );
+
+        return operation;
+    }
+
+    /**
+     * 上限判定からプロセス登録までを直列に実行する。
+     * 同時リクエストが同じ空き枠や停止対象を選ぶことを防ぐ。
+     */
+    private createProcess(option: CreateProcessOption): Promise<ChildProcess> {
         return new Promise<ChildProcess>(async (resolve, reject) => {
             if (this.childs.length >= this.maxEncode) {
                 // プロセス数が上限に達しているとき
@@ -77,7 +93,7 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
      */
     private killAndCreateProcess(planToKillProcessId: number, option: CreateProcessOption): Promise<ChildProcess> {
         return new Promise<ChildProcess>(async (resolve, reject) => {
-            let timeoutId: NodeJS.Timer | null = null;
+            let timeoutId: NodeJS.Timeout | null = null;
 
             /**
              * プロセスを生成
@@ -104,6 +120,9 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
                 } catch (err: any) {
                     this.log.encode.error('kill & create new encode process failed');
                     this.log.encode.error(err);
+                    if (timeoutId !== null) {
+                        clearTimeout(timeoutId);
+                    }
                     reject(err);
                 }
             };
@@ -128,6 +147,9 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
                 this.log.encode.error(`kill process failed: ${planToKillProcessId}`);
                 this.log.encode.error(err);
                 this.removeListener(createChild);
+                if (timeoutId !== null) {
+                    clearTimeout(timeoutId);
+                }
                 reject(err);
             }
         });
@@ -164,14 +186,20 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
                 isError = false;
                 try {
                     if (isRemoveOnly === false) {
+                        if (ProcessUtil.isExited(this.childs[i].child) === true) {
+                            this.childs.splice(i, 1);
+                            this.eventsNotify(processId);
+
+                            return;
+                        }
                         this.log.encode.info(`kill child: ${processId}`);
                         await ProcessUtil.kill(this.childs[i].child);
+                    } else {
+                        this.childs.splice(i, 1);
                     }
                 } catch (err: any) {
                     this.log.encode.error(err);
                 }
-
-                this.childs.splice(i, 1);
                 break;
             }
         }
@@ -220,24 +248,27 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
             typeof option.spawnOption === 'undefined'
                 ? spawn(cmds.bin, cmds.args)
                 : spawn(cmds.bin, cmds.args, option.spawnOption);
-        const processId = new Date().getTime();
+        const processId = ++this.nextProcessId;
+
+        let isFinished = false;
+        const finish = async () => {
+            if (isFinished === true) {
+                return;
+            }
+            isFinished = true;
+            await this.killChild(processId, true).catch(err => {
+                this.log.encode.error(err);
+            });
+            this.eventsNotify(processId);
+        };
 
         // エラー発生時にプロセスを停止して this.childs から削除する
-        child.on('error', async () => {
-            await this.killChild(processId, true).catch(err => {
-                this.log.encode.error(err);
-            });
-            this.eventsNotify(processId);
-        });
-        child.on('exit', async () => {
-            await this.killChild(processId, true).catch(err => {
-                this.log.encode.error(err);
-            });
-            this.eventsNotify(processId);
-        });
+        child.on('error', finish);
+        child.on('exit', finish);
 
-        // buffer が埋まらないようにする
-        if (child.stdout !== null) {
+        // 通常のエンコードでは未使用の pipe が埋まらないよう読み捨てる。
+        // ストリーム配信では、HTTP 応答が接続される前の先頭データを失わないよう paused のまま保持する。
+        if (child.stdout !== null && option.preserveStdout !== true) {
             child.stdout.on('data', () => {});
         }
         if (child.stderr !== null) {
@@ -246,13 +277,7 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
 
         // プロセスが即時終了していた場合の対処
         if (ProcessUtil.isExited(child) === true) {
-            setTimeout(async () => {
-                await this.killChild(processId, true).catch(err => {
-                    this.log.encode.error(err);
-                });
-                this.eventsNotify(processId);
-                child.removeAllListeners();
-            }, 50);
+            setTimeout(finish, 50);
         }
 
         return {

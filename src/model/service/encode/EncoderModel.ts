@@ -40,6 +40,7 @@ interface AmatsukazePushStatus {
     isPending: boolean;
     pendingMessage: string | null;
     errorMessage: string | null;
+    requiresOutputReconcile: boolean;
     updatedAt: number;
 }
 
@@ -49,6 +50,8 @@ class AmatsukazePushConnection {
     private static readonly RPC_ON_CONSOLE_UPDATE = 201;
     private static readonly RPC_ON_ENCODE_STATE = 202;
     private static readonly IDLE_CLOSE_DELAY_MS = 60 * 1000;
+    private static readonly RECONNECT_MIN_DELAY_MS = 1000;
+    private static readonly RECONNECT_MAX_DELAY_MS = 30 * 1000;
     private static readonly connections: Map<string, AmatsukazePushConnection> = new Map();
 
     public static subscribe(
@@ -101,7 +104,9 @@ class AmatsukazePushConnection {
     private recvBuffer: Buffer = Buffer.alloc(0);
     private subscriptions: Map<number, AmatsukazePushSubscription> = new Map();
     private nextSubscriptionId: number = 1;
-    private idleCloseTimerId: NodeJS.Timer | null = null;
+    private idleCloseTimerId: NodeJS.Timeout | null = null;
+    private reconnectTimerId: NodeJS.Timeout | null = null;
+    private reconnectAttempts: number = 0;
     private readonly decoder: TextDecoder = new TextDecoder('shift_jis');
 
     private constructor(
@@ -213,11 +218,13 @@ class AmatsukazePushConnection {
     }
 
     private start(): void {
-        if (this.socket !== null) {
+        if (this.socket !== null || this.reconnectTimerId !== null || this.subscriptions.size === 0) {
             return;
         }
 
         const socket = net.createConnection({ host: this.host, port: this.port }, () => {
+            if (this.socket !== socket) return;
+            this.reconnectAttempts = 0;
             this.notifyConnected(true);
             this.notifyLog(`amatsukaze push connected: ${this.host}:${this.port}`);
         });
@@ -228,22 +235,44 @@ class AmatsukazePushConnection {
         });
         socket.on('error', err => {
             this.notifyLog(`amatsukaze push error: ${err.message}`);
+            if (this.socket === socket) socket.destroy();
         });
         socket.on('close', () => {
+            if (this.socket !== socket) return;
             this.socket = null;
             this.recvBuffer = Buffer.alloc(0);
             this.notifyConnected(false);
             this.notifyLog('amatsukaze push closed');
+            this.scheduleReconnect();
         });
     }
 
+    private scheduleReconnect(): void {
+        if (this.subscriptions.size === 0 || this.reconnectTimerId !== null) return;
+        const delay = Math.min(
+            AmatsukazePushConnection.RECONNECT_MAX_DELAY_MS,
+            AmatsukazePushConnection.RECONNECT_MIN_DELAY_MS * 2 ** Math.min(this.reconnectAttempts, 5),
+        );
+        this.reconnectAttempts += 1;
+        this.notifyLog(`amatsukaze push reconnect scheduled: ${delay.toString(10)}ms`);
+        this.reconnectTimerId = setTimeout(() => {
+            this.reconnectTimerId = null;
+            this.start();
+        }, delay);
+    }
+
     private stop(): void {
+        if (this.reconnectTimerId !== null) {
+            clearTimeout(this.reconnectTimerId);
+            this.reconnectTimerId = null;
+        }
         if (this.socket !== null) {
             this.socket.removeAllListeners();
             this.socket.destroy();
             this.socket = null;
         }
         this.recvBuffer = Buffer.alloc(0);
+        this.reconnectAttempts = 0;
         AmatsukazePushConnection.connections.delete(this.key);
     }
 
@@ -346,11 +375,13 @@ class AmatsukazePushSubscription {
         isPending: false,
         pendingMessage: null,
         errorMessage: null,
+        requiresOutputReconcile: false,
         updatedAt: 0,
     };
     private taskId: number | null = null;
     private consoleTail: string = '';
     private consoleMatchSource: 'none' | 'fallback' | 'queue' = 'none';
+    private hasConnectedOnce: boolean = false;
 
     constructor(
         public readonly id: number,
@@ -361,6 +392,7 @@ class AmatsukazePushSubscription {
     ) {}
 
     public stop(): void {
+        this.flushConsoleTail();
         this.connection.unsubscribe(this.id);
     }
 
@@ -409,11 +441,19 @@ class AmatsukazePushSubscription {
     }
 
     public handleConnectionStatus(isConnected: boolean): void {
+        if (isConnected === false) {
+            this.flushConsoleTail();
+        }
+        const isReconnect =
+            isConnected && this.hasConnectedOnce && this.status.isConnected === false && this.status.isMatched;
+        if (isConnected) this.hasConnectedOnce = true;
         this.status = {
             ...this.status,
             isConnected,
+            requiresOutputReconcile: this.status.requiresOutputReconcile || isReconnect,
             updatedAt: Date.now(),
         };
+        this.onUpdate(this.getStatus());
     }
 
     public log(message: string): void {
@@ -445,23 +485,7 @@ class AmatsukazePushSubscription {
         }
 
         for (const line of this.applyConsoleText(text)) {
-            const trimmed = line.trim();
-            if (trimmed.length === 0) {
-                continue;
-            }
-
-            // A title such as "[100%]" is not an encode progress report.
-            const percent = this.isMatchingConsoleText(trimmed) ? null : this.parsePercent(trimmed);
-            this.status = {
-                ...this.status,
-                log: trimmed,
-                percent: percent ?? this.status.percent,
-                isReadyForOutputScan: this.status.isReadyForOutputScan || (typeof percent === 'number' && percent >= 1),
-                isPending: false,
-                pendingMessage: null,
-                updatedAt: Date.now(),
-            };
-            this.onUpdate(this.getStatus());
+            this.processConsoleLine(line);
         }
     }
 
@@ -536,6 +560,7 @@ class AmatsukazePushSubscription {
                 isMatched: true,
                 isPending: true,
                 pendingMessage: matchedItem.stateLabel || matchedItem.state || 'pending',
+                requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
         } else if (normalizedState === 'complete') {
@@ -546,6 +571,7 @@ class AmatsukazePushSubscription {
                 isReadyForOutputScan: true,
                 isPending: false,
                 pendingMessage: null,
+                requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
         } else if (['failed', 'prefailed', 'canceled'].includes(normalizedState)) {
@@ -555,6 +581,7 @@ class AmatsukazePushSubscription {
                 isPending: false,
                 pendingMessage: null,
                 errorMessage: matchedItem.state,
+                requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
         } else {
@@ -563,6 +590,7 @@ class AmatsukazePushSubscription {
                 isMatched: true,
                 isPending: false,
                 pendingMessage: null,
+                requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
         }
@@ -619,6 +647,30 @@ class AmatsukazePushSubscription {
         }
 
         return lines;
+    }
+
+    private flushConsoleTail(): void {
+        const tail = this.consoleTail;
+        this.consoleTail = '';
+        if (tail.length > 0) this.processConsoleLine(tail);
+    }
+
+    private processConsoleLine(rawLine: string): void {
+        const line = rawLine.trim();
+        if (line.length === 0) return;
+
+        // A title such as "[100%]" is not an encode progress report.
+        const percent = this.isMatchingConsoleText(line) ? null : this.parsePercent(line);
+        this.status = {
+            ...this.status,
+            log: line,
+            percent: percent ?? this.status.percent,
+            isReadyForOutputScan: this.status.isReadyForOutputScan || (typeof percent === 'number' && percent >= 1),
+            isPending: false,
+            pendingMessage: null,
+            updatedAt: Date.now(),
+        };
+        this.onUpdate(this.getStatus());
     }
 
     private isMatchingConsoleText(text: string): boolean {
@@ -707,7 +759,7 @@ class EncoderModel implements IEncoderModel {
 
     private encodeOption: EncodeOption | null = null; // エンコード情報
     private childProcess: ChildProcess | null = null; // エンコードプロセス
-    private timerId: NodeJS.Timer | null = null; // タイムアウト検知用タイマーid
+    private timerId: NodeJS.Timeout | null = null; // タイムアウト検知用タイマーid
     private isCanceld: boolean = false; // キャンセルが呼び出されたか?
     private isFinished: boolean = false;
     private currentOutputFilePath: string | null = null;
@@ -717,6 +769,7 @@ class EncoderModel implements IEncoderModel {
         stdout: '',
         stderr: '',
     };
+    private lastEncoderMessage: string = '';
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -759,11 +812,18 @@ class EncoderModel implements IEncoderModel {
      * エンコード終了イベント登録
      * @param callback
      */
-    public setOnFinish(callback: (isError: boolean, outputFilePath: string | null, isCanceled: boolean) => void): void {
+    public setOnFinish(
+        callback: (
+            isError: boolean,
+            outputFilePath: string | null,
+            isCanceled: boolean,
+            encoderMessage?: string,
+        ) => void,
+    ): void {
         this.listener.once(
             EncoderModel.ENCODE_FINISH_EVENT,
-            (isError: boolean, outputFilePath: string | null, isCanceled: boolean) => {
-                callback(isError, outputFilePath, isCanceled);
+            (isError: boolean, outputFilePath: string | null, isCanceled: boolean, encoderMessage?: string) => {
+                callback(isError, outputFilePath, isCanceled, encoderMessage);
             },
         );
     }
@@ -844,10 +904,15 @@ class EncoderModel implements IEncoderModel {
         }
 
         // 出力先をファイルパスを生成する
-        const outputFilePath =
-            outputDirPath === null || typeof encodeCmd.suffix === 'undefined'
-                ? null
-                : await this.fileManager.getFilePath(outputDirPath, inputFilePath, encodeCmd.suffix);
+        let outputFilePath: string | null = null;
+        if (outputDirPath !== null && typeof encodeCmd.suffix !== 'undefined') {
+            if (typeof this.encodeOption.recoveryOutputFilePath === 'string') {
+                outputFilePath = this.encodeOption.recoveryOutputFilePath;
+                this.fileManager.reserveFilePath(outputFilePath);
+            } else {
+                outputFilePath = await this.fileManager.getFilePath(outputDirPath, inputFilePath, encodeCmd.suffix);
+            }
+        }
         this.currentOutputFilePath = outputFilePath;
 
         // DIR
@@ -871,7 +936,7 @@ class EncoderModel implements IEncoderModel {
             outputFilePath !== null && typeof amatsukazeConfig !== 'undefined'
                 ? this.getAmatsukazeOutputDir(amatsukazeConfig, inputFilePath, outputFilePath)
                 : null;
-        const amatsukazeStartedAt = Date.now();
+        const amatsukazeStartedAt = this.encodeOption.recoveryStartedAt ?? Date.now();
         if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
             try {
                 await FileUtil.stat(amatsukazeOutputDir);
@@ -880,6 +945,7 @@ class EncoderModel implements IEncoderModel {
                 await FileUtil.mkdir(amatsukazeOutputDir);
             }
             if (
+                this.encodeOption.resumeExistingAmatsukaze !== true &&
                 outputFilePath !== null &&
                 typeof amatsukazeConfig.temporaryOutputDir !== 'undefined' &&
                 amatsukazeConfig.temporaryOutputDir.length > 0 &&
@@ -896,6 +962,40 @@ class EncoderModel implements IEncoderModel {
                 }
             }
             this.startAmatsukazePushClient(amatsukazeConfig, inputFilePath);
+        }
+
+        if (
+            this.encodeOption.resumeExistingAmatsukaze === true &&
+            typeof amatsukazeConfig !== 'undefined' &&
+            outputFilePath !== null &&
+            amatsukazeOutputDir !== null
+        ) {
+            if ((await this.existsFile(outputFilePath)) === true) {
+                void this.childEndProcessing(0, null, outputFilePath);
+                return;
+            }
+            this.progressInfo = {
+                percent: 0,
+                log: 'Amatsukazeの既存タスクを確認中',
+            };
+            this.encodeEvent.emitUpdateEncodeProgress();
+            void this.waitForAmatsukazeOutput(
+                { ...amatsukazeConfig, pendingTimeoutSec: 0 },
+                outputFilePath,
+                inputFilePath,
+                amatsukazeOutputDir,
+                amatsukazeStartedAt,
+            )
+                .then(() => this.childEndProcessing(0, null, outputFilePath))
+                .catch(async err => {
+                    if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
+                        await this.childEndProcessing(null, null, outputFilePath);
+                        return;
+                    }
+                    this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                    await this.childEndProcessing(1, null, outputFilePath);
+                });
+            return;
         }
 
         // プロセスの生成
@@ -994,6 +1094,9 @@ class EncoderModel implements IEncoderModel {
                 this.log.encode.debug(String(data));
                 this.updateEncodingProgressInfo(data, encodeVideoInfo, 'stderr');
             });
+            this.childProcess.stderr.once('end', () => {
+                this.flushEncodingProgressSource('stderr', encodeVideoInfo);
+            });
         }
 
         // 進捗情報更新用
@@ -1007,6 +1110,9 @@ class EncoderModel implements IEncoderModel {
                         // error
                     }
                 });
+                this.childProcess.stdout.once('end', () => {
+                    this.flushEncodingProgressSource('stdout', encodeVideoInfo);
+                });
             }
         }
 
@@ -1016,6 +1122,7 @@ class EncoderModel implements IEncoderModel {
                 return;
             }
             hasHandledProcessExit = true;
+            this.flushEncodingProgressInfo(encodeVideoInfo);
 
             if (
                 code === 0 &&
@@ -1041,6 +1148,9 @@ class EncoderModel implements IEncoderModel {
 
                     this.log.encode.error(`amatsukaze output wait failed: ${this.encodeOption?.encodeId}`);
                     this.log.encode.error(err);
+                    if (this.lastEncoderMessage.length === 0) {
+                        this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                    }
                     await this.childEndProcessing(1, signal, outputFilePath);
 
                     return;
@@ -1115,13 +1225,16 @@ class EncoderModel implements IEncoderModel {
         if (status.log === null && status.percent === null) {
             return;
         }
+        if (status.log !== null && status.log.trim().length > 0) {
+            this.lastEncoderMessage = status.log.trim();
+        }
 
         this.progressInfo = {
             percent:
                 status.percent !== null && Number.isNaN(status.percent) === false
                     ? Math.max(0, Math.min(1, status.percent))
-                    : this.progressInfo?.percent ?? 0,
-            log: status.log !== null ? `Amatsukaze: ${status.log}` : this.progressInfo?.log ?? 'Amatsukaze',
+                    : (this.progressInfo?.percent ?? 0),
+            log: status.log !== null ? `Amatsukaze: ${status.log}` : (this.progressInfo?.log ?? 'Amatsukaze'),
         };
         this.encodeEvent.emitUpdateEncodeProgress();
     }
@@ -1225,6 +1338,7 @@ class EncoderModel implements IEncoderModel {
 
         while (this.isCanceld === false) {
             const pushStatus = this.amatsukazePushSubscription?.getStatus();
+            const requiresOutputReconcile = pushStatus?.requiresOutputReconcile === true;
             if (typeof pushStatus !== 'undefined') {
                 if (pushStatus.errorMessage !== null) {
                     throw new Error(`Amatsukaze encode failed: ${pushStatus.errorMessage}`);
@@ -1258,23 +1372,31 @@ class EncoderModel implements IEncoderModel {
                 }
             }
 
-            if (isReadyForOutputScan === true) {
-                if ((await this.existsFile(outputFilePath)) === true) {
+            if (isReadyForOutputScan === true || requiresOutputReconcile) {
+                if (requiresOutputReconcile === false && (await this.existsFile(outputFilePath)) === true) {
                     this.log.encode.info(`amatsukaze output found: ${outputFilePath}`);
                     await Util.sleep(finishDelayMs);
 
                     return;
                 }
 
-                const found = await this.findAmatsukazeOutputCandidate(
-                    inputFilePath,
-                    outputFilePath,
-                    outputDirPath,
-                    outputExtension,
-                    amatsukaze.outputNameMatch || 'exact',
-                    startedAt,
-                    typeof amatsukaze.temporaryOutputDir !== 'undefined' && amatsukaze.temporaryOutputDir.length > 0,
-                );
+                const ignoreStartedAt =
+                    this.encodeOption?.resumeExistingAmatsukaze === true ||
+                    (typeof amatsukaze.temporaryOutputDir !== 'undefined' && amatsukaze.temporaryOutputDir.length > 0);
+                const directOutput = requiresOutputReconcile
+                    ? await this.getAmatsukazeOutputCandidate(outputFilePath, startedAt, ignoreStartedAt)
+                    : null;
+                const found =
+                    directOutput ??
+                    (await this.findAmatsukazeOutputCandidate(
+                        inputFilePath,
+                        outputFilePath,
+                        outputDirPath,
+                        outputExtension,
+                        amatsukaze.outputNameMatch || 'exact',
+                        startedAt,
+                        ignoreStartedAt,
+                    ));
 
                 if (found !== null) {
                     if (
@@ -1284,7 +1406,11 @@ class EncoderModel implements IEncoderModel {
                         candidate.mtimeMs === found.mtimeMs
                     ) {
                         if (Date.now() - candidate.stableSince >= stableMs) {
-                            await this.moveAmatsukazeOutput(found.path, outputFilePath);
+                            if (found.path !== outputFilePath) {
+                                await this.moveAmatsukazeOutput(found.path, outputFilePath);
+                            } else {
+                                this.log.encode.info(`amatsukaze reconciled completed output: ${outputFilePath}`);
+                            }
                             await Util.sleep(finishDelayMs);
 
                             return;
@@ -1467,27 +1593,32 @@ class EncoderModel implements IEncoderModel {
         const lines = text.split(/\r\n|\n|\r/);
         this.encodingProgressBuffer[source] = lines.pop() || '';
 
-        if (lines.length === 0 && text.length > 0) {
-            lines.push(text);
-            this.encodingProgressBuffer[source] = '';
-        }
-
         for (const rawLine of lines) {
-            const line = rawLine.trim();
-            if (line.length === 0) {
-                continue;
-            }
-
-            const progress = this.parseEncodingProgressLine(line, videoInfo);
-            if (progress === null) {
-                continue;
-            }
-
-            this.progressInfo = progress;
-
-            // エンコード進捗変更通知
-            this.encodeEvent.emitUpdateEncodeProgress();
+            this.processEncodingProgressLine(rawLine, videoInfo);
         }
+    }
+
+    private flushEncodingProgressInfo(videoInfo: VideoInfo | null): void {
+        for (const source of ['stdout', 'stderr'] as const) {
+            this.flushEncodingProgressSource(source, videoInfo);
+        }
+    }
+
+    private flushEncodingProgressSource(source: 'stdout' | 'stderr', videoInfo: VideoInfo | null): void {
+        const tail = this.encodingProgressBuffer[source];
+        this.encodingProgressBuffer[source] = '';
+        if (tail.length > 0) this.processEncodingProgressLine(tail, videoInfo);
+    }
+
+    private processEncodingProgressLine(rawLine: string, videoInfo: VideoInfo | null): void {
+        const line = rawLine.trim();
+        if (line.length === 0) return;
+        this.lastEncoderMessage = line;
+
+        const progress = this.parseEncodingProgressLine(line, videoInfo);
+        if (progress === null) return;
+        this.progressInfo = progress;
+        this.encodeEvent.emitUpdateEncodeProgress();
     }
 
     private parseEncodingProgressLine(line: string, videoInfo: VideoInfo | null): EncodeProgressInfo | null {
@@ -1643,7 +1774,13 @@ class EncoderModel implements IEncoderModel {
         }
 
         // エンコードプロセスの終了を通知
-        this.listener.emit(EncoderModel.ENCODE_FINISH_EVENT, isError, outputFilePath, this.isCanceld);
+        this.listener.emit(
+            EncoderModel.ENCODE_FINISH_EVENT,
+            isError,
+            outputFilePath,
+            this.isCanceld,
+            this.lastEncoderMessage,
+        );
         this.listener.removeAllListeners();
     }
 
@@ -1712,6 +1849,10 @@ class EncoderModel implements IEncoderModel {
      */
     public getEncodeId(): apid.EncodeId | null {
         return this.encodeOption === null ? null : this.encodeOption.encodeId;
+    }
+
+    public getOutputFilePath(): string | null {
+        return this.currentOutputFilePath;
     }
 }
 

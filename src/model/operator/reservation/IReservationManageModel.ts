@@ -8,7 +8,12 @@ export default interface IReservationManageModel {
     add(option: apid.ManualReserveOption): Promise<apid.ReserveId>;
     addEventRelay(programId: apid.ProgramId, parentReserve: Reserve): Promise<apid.ReserveId | null>;
     update(reserveId: apid.ReserveId, isSuppressLog?: boolean): Promise<void>;
-    updateRule(ruleId: apid.RuleId, isSuppressLog?: boolean, isFirstUpdate?: boolean): Promise<void>;
+    updateRule(
+        ruleId: apid.RuleId,
+        isSuppressLog?: boolean,
+        isFirstUpdate?: boolean,
+        preserveActiveRecordings?: boolean,
+    ): Promise<void>;
     updateAll(isFirstUpdate?: boolean): Promise<void>;
     cancel(reserveId: apid.ReserveId): Promise<void>;
     removeSkip(reserveId: apid.ReserveId): Promise<void>;

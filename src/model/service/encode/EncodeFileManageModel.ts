@@ -56,6 +56,11 @@ export default class EncodeFileManageModel implements IEncodeFileManageModel {
         return result;
     }
 
+    public reserveFilePath(filePath: string): void {
+        if (this.usedFileNameIndex[filePath] === true) throw new Error(`EncodeOutputPathIsAlreadyUsed: ${filePath}`);
+        this.usedFileNameIndex[filePath] = true;
+    }
+
     /**
      * 指定されたファイルパスを使用済みリストから開放する
      * @param filePath: ファイルパス

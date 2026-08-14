@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import * as apid from '../../../../api';
 import IReserveDB from '../../db/IReserveDB';
 import IRuleDB from '../../db/IRuleDB';
+import IAnnictRuleLinkDB from '../../db/IAnnictRuleLinkDB';
 import IIPCClient from '../../ipc/IIPCClient';
 import IRuleApiModel from './IRuleApiModel';
 
@@ -10,15 +11,18 @@ export default class RuleApiModel implements IRuleApiModel {
     private ipc: IIPCClient;
     private ruleDB: IRuleDB;
     private reserveDB: IReserveDB;
+    private annictRuleLinkDB: IAnnictRuleLinkDB;
 
     constructor(
         @inject('IIPCClient') ipc: IIPCClient,
         @inject('IRuleDB') ruleDB: IRuleDB,
         @inject('IReserveDB') reserveDB: IReserveDB,
+        @inject('IAnnictRuleLinkDB') annictRuleLinkDB: IAnnictRuleLinkDB,
     ) {
         this.ipc = ipc;
         this.ruleDB = ruleDB;
         this.reserveDB = reserveDB;
+        this.annictRuleLinkDB = annictRuleLinkDB;
     }
 
     /**
@@ -66,6 +70,16 @@ export default class RuleApiModel implements IRuleApiModel {
                 for (const rule of rules) {
                     rule.reservesCnt = typeof reserveCntIndex[rule.id] === 'undefined' ? 0 : reserveCntIndex[rule.id];
                 }
+            }
+        }
+
+        const ruleIds = rules.map(rule => rule.id);
+        if (ruleIds.length > 0) {
+            const links = await this.annictRuleLinkDB.findRuleIds(ruleIds);
+            const annictIdByRuleId = new Map(links.map(link => [link.ruleId, link.annictId]));
+            for (const rule of rules) {
+                const annictId = annictIdByRuleId.get(rule.id);
+                if (annictId !== undefined) rule.annictId = annictId;
             }
         }
 

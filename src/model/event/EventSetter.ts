@@ -4,8 +4,10 @@ import IConfigFile from '../IConfigFile';
 import IConfiguration from '../IConfiguration';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
+import IAnnictApiModel from '../api/annict/IAnnictApiModel';
 import IIPCServer from '../ipc/IIPCServer';
 import IExternalCommandManageModel from '../operator/externalCommand/IExternalCommandManageModel';
+import IDiscordNotificationModel from '../operator/discord/IDiscordNotificationModel';
 import IRecordedManageModel from '../operator/recorded/IRecordedManageModel';
 import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel';
 import IRecordingManageModel from '../operator/recording/IRecordingManageModel';
@@ -38,6 +40,8 @@ export default class EventSetter implements IEventSetter {
     private recordedTagManage: IRecordedTagManadeModel;
     private thumbnailManage: IThumbnailManageModel;
     private externalCommandManage: IExternalCommandManageModel;
+    private discordNotification: IDiscordNotificationModel;
+    private annictApiModel: IAnnictApiModel;
     private ipc: IIPCServer;
     private config: IConfigFile;
 
@@ -60,6 +64,8 @@ export default class EventSetter implements IEventSetter {
         @inject('IRecordedTagManadeModel') recordedTagManage: IRecordedTagManadeModel,
         @inject('IThumbnailManageModel') thumbnailManage: IThumbnailManageModel,
         @inject('IExternalCommandManageModel') externalCommandManage: IExternalCommandManageModel,
+        @inject('IDiscordNotificationModel') discordNotification: IDiscordNotificationModel,
+        @inject('IAnnictApiModel') annictApiModel: IAnnictApiModel,
         @inject('IIPCServer') ipc: IIPCServer,
         @inject('IConfiguration') configure: IConfiguration,
     ) {
@@ -78,6 +84,8 @@ export default class EventSetter implements IEventSetter {
         this.recordedTagManage = recordedTagManage;
         this.thumbnailManage = thumbnailManage;
         this.externalCommandManage = externalCommandManage;
+        this.discordNotification = discordNotification;
+        this.annictApiModel = annictApiModel;
         this.ipc = ipc;
         this.config = configure.getConfig();
     }
@@ -169,16 +177,29 @@ export default class EventSetter implements IEventSetter {
                 });
             }
 
+            if (typeof recorded.videoFiles !== 'undefined') {
+                for (const videoFile of recorded.videoFiles) {
+                    this.thumbnailManage.addDuringRecording(videoFile.id);
+                }
+            }
+
             this.ipc.notifyClient();
             this.externalCommandManage.addRecordingStartCmd(recorded);
+            this.discordNotification.notifyRecordingStart(recorded);
         });
 
         // 録画失敗イベント
         this.recordingEvent.setRecordingFailed((_reserve, recorded) => {
             this.ipc.notifyClient();
             if (recorded !== null) {
+                if (typeof recorded.videoFiles !== 'undefined') {
+                    for (const videoFile of recorded.videoFiles) {
+                        this.thumbnailManage.stopDuringRecording(videoFile.id);
+                    }
+                }
                 this.externalCommandManage.addRecordingFailedCmd(recorded);
             }
+            this.discordNotification.notifyRecordingFailed(_reserve, recorded);
         });
 
         // 録画リトライオーバーイベント
@@ -188,18 +209,21 @@ export default class EventSetter implements IEventSetter {
         });
 
         // 録画完了
-        this.recordingEvent.setFinishRecording(async (reserve, recorded, isNeedDeleteReservation) => {
+        this.recordingEvent.setFinishRecording(async (reserve, recorded, isNeedDeleteReservation, result) => {
             if (isNeedDeleteReservation === true) {
                 if (reserve.ruleId === null || (reserve.ruleId !== null && reserve.isEventRelay == true)) {
                     // 手動予約 or ルール予約によるイベントリレー予約を削除
                     this.reservationManage.cancel(reserve.id).catch(() => {});
                 } else {
                     // 重複を更新するために予約更新
-                    this.reservationManage.updateRule(reserve.ruleId).catch(() => {});
+                    this.reservationManage.updateRule(reserve.ruleId, false, false, true).catch(() => {});
                 }
             }
 
             if (typeof recorded.videoFiles !== 'undefined' && recorded.videoFiles.length > 0) {
+                for (const videoFile of recorded.videoFiles) {
+                    this.thumbnailManage.stopDuringRecording(videoFile.id);
+                }
                 // サムネイル作成
                 this.thumbnailManage.add(recorded.videoFiles[0].id);
 
@@ -261,7 +285,19 @@ export default class EventSetter implements IEventSetter {
             }
 
             // コマンド実行
-            this.externalCommandManage.addRecordingFinishCmd(recorded);
+            if (result === 'success') {
+                this.externalCommandManage.addRecordingFinishCmd(recorded);
+                this.discordNotification.notifyRecordingFinish(recorded);
+            }
+
+            // Annict の障害が録画完了処理へ影響しないよう、照合は独立して実行する。
+            void this.annictApiModel.matchRecordedEpisode(recorded.id).catch(err => {
+                this.log.system.warn(
+                    `Annict recorded episode match failed: recordedId=${recorded.id}, error=${
+                        err instanceof Error ? err.message : String(err)
+                    }`,
+                );
+            });
 
             this.ipc.notifyClient();
         });
@@ -286,6 +322,12 @@ export default class EventSetter implements IEventSetter {
         // 録画削除
         this.recordedEvent.setDeleteRecorded(recorded => {
             this.ipc.notifyClient();
+
+            if (typeof recorded.videoFiles !== 'undefined') {
+                for (const videoFile of recorded.videoFiles) {
+                    this.thumbnailManage.stopDuringRecording(videoFile.id);
+                }
+            }
 
             // cancel reserve
             if (recorded.isRecording === true && recorded.reserveId !== null) {
@@ -355,10 +397,12 @@ export default class EventSetter implements IEventSetter {
         // エンコード完了
         this.encodeEvent.setFinishEncode(info => {
             this.externalCommandManage.addEncodingFinishCmd(info);
+            this.discordNotification.notifyEncodingFinish(info);
         });
 
         this.encodeEvent.setErrorEncode(info => {
             this.externalCommandManage.addEncodingFailedCmd(info);
+            this.discordNotification.notifyEncodingFailed(info);
         });
     }
 

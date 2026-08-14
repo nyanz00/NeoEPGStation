@@ -29,12 +29,17 @@ export default class ConfigApiModel implements IConfigApiModel {
             result.socketIOPort = config.clientSocketioPort;
         } else if (isSecure === true) {
             // https
-            if (typeof config.https === 'undefined') {
+            if (config.tailscaleHttps?.enabled === true) {
+                result.socketIOPort =
+                    typeof config.tailscaleHttps.socketioPort === 'undefined'
+                        ? config.tailscaleHttps.port
+                        : config.tailscaleHttps.socketioPort;
+            } else if (typeof config.https !== 'undefined') {
+                result.socketIOPort =
+                    typeof config.https.socketioPort === 'undefined' ? config.https.port : config.https.socketioPort;
+            } else {
                 throw new Error('httpsConfigError');
             }
-
-            result.socketIOPort =
-                typeof config.https.socketioPort === 'undefined' ? config.https.port : config.https.socketioPort;
         } else {
             // http
             if (typeof config.port === 'undefined') {
@@ -74,6 +79,7 @@ export default class ConfigApiModel implements IConfigApiModel {
         };
 
         result.broadcast = await this.ipc.reserveation.getBroadcastStatus();
+        result.developerMode = config.developerMode === true;
         result.isEnableTSLiveStream = false;
         result.isEnableTSRecordedStream = false;
         result.isEnableEncodedRecordedStream = false;

@@ -1,4 +1,4 @@
-import * as events from 'events';
+import { randomUUID } from 'crypto';
 import { inject, injectable } from 'inversify';
 import * as apid from '../../../api';
 import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
@@ -32,6 +32,12 @@ import {
     ThumbnailFunctions,
 } from './IPCMessageDefine';
 
+interface PendingRequest {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+    timer?: NodeJS.Timeout;
+}
+
 @injectable()
 export default class IPCClient implements IIPCClient {
     private socketIO: ISocketIOManageModel;
@@ -45,7 +51,7 @@ export default class IPCClient implements IIPCClient {
     public encodeEvent!: IPCOperatorEncodeEvent;
 
     private log: ILogger;
-    private listener: events.EventEmitter = new events.EventEmitter();
+    private pendingRequests = new Map<string, PendingRequest>();
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -77,13 +83,26 @@ export default class IPCClient implements IIPCClient {
         process.on('message', async (msg: ReplayMessage | ParentMessage) => {
             if (typeof (<ReplayMessage>msg).id !== 'undefined') {
                 // 送信したメッセージの応答
-                this.listener.emit((<ReplayMessage>msg).id.toString(10), msg);
+                const replay = msg as ReplayMessage;
+                const pending = this.pendingRequests.get(replay.id);
+                if (pending === undefined) return;
+                this.pendingRequests.delete(replay.id);
+                if (pending.timer !== undefined) clearTimeout(pending.timer);
+                if (typeof replay.error === 'undefined') pending.resolve(replay.result);
+                else pending.reject(new Error(replay.error));
             } else if ((<ParentMessage>msg).type === 'notifyClient') {
                 // socket.io によるクライアントへの状態更新通知
                 this.socketIO.notifyClient();
             } else if ((<ParentMessage>msg).type === 'pushEncode') {
                 // エンコード依頼
                 this.encodeManage.push((<PushEncodeMessage>msg).value);
+            }
+        });
+        process.once('disconnect', () => {
+            for (const [id, pending] of this.pendingRequests) {
+                if (pending.timer !== undefined) clearTimeout(pending.timer);
+                pending.reject(new Error('IPCDisconnected'));
+                this.pendingRequests.delete(id);
             }
         });
     }
@@ -95,37 +114,36 @@ export default class IPCClient implements IIPCClient {
      */
     private send<T>(option: ClientMessageOption, timeout: number = 5000): Promise<T> {
         const msg: SendMessage = {
-            id: new Date().getTime(),
+            id: randomUUID(),
             model: option.model,
             func: option.func,
             args: option.args,
         };
 
-        process.nextTick(() => {
-            if (typeof process.send === 'undefined') {
-                this.log.system.error('process.send is undefined');
-
-                return;
-            }
-
-            process.send(msg);
-        });
-
         return new Promise<T>((resolve: (value: T) => void, reject: (err: Error) => void) => {
-            this.listener.once(msg.id.toString(10), (replay: ReplayMessage) => {
-                if (typeof replay.error === 'undefined') {
-                    resolve(<T>replay.result);
-                } else {
-                    reject(new Error(replay.error));
-                }
-            });
-
+            const pending: PendingRequest = { resolve: value => resolve(value as T), reject };
             if (timeout > 0) {
-                setTimeout(() => {
-                    this.listener.removeAllListeners(msg.id.toString(10));
+                pending.timer = setTimeout(() => {
+                    this.pendingRequests.delete(msg.id);
                     reject(new Error('IPCTimeout'));
                 }, timeout);
             }
+            this.pendingRequests.set(msg.id, pending);
+
+            process.nextTick(() => {
+                if (typeof process.send === 'undefined') {
+                    this.pendingRequests.delete(msg.id);
+                    if (pending.timer !== undefined) clearTimeout(pending.timer);
+                    reject(new Error('IPCUnavailable'));
+                    return;
+                }
+                process.send(msg, error => {
+                    if (error === null) return;
+                    this.pendingRequests.delete(msg.id);
+                    if (pending.timer !== undefined) clearTimeout(pending.timer);
+                    reject(error);
+                });
+            });
         });
     }
 
