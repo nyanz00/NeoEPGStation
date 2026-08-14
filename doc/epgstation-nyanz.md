@@ -77,6 +77,7 @@ amatsukaze:
     priority: 3
     noMove: true
     outputDirMode: encode
+    temporaryOutputDir: C:\Amatsukaze\EPGStationTemp
     waitIntervalSec: 10
     finishDelaySec: 30
     stableSec: 30
@@ -93,6 +94,7 @@ encode:
 ```
 
 `ip`と`port`はAmatsukaze ServerのGUI TCPポートです。REST API URLやpoll intervalの設定はありません。
+`temporaryOutputDir`を設定すると、その一時フォルダだけを探索し、完了ファイルを元動画に対応する最終保存先へ移動します。設定しない場合は従来どおり最終保存先を直接探索します。
 
 ### Web視聴とプレイヤー
 

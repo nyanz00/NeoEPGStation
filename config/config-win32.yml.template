@@ -56,6 +56,7 @@ concurrentEncodeNum: 1
 #     priority: 3
 #     noMove: true
 #     outputDirMode: encode # encode: EPGStation output folder, source: source TS folder
+#     temporaryOutputDir: C:\Amatsukaze\EPGStationTemp # optional: scan this folder, then move to the final folder
 #     waitIntervalSec: 10
 #     finishDelaySec: 30
 #     stableSec: 30

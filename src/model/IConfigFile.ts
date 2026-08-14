@@ -75,6 +75,7 @@ export interface AmatsukazeEncodeConfig {
     priority?: number;
     outputDirMode?: 'encode' | 'source';
     outputDir?: string;
+    temporaryOutputDir?: string;
     procMode?: 'batch' | 'auto' | 'test' | 'drcs' | 'cm';
     noMove?: boolean;
     waitForOutput?: boolean;
