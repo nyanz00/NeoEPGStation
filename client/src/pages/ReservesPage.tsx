@@ -20,7 +20,6 @@ import {
     ListItemIcon,
     Menu,
     MenuItem,
-    Pagination,
     Stack,
     Tab,
     Tabs,
@@ -35,6 +34,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { UserSelector } from '../components/UserSelector';
+import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { channelName, formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
@@ -311,7 +311,9 @@ export function ReservesPage(): ReactNode {
                             該当する予約はありません
                         </Typography>
                     )}
-                    {pageCount > 1 && <Pagination count={pageCount} page={page} onChange={(_event, value) => updateParams({ page: value })} sx={{ alignSelf: 'center', pt: 2 }} />}
+                    {pageCount > 1 && (
+                        <VueCompatiblePagination count={pageCount} page={page} onChange={(_event, value) => updateParams({ page: value })} sx={{ alignSelf: 'center', pt: 2 }} />
+                    )}
                 </Stack>
             )}
             <Menu anchorEl={menuTarget?.anchor ?? null} open={menuTarget !== null} onClose={() => setMenuTarget(null)} slotProps={{ list: { 'aria-label': '予約の操作' } }}>

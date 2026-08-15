@@ -28,7 +28,6 @@ import {
     LinearProgress,
     Menu,
     MenuItem,
-    Pagination,
     Popover,
     Select,
     Stack,
@@ -53,6 +52,7 @@ import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { UserSelector } from '../components/UserSelector';
+import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
 import { useNotifications } from '../core/notifications/Notifications';
@@ -737,9 +737,7 @@ export function RecordedPage(): ReactNode {
                         ))}
                     </Box>
                 )}
-                {totalPages > 1 && (
-                    <Pagination count={totalPages} page={page} onChange={(_event, value) => setPage(value)} sx={{ my: 2, display: 'flex', justifyContent: 'center' }} />
-                )}
+                {totalPages > 1 && <VueCompatiblePagination count={totalPages} page={page} onChange={(_event, value) => setPage(value)} sx={{ my: 2 }} />}
             </Box>
 
             <Popover

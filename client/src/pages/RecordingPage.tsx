@@ -15,7 +15,6 @@ import {
     DialogContent,
     DialogTitle,
     IconButton,
-    Pagination,
     Stack,
     SvgIcon,
     Tooltip,
@@ -28,6 +27,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { RecordedItemActions } from '../components/RecordedItemActions';
+import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { formatProgramDate, formatProgramTime, programDuration } from '../core/program';
@@ -361,7 +361,7 @@ export function RecordingPage(): ReactNode {
                             />
                         ))}
                         {pageCount > 1 && (
-                            <Pagination
+                            <VueCompatiblePagination
                                 count={pageCount}
                                 page={page}
                                 onChange={(_event, value) => setParams(value === 1 ? {} : { page: String(value) })}

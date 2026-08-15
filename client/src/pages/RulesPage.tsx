@@ -16,7 +16,6 @@ import {
     DialogTitle,
     IconButton,
     InputAdornment,
-    Pagination,
     Stack,
     Switch,
     TextField,
@@ -29,6 +28,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { UserSelector } from '../components/UserSelector';
+import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { channelName, channelTypeLabel, genreNames } from '../core/program';
@@ -328,7 +328,9 @@ export function RulesPage(): ReactNode {
                             該当するルールはありません
                         </Typography>
                     )}
-                    {pageCount > 1 && <Pagination count={pageCount} page={page} onChange={(_event, value) => updateParams({ page: value })} sx={{ alignSelf: 'center', pt: 2 }} />}
+                    {pageCount > 1 && (
+                        <VueCompatiblePagination count={pageCount} page={page} onChange={(_event, value) => updateParams({ page: value })} sx={{ alignSelf: 'center', pt: 2 }} />
+                    )}
                 </Stack>
             )}
             <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)}>
