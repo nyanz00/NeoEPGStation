@@ -77,6 +77,7 @@ function LivePlayer({
     webkitPlaybackMode,
     forceSubtitleStroke,
     persistentBottomControls,
+    showVolumePercent,
     sessionIdentity,
     onComment,
     onControlsVisibilityChange,
@@ -91,6 +92,7 @@ function LivePlayer({
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
     persistentBottomControls: boolean;
+    showVolumePercent: boolean;
     sessionIdentity: string;
     onComment: (comment: JikkyoComment) => void;
     onControlsVisibilityChange: (visible: boolean) => void;
@@ -248,13 +250,13 @@ function LivePlayer({
                       }
                     : {}),
                 '& .onair-dplayer .neo-player-volume-percent': {
-                    display: 'inline-flex',
+                    display: showVolumePercent ? 'inline-flex' : 'none',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    float: 'left',
                     height: '100%',
                     minWidth: 28,
                     mx: 0.25,
+                    verticalAlign: 'middle',
                     color: '#fff',
                     fontSize: 10,
                     lineHeight: 1,
@@ -885,6 +887,7 @@ export function OnAirWatchPage(): ReactNode {
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             persistentBottomControls={settings.watchPersistentBottomControls}
+                            showVolumePercent={settings.watchShowVolumePercent}
                             sessionIdentity={`${String(activeUser ?? 'none')}:${viewerProfile.profileId?.toString(10) ?? 'none'}:${viewerProfile.sessionToken ?? 'locked'}`}
                             onComment={receiveComment}
                             onControlsVisibilityChange={setOverlayVisible}

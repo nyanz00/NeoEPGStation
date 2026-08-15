@@ -39,6 +39,7 @@ export interface AppSettings {
     watchStreamingSubtitleOutlineOpacityPercent: number;
     watchPlaySubtitleDanmaku: boolean;
     watchPersistentBottomControls: boolean;
+    watchShowVolumePercent: boolean;
     watchResumePlayback: boolean;
     watchHistoryLength: number;
     annictAutoWatchMode: AnnictAutoWatchMode;
@@ -60,6 +61,7 @@ export interface AppSettings {
     recordingLength: number;
     recordedLength: number;
     isShowTableMode: boolean;
+    isHighlightRecordedOnReturn: boolean;
     isPreferredPlayingOnWeb: boolean;
     isShowDropInfoInsteadOfDescription: boolean;
     deleteRecordedDefaultValue: boolean;
@@ -111,6 +113,7 @@ export const defaultSettings: AppSettings = {
     watchStreamingSubtitleOutlineOpacityPercent: 100,
     watchPlaySubtitleDanmaku: false,
     watchPersistentBottomControls: false,
+    watchShowVolumePercent: true,
     watchResumePlayback: true,
     watchHistoryLength: 50,
     annictAutoWatchMode: 'disabled',
@@ -132,6 +135,7 @@ export const defaultSettings: AppSettings = {
     recordingLength: 24,
     recordedLength: 24,
     isShowTableMode: false,
+    isHighlightRecordedOnReturn: true,
     isPreferredPlayingOnWeb: !isAppleMobile && !isAndroid,
     isShowDropInfoInsteadOfDescription: false,
     deleteRecordedDefaultValue: false,
@@ -197,6 +201,8 @@ function loadSettings(): AppSettings {
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
             watchPersistentBottomControls: parsed.watchPersistentBottomControls === true,
+            watchShowVolumePercent: parsed.watchShowVolumePercent !== false,
+            isHighlightRecordedOnReturn: parsed.isHighlightRecordedOnReturn !== false,
             webkitPlaybackMode: parsed.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(parsed.annictSupplementalChannelIds),
             annictAutoWatchMode,
@@ -244,6 +250,8 @@ export const settingsStore = {
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
             watchPersistentBottomControls: value.watchPersistentBottomControls === true,
+            watchShowVolumePercent: value.watchShowVolumePercent !== false,
+            isHighlightRecordedOnReturn: value.isHighlightRecordedOnReturn !== false,
             webkitPlaybackMode: value.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(value.annictSupplementalChannelIds),
             annictAutoWatchThresholdPercent:

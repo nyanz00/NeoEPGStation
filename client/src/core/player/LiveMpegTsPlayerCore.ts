@@ -195,6 +195,7 @@ export class LiveMpegTsPlayerCore {
         const enableWorkerForMSE = isAppleMobileWebKit() ? false : await this.canUseWorkerForMSE();
         if (this.destroyed || generation !== this.generation) return;
         const startBufferSeconds = this.getStartBufferSeconds();
+        const ios26HevcCompatibility = this.isIos26HevcCompatibilityPlayback();
         const options: any = {
             container: this.option.container,
             theme: this.option.themeColor,
@@ -225,7 +226,13 @@ export class LiveMpegTsPlayerCore {
             lang: 'ja-jp',
             live: true,
             liveSyncMinBufferSize: this.option.lowLatency ? Math.max(0.1, startBufferSeconds - 0.1) : 4,
-            syncWhenPlayingLive: this.option.lowLatency,
+            // DPlayer seeks to the calculated live edge on every play(), while
+            // mpegts.js simultaneously changes playbackRate to catch that edge.
+            // Mobile Safari's HEVC MSE path can lose its decoded frame when both
+            // corrections run during compatibility-mode autoplay, resulting in a
+            // waiting -> playing -> waiting loop.  Positioning is handled once in
+            // onCanPlay() for this combination instead.
+            syncWhenPlayingLive: this.option.lowLatency && !ios26HevcCompatibility,
             autoplay: true,
             airplay: false,
             hotkey: false,
@@ -242,7 +249,7 @@ export class LiveMpegTsPlayerCore {
                         enableWorkerForMSE,
                         enableStashBuffer: true,
                         stashInitialSize: 2 * 1024 * 1024,
-                        liveSync: this.option.lowLatency,
+                        liveSync: this.option.lowLatency && !ios26HevcCompatibility,
                         liveSyncMaxLatency: 3,
                         liveSyncTargetLatency: startBufferSeconds,
                         liveSyncPlaybackRate: 1.1,
@@ -380,7 +387,7 @@ export class LiveMpegTsPlayerCore {
             const freezePlayback = !isAppleMobileWebKit();
             if (freezePlayback) video.playbackRate = 0;
             const startBufferSeconds = this.getStartBufferSeconds();
-            this.movePlaybackPositionIntoLatestBuffer(video, startBufferSeconds);
+            this.movePlaybackPositionIntoLatestBuffer(video, startBufferSeconds, this.isIos26HevcCompatibilityPlayback());
 
             // iOS 26 compatibility mode starts live playback muted so the first
             // play() remains inside Safari's autoplay policy.  Unlike desktop
@@ -450,10 +457,12 @@ export class LiveMpegTsPlayerCore {
         }
     }
 
-    private movePlaybackPositionIntoLatestBuffer(video: HTMLVideoElement, targetBufferSeconds: number): void {
+    private movePlaybackPositionIntoLatestBuffer(video: HTMLVideoElement, targetBufferSeconds: number, forceLatestRange = false): void {
         if (video.buffered.length === 0) return;
-        for (let index = 0; index < video.buffered.length; index++) {
-            if (video.buffered.start(index) <= video.currentTime && video.currentTime <= video.buffered.end(index)) return;
+        if (!forceLatestRange) {
+            for (let index = 0; index < video.buffered.length; index++) {
+                if (video.buffered.start(index) <= video.currentTime && video.currentTime <= video.buffered.end(index)) return;
+            }
         }
 
         const latestIndex = video.buffered.length - 1;
@@ -461,7 +470,7 @@ export class LiveMpegTsPlayerCore {
         const latestEnd = video.buffered.end(latestIndex);
         const target = Math.max(latestStart, latestEnd - targetBufferSeconds);
         try {
-            video.currentTime = target;
+            if (Math.abs(video.currentTime - target) > 0.05) video.currentTime = target;
         } catch (error) {
             this.option.onWarn?.(error);
         }

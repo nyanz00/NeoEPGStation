@@ -1060,6 +1060,11 @@ export function SettingsPage(): ReactNode {
                                         }
                                     />
                                     <SettingRow
+                                        title="音量をパーセント表示"
+                                        description="プレイヤーの再生ボタンと音量ボタンの間に現在の音量を表示します。"
+                                        control={<Switch checked={draft.watchShowVolumePercent} onChange={event => patch('watchShowVolumePercent', event.target.checked)} />}
+                                    />
+                                    <SettingRow
                                         title="リジューム再生"
                                         description="PLAY／STREAMINGの再生位置を現在のEPGStationユーザーごとに保存し、次回同じ位置から再開します"
                                         control={<Switch checked={draft.watchResumePlayback} onChange={event => patch('watchResumePlayback', event.target.checked)} />}
@@ -1238,6 +1243,11 @@ export function SettingsPage(): ReactNode {
                                 <SettingRow
                                     title="録画済みをテーブル表示"
                                     control={<Switch checked={draft.isShowTableMode} onChange={event => patch('isShowTableMode', event.target.checked)} />}
+                                />
+                                <SettingRow
+                                    title="録画済みへ戻った番組を強調表示"
+                                    description="録画詳細から一覧へ戻った際、元の録画を約1秒間ハイライトします。"
+                                    control={<Switch checked={draft.isHighlightRecordedOnReturn} onChange={event => patch('isHighlightRecordedOnReturn', event.target.checked)} />}
                                 />
                                 <SettingRow
                                     title="録画済み表示件数"

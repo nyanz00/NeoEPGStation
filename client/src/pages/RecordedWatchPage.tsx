@@ -106,6 +106,7 @@ function RecordedPlayer({
     forceSubtitleStroke,
     webkitPlaybackMode,
     persistentBottomControls,
+    showVolumePercent,
     onComment,
     onCommentsReset,
     onCommentStatus,
@@ -123,6 +124,7 @@ function RecordedPlayer({
     forceSubtitleStroke: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
+    showVolumePercent: boolean;
     onComment: (comment: JikkyoComment) => void;
     onCommentsReset: () => void;
     onCommentStatus: (detail: string) => void;
@@ -362,13 +364,13 @@ function RecordedPlayer({
                       }
                     : {}),
                 '& .recorded-dplayer .neo-player-volume-percent': {
-                    display: 'inline-flex',
+                    display: showVolumePercent ? 'inline-flex' : 'none',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    float: 'left',
                     height: '100%',
                     minWidth: 28,
                     mx: 0.25,
+                    verticalAlign: 'middle',
                     color: '#fff',
                     fontSize: 10,
                     lineHeight: 1,
@@ -1197,6 +1199,7 @@ export function RecordedWatchPage(): ReactNode {
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
+                            showVolumePercent={settings.watchShowVolumePercent}
                             onComment={receiveComment}
                             onCommentsReset={resetComments}
                             onCommentStatus={updateCommentStatus}

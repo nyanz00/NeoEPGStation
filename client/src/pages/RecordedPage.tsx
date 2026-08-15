@@ -465,7 +465,9 @@ export function RecordedPage(): ReactNode {
         initialUserId === 'master' ? 'master' : Number.isSafeInteger(Number(initialUserId)) && Number(initialUserId) > 0 ? Number(initialUserId) : null,
     );
     const [page, setPage] = useState(Number.isSafeInteger(initialPage) && initialPage > 0 ? initialPage : 1);
-    const [focusedRecordedId] = useState<number | null>(Number.isSafeInteger(initialFocus) && initialFocus > 0 ? initialFocus : (savedReturnPosition?.recordedId ?? null));
+    const [focusedRecordedId, setFocusedRecordedId] = useState<number | null>(
+        Number.isSafeInteger(initialFocus) && initialFocus > 0 ? initialFocus : (savedReturnPosition?.recordedId ?? null),
+    );
     const initialFilters = readRecordedFilters(searchParams);
     const [filters, setFilters] = useState<RecordedFilters>(initialFilters);
     const [draftFilters, setDraftFilters] = useState<RecordedFilters>(initialFilters);
@@ -677,6 +679,11 @@ export function RecordedPage(): ReactNode {
     }, [changePage, page, records.isSuccess, totalPages]);
     useEffect(() => {
         if (focusedRecordedId === null || !records.data?.records.some(item => item.id === focusedRecordedId)) return;
+        const timer = window.setTimeout(() => setFocusedRecordedId(null), 1_000);
+        return () => window.clearTimeout(timer);
+    }, [focusedRecordedId, records.data?.records]);
+    useEffect(() => {
+        if (focusedRecordedId === null || !records.data?.records.some(item => item.id === focusedRecordedId)) return;
         let innerFrame = 0;
         const frame = window.requestAnimationFrame(() => {
             innerFrame = window.requestAnimationFrame(() => {
@@ -861,7 +868,7 @@ export function RecordedPage(): ReactNode {
                                         channel={channelMap.get(item.channelId) ?? item.channelId.toString(10)}
                                         editMode={editMode}
                                         selected={selected.has(item.id)}
-                                        focused={focusedRecordedId === item.id}
+                                        focused={settings.isHighlightRecordedOnReturn && focusedRecordedId === item.id}
                                         showDrop={settings.isShowDropInfoInsteadOfDescription}
                                         onOpen={() => openRecorded(item.id)}
                                         onSelect={() => toggleSelection(item.id)}
@@ -892,7 +899,7 @@ export function RecordedPage(): ReactNode {
                                 channel={channelMap.get(item.channelId) ?? item.channelId.toString(10)}
                                 editMode={editMode}
                                 selected={selected.has(item.id)}
-                                focused={focusedRecordedId === item.id}
+                                focused={settings.isHighlightRecordedOnReturn && focusedRecordedId === item.id}
                                 showDrop={settings.isShowDropInfoInsteadOfDescription}
                                 onOpen={() => openRecorded(item.id)}
                                 onSelect={() => toggleSelection(item.id)}
