@@ -95,6 +95,7 @@ function RecordedPlayer({
     subtitleDanmaku,
     forceSubtitleStroke,
     webkitPlaybackMode,
+    persistentBottomControls,
     onComment,
     onCommentsReset,
     onCommentStatus,
@@ -111,6 +112,7 @@ function RecordedPlayer({
     subtitleDanmaku: boolean;
     forceSubtitleStroke: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
+    persistentBottomControls: boolean;
     onComment: (comment: JikkyoComment) => void;
     onCommentsReset: () => void;
     onCommentStatus: (detail: string) => void;
@@ -299,7 +301,8 @@ function RecordedPlayer({
                 position: 'relative',
                 width: '100%',
                 height: { xs: 'auto', lg: '100%' },
-                aspectRatio: { xs: '16 / 9', lg: 'auto' },
+                aspectRatio: { xs: persistentBottomControls ? 'auto' : '16 / 9', lg: 'auto' },
+                minHeight: { xs: persistentBottomControls ? 'calc(100vw * 9 / 16 + 56px)' : undefined, lg: 0 },
                 bgcolor: '#000',
                 overflow: 'hidden',
                 '& .recorded-dplayer': { position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1 },
@@ -318,8 +321,45 @@ function RecordedPlayer({
                 '& .recorded-dplayer.dplayer-mobile [data-dplayer-custom-control="mobile-volume"]': { display: 'inline-block' },
                 '& .recorded-dplayer .neo-player-central-controls-host': {
                     position: 'absolute',
-                    inset: 0,
+                    inset: persistentBottomControls ? '0 0 56px' : 0,
                     zIndex: 6,
+                    pointerEvents: 'none',
+                },
+                ...(persistentBottomControls
+                    ? {
+                          '& .recorded-dplayer .dplayer-video-wrap, & .recorded-dplayer .dplayer-video-wrap-aspect': {
+                              height: 'calc(100% - 56px) !important',
+                          },
+                          '& .recorded-dplayer .dplayer-controller-mask': {
+                              height: '56px !important',
+                              bottom: '0 !important',
+                              opacity: '1 !important',
+                              background: '#10151b !important',
+                          },
+                          '& .recorded-dplayer .dplayer-controller': {
+                              bottom: '0 !important',
+                              height: '56px !important',
+                              opacity: '1 !important',
+                              visibility: 'visible !important',
+                              transform: 'none !important',
+                              background: '#10151b !important',
+                          },
+                          '& .recorded-dplayer.dplayer-hide-controller .dplayer-controller, & .recorded-dplayer.dplayer-hide-controller .dplayer-controller-mask': {
+                              opacity: '1 !important',
+                              visibility: 'visible !important',
+                              transform: 'none !important',
+                          },
+                      }
+                    : {}),
+                '& .recorded-dplayer .neo-player-volume-percent': {
+                    display: 'inline-block',
+                    minWidth: 30,
+                    ml: 0.25,
+                    color: '#fff',
+                    fontSize: 10,
+                    lineHeight: 1,
+                    textAlign: 'center',
+                    verticalAlign: 'middle',
                     pointerEvents: 'none',
                 },
             }}
@@ -328,7 +368,7 @@ function RecordedPlayer({
                 <Box
                     sx={{
                         position: 'absolute',
-                        inset: 0,
+                        inset: persistentBottomControls ? '0 0 56px' : 0,
                         zIndex: 5,
                         display: 'flex',
                         flexDirection: 'column',
@@ -345,7 +385,7 @@ function RecordedPlayer({
                     </Typography>
                 </Box>
             )}
-            <Box ref={container} className="recorded-dplayer" />
+            <Box ref={container} className={`recorded-dplayer${persistentBottomControls ? ' neo-player-persistent-bottom-controls' : ''}`} />
             {controlsPortal !== null &&
                 createPortal(
                     <Stack
@@ -1135,6 +1175,7 @@ export function RecordedWatchPage(): ReactNode {
                             subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
+                            persistentBottomControls={settings.watchPersistentBottomControls}
                             onComment={receiveComment}
                             onCommentsReset={resetComments}
                             onCommentStatus={updateCommentStatus}

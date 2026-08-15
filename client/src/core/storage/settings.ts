@@ -38,6 +38,7 @@ export interface AppSettings {
     watchStreamingSubtitleOutlineSizePercent: number;
     watchStreamingSubtitleOutlineOpacityPercent: number;
     watchPlaySubtitleDanmaku: boolean;
+    watchPersistentBottomControls: boolean;
     watchResumePlayback: boolean;
     watchHistoryLength: number;
     annictAutoWatchMode: AnnictAutoWatchMode;
@@ -109,6 +110,7 @@ export const defaultSettings: AppSettings = {
     watchStreamingSubtitleOutlineSizePercent: 100,
     watchStreamingSubtitleOutlineOpacityPercent: 100,
     watchPlaySubtitleDanmaku: false,
+    watchPersistentBottomControls: false,
     watchResumePlayback: true,
     watchHistoryLength: 50,
     annictAutoWatchMode: 'disabled',
@@ -194,6 +196,7 @@ function loadSettings(): AppSettings {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
+            watchPersistentBottomControls: parsed.watchPersistentBottomControls === true,
             webkitPlaybackMode: parsed.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(parsed.annictSupplementalChannelIds),
             annictAutoWatchMode,
@@ -240,6 +243,7 @@ export const settingsStore = {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
+            watchPersistentBottomControls: value.watchPersistentBottomControls === true,
             webkitPlaybackMode: value.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(value.annictSupplementalChannelIds),
             annictAutoWatchThresholdPercent:

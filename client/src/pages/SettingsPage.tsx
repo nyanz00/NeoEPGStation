@@ -1050,6 +1050,16 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchPlaySubtitleDanmaku} onChange={event => patch('watchPlaySubtitleDanmaku', event.target.checked)} />}
                                     />
                                     <SettingRow
+                                        title="下部再生UIを常時表示"
+                                        description="映像の下に再生操作を常時表示します。上部・中央UIは従来どおり必要なときだけ表示します。"
+                                        control={
+                                            <Switch
+                                                checked={draft.watchPersistentBottomControls}
+                                                onChange={event => patch('watchPersistentBottomControls', event.target.checked)}
+                                            />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="リジューム再生"
                                         description="PLAY／STREAMINGの再生位置を現在のEPGStationユーザーごとに保存し、次回同じ位置から再開します"
                                         control={<Switch checked={draft.watchResumePlayback} onChange={event => patch('watchResumePlayback', event.target.checked)} />}

@@ -228,6 +228,7 @@ export class LiveMpegTsPlayerCore {
             airplay: false,
             hotkey: false,
             screenshot: true,
+            pictureInPicture: false,
             crossOrigin: 'anonymous',
             volume: getStoredPlayerVolume(),
             video: { url: this.option.src, type: 'mpegts' },

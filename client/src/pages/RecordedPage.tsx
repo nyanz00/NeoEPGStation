@@ -370,17 +370,33 @@ export function RecordedPage(): ReactNode {
     const specificMonthRef = useRef<HTMLInputElement>(null);
     const specificDayRef = useRef<HTMLInputElement>(null);
     useEffect(() => {
-        if (!searchParams.has('page') && !searchParams.has('userId') && !searchParams.has('focus')) return;
+        if (!searchParams.has('focus')) return;
         const next = new URLSearchParams(searchParams);
-        next.delete('page');
-        next.delete('userId');
         next.delete('focus');
         setSearchParams(next, { replace: true });
     }, [searchParams, setSearchParams]);
-    const onUserChange = useCallback((value: ActiveUserId) => {
-        setUserId(value);
-        setPage(1);
-    }, []);
+    const changePage = useCallback(
+        (value: number): void => {
+            setPage(value);
+            const next = new URLSearchParams(searchParams);
+            if (value <= 1) next.delete('page');
+            else next.set('page', value.toString(10));
+            setSearchParams(next, { replace: true });
+        },
+        [searchParams, setSearchParams],
+    );
+    const onUserChange = useCallback(
+        (value: ActiveUserId) => {
+            setUserId(value);
+            setPage(1);
+            const next = new URLSearchParams(searchParams);
+            next.delete('page');
+            if (value === null) next.delete('userId');
+            else next.set('userId', value.toString());
+            setSearchParams(next, { replace: true });
+        },
+        [searchParams, setSearchParams],
+    );
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const searchOptions = useQuery({ queryKey: ['recorded-options'], queryFn: api.getRecordedSearchOptions, staleTime: 60_000 });
     const rules = useQuery({ queryKey: ['recorded-search-rules'], queryFn: () => api.getRules({ type: 'normal', limit: 1000 }), staleTime: 60_000 });
@@ -528,8 +544,8 @@ export function RecordedPage(): ReactNode {
     const selectedRecords = records.data?.records.filter(item => selected.has(item.id)) ?? [];
     const hasEncodingSelection = selectedRecords.some(item => item.isEncoding);
     useEffect(() => {
-        if (records.isSuccess && page > totalPages) setPage(totalPages);
-    }, [page, records.isSuccess, totalPages]);
+        if (records.isSuccess && page > totalPages) changePage(totalPages);
+    }, [changePage, page, records.isSuccess, totalPages]);
     useEffect(() => {
         if (focusedRecordedId === null || !records.data?.records.some(item => item.id === focusedRecordedId)) return;
         const frame = window.requestAnimationFrame(() => {
@@ -697,7 +713,7 @@ export function RecordedPage(): ReactNode {
                                         onSearch={() => {
                                             const option = createRecordedRelatedSearchOption(item);
                                             setFilters(current => ({ ...current, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' }));
-                                            setPage(1);
+                                            changePage(1);
                                         }}
                                         onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
                                         onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
@@ -729,7 +745,7 @@ export function RecordedPage(): ReactNode {
                                 onSearch={() => {
                                     const option = createRecordedRelatedSearchOption(item);
                                     setFilters(current => ({ ...current, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' }));
-                                    setPage(1);
+                                    changePage(1);
                                 }}
                                 onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
                                 onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
@@ -737,7 +753,7 @@ export function RecordedPage(): ReactNode {
                         ))}
                     </Box>
                 )}
-                {totalPages > 1 && <VueCompatiblePagination count={totalPages} page={page} onChange={(_event, value) => setPage(value)} sx={{ my: 2 }} />}
+                {totalPages > 1 && <VueCompatiblePagination count={totalPages} page={page} onChange={(_event, value) => changePage(value)} sx={{ my: 2 }} />}
             </Box>
 
             <Popover
@@ -944,7 +960,7 @@ export function RecordedPage(): ReactNode {
                             variant="contained"
                             onClick={() => {
                                 setFilters(draftFilters);
-                                setPage(1);
+                                changePage(1);
                                 setSearchAnchor(null);
                             }}
                         >

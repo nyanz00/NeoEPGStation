@@ -29,6 +29,19 @@ export function configureDPlayerUi(container: HTMLElement): HTMLElement {
         infoPanelClose.setAttribute('title', '統計情報を閉じる');
     }
 
+    // PiP is provided by the browser integration. Defensively collapse any
+    // duplicate player-side controls that an older/cached DPlayer may render.
+    container.querySelectorAll<HTMLElement>('.dplayer-pip-icon').forEach(button => button.remove());
+
+    const volume = container.querySelector<HTMLElement>('.dplayer-volume');
+    if (volume !== null && container.querySelector('.neo-player-volume-percent') === null) {
+        const percent = document.createElement('span');
+        percent.className = 'neo-player-volume-percent';
+        percent.setAttribute('aria-hidden', 'true');
+        volume.insertAdjacentElement('afterend', percent);
+    }
+    updateDPlayerVolumePercent(container);
+
     // iPadOS can only put the video element itself into native fullscreen on some
     // versions. Use DPlayer's viewport-filling mode only on iPad so the custom
     // controls remain visible. iPhone keeps DPlayer's native fullscreen player.
@@ -62,4 +75,12 @@ export function updateDPlayerMobileVolumeControl(container: HTMLElement, muted: 
     button.setAttribute('aria-label', label);
     button.setAttribute('data-balloon', label);
     button.title = label;
+    updateDPlayerVolumePercent(container);
+}
+
+export function updateDPlayerVolumePercent(container: HTMLElement): void {
+    const video = container.querySelector<HTMLVideoElement>('video');
+    const percent = container.querySelector<HTMLElement>('.neo-player-volume-percent');
+    if (video === null || percent === null) return;
+    percent.textContent = `${video.muted ? 0 : Math.round(video.volume * 100).toString(10)}%`;
 }

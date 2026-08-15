@@ -76,6 +76,7 @@ function LivePlayer({
     isHevc,
     webkitPlaybackMode,
     forceSubtitleStroke,
+    persistentBottomControls,
     sessionIdentity,
     onComment,
     onControlsVisibilityChange,
@@ -89,6 +90,7 @@ function LivePlayer({
     isHevc: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
+    persistentBottomControls: boolean;
     sessionIdentity: string;
     onComment: (comment: JikkyoComment) => void;
     onControlsVisibilityChange: (visible: boolean) => void;
@@ -190,7 +192,8 @@ function LivePlayer({
                 position: 'relative',
                 width: '100%',
                 height: { xs: 'auto', lg: '100%' },
-                aspectRatio: { xs: '16 / 9', lg: 'auto' },
+                aspectRatio: { xs: persistentBottomControls ? 'auto' : '16 / 9', lg: 'auto' },
+                minHeight: { xs: persistentBottomControls ? 'calc(100vw * 9 / 16 + 56px)' : undefined, lg: 0 },
                 bgcolor: '#000',
                 overflow: 'hidden',
                 borderRadius: 0,
@@ -214,8 +217,45 @@ function LivePlayer({
                 },
                 '& .onair-dplayer .neo-player-central-controls-host': {
                     position: 'absolute',
-                    inset: 0,
+                    inset: persistentBottomControls ? '0 0 56px' : 0,
                     zIndex: 6,
+                    pointerEvents: 'none',
+                },
+                ...(persistentBottomControls
+                    ? {
+                          '& .onair-dplayer .dplayer-video-wrap, & .onair-dplayer .dplayer-video-wrap-aspect': {
+                              height: 'calc(100% - 56px) !important',
+                          },
+                          '& .onair-dplayer .dplayer-controller-mask': {
+                              height: '56px !important',
+                              bottom: '0 !important',
+                              opacity: '1 !important',
+                              background: '#10151b !important',
+                          },
+                          '& .onair-dplayer .dplayer-controller': {
+                              bottom: '0 !important',
+                              height: '56px !important',
+                              opacity: '1 !important',
+                              visibility: 'visible !important',
+                              transform: 'none !important',
+                              background: '#10151b !important',
+                          },
+                          '& .onair-dplayer.dplayer-hide-controller .dplayer-controller, & .onair-dplayer.dplayer-hide-controller .dplayer-controller-mask': {
+                              opacity: '1 !important',
+                              visibility: 'visible !important',
+                              transform: 'none !important',
+                          },
+                      }
+                    : {}),
+                '& .onair-dplayer .neo-player-volume-percent': {
+                    display: 'inline-block',
+                    minWidth: 30,
+                    ml: 0.25,
+                    color: '#fff',
+                    fontSize: 10,
+                    lineHeight: 1,
+                    textAlign: 'center',
+                    verticalAlign: 'middle',
                     pointerEvents: 'none',
                 },
             }}
@@ -224,7 +264,7 @@ function LivePlayer({
                 <Box
                     sx={{
                         position: 'absolute',
-                        inset: 0,
+                        inset: persistentBottomControls ? '0 0 56px' : 0,
                         zIndex: 4,
                         display: 'flex',
                         flexDirection: 'column',
@@ -241,7 +281,7 @@ function LivePlayer({
                     </Typography>
                 </Box>
             )}
-            <Box ref={container} className="onair-dplayer" />
+            <Box ref={container} className={`onair-dplayer${persistentBottomControls ? ' neo-player-persistent-bottom-controls' : ''}`} />
             {controlsPortal !== null &&
                 createPortal(
                     <IconButton
@@ -841,6 +881,7 @@ export function OnAirWatchPage(): ReactNode {
                             isHevc={settings.watchUseHevc}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
+                            persistentBottomControls={settings.watchPersistentBottomControls}
                             sessionIdentity={`${String(activeUser ?? 'none')}:${viewerProfile.profileId?.toString(10) ?? 'none'}:${viewerProfile.sessionToken ?? 'locked'}`}
                             onComment={receiveComment}
                             onControlsVisibilityChange={setOverlayVisible}
