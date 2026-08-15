@@ -58,7 +58,10 @@ class AmatsukazePushConnection {
         host: string,
         port: number,
         inputFilePath: string,
+        initialTaskId: number | null,
+        allowRecoveryFallback: boolean,
         onUpdate: (status: AmatsukazePushStatus) => void,
+        onTaskMatched: (taskId: number) => void,
         onLog: (message: string) => void,
     ): AmatsukazePushSubscription {
         const key = `${host}:${port}`;
@@ -68,7 +71,14 @@ class AmatsukazePushConnection {
             AmatsukazePushConnection.connections.set(key, connection);
         }
 
-        return connection.subscribe(inputFilePath, onUpdate, onLog);
+        return connection.subscribe(
+            inputFilePath,
+            initialTaskId,
+            allowRecoveryFallback,
+            onUpdate,
+            onTaskMatched,
+            onLog,
+        );
     }
 
     public static readTag(xml: string, name: string): string | undefined {
@@ -117,7 +127,10 @@ class AmatsukazePushConnection {
 
     private subscribe(
         inputFilePath: string,
+        initialTaskId: number | null,
+        allowRecoveryFallback: boolean,
         onUpdate: (status: AmatsukazePushStatus) => void,
+        onTaskMatched: (taskId: number) => void,
         onLog: (message: string) => void,
     ): AmatsukazePushSubscription {
         if (this.idleCloseTimerId !== null) {
@@ -129,7 +142,10 @@ class AmatsukazePushConnection {
             this.nextSubscriptionId++,
             this,
             inputFilePath,
+            initialTaskId,
+            allowRecoveryFallback,
             onUpdate,
+            onTaskMatched,
             onLog,
         );
         this.subscriptions.set(subscription.id, subscription);
@@ -378,7 +394,7 @@ class AmatsukazePushSubscription {
         requiresOutputReconcile: false,
         updatedAt: 0,
     };
-    private taskId: number | null = null;
+    private taskId: number | null;
     private consoleTail: string = '';
     private consoleMatchSource: 'none' | 'fallback' | 'queue' = 'none';
     private hasConnectedOnce: boolean = false;
@@ -387,9 +403,14 @@ class AmatsukazePushSubscription {
         public readonly id: number,
         private readonly connection: AmatsukazePushConnection,
         private readonly inputFilePath: string,
+        initialTaskId: number | null,
+        private readonly allowRecoveryFallback: boolean,
         private readonly onUpdate: (status: AmatsukazePushStatus) => void,
+        private readonly onTaskMatched: (taskId: number) => void,
         private readonly onLog: (message: string) => void,
-    ) {}
+    ) {
+        this.taskId = initialTaskId;
+    }
 
     public stop(): void {
         this.flushConsoleTail();
@@ -521,27 +542,42 @@ class AmatsukazePushSubscription {
             return false;
         }
 
-        const matchingItems = AmatsukazePushConnection.readTags(queueUpdate, 'Item')
-            .map(item => ({
-                consoleId: Number(this.readTag(item, 'ConsoleId')),
-                id: Number(this.readTag(item, 'Id')),
-                srcPath: this.readTag(item, 'SrcPath'),
-                state: this.readTag(item, 'State') ?? '',
-                stateLabel: this.readTag(item, 'StateLabel') ?? '',
-            }))
-            .filter(item => typeof item.srcPath === 'string' && this.isMatchingQueuePath(item.srcPath));
+        const queueItems = AmatsukazePushConnection.readTags(queueUpdate, 'Item').map(item => ({
+            consoleId: Number(this.readTag(item, 'ConsoleId')),
+            id: Number(this.readTag(item, 'Id')),
+            srcPath: this.readTag(item, 'SrcPath'),
+            state: this.readTag(item, 'State') ?? '',
+            stateLabel: this.readTag(item, 'StateLabel') ?? '',
+        }));
+        const availableItems = queueItems.filter(
+            item => Number.isNaN(item.id) === false && this.connection.canClaimTask(this.id, item.id),
+        );
+        const exactPathMatches = availableItems.filter(
+            item => typeof item.srcPath === 'string' && this.isMatchingQueuePath(item.srcPath),
+        );
+        const basenameMatches =
+            this.allowRecoveryFallback && exactPathMatches.length === 0
+                ? availableItems.filter(
+                      item => typeof item.srcPath === 'string' && this.isMatchingQueueBasename(item.srcPath),
+                  )
+                : [];
+        const usedRecoveryFallback =
+            this.taskId === null && exactPathMatches.length === 0 && basenameMatches.length === 1;
         const matchedItem =
             this.taskId === null
-                ? matchingItems
-                      .filter(item => Number.isNaN(item.id) === false && this.connection.canClaimTask(this.id, item.id))
-                      .sort((a, b) => b.id - a.id)[0]
-                : matchingItems.find(item => item.id === this.taskId);
+                ? (exactPathMatches.sort((a, b) => b.id - a.id)[0] ??
+                  (basenameMatches.length === 1 ? basenameMatches[0] : undefined))
+                : queueItems.find(item => item.id === this.taskId);
         if (typeof matchedItem === 'undefined') {
             return false;
         }
 
-        if (Number.isNaN(matchedItem.id) === false) {
+        if (Number.isNaN(matchedItem.id) === false && this.taskId !== matchedItem.id) {
             this.taskId = matchedItem.id;
+            this.onTaskMatched(matchedItem.id);
+            if (usedRecoveryFallback) {
+                this.onLog(`amatsukaze recovered task by unique source name: ${matchedItem.id.toString(10)}`);
+            }
         }
 
         const normalizedState = matchedItem.state.trim().toLowerCase();
@@ -701,6 +737,12 @@ class AmatsukazePushSubscription {
         return this.getUnicodePathVariants(srcPath).some(value => inputPaths.includes(value));
     }
 
+    private isMatchingQueueBasename(srcPath: string): boolean {
+        const inputNames = this.getUnicodePathVariants(path.basename(this.inputFilePath));
+
+        return this.getUnicodePathVariants(path.basename(srcPath)).some(value => inputNames.includes(value));
+    }
+
     private getUnicodePathVariants(value: string): string[] {
         const normalized = path.normalize(value).toLowerCase();
 
@@ -770,6 +812,7 @@ class EncoderModel implements IEncoderModel {
         stderr: '',
     };
     private lastEncoderMessage: string = '';
+    private onAmatsukazeTaskMatched: ((taskId: number) => void) | null = null;
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -826,6 +869,10 @@ class EncoderModel implements IEncoderModel {
                 callback(isError, outputFilePath, isCanceled, encoderMessage);
             },
         );
+    }
+
+    public setOnAmatsukazeTaskMatched(callback: (taskId: number) => void): void {
+        this.onAmatsukazeTaskMatched = callback;
     }
 
     /**
@@ -1207,7 +1254,13 @@ class EncoderModel implements IEncoderModel {
             host,
             port,
             inputFilePath,
+            this.encodeOption?.amatsukazeTaskId ?? null,
+            this.encodeOption?.resumeExistingAmatsukaze === true,
             status => this.updateAmatsukazePushProgress(status),
+            taskId => {
+                if (this.encodeOption !== null) this.encodeOption.amatsukazeTaskId = taskId;
+                this.onAmatsukazeTaskMatched?.(taskId);
+            },
             message => this.log.encode.info(message),
         );
     }

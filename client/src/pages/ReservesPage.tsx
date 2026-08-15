@@ -184,7 +184,7 @@ export function ReservesPage(): ReactNode {
     const remove = useMutation({
         mutationFn: removeReserve,
         onSuccess: async () => {
-            notify(target?.isSkip || target?.isOverlap ? '予約状態を解除しました' : '予約をキャンセルしました', 'success');
+            notify(target?.isSkip ? '除外から予約に戻しました' : target?.isOverlap ? '重複状態を解除して予約に戻しました' : '予約をキャンセルしました', 'success');
             setTarget(null);
             await refresh();
         },
@@ -198,7 +198,7 @@ export function ReservesPage(): ReactNode {
             const items = reserves.data?.reserves.filter(item => selected.has(item.id)) ?? [];
             const results = await Promise.allSettled(items.map(removeReserve));
             return {
-                succeeded: items.filter((_item, index) => results[index].status === 'fulfilled').map(item => item.id),
+                succeeded: items.filter((_item, index) => results[index].status === 'fulfilled'),
                 failed: items
                     .map((item, index) => ({ item, result: results[index] }))
                     .filter((entry): entry is { item: ReserveItem; result: PromiseRejectedResult } => entry.result.status === 'rejected'),
@@ -207,7 +207,17 @@ export function ReservesPage(): ReactNode {
         onSuccess: async result => {
             setSelected(new Set(result.failed.map(entry => entry.item.id)));
             setEditing(result.failed.length > 0);
-            if (result.succeeded.length > 0) notify(`${result.succeeded.length}件の予約状態を解除しました`, 'success');
+            if (result.succeeded.length > 0) {
+                const restoredSkip = result.succeeded.filter(item => item.isSkip).length;
+                const restoredOverlap = result.succeeded.filter(item => item.isOverlap).length;
+                const cancelled = result.succeeded.length - restoredSkip - restoredOverlap;
+                const messages = [
+                    restoredSkip > 0 ? `${restoredSkip}件を除外から予約に戻しました` : null,
+                    restoredOverlap > 0 ? `${restoredOverlap}件の重複状態を解除して予約に戻しました` : null,
+                    cancelled > 0 ? `${cancelled}件の予約をキャンセルしました` : null,
+                ].filter((message): message is string => message !== null);
+                notify(messages.join('、'), 'success');
+            }
             if (result.failed.length > 0) {
                 const detail = result.failed
                     .slice(0, 3)
@@ -280,7 +290,7 @@ export function ReservesPage(): ReactNode {
                     />
                     <Typography sx={{ flex: 1 }}>{selected.size}件選択</Typography>
                     <Button color="error" startIcon={<DeleteOutlineOutlined />} disabled={selected.size === 0 || removeSelected.isPending} onClick={() => removeSelected.mutate()}>
-                        選択した予約をキャンセル
+                        {type === 'skip' ? '選択した予約を戻す' : type === 'overlap' ? '選択した重複状態を解除' : '選択した予約をキャンセル'}
                     </Button>
                 </Stack>
             )}
@@ -387,16 +397,27 @@ export function ReservesPage(): ReactNode {
                 )}
             </Dialog>
             <Dialog open={target !== null} onClose={() => setTarget(null)}>
-                <DialogTitle>{target?.isSkip || target?.isOverlap ? '予約状態を解除' : '予約をキャンセル'}</DialogTitle>
+                <DialogTitle>{target?.isSkip ? '除外から予約に戻す' : target?.isOverlap ? '重複状態を解除' : '予約をキャンセル'}</DialogTitle>
                 <DialogContent>
                     <Typography>{target?.name}</Typography>
                     <Typography color="text.secondary" sx={{ mt: 1 }}>
-                        {target?.ruleId === undefined ? 'この予約をキャンセルします。' : 'ルールから作成された予約は除外扱いになります。'}
+                        {target?.isSkip
+                            ? 'この番組を除外から予約に戻します。'
+                            : target?.isOverlap
+                              ? 'この番組の重複状態を解除して予約に戻します。'
+                              : target?.ruleId === undefined
+                                ? 'この予約をキャンセルします。'
+                                : 'ルールから作成された予約は除外扱いになります。'}
                     </Typography>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setTarget(null)}>戻る</Button>
-                    <Button color="error" variant="contained" disabled={remove.isPending} onClick={() => target !== null && remove.mutate(target)}>
+                    <Button
+                        color={target?.isSkip || target?.isOverlap ? 'primary' : 'error'}
+                        variant="contained"
+                        disabled={remove.isPending}
+                        onClick={() => target !== null && remove.mutate(target)}
+                    >
                         実行
                     </Button>
                 </DialogActions>

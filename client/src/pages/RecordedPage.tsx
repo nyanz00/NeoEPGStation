@@ -26,6 +26,7 @@ import {
     IconButton,
     InputLabel,
     LinearProgress,
+    ListSubheader,
     Menu,
     MenuItem,
     Popover,
@@ -46,7 +47,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { GetRecordedOption, RecordedCleanupPlanResult, RecordedItem } from '../../../api';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
@@ -100,6 +101,120 @@ const emptyFilters: RecordedFilters = {
     month: '',
     day: '',
 };
+
+interface RecordedReturnPosition {
+    url: string;
+    recordedId: number;
+    scrollY: number;
+    savedAt: number;
+}
+
+let recordedReturnPosition: RecordedReturnPosition | null = null;
+const RECORDED_RETURN_POSITION_MAX_AGE_MS = 30 * 60 * 1000;
+
+const recordedFilterParamNames = [
+    'keyword',
+    'ruleId',
+    'manualOnly',
+    'channelId',
+    'genre',
+    'encodeMode',
+    'encodeModes',
+    'encodeModeMatch',
+    'hasOriginalFile',
+    'hasDrop',
+    'hasError',
+    'hasScrambling',
+    'startDate',
+    'endDate',
+    'dateMode',
+    'recordedDateMode',
+    'year',
+    'recordedYear',
+    'month',
+    'recordedMonth',
+    'day',
+    'recordedDay',
+    'recordedStartAt',
+    'recordedEndAt',
+] as const;
+
+function parseFilterNumber(value: string | null, minimum: number): number | '' {
+    if (value === null) return '';
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number >= minimum ? number : '';
+}
+
+function isTrueQuery(value: string | null): boolean {
+    return value === '1' || value === 'true';
+}
+
+function localDateInput(value: number, endExclusive = false): string {
+    const date = new Date(endExclusive ? value - 1 : value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const year = date.getFullYear().toString(10).padStart(4, '0');
+    const month = (date.getMonth() + 1).toString(10).padStart(2, '0');
+    const day = date.getDate().toString(10).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function readRecordedFilters(params: URLSearchParams): RecordedFilters {
+    const queryRuleId = parseFilterNumber(params.get('ruleId'), 0);
+    const legacyEncodeModes = params.getAll('encodeModes');
+    const recordedStartAtParam = params.get('recordedStartAt');
+    const recordedEndAtParam = params.get('recordedEndAt');
+    const recordedStartAt = recordedStartAtParam === null ? Number.NaN : Number(recordedStartAtParam);
+    const recordedEndAt = recordedEndAtParam === null ? Number.NaN : Number(recordedEndAtParam);
+    return {
+        keyword: params.get('keyword') ?? '',
+        ruleId: queryRuleId === 0 ? '' : queryRuleId,
+        manualOnly: queryRuleId === 0 || isTrueQuery(params.get('manualOnly')),
+        channelId: parseFilterNumber(params.get('channelId'), 1),
+        genre: parseFilterNumber(params.get('genre'), 0),
+        encodeModes: [...new Set([...params.getAll('encodeMode'), ...legacyEncodeModes].filter(value => value.length > 0))],
+        encodeModeMatch: params.get('encodeModeMatch') === 'only' ? 'only' : 'include',
+        hasOriginalFile: isTrueQuery(params.get('hasOriginalFile')),
+        hasDrop: isTrueQuery(params.get('hasDrop')),
+        hasError: isTrueQuery(params.get('hasError')),
+        hasScrambling: isTrueQuery(params.get('hasScrambling')),
+        startDate: params.get('startDate') ?? (Number.isFinite(recordedStartAt) ? localDateInput(recordedStartAt) : ''),
+        endDate: params.get('endDate') ?? (Number.isFinite(recordedEndAt) ? localDateInput(recordedEndAt, true) : ''),
+        dateMode: params.get('dateMode') === 'specific' || params.get('recordedDateMode') === 'specific' ? 'specific' : 'range',
+        year: params.get('year') ?? params.get('recordedYear') ?? '',
+        month: params.get('month') ?? params.get('recordedMonth') ?? '',
+        day: params.get('day') ?? params.get('recordedDay') ?? '',
+    };
+}
+
+function writeRecordedFilters(params: URLSearchParams, filters: RecordedFilters): void {
+    for (const name of recordedFilterParamNames) params.delete(name);
+    if (filters.keyword.length > 0) params.set('keyword', filters.keyword);
+    if (filters.manualOnly) params.set('ruleId', '0');
+    else if (typeof filters.ruleId === 'number') params.set('ruleId', filters.ruleId.toString(10));
+    if (typeof filters.channelId === 'number') params.set('channelId', filters.channelId.toString(10));
+    if (typeof filters.genre === 'number') params.set('genre', filters.genre.toString(10));
+    for (const encodeMode of filters.encodeModes) params.append('encodeModes', encodeMode);
+    if (filters.encodeModeMatch === 'only') params.set('encodeModeMatch', 'only');
+    if (filters.hasOriginalFile) params.set('hasOriginalFile', 'true');
+    if (filters.hasDrop) params.set('hasDrop', 'true');
+    if (filters.hasError) params.set('hasError', 'true');
+    if (filters.hasScrambling) params.set('hasScrambling', 'true');
+    if (filters.dateMode === 'specific') {
+        const range = specificDateRange(filters);
+        if (range.start !== undefined) params.set('recordedDateMode', 'specific');
+        if (filters.year.length > 0) params.set('recordedYear', filters.year);
+        if (filters.month.length > 0) params.set('recordedMonth', filters.month);
+        if (filters.day.length > 0) params.set('recordedDay', filters.day);
+        if (range.start !== undefined) params.set('recordedStartAt', range.start.toString(10));
+        if (range.end !== undefined) params.set('recordedEndAt', (range.end + 1).toString(10));
+    } else {
+        const start = toStartOfDay(filters.startDate);
+        const end = toEndOfDay(filters.endDate);
+        if (start !== undefined || end !== undefined) params.set('recordedDateMode', 'range');
+        if (start !== undefined) params.set('recordedStartAt', start.toString(10));
+        if (end !== undefined) params.set('recordedEndAt', (end + 1).toString(10));
+    }
+}
 
 function specificDateRange(filters: RecordedFilters): { start?: number; end?: number } {
     const year = Number(filters.year);
@@ -333,6 +448,7 @@ function RecordedTableRow({
 
 export function RecordedPage(): ReactNode {
     const navigate = useNavigate();
+    const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
     const settings = useSettings();
     const queryClient = useQueryClient();
@@ -340,21 +456,21 @@ export function RecordedPage(): ReactNode {
     const initialPage = Number(searchParams.get('page'));
     const initialUserId = searchParams.get('userId');
     const initialFocus = Number(searchParams.get('focus'));
+    const currentListUrl = `${location.pathname}${location.search}`;
+    const savedReturnPosition =
+        recordedReturnPosition !== null && recordedReturnPosition.url === currentListUrl && Date.now() - recordedReturnPosition.savedAt <= RECORDED_RETURN_POSITION_MAX_AGE_MS
+            ? recordedReturnPosition
+            : null;
     const [userId, setUserId] = useState<ActiveUserId>(
         initialUserId === 'master' ? 'master' : Number.isSafeInteger(Number(initialUserId)) && Number(initialUserId) > 0 ? Number(initialUserId) : null,
     );
     const [page, setPage] = useState(Number.isSafeInteger(initialPage) && initialPage > 0 ? initialPage : 1);
-    const [focusedRecordedId] = useState<number | null>(Number.isSafeInteger(initialFocus) && initialFocus > 0 ? initialFocus : null);
-    const initialRuleIdParam = searchParams.get('ruleId');
-    const initialRuleId = initialRuleIdParam === null ? Number.NaN : Number(initialRuleIdParam);
-    const initialFilters: RecordedFilters = {
-        ...emptyFilters,
-        keyword: searchParams.get('keyword') ?? '',
-        ruleId: Number.isSafeInteger(initialRuleId) && initialRuleId >= 0 ? initialRuleId : '',
-    };
+    const [focusedRecordedId] = useState<number | null>(Number.isSafeInteger(initialFocus) && initialFocus > 0 ? initialFocus : (savedReturnPosition?.recordedId ?? null));
+    const initialFilters = readRecordedFilters(searchParams);
     const [filters, setFilters] = useState<RecordedFilters>(initialFilters);
     const [draftFilters, setDraftFilters] = useState<RecordedFilters>(initialFilters);
     const [searchAnchor, setSearchAnchor] = useState<HTMLElement | null>(null);
+    const [fileTypeMenuOpen, setFileTypeMenuOpen] = useState(false);
     const [mainMenuAnchor, setMainMenuAnchor] = useState<HTMLElement | null>(null);
     const [editMode, setEditMode] = useState(false);
     const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -381,6 +497,19 @@ export function RecordedPage(): ReactNode {
             const next = new URLSearchParams(searchParams);
             if (value <= 1) next.delete('page');
             else next.set('page', value.toString(10));
+            setSearchParams(next, { replace: true });
+        },
+        [searchParams, setSearchParams],
+    );
+    const applyFilters = useCallback(
+        (value: RecordedFilters): void => {
+            const nextFilters = { ...value, encodeModes: [...value.encodeModes] };
+            setFilters(nextFilters);
+            setDraftFilters(nextFilters);
+            setPage(1);
+            const next = new URLSearchParams(searchParams);
+            next.delete('page');
+            writeRecordedFilters(next, nextFilters);
             setSearchParams(next, { replace: true });
         },
         [searchParams, setSearchParams],
@@ -548,11 +677,37 @@ export function RecordedPage(): ReactNode {
     }, [changePage, page, records.isSuccess, totalPages]);
     useEffect(() => {
         if (focusedRecordedId === null || !records.data?.records.some(item => item.id === focusedRecordedId)) return;
+        let innerFrame = 0;
         const frame = window.requestAnimationFrame(() => {
-            document.getElementById(`recorded-card-${focusedRecordedId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            innerFrame = window.requestAnimationFrame(() => {
+                const element = document.getElementById(`recorded-card-${focusedRecordedId}`);
+                if (savedReturnPosition !== null) {
+                    window.scrollTo({ top: savedReturnPosition.scrollY, behavior: 'auto' });
+                    const bounds = element?.getBoundingClientRect();
+                    if (bounds !== undefined && (bounds.bottom <= 0 || bounds.top >= window.innerHeight)) element?.scrollIntoView({ behavior: 'auto', block: 'center' });
+                    if (recordedReturnPosition === savedReturnPosition) recordedReturnPosition = null;
+                    return;
+                }
+                element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
         });
-        return () => window.cancelAnimationFrame(frame);
-    }, [focusedRecordedId, records.data?.records]);
+        return () => {
+            window.cancelAnimationFrame(frame);
+            window.cancelAnimationFrame(innerFrame);
+        };
+    }, [focusedRecordedId, records.data?.records, savedReturnPosition]);
+    const openRecorded = useCallback(
+        (recordedId: number): void => {
+            recordedReturnPosition = {
+                url: `${location.pathname}${location.search}`,
+                recordedId,
+                scrollY: window.scrollY,
+                savedAt: Date.now(),
+            };
+            void navigate(`/recorded/detail/${recordedId}`);
+        },
+        [location.pathname, location.search, navigate],
+    );
     const toggleSelection = (id: number): void =>
         setSelected(current => {
             const next = new Set(current);
@@ -708,12 +863,11 @@ export function RecordedPage(): ReactNode {
                                         selected={selected.has(item.id)}
                                         focused={focusedRecordedId === item.id}
                                         showDrop={settings.isShowDropInfoInsteadOfDescription}
-                                        onOpen={() => void navigate(`/recorded/detail/${item.id}`)}
+                                        onOpen={() => openRecorded(item.id)}
                                         onSelect={() => toggleSelection(item.id)}
                                         onSearch={() => {
                                             const option = createRecordedRelatedSearchOption(item);
-                                            setFilters(current => ({ ...current, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' }));
-                                            changePage(1);
+                                            applyFilters({ ...filters, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' });
                                         }}
                                         onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
                                         onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
@@ -740,12 +894,11 @@ export function RecordedPage(): ReactNode {
                                 selected={selected.has(item.id)}
                                 focused={focusedRecordedId === item.id}
                                 showDrop={settings.isShowDropInfoInsteadOfDescription}
-                                onOpen={() => void navigate(`/recorded/detail/${item.id}`)}
+                                onOpen={() => openRecorded(item.id)}
                                 onSelect={() => toggleSelection(item.id)}
                                 onSearch={() => {
                                     const option = createRecordedRelatedSearchOption(item);
-                                    setFilters(current => ({ ...current, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' }));
-                                    changePage(1);
+                                    applyFilters({ ...filters, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' });
                                 }}
                                 onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
                                 onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
@@ -759,12 +912,24 @@ export function RecordedPage(): ReactNode {
             <Popover
                 open={searchAnchor !== null}
                 anchorEl={searchAnchor}
-                onClose={() => setSearchAnchor(null)}
+                onClose={() => {
+                    setFileTypeMenuOpen(false);
+                    setSearchAnchor(null);
+                }}
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                 slotProps={{ paper: { sx: { width: 640, maxWidth: 'calc(100vw - 16px)' } } }}
             >
-                <Box sx={{ p: 2 }}>
+                <Box
+                    component="form"
+                    onSubmit={event => {
+                        event.preventDefault();
+                        applyFilters(draftFilters);
+                        setFileTypeMenuOpen(false);
+                        setSearchAnchor(null);
+                    }}
+                    sx={{ p: 2 }}
+                >
                     <Typography variant="h6" sx={{ mb: 1 }}>
                         録画済み検索
                     </Typography>
@@ -822,11 +987,52 @@ export function RecordedPage(): ReactNode {
                                 <InputLabel>ファイルタイプ</InputLabel>
                                 <Select
                                     multiple
+                                    open={fileTypeMenuOpen}
+                                    onOpen={() => setFileTypeMenuOpen(true)}
+                                    onClose={() => setFileTypeMenuOpen(false)}
                                     label="ファイルタイプ"
                                     value={draftFilters.encodeModes}
                                     onChange={event => setDraftFilters(value => ({ ...value, encodeModes: event.target.value as string[] }))}
                                     renderValue={values => values.join('、')}
+                                    MenuProps={{
+                                        slotProps: {
+                                            paper: {
+                                                sx: {
+                                                    maxHeight: 'min(65vh, 520px)',
+                                                },
+                                            },
+                                        },
+                                    }}
                                 >
+                                    <ListSubheader
+                                        sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 1,
+                                            borderBottom: 1,
+                                            borderColor: 'divider',
+                                            bgcolor: 'background.paper',
+                                            lineHeight: 1,
+                                            py: 1,
+                                            zIndex: 1,
+                                        }}
+                                    >
+                                        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+                                            {draftFilters.encodeModes.length} 件選択中
+                                        </Typography>
+                                        <Button
+                                            type="button"
+                                            size="small"
+                                            variant="outlined"
+                                            onClick={event => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                setFileTypeMenuOpen(false);
+                                            }}
+                                        >
+                                            選択を完了
+                                        </Button>
+                                    </ListSubheader>
                                     <MenuItem value="__ts__">
                                         <Checkbox checked={draftFilters.encodeModes.includes('__ts__')} />
                                         TS
@@ -951,19 +1157,20 @@ export function RecordedPage(): ReactNode {
                         )}
                     </Stack>
                     <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'center' }}>
-                        <Button color="error" onClick={() => setDraftFilters(emptyFilters)}>
+                        <Button type="button" color="error" onClick={() => setDraftFilters(emptyFilters)}>
                             クリア
                         </Button>
                         <Box sx={{ flex: 1 }} />
-                        <Button onClick={() => setSearchAnchor(null)}>閉じる</Button>
                         <Button
-                            variant="contained"
+                            type="button"
                             onClick={() => {
-                                setFilters(draftFilters);
-                                changePage(1);
+                                setFileTypeMenuOpen(false);
                                 setSearchAnchor(null);
                             }}
                         >
+                            閉じる
+                        </Button>
+                        <Button type="submit" variant="contained">
                             検索
                         </Button>
                     </Stack>

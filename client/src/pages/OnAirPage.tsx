@@ -361,7 +361,14 @@ export function OnAirPage(): ReactNode {
                 reserve={program === null ? undefined : reserves.get(program.id)}
                 onClose={() => setSelectedSchedule(null)}
             />
-            <OnAirSelectStreamDialog channel={watchChannel} config={config.data} settings={settings} onClose={() => setWatchChannel(null)} onWatch={watch} />
+            <OnAirSelectStreamDialog
+                channel={watchChannel}
+                config={config.data}
+                settings={settings}
+                onClose={() => setWatchChannel(null)}
+                onGuide={channelId => void navigate(`/guide?channelId=${channelId}`)}
+                onWatch={watch}
+            />
         </>
     );
 }

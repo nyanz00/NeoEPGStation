@@ -4,6 +4,7 @@ export interface EncodeOption extends apid.AddEncodeProgramOption {
     encodeId: apid.EncodeId;
     /** Internal recovery metadata. It is never accepted from the public API. */
     resumeExistingAmatsukaze?: boolean;
+    amatsukazeTaskId?: number;
     recoveryStartedAt?: number;
     recoveryOutputFilePath?: string;
 }
@@ -25,6 +26,7 @@ export interface IEncoderModel {
             encoderMessage?: string,
         ) => void,
     ): void;
+    setOnAmatsukazeTaskMatched(callback: (taskId: number) => void): void;
     start(): Promise<void>;
     cancel(): Promise<void>;
     getEncodeOption(): EncodeOption | null;

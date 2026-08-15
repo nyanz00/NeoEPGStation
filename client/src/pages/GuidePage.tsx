@@ -106,6 +106,25 @@ function startOfLocalHour(value: number): number {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours()).getTime();
 }
 
+function parseGuideTime(value: string | null): number | undefined {
+    if (value === null || !/^\d{8}$/.test(value)) return undefined;
+    const year = 2000 + Number(value.slice(0, 2));
+    const month = Number(value.slice(2, 4));
+    const day = Number(value.slice(4, 6));
+    const hour = Number(value.slice(6, 8));
+    const date = new Date(year, month - 1, day, hour);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day || date.getHours() !== hour) return undefined;
+    return date.getTime();
+}
+
+function formatGuideTime(value: number): string {
+    const date = new Date(value);
+    return `${date.getFullYear().toString(10).slice(-2)}${(date.getMonth() + 1).toString(10).padStart(2, '0')}${date.getDate().toString(10).padStart(2, '0')}${date
+        .getHours()
+        .toString(10)
+        .padStart(2, '0')}`;
+}
+
 function dayTitle(value: number): string {
     const date = new Date(value);
     return `${(date.getMonth() + 1).toString(10).padStart(2, '0')}/${date.getDate().toString(10).padStart(2, '0')}(${weekdays[date.getDay()]})`;
@@ -343,7 +362,8 @@ export function GuideProgramDialog({
         mutationFn: async () => {
             if (reserve === undefined || program === null) return null;
             const selectedProgramId = program.id;
-            const successMessage = reserve.kind === 'skip' || reserve.kind === 'overlap' ? '予約状態を解除しました' : '予約をキャンセルしました';
+            const successMessage =
+                reserve.kind === 'skip' ? '除外から予約に戻しました' : reserve.kind === 'overlap' ? '重複状態を解除して予約に戻しました' : '予約をキャンセルしました';
             if (reserve.kind === 'skip') await api.removeReserveSkip(reserve.item.reserveId);
             else if (reserve.kind === 'overlap') await api.removeReserveOverlap(reserve.item.reserveId);
             else await api.cancelReserve(reserve.item.reserveId);
@@ -470,7 +490,7 @@ export function GuidePage(): ReactNode {
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
-    const [startAt, setStartAt] = useState(() => startOfLocalHour(Date.now()));
+    const [startAt, setStartAt] = useState(() => parseGuideTime(searchParams.get('time')) ?? startOfLocalHour(Date.now()));
     const [selected, setSelected] = useState<{ program: ScheduleProgramItem; channel: ScheduleChannleItem } | null>(null);
     const [onAirChannel, setOnAirChannel] = useState<ScheduleChannleItem | null>(null);
     const [dayDialogOpen, setDayDialogOpen] = useState(false);
@@ -506,14 +526,29 @@ export function GuidePage(): ReactNode {
     );
     const requestedWave = searchParams.get('type');
     const wave = requestedWave !== null && availableTypes.includes(requestedWave as ChannelType) ? requestedWave : 'ALL';
+    const requestedChannelId = Number(searchParams.get('channelId'));
+    const channelId = Number.isInteger(requestedChannelId) && requestedChannelId > 0 ? requestedChannelId : null;
     const changeWave = (value: string): void => {
         setSearchParams(current => {
             const next = new URLSearchParams(current);
+            next.delete('channelId');
             if (value === 'ALL') next.delete('type');
             else next.set('type', value);
             return next;
         });
     };
+    const changeStartAt = (value: number): void => {
+        setStartAt(value);
+        setSearchParams(current => {
+            const next = new URLSearchParams(current);
+            next.set('time', formatGuideTime(value));
+            return next;
+        });
+    };
+    useEffect(() => {
+        const requestedTime = parseGuideTime(searchParams.get('time')) ?? startOfLocalHour(Date.now());
+        if (requestedTime !== startAt) setStartAt(requestedTime);
+    }, [searchParams, startAt]);
     const scheduleOption = useMemo(() => {
         const selectedType = wave === 'ALL' ? null : (wave as ChannelType);
         const extraTypes =
@@ -532,10 +567,11 @@ export function GuidePage(): ReactNode {
         };
     }, [availableTypes, endAt, settings.isHalfWidthDisplayed, settings.isShowOnlyFreePrograms, startAt, wave]);
     const schedules = useQuery({ queryKey: ['schedules', scheduleOption], queryFn: () => api.getSchedules(scheduleOption), enabled: config.data !== undefined });
-    const displayedSchedules = useMemo(
-        () => (settings.isShowInformationalChannels ? schedules.data : schedules.data?.filter(schedule => isDefaultVisibleChannel(schedule.channel))),
-        [schedules.data, settings.isShowInformationalChannels],
-    );
+    const displayedSchedules = useMemo(() => {
+        if (schedules.data === undefined) return undefined;
+        if (channelId !== null) return schedules.data.filter(schedule => schedule.channel.id === channelId);
+        return settings.isShowInformationalChannels ? schedules.data : schedules.data.filter(schedule => isDefaultVisibleChannel(schedule.channel));
+    }, [channelId, schedules.data, settings.isShowInformationalChannels]);
     const deferredChannelFilter = useDeferredValue(channelFilter);
     const channelFilterTokens = useMemo(
         () =>
@@ -729,7 +765,7 @@ export function GuidePage(): ReactNode {
 
     const selectDay = (dayOffset: number): void => {
         const day = todayStart + dayOffset * 86_400_000;
-        setStartAt(dayOffset === 0 ? startOfLocalHour(Date.now()) : day);
+        changeStartAt(dayOffset === 0 ? startOfLocalHour(Date.now()) : day);
         setDayDialogOpen(false);
     };
     const openTimeMenu = (event: ReactMouseEvent<HTMLElement>): void => {
@@ -739,7 +775,7 @@ export function GuidePage(): ReactNode {
     };
     const applyTime = (): void => {
         const date = new Date(timeDay);
-        setStartAt(new Date(date.getFullYear(), date.getMonth(), date.getDate(), timeHour).getTime());
+        changeStartAt(new Date(date.getFullYear(), date.getMonth(), date.getDate(), timeHour).getTime());
         setTimeAnchor(null);
     };
     const saveGenres = (): void => {

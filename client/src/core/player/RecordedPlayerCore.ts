@@ -203,7 +203,7 @@ export class RecordedPlayerCore {
             airplay: false,
             hotkey: true,
             screenshot: true,
-            pictureInPicture: false,
+            pictureInPicture: true,
             crossOrigin: 'anonymous',
             volume: getStoredPlayerVolume(),
             playbackSpeed: [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2],

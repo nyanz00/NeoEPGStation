@@ -354,7 +354,10 @@ function ProgramDialog({ program, channels, reserve, onClose }: ProgramDialogPro
             else await api.cancelReserve(reserve.item.reserveId);
         },
         onSuccess: async () => {
-            notify(reserve?.kind === 'skip' || reserve?.kind === 'overlap' ? '予約状態を解除しました' : '予約をキャンセルしました', 'success');
+            notify(
+                reserve?.kind === 'skip' ? '除外から予約に戻しました' : reserve?.kind === 'overlap' ? '重複状態を解除して予約に戻しました' : '予約をキャンセルしました',
+                'success',
+            );
             await finish();
         },
         onError: error => notify(`予約の変更に失敗しました: ${error.message}`, 'error'),
@@ -445,7 +448,7 @@ export function SearchPage(): ReactNode {
     const settings = useSettings();
     const [params] = useSearchParams();
     const navigate = useNavigate();
-    const parsedRuleId = Number(params.get('ruleId'));
+    const parsedRuleId = Number(params.get('ruleId') ?? params.get('rule'));
     const ruleId = Number.isInteger(parsedRuleId) && parsedRuleId > 0 ? parsedRuleId : null;
     const parsedAnimeAnnictId = Number(params.get('annictId'));
     const animeReturnPath = params.get('origin') === 'anime' && Number.isInteger(parsedAnimeAnnictId) && parsedAnimeAnnictId > 0 ? `/anime/${parsedAnimeAnnictId}` : null;

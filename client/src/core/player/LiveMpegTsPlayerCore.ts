@@ -117,6 +117,7 @@ export class LiveMpegTsPlayerCore {
     private destroyed = false;
     private restarting = false;
     private startupBuffering = false;
+    private streamInputStarted = false;
     private safariAutoplayTemporarilyMuted = false;
     private restartTimer: number | null = null;
     private generation = 0;
@@ -184,7 +185,8 @@ export class LiveMpegTsPlayerCore {
         if (this.destroyed) return;
         const generation = this.generation;
         this.startupBuffering = false;
-        this.setState({ isLoading: true, isBuffering: false, loadingText: 'ストリームに接続中...' });
+        this.streamInputStarted = false;
+        this.setState({ isLoading: true, isBuffering: false, loadingText: 'チューナー起動中...' });
         window.mpegts = Mpegts;
         window.Hls = Hls;
         // Keep player creation in the originating user-activation task on Apple
@@ -228,7 +230,7 @@ export class LiveMpegTsPlayerCore {
             airplay: false,
             hotkey: false,
             screenshot: true,
-            pictureInPicture: false,
+            pictureInPicture: true,
             crossOrigin: 'anonymous',
             volume: getStoredPlayerVolume(),
             video: { url: this.option.src, type: 'mpegts' },
@@ -283,9 +285,19 @@ export class LiveMpegTsPlayerCore {
     private bindPlayerEvents(): void {
         if (this.player === null) return;
         this.player.on('waiting', () => {
-            this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' });
+            this.setState({
+                ...this.state,
+                isBuffering: true,
+                loadingText: this.streamInputStarted ? 'バッファリング中...' : 'チューナー起動中...',
+            });
         });
         this.player.on('playing', () => {
+            if (this.isIos26HevcCompatibilityPlayback() && this.state.isLoading) {
+                // `playing` is more reliable than Safari's canplay/readyState
+                // bookkeeping: a decoded HEVC frame is actually advancing.
+                this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
+                return;
+            }
             if (!this.state.isLoading) this.setState({ ...this.state, isBuffering: false });
         });
         this.player.on('pause', () => {
@@ -313,13 +325,35 @@ export class LiveMpegTsPlayerCore {
             this.option.onError?.(new Error(`mpegts.js error: ${errorType} ${detail}`));
             this.restart(`ストリームエラーを検知しました。(${errorType}) プレイヤーを再起動しています...`);
         });
-        const mediaInfoEvent = (Mpegts.Events as any).MEDIA_INFO;
+        const mediaInfoEvent = Mpegts.Events.MEDIA_INFO;
         if (mediaInfoEvent !== undefined) {
             mpegtsPlayer.on(mediaInfoEvent, async () => {
+                this.markStreamInputStarted();
                 await sleep(250);
                 if (this.state.isLoading) await this.onCanPlay();
             });
         }
+        const metadataArrivedEvent = Mpegts.Events.METADATA_ARRIVED;
+        if (metadataArrivedEvent !== undefined) {
+            mpegtsPlayer.on(metadataArrivedEvent, () => this.markStreamInputStarted());
+        }
+        const statisticsInfoEvent = Mpegts.Events.STATISTICS_INFO;
+        if (statisticsInfoEvent !== undefined) {
+            mpegtsPlayer.on(statisticsInfoEvent, (statistics: { speed?: number }) => {
+                if (typeof statistics.speed === 'number' && statistics.speed > 0) this.markStreamInputStarted();
+            });
+        }
+    }
+
+    private markStreamInputStarted(): void {
+        if (this.destroyed || this.player === null || this.streamInputStarted) return;
+        this.streamInputStarted = true;
+        if (!this.state.isLoading) return;
+        this.setState({
+            isLoading: true,
+            isBuffering: true,
+            loadingText: '映像を準備中...',
+        });
     }
 
     private async ensureCanPlayFallback(): Promise<void> {
@@ -347,6 +381,17 @@ export class LiveMpegTsPlayerCore {
             if (freezePlayback) video.playbackRate = 0;
             const startBufferSeconds = this.getStartBufferSeconds();
             this.movePlaybackPositionIntoLatestBuffer(video, startBufferSeconds);
+
+            // iOS 26 compatibility mode starts live playback muted so the first
+            // play() remains inside Safari's autoplay policy.  Unlike desktop
+            // browsers, playback cannot be frozen while the startup buffer grows.
+            // Waiting for the desktop-sized target after Safari is already playing
+            // can therefore consume the buffer as quickly as it is appended,
+            // producing an endless waiting -> playing loop (especially with HEVC).
+            if (this.isIos26HevcCompatibilityPlayback() && !video.paused && video.buffered.length > 0 && video.readyState >= video.HAVE_FUTURE_DATA) {
+                this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
+                return;
+            }
 
             const deadline = Date.now() + LiveMpegTsPlayerCore.START_BUFFER_WAIT_TIMEOUT;
             let bufferSeconds = this.getPlaybackBufferSeconds(video);
@@ -378,6 +423,10 @@ export class LiveMpegTsPlayerCore {
 
     private getStartBufferSeconds(): number {
         return this.option.lowLatency ? LiveMpegTsPlayerCore.LOW_LATENCY_START_BUFFER_SECONDS : LiveMpegTsPlayerCore.NORMAL_START_BUFFER_SECONDS;
+    }
+
+    private isIos26HevcCompatibilityPlayback(): boolean {
+        return isAppleMobileWebKit() && this.option.webkitPlaybackMode === 'ios26' && this.option.isHevc;
     }
 
     private async canUseWorkerForMSE(): Promise<boolean> {
@@ -510,6 +559,7 @@ export class LiveMpegTsPlayerCore {
 
     private destroyPlayer(): void {
         this.startupBuffering = false;
+        this.streamInputStarted = false;
         this.safariAutoplayTemporarilyMuted = false;
         this.jikkyoCommentCore?.destroy();
         this.jikkyoCommentCore = null;

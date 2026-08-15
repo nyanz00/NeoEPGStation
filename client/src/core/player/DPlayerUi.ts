@@ -10,6 +10,45 @@ interface WebkitFullscreenElement extends HTMLElement {
     webkitRequestFullscreen?: () => Promise<void> | void;
 }
 
+function configurePictureInPicture(container: HTMLElement): void {
+    const video = container.querySelector<HTMLVideoElement>('video');
+    const buttons = container.querySelectorAll<HTMLElement>('.dplayer-pip-icon');
+    if (video === null || buttons.length === 0 || document.pictureInPictureEnabled !== true) return;
+
+    // Hide Chromium's extra overlay button on the video itself. The DPlayer
+    // control remains available and temporarily opts the video back in only
+    // while an explicit PiP request is being made.
+    video.disablePictureInPicture = true;
+    video.addEventListener('leavepictureinpicture', () => {
+        video.disablePictureInPicture = true;
+    });
+    buttons.forEach(button => {
+        button.addEventListener(
+            'click',
+            event => {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                void (async () => {
+                    try {
+                        if (document.pictureInPictureElement === video) {
+                            await document.exitPictureInPicture();
+                            return;
+                        }
+                        video.disablePictureInPicture = false;
+                        await video.requestPictureInPicture();
+                    } catch {
+                        // The browser can still reject PiP due to permissions or
+                        // the current playback state. Keep normal playback alive.
+                    } finally {
+                        if (document.pictureInPictureElement !== video) video.disablePictureInPicture = true;
+                    }
+                })();
+            },
+            { capture: true },
+        );
+    });
+}
+
 function isIPad(): boolean {
     return /iPad/i.test(navigator.userAgent) || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
@@ -29,16 +68,14 @@ export function configureDPlayerUi(container: HTMLElement): HTMLElement {
         infoPanelClose.setAttribute('title', '統計情報を閉じる');
     }
 
-    // PiP is provided by the browser integration. Defensively collapse any
-    // duplicate player-side controls that an older/cached DPlayer may render.
-    container.querySelectorAll<HTMLElement>('.dplayer-pip-icon').forEach(button => button.remove());
+    configurePictureInPicture(container);
 
     const volume = container.querySelector<HTMLElement>('.dplayer-volume');
     if (volume !== null && container.querySelector('.neo-player-volume-percent') === null) {
         const percent = document.createElement('span');
         percent.className = 'neo-player-volume-percent';
         percent.setAttribute('aria-hidden', 'true');
-        volume.insertAdjacentElement('afterend', percent);
+        volume.insertAdjacentElement('beforebegin', percent);
     }
     updateDPlayerVolumePercent(container);
 
@@ -67,6 +104,7 @@ export function configureDPlayerUi(container: HTMLElement): HTMLElement {
 }
 
 export function updateDPlayerMobileVolumeControl(container: HTMLElement, muted: boolean): void {
+    updateDPlayerVolumePercent(container);
     const button = container.querySelector<HTMLButtonElement>(`[data-dplayer-custom-control="${DPLAYER_MOBILE_VOLUME_CONTROL_NAME}"]`);
     const icon = button?.querySelector<HTMLElement>('.dplayer-icon-content');
     if (button === null || button === undefined || icon === null || icon === undefined) return;
@@ -75,7 +113,6 @@ export function updateDPlayerMobileVolumeControl(container: HTMLElement, muted: 
     button.setAttribute('aria-label', label);
     button.setAttribute('data-balloon', label);
     button.title = label;
-    updateDPlayerVolumePercent(container);
 }
 
 export function updateDPlayerVolumePercent(container: HTMLElement): void {

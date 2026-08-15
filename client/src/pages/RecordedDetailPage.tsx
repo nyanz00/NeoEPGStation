@@ -567,7 +567,7 @@ export function RecordedDetailPage(): ReactNode {
                     onEncode={() => setEncodeOpen(true)}
                     onSubtitle={() => void navigate(`/recorded/subtitle/${recordedId.toString(10)}`)}
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded-detail', recordedId] })}
-                    onDeleted={() => void navigate('/recorded')}
+                    onDeleted={goBack}
                     includeDownload
                 />
             )}

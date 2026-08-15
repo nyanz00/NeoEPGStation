@@ -51,6 +51,16 @@ import { useViewerProfile } from '../core/storage/viewerProfile';
 
 type PanelTab = 'program' | 'rules' | 'comments' | 'twitter';
 
+const RECORDED_PLAYER_PANEL_OPEN_STORAGE_KEY = 'neoepgstation-recorded-player-panel-open';
+
+function loadRecordedPlayerPanelOpen(): boolean {
+    try {
+        return localStorage.getItem(RECORDED_PLAYER_PANEL_OPEN_STORAGE_KEY) !== 'false';
+    } catch {
+        return true;
+    }
+}
+
 interface PlayerSource {
     src: string;
     type: RecordedPlayerSourceType;
@@ -352,14 +362,17 @@ function RecordedPlayer({
                       }
                     : {}),
                 '& .recorded-dplayer .neo-player-volume-percent': {
-                    display: 'inline-block',
-                    minWidth: 30,
-                    ml: 0.25,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    float: 'left',
+                    height: '100%',
+                    minWidth: 28,
+                    mx: 0.25,
                     color: '#fff',
                     fontSize: 10,
                     lineHeight: 1,
                     textAlign: 'center',
-                    verticalAlign: 'middle',
                     pointerEvents: 'none',
                 },
             }}
@@ -743,13 +756,21 @@ export function RecordedWatchPage(): ReactNode {
     const streamSubtitleFileKey = params.get('subtitleFileKey') ?? undefined;
     const validIds = Number.isSafeInteger(videoFileId) && videoFileId >= 0 && Number.isSafeInteger(recordedId) && recordedId >= 0;
     const valid = validIds && (!streaming || (Number.isSafeInteger(mode) && mode >= 0 && quality.length > 0));
-    const [panelOpen, setPanelOpen] = useState(true);
+    const [panelOpen, setPanelOpen] = useState(loadRecordedPlayerPanelOpen);
     const [panelTab, setPanelTab] = useState<PanelTab>('program');
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
     const [preparingSubtitleIndex, setPreparingSubtitleIndex] = useState<number | 'none' | null>(null);
     const [resumePosition, setResumePosition] = useState<number | null>(null);
     const [resumePlaying, setResumePlaying] = useState(true);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(RECORDED_PLAYER_PANEL_OPEN_STORAGE_KEY, panelOpen.toString());
+        } catch {
+            // Playback remains available even when browser storage is unavailable.
+        }
+    }, [panelOpen]);
     const playerVideo = useRef<HTMLVideoElement | null>(null);
     const [progressVideo, setProgressVideo] = useState<HTMLVideoElement | null>(null);
     const autoWatchLastAttemptAt = useRef(0);

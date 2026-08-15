@@ -17,6 +17,7 @@ interface OnAirSelectStreamDialogProps {
     config?: Config;
     settings: AppSettings;
     onClose: () => void;
+    onGuide?: (channelId: number) => void;
     onWatch: (path: string) => void;
 }
 
@@ -26,7 +27,7 @@ function defaultMode(qualities: string[], settings: AppSettings, savedMode: numb
     return Math.min(Math.max(savedMode, 0), Math.max(qualities.length - 1, 0));
 }
 
-export function OnAirSelectStreamDialog({ channel, config, settings, onClose, onWatch }: OnAirSelectStreamDialogProps): ReactNode {
+export function OnAirSelectStreamDialog({ channel, config, settings, onClose, onGuide, onWatch }: OnAirSelectStreamDialogProps): ReactNode {
     const [useURLScheme, setUseURLScheme] = useState(false);
     const [type, setType] = useState<LiveStreamType>('M2TS');
     const [mode, setMode] = useState(0);
@@ -111,6 +112,16 @@ export function OnAirSelectStreamDialog({ channel, config, settings, onClose, on
                 )}
             </DialogContent>
             <DialogActions>
+                {onGuide !== undefined && channel !== null && (
+                    <Button
+                        onClick={() => {
+                            onGuide(channel.id);
+                            onClose();
+                        }}
+                    >
+                        番組表
+                    </Button>
+                )}
                 <Button color="inherit" onClick={close}>
                     キャンセル
                 </Button>

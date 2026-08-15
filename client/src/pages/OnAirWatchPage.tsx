@@ -248,14 +248,17 @@ function LivePlayer({
                       }
                     : {}),
                 '& .onair-dplayer .neo-player-volume-percent': {
-                    display: 'inline-block',
-                    minWidth: 30,
-                    ml: 0.25,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    float: 'left',
+                    height: '100%',
+                    minWidth: 28,
+                    mx: 0.25,
                     color: '#fff',
                     fontSize: 10,
                     lineHeight: 1,
                     textAlign: 'center',
-                    verticalAlign: 'middle',
                     pointerEvents: 'none',
                 },
             }}

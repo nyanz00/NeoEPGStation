@@ -146,6 +146,15 @@ class EncodeManageModel implements IEncodeManageModel {
             encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
                 this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
             });
+            encoder.setOnAmatsukazeTaskMatched(taskId => {
+                encodeOption.amatsukazeTaskId = taskId;
+                void this.saveAmatsukazeTaskId(encodeOption).catch(err => {
+                    this.log.encode.warn(
+                        `save Amatsukaze task id failed: ${encodeOption.encodeId} -> ${taskId.toString(10)}`,
+                    );
+                    this.log.encode.warn(err);
+                });
+            });
 
             try {
                 await encoder.start();
@@ -621,6 +630,14 @@ class EncodeManageModel implements IEncodeManageModel {
     private async saveOutputFilePath(encodeId: apid.EncodeId, outputFilePath: string | null): Promise<void> {
         const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
         await repository.update({ encodeId }, { outputFilePath, updatedAt: Date.now() });
+    }
+
+    private async saveAmatsukazeTaskId(option: EncodeOption): Promise<void> {
+        const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+        await repository.update(
+            { encodeId: option.encodeId },
+            { optionJson: JSON.stringify(option), updatedAt: Date.now() },
+        );
     }
 
     private async saveWaitQueuePositions(): Promise<void> {
