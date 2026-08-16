@@ -336,7 +336,7 @@ export function StoragesPage(): ReactNode {
     const gpuInfo = useQuery({
         queryKey: ['system-gpus'],
         queryFn: api.getSystemGpus,
-        enabled: resourceMode,
+        enabled: resourceMode && systemInfo.isSuccess,
         refetchInterval: 5_000,
         refetchIntervalInBackground: false,
     });

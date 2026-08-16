@@ -161,9 +161,10 @@ export default class EventSetter implements IEventSetter {
         });
 
         // 録画準備失敗イベント
-        this.recordingEvent.setPrepRecordingFailed(reserve => {
+        this.recordingEvent.setPrepRecordingFailed(async reserve => {
             this.ipc.notifyClient();
-            this.reservationManage.cancel(reserve.id); // 予約から削除
+            // ルール再計算で予約が先に削除されていても、未処理の Promise rejection にしない。
+            await this.reservationManage.cancel(reserve.id, true);
             this.externalCommandManage.addRecordingPrepRecFailedCmd(reserve);
         });
 

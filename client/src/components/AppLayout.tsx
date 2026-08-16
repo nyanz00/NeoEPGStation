@@ -12,10 +12,10 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
 import TvOutlined from '@mui/icons-material/TvOutlined';
-import { Box, Divider, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { Box, CircularProgress, Divider, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import type { ChannelType } from '../../../api';
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, Suspense, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { api } from '../core/api/queries';
 import { appIconAssetUrl, getAppIconSet } from '../core/icons/appIcons';
@@ -248,9 +248,17 @@ export function AppLayout(): ReactNode {
                         transition: theme.transitions.create('background-color', { duration: theme.transitions.duration.shorter }),
                     }}
                 >
-                    <Box key={location.pathname} className={theaterMode ? undefined : 'page-fade-in'}>
-                        <Outlet />
-                    </Box>
+                    <Suspense
+                        fallback={
+                            <Box sx={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
+                                <CircularProgress />
+                            </Box>
+                        }
+                    >
+                        <Box key={location.pathname} className={theaterMode ? undefined : 'page-fade-in'}>
+                            <Outlet />
+                        </Box>
+                    </Suspense>
                 </Box>
             </Box>
         </AppLayoutContext.Provider>

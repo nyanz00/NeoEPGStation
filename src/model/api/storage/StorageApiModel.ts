@@ -23,6 +23,7 @@ export default class StorageApiModel implements IStorageApiModel {
     private directorySizeCache: Map<string, { expiresAt: number; size: number }> = new Map();
     private directorySizePromises: Map<string, Promise<number>> = new Map();
     private gpuCache: { expiresAt: number; items: apid.SystemGpuInfo[] } | null = null;
+    private gpuLoadPromise: Promise<apid.SystemGpuInfo[]> | null = null;
     private storageVolumeCache: { expiresAt: number; items: apid.SystemStorageVolume[] } | null = null;
 
     constructor(
@@ -224,6 +225,18 @@ export default class StorageApiModel implements IStorageApiModel {
         const now = Date.now();
         if (this.gpuCache !== null && this.gpuCache.expiresAt > now) return this.gpuCache.items;
 
+        if (this.gpuLoadPromise !== null) return this.gpuLoadPromise;
+
+        const loadPromise = this.loadGpuItems(now);
+        this.gpuLoadPromise = loadPromise;
+        try {
+            return await loadPromise;
+        } finally {
+            if (this.gpuLoadPromise === loadPromise) this.gpuLoadPromise = null;
+        }
+    }
+
+    private async loadGpuItems(now: number): Promise<apid.SystemGpuInfo[]> {
         const [nvidiaItems, windowsItems] = await Promise.all([
             this.getNvidiaGpuInfo(),
             process.platform === 'win32' ? this.getWindowsGpuInfo() : Promise.resolve([]),
@@ -416,8 +429,6 @@ export default class StorageApiModel implements IStorageApiModel {
                     memoryTotal: this.toOptionalByteSize(adapter.memoryTotal),
                     memoryUsed: this.toOptionalNonNegativeByteSize(adapter.memoryUsed),
                 }));
-            if (adapters.length > 0) return adapters;
-
             const fallback = (parsed.fallback ?? [])
                 .filter(
                     adapter =>
@@ -429,6 +440,15 @@ export default class StorageApiModel implements IStorageApiModel {
                     name: adapter.name as string,
                     memoryTotal: this.toOptionalByteSize(adapter.memoryTotal),
                 }));
+            if (adapters.length > 0) {
+                // GPU performance counters can be initialized per adapter. Keep hardware
+                // adapters found by Win32_VideoController when a counter is not ready yet.
+                const adapterNames = new Set(adapters.map(adapter => this.normalizeGpuName(adapter.name)));
+                return [
+                    ...adapters,
+                    ...fallback.filter(adapter => !adapterNames.has(this.normalizeGpuName(adapter.name))),
+                ];
+            }
             const overallUsage = this.toOptionalNumber(parsed.overallUsage);
             return overallUsage === undefined
                 ? fallback

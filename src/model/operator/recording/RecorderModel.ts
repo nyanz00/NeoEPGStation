@@ -60,6 +60,7 @@ class RecorderModel implements IRecorderModel {
     private isNeedDeleteReservation: boolean = true;
     private isPrepRecording: boolean = false;
     private isRecording: boolean = false;
+    private hasReceivedRecordingData: boolean = false;
     private isPlanToDelete: boolean = false;
     private isCanceledCallingFinished: boolean = false; // mirakurun の stream の終了検知をキャンセルするか
     private eventEmitter = new events.EventEmitter();
@@ -157,10 +158,11 @@ class RecorderModel implements IRecorderModel {
             return;
         }
 
-        this.log.system.info(`preprec: ${this.reserve.id}`);
+        this.log.system.info(`preprec: ${this.getReserveLogContext()}`);
 
         this.isPrepRecording = true;
         this.isRecording = false;
+        this.hasReceivedRecordingData = false;
         this.isPlanToDelete = false;
 
         if (retry === 0) {
@@ -201,15 +203,22 @@ class RecorderModel implements IRecorderModel {
                 return;
             }
 
-            this.log.system.error(`preprec failed: ${this.reserve.id}`);
+            this.log.system.error(`preprec failed: ${this.getReserveLogContext()}`);
             this.log.system.error(err);
             if (retry < 3) {
+                // doRecord() まで進んだ後の失敗でも、再試行待ちは録画準備中として扱う。
+                // ただし実データ未受信なので、録画中の予約を保持する判定には含めない。
+                this.isPrepRecording = true;
+                this.isRecording = false;
+                this.hasReceivedRecordingData = false;
                 // retry
                 setTimeout(() => {
                     this.prepRecord(retry + 1);
                 }, 1000 * 5);
             } else {
                 this.isPrepRecording = false;
+                this.isRecording = false;
+                this.hasReceivedRecordingData = false;
                 // 録画準備失敗を通知
                 this.recordingEvent.emitPrepRecordingFailed(this.reserve);
             }
@@ -225,6 +234,7 @@ class RecorderModel implements IRecorderModel {
         this.isStopPrepRec = false;
         this.isPrepRecording = false;
         this.isRecording = false;
+        this.hasReceivedRecordingData = false;
 
         this.eventEmitter.emit(RecorderModel.CANCEL_EVENT);
     }
@@ -302,8 +312,10 @@ class RecorderModel implements IRecorderModel {
             return;
         }
 
-        this.isPrepRecording = false;
-        this.isRecording = true;
+        // 最初のTSデータを受信するまでは録画準備中のままにする。
+        // この状態なら予約削除時にストリーム取得を中断でき、0バイト録画を録画中として保持しない。
+        this.isPrepRecording = true;
+        this.isRecording = false;
 
         // 録画開始内部イベント発行
         // 時刻指定予約で録画準備中に endAt を変えようとした場合にこのイベントを受信してから変える
@@ -312,7 +324,7 @@ class RecorderModel implements IRecorderModel {
         // 保存先を取得
         const recPath = await this.recordingUtil.getRecPath(this.reserve, true);
 
-        this.log.system.info(`recording: ${this.reserve.id} ${recPath.fullPath}`);
+        this.log.system.info(`recording: ${this.getReserveLogContext()}, filePath: ${recPath.fullPath}`);
 
         // save stream
         this.recFile = fs.createWriteStream(recPath.fullPath, { flags: 'a' });
@@ -375,11 +387,17 @@ class RecorderModel implements IRecorderModel {
             let isStreamTimeout = false; // stream データ受信がタイムアウトした場合は true
             const recordingTimeoutId = setTimeout(async () => {
                 isStreamTimeout = true;
-                this.log.system.error(`recording failed: ${this.reserve.id}`);
+                this.isRecording = false;
+                this.hasReceivedRecordingData = false;
+                this.log.system.error(`recording failed: ${this.getReserveLogContext()}`);
 
                 if (this.stream !== null) {
                     this.stream.removeListener('data', onData); // stream データ受信時のコールバックの登録を削除
                     this.destroyStream();
+                    await this.waitForRecordingFileClosed().catch(err => {
+                        this.log.system.error(`close failed recording file error: ${this.reserve.id}`);
+                        this.log.system.error(err);
+                    });
 
                     // delete file
                     await FileUtil.unlink(recPath.fullPath).catch(err => {
@@ -401,6 +419,11 @@ class RecorderModel implements IRecorderModel {
 
                     return;
                 }
+
+                // DB 登録より先に立て、録画開始直後の予約再計算でも実データ受信済みと判定できるようにする。
+                this.isPrepRecording = false;
+                this.isRecording = true;
+                this.hasReceivedRecordingData = true;
 
                 // 番組情報追加
                 const recorded = await this.addRecorded(recPath);
@@ -840,7 +863,15 @@ class RecorderModel implements IRecorderModel {
      * 録画ストリームが開始済みか
      */
     public isRecordingActive(): boolean {
-        return this.isRecording;
+        return this.isRecording && this.hasReceivedRecordingData;
+    }
+
+    private getReserveLogContext(): string {
+        return (
+            `reserveId: ${this.reserve.id}, ruleId: ${this.reserve.ruleId ?? 'manual'}, ` +
+            `programId: ${this.reserve.programId ?? 'time-specified'}, channelId: ${this.reserve.channelId}, ` +
+            `channelType: ${this.reserve.channelType}, channel: ${JSON.stringify(this.reserve.channel)}`
+        );
     }
 
     /**

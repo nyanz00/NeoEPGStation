@@ -1264,8 +1264,9 @@ class ReservationManageModel implements IReservationManageModel {
      * 手動予約の場合は削除
      * ルール予約の場合は除外
      * @param reserveId 予約 ID
+     * @param ignoreNotFound 既に削除済みの場合は成功として扱う
      */
-    public async cancel(reserveId: apid.ReserveId): Promise<void> {
+    public async cancel(reserveId: apid.ReserveId, ignoreNotFound: boolean = false): Promise<void> {
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(ReservationManageModel.CANCEL_RESERVE_PRIORITY);
         const finalize = () => {
@@ -1283,6 +1284,10 @@ class ReservationManageModel implements IReservationManageModel {
 
         if (cancelReserve === null) {
             finalize();
+            if (ignoreNotFound === true) {
+                this.log.system.info(`reservation is already removed: ${reserveId}`);
+                return;
+            }
             this.log.system.error(`reservation is not found: ${reserveId}`);
             throw new Error('ReservationIsNotFound');
         }

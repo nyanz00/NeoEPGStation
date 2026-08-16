@@ -263,6 +263,9 @@ function LivePlayer({
                     textAlign: 'center',
                     pointerEvents: 'none',
                 },
+                '& .onair-dplayer .dplayer-volume': {
+                    marginLeft: showVolumePercent ? '-8px' : 0,
+                },
             }}
         >
             {(state.isLoading || state.isBuffering) && (

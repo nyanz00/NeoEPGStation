@@ -143,7 +143,7 @@ export function DashboardPage(): ReactNode {
                 title={
                     <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                         <Typography component="h1" variant="h6" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '1.25rem' } }}>
-                            NeoEPGStation v{version.data?.version ?? '1.0.0-beta.1'}
+                            NeoEPGStation v{version.data?.version ?? '1.0.0-beta.2'}
                         </Typography>
                         {!settings.isAppLogoHidden && <Box component="img" src={appIconAssetUrl(logoIcon)} alt="" sx={{ height: 25, width: 'auto', flex: '0 0 auto' }} />}
                     </Box>
