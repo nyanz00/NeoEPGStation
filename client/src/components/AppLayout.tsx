@@ -12,7 +12,7 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
 import TvOutlined from '@mui/icons-material/TvOutlined';
-import { Box, CircularProgress, Divider, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { Box, CircularProgress, Divider, Drawer, Fade, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import type { ChannelType } from '../../../api';
 import { createContext, Suspense, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -255,9 +255,11 @@ export function AppLayout(): ReactNode {
                             </Box>
                         }
                     >
-                        <Box key={location.pathname} className={theaterMode ? undefined : 'page-fade-in'}>
-                            <Outlet />
-                        </Box>
+                        <Fade key={location.pathname} in appear timeout={500}>
+                            <Box>
+                                <Outlet />
+                            </Box>
+                        </Fade>
                     </Suspense>
                 </Box>
             </Box>

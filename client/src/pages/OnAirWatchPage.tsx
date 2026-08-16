@@ -264,7 +264,7 @@ function LivePlayer({
                     pointerEvents: 'none',
                 },
                 '& .onair-dplayer .dplayer-volume': {
-                    marginLeft: showVolumePercent ? '-8px' : 0,
+                    marginLeft: showVolumePercent ? '-13px' : 0,
                 },
             }}
         >
