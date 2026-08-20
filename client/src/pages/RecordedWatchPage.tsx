@@ -34,7 +34,7 @@ import { useAppLayout } from '../components/AppLayout';
 import { TwitterPanel } from '../components/TwitterPanel';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption, getRecordedStreamURL, getRecordedVideoPlayURL, type RecordedStreamType } from '../core/media/recorded';
-import { preferredSubtitleIndex } from '../core/media/subtitles';
+import { isDanmakuSubtitle, preferredSubtitleIndex } from '../core/media/subtitles';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
@@ -95,13 +95,14 @@ function MdiSeekIcon({ path }: { path: string }): ReactNode {
 
 function isNicoJkSubtitle(subtitle: VideoSubtitle | undefined): boolean {
     if (subtitle === undefined) return false;
-    return [subtitle.displayName, subtitle.title].some(value => typeof value === 'string' && value.toLowerCase().includes('nicojk'));
+    return isDanmakuSubtitle(subtitle);
 }
 
 function RecordedPlayer({
     source,
     subtitleText,
     subtitleIsNicoJk,
+    danmakuSubtitleText,
     subtitleDanmaku,
     forceSubtitleStroke,
     webkitPlaybackMode,
@@ -120,6 +121,7 @@ function RecordedPlayer({
     source: PlayerSource;
     subtitleText: string | null;
     subtitleIsNicoJk: boolean;
+    danmakuSubtitleText: string | null;
     subtitleDanmaku: boolean;
     forceSubtitleStroke: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
@@ -256,39 +258,53 @@ function RecordedPlayer({
 
     useEffect(() => {
         rendererRef.current.clear();
+        if (video === null || subtitleText === null) return;
+        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
+        return () => rendererRef.current.clear();
+    }, [subtitleIsNicoJk, subtitleText, video]);
+
+    useEffect(() => {
+        if (!subtitleDanmaku) return;
         assCommentRef.current?.destroy();
         assCommentRef.current = null;
         coreRef.current?.clearDanmaku();
         onCommentsReset();
-        if (video === null || subtitleText === null) return;
-        let cancelled = false;
-        if (!subtitleDanmaku) {
-            void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
-        }
-        if (subtitleDanmaku || subtitleIsNicoJk) {
-            const comments = new AssCommentCore({
-                ass: subtitleText,
-                video,
-                onComment: comment => {
-                    if (subtitleDanmaku) coreRef.current?.drawDanmaku(comment);
-                    else onComment(comment);
-                },
-                onReset: () => {
-                    if (subtitleDanmaku) coreRef.current?.clearDanmaku();
-                    onCommentsReset();
-                },
-            });
-            if (!cancelled) {
-                assCommentRef.current = comments;
-                comments.start();
-            }
-        }
+        if (video === null || danmakuSubtitleText === null) return;
+        const comments = new AssCommentCore({
+            ass: danmakuSubtitleText,
+            video,
+            onComment: comment => coreRef.current?.drawDanmaku(comment),
+            onReset: () => {
+                coreRef.current?.clearDanmaku();
+                onCommentsReset();
+            },
+        });
+        assCommentRef.current = comments;
+        comments.start();
         return () => {
-            cancelled = true;
-            rendererRef.current.clear();
-            assCommentRef.current?.destroy();
-            assCommentRef.current = null;
+            comments.destroy();
+            if (assCommentRef.current === comments) assCommentRef.current = null;
             coreRef.current?.clearDanmaku();
+        };
+    }, [danmakuSubtitleText, onCommentsReset, subtitleDanmaku, video]);
+
+    useEffect(() => {
+        if (subtitleDanmaku) return;
+        assCommentRef.current?.destroy();
+        assCommentRef.current = null;
+        onCommentsReset();
+        if (video === null || subtitleText === null || !subtitleIsNicoJk) return;
+        const comments = new AssCommentCore({
+            ass: subtitleText,
+            video,
+            onComment,
+            onReset: onCommentsReset,
+        });
+        assCommentRef.current = comments;
+        comments.start();
+        return () => {
+            comments.destroy();
+            if (assCommentRef.current === comments) assCommentRef.current = null;
         };
     }, [onComment, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
 
@@ -765,6 +781,7 @@ export function RecordedWatchPage(): ReactNode {
     const [panelTab, setPanelTab] = useState<PanelTab>('program');
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
+    const [selectedDanmakuSubtitleIndex, setSelectedDanmakuSubtitleIndex] = useState<number | null>(null);
     const [preparingSubtitleIndex, setPreparingSubtitleIndex] = useState<number | 'none' | null>(null);
     const [resumePosition, setResumePosition] = useState<number | null>(null);
     const [resumePlaying, setResumePlaying] = useState(true);
@@ -823,11 +840,23 @@ export function RecordedWatchPage(): ReactNode {
         enabled: validIds && (!streaming || recorded.data?.videoFiles?.some(video => video.id === videoFileId && video.type === 'encoded') === true),
         staleTime: Number.POSITIVE_INFINITY,
     });
+    const subtitleItems = subtitles.data?.items ?? [];
+    const danmakuSubtitleItems = useMemo(() => subtitleItems.filter(subtitle => isDanmakuSubtitle(subtitle)), [subtitleItems]);
+    const selectableSubtitleItems = useMemo(
+        () => (settings.watchPlaySubtitleDanmaku && !streaming ? subtitleItems.filter(subtitle => !isDanmakuSubtitle(subtitle)) : subtitleItems),
+        [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
+    );
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
     const subtitleText = useQuery({
         queryKey: ['video-subtitle-text', videoFileId, selectedSubtitleIndex],
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
         enabled: validIds && !streaming && selectedSubtitleIndex !== null,
+        staleTime: Number.POSITIVE_INFINITY,
+    });
+    const danmakuSubtitleText = useQuery({
+        queryKey: ['video-subtitle-text', videoFileId, selectedDanmakuSubtitleIndex],
+        queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
+        enabled: validIds && !streaming && settings.watchPlaySubtitleDanmaku && selectedDanmakuSubtitleIndex !== null,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const ruleId = recorded.data?.ruleId;
@@ -1012,6 +1041,7 @@ export function RecordedWatchPage(): ReactNode {
 
     useEffect(() => {
         setSelectedSubtitleIndex(null);
+        setSelectedDanmakuSubtitleIndex(null);
     }, [videoFileId]);
     useEffect(() => {
         setResumePosition(null);
@@ -1019,8 +1049,21 @@ export function RecordedWatchPage(): ReactNode {
     }, [activeUser, recordedId, streaming, videoFileId]);
     useEffect(() => {
         if (streaming || subtitles.data === undefined) return;
-        setSelectedSubtitleIndex(preferredSubtitleIndex(subtitles.data.items, settings.watchSubtitlePreferredKeywords));
-    }, [settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
+        if (!settings.watchPlaySubtitleDanmaku) {
+            setSelectedSubtitleIndex(preferredSubtitleIndex(subtitles.data.items, settings.watchSubtitlePreferredKeywords));
+            setSelectedDanmakuSubtitleIndex(null);
+            return;
+        }
+
+        const normalSubtitles = subtitles.data.items.filter(subtitle => !isDanmakuSubtitle(subtitle));
+        const danmakuSubtitles = subtitles.data.items.filter(subtitle => isDanmakuSubtitle(subtitle));
+        const preferredDanmaku = preferredSubtitleIndex(danmakuSubtitles, settings.watchSubtitlePreferredKeywords);
+        const preferredNormal = preferredSubtitleIndex(normalSubtitles, settings.watchSubtitlePreferredKeywords);
+        setSelectedDanmakuSubtitleIndex(preferredDanmaku ?? danmakuSubtitles[0]?.subtitleIndex ?? null);
+        // When the priority keyword only matches the danmaku track, do not
+        // accidentally reuse that track as an ordinary subtitle.
+        setSelectedSubtitleIndex(preferredNormal);
+    }, [settings.watchPlaySubtitleDanmaku, settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
     useEffect(() => {
         resetComments();
         setCommentStatus(
@@ -1039,18 +1082,18 @@ export function RecordedWatchPage(): ReactNode {
         if (!streaming) {
             resetComments();
             setCommentStatus(
-                selectedSubtitleIndex === null
-                    ? settings.watchPlaySubtitleDanmaku
-                        ? 'PLAY字幕を選択すると、danmakuで表示した内容をここにも表示します。'
-                        : 'ASS実況字幕を選択すると、再生中のコメントをここにも表示します。'
-                    : settings.watchPlaySubtitleDanmaku
-                      ? '選択中の字幕をdanmakuで再生しています…'
+                settings.watchPlaySubtitleDanmaku
+                    ? selectedDanmakuSubtitleIndex === null
+                        ? '弾幕字幕を選択すると、danmakuで表示します。'
+                        : '選択中の字幕をdanmakuで再生しています…'
+                    : selectedSubtitleIndex === null
+                      ? 'ASS字幕を選択すると、再生中のコメントをここにも表示します。'
                       : isNicoJkSubtitle(selectedSubtitle)
                         ? 'ASS実況コメントを再生しています…'
                         : '選択中のASS字幕は実況コメントではありません。',
             );
         }
-    }, [resetComments, selectedSubtitle, selectedSubtitleIndex, settings.watchPlaySubtitleDanmaku, streaming]);
+    }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, settings.watchPlaySubtitleDanmaku, streaming]);
     useEffect(() => {
         commentsVisible.current = panelTab === 'comments';
         if (commentsVisible.current) setComments([...commentBuffer.current]);
@@ -1197,7 +1240,8 @@ export function RecordedWatchPage(): ReactNode {
                         <RecordedPlayer
                             source={source}
                             subtitleText={!streaming && subtitleText.data !== undefined ? subtitleText.data.subtitleText : null}
-                            subtitleIsNicoJk={!streaming && isNicoJkSubtitle(selectedSubtitle)}
+                            subtitleIsNicoJk={!streaming && !settings.watchPlaySubtitleDanmaku && isNicoJkSubtitle(selectedSubtitle)}
+                            danmakuSubtitleText={!streaming && danmakuSubtitleText.data !== undefined ? danmakuSubtitleText.data.subtitleText : null}
                             subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
@@ -1256,22 +1300,52 @@ export function RecordedWatchPage(): ReactNode {
                                         {item?.name ?? '録画情報を取得中...'}
                                     </Typography>
                                 </Box>
-                                {!streaming && (subtitles.data?.items.length ?? 0) > 0 && (
-                                    <FormControl variant="filled" size="small" sx={{ width: { xs: 112, sm: 170 }, flex: '0 0 auto', bgcolor: 'rgba(0,0,0,.38)', borderRadius: 1 }}>
-                                        <InputLabel sx={{ color: 'rgba(255,255,255,.72)' }}>字幕</InputLabel>
-                                        <Select
-                                            value={selectedSubtitleIndex === null ? 'none' : selectedSubtitleIndex}
-                                            onChange={event => setSelectedSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
-                                            sx={{ color: '#fff' }}
-                                        >
-                                            <MenuItem value="none">字幕なし</MenuItem>
-                                            {(subtitles.data?.items ?? []).map(subtitle => (
-                                                <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
-                                                    {subtitle.displayName}
-                                                </MenuItem>
-                                            ))}
-                                        </Select>
-                                    </FormControl>
+                                {!streaming && (selectableSubtitleItems.length > 0 || (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0)) && (
+                                    <Stack direction="column" spacing={0.15} sx={{ width: { xs: 112, sm: 170 }, flex: '0 0 auto' }}>
+                                        {settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0 && (
+                                            <FormControl variant="filled" size="small" sx={{ bgcolor: 'rgba(0,0,0,.38)', borderRadius: 1 }}>
+                                                <InputLabel sx={{ color: 'rgba(255,255,255,.72)' }}>弾幕</InputLabel>
+                                                <Select
+                                                    value={
+                                                        selectedDanmakuSubtitleIndex !== null &&
+                                                        danmakuSubtitleItems.some(subtitle => subtitle.subtitleIndex === selectedDanmakuSubtitleIndex)
+                                                            ? selectedDanmakuSubtitleIndex
+                                                            : 'none'
+                                                    }
+                                                    onChange={event => setSelectedDanmakuSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
+                                                    sx={{ color: '#fff' }}
+                                                >
+                                                    <MenuItem value="none">弾幕なし</MenuItem>
+                                                    {danmakuSubtitleItems.map(subtitle => (
+                                                        <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
+                                                            {subtitle.displayName}
+                                                        </MenuItem>
+                                                    ))}
+                                                </Select>
+                                            </FormControl>
+                                        )}
+                                        {selectableSubtitleItems.length > 0 && (
+                                            <FormControl variant="filled" size="small" sx={{ bgcolor: 'rgba(0,0,0,.38)', borderRadius: 1 }}>
+                                                <InputLabel sx={{ color: 'rgba(255,255,255,.72)' }}>字幕</InputLabel>
+                                                <Select
+                                                    value={
+                                                        selectedSubtitleIndex !== null && selectableSubtitleItems.some(subtitle => subtitle.subtitleIndex === selectedSubtitleIndex)
+                                                            ? selectedSubtitleIndex
+                                                            : 'none'
+                                                    }
+                                                    onChange={event => setSelectedSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
+                                                    sx={{ color: '#fff' }}
+                                                >
+                                                    <MenuItem value="none">字幕なし</MenuItem>
+                                                    {selectableSubtitleItems.map(subtitle => (
+                                                        <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
+                                                            {subtitle.displayName}
+                                                        </MenuItem>
+                                                    ))}
+                                                </Select>
+                                            </FormControl>
+                                        )}
+                                    </Stack>
                                 )}
                                 <Tooltip title={panelOpen ? '情報欄を閉じる' : '情報欄を開く'}>
                                     <IconButton color={panelOpen ? 'primary' : 'inherit'} onClick={() => setPanelOpen(value => !value)} aria-label="情報欄">

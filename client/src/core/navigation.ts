@@ -61,6 +61,7 @@ export function normalizeHiddenSideNavigationItems(value: unknown): SideNavigati
  */
 export function useAppBack(fallback: To): () => void {
     const navigate = useNavigate();
+    const location = useLocation();
 
     return useCallback(() => {
         const state = window.history.state as { idx?: unknown } | null;
@@ -68,8 +69,10 @@ export function useAppBack(fallback: To): () => void {
             void navigate(-1);
             return;
         }
-        void navigate(fallback, { replace: true });
-    }, [fallback, navigate]);
+        const routeState = location.state;
+        const returnTo = typeof routeState === 'object' && routeState !== null && 'appBack' in routeState && typeof routeState.appBack === 'string' ? routeState.appBack : null;
+        void navigate(returnTo ?? fallback, { replace: true });
+    }, [fallback, location.state, navigate]);
 }
 import { useCallback } from 'react';
-import { type To, useNavigate } from 'react-router-dom';
+import { type To, useLocation, useNavigate } from 'react-router-dom';

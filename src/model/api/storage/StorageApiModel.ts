@@ -15,6 +15,12 @@ interface CpuTimes {
     total: number;
 }
 
+interface StorageBreakdownSummary {
+    sizeByDirectory: Map<string, number>;
+    dropLogSize: number;
+    thumbnailSize: number;
+}
+
 @injectable()
 export default class StorageApiModel implements IStorageApiModel {
     private config: IConfigFile;
@@ -22,9 +28,17 @@ export default class StorageApiModel implements IStorageApiModel {
     private previousCpuTimes: CpuTimes | null = null;
     private directorySizeCache: Map<string, { expiresAt: number; size: number }> = new Map();
     private directorySizePromises: Map<string, Promise<number>> = new Map();
+    private sizeSummaryCache: { expiresAt: number; items: { parentDirectoryName: string; size: number }[] } | null =
+        null;
+    private sizeSummaryPromise: Promise<{ parentDirectoryName: string; size: number }[]> | null = null;
+    private storageBreakdownCache: { expiresAt: number; value: StorageBreakdownSummary } | null = null;
+    private storageBreakdownPromise: Promise<StorageBreakdownSummary> | null = null;
+    private systemInfoCache: { expiresAt: number; info: apid.SystemResourceInfo } | null = null;
+    private systemInfoPromise: Promise<apid.SystemResourceInfo> | null = null;
     private gpuCache: { expiresAt: number; items: apid.SystemGpuInfo[] } | null = null;
     private gpuLoadPromise: Promise<apid.SystemGpuInfo[]> | null = null;
     private storageVolumeCache: { expiresAt: number; items: apid.SystemStorageVolume[] } | null = null;
+    private storageVolumePromise: Promise<apid.SystemStorageVolume[]> | null = null;
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
@@ -32,6 +46,9 @@ export default class StorageApiModel implements IStorageApiModel {
     ) {
         this.config = configuration.getConfig();
         this.videoFileDB = videoFileDB;
+        // Seed the CPU sample when the singleton is created so the first page
+        // request can calculate usage without blocking for a second sample.
+        this.previousCpuTimes = this.readCpuTimes();
     }
 
     /**
@@ -40,39 +57,49 @@ export default class StorageApiModel implements IStorageApiModel {
      */
     public async getInfo(): Promise<apid.StorageInfo> {
         const items: apid.StorageItem[] = [];
-        const [sizeSummaries, dropLogSize, thumbnailSize, system] = await Promise.all([
-            this.videoFileDB.getSizeSummaries(),
-            this.getCachedDirectorySize(this.config.dropLog),
-            this.getCachedDirectorySize(this.config.thumbnail),
+        const [diskInfos, system] = await Promise.all([
+            Promise.all(this.config.recorded.map(recorded => this.getDiskInfo(recorded.path))),
             this.getSystemInfo(),
         ]);
-        const sizeByDirectory = new Map(sizeSummaries.map(item => [item.parentDirectoryName, item.size]));
+        const now = Date.now();
+        const breakdown =
+            this.storageBreakdownCache !== null && this.storageBreakdownCache.expiresAt > now
+                ? this.storageBreakdownCache.value
+                : undefined;
+        if (breakdown === undefined) {
+            // Capacity and system cards must not wait for a full directory walk.
+            // The next 5-second refresh will pick up the completed breakdown.
+            void this.getStorageBreakdown().catch(() => undefined);
+        }
+        const sizeByDirectory = breakdown?.sizeByDirectory;
         const recordedSizeByVolume = new Map<string, number>();
 
         for (const recorded of this.config.recorded) {
             const volume = this.getVolumeKey(recorded.path);
             recordedSizeByVolume.set(
                 volume,
-                (recordedSizeByVolume.get(volume) ?? 0) + (sizeByDirectory.get(recorded.name) ?? 0),
+                (recordedSizeByVolume.get(volume) ?? 0) + (sizeByDirectory?.get(recorded.name) ?? 0),
             );
         }
-        const dropLogVolume = this.getVolumeKey(this.config.dropLog);
-        const thumbnailVolume = this.getVolumeKey(this.config.thumbnail);
+        const dropLogVolume = breakdown === undefined ? undefined : this.getVolumeKey(this.config.dropLog);
+        const thumbnailVolume = breakdown === undefined ? undefined : this.getVolumeKey(this.config.thumbnail);
 
-        for (const r of this.config.recorded) {
-            const info = await this.getDiskInfo(r.path);
+        for (const [index, r] of this.config.recorded.entries()) {
+            const info = diskInfos[index];
             const volume = this.getVolumeKey(r.path);
             const recorded = recordedSizeByVolume.get(volume) ?? 0;
-            const dropLogs = volume === dropLogVolume ? dropLogSize : 0;
-            const thumbnails = volume === thumbnailVolume ? thumbnailSize : 0;
+            const dropLogs = volume === dropLogVolume ? (breakdown?.dropLogSize ?? 0) : 0;
+            const thumbnails = volume === thumbnailVolume ? (breakdown?.thumbnailSize ?? 0) : 0;
             items.push({
                 ...info,
                 name: r.name,
+                ...(breakdown === undefined ? { breakdownPending: true } : {}),
                 breakdown: {
                     recorded,
                     dropLogs,
                     thumbnails,
-                    other: Math.max(0, info.used - recorded - dropLogs - thumbnails),
+                    other:
+                        breakdown === undefined ? info.used : Math.max(0, info.used - recorded - dropLogs - thumbnails),
                 },
             });
         }
@@ -81,6 +108,34 @@ export default class StorageApiModel implements IStorageApiModel {
             items,
             system,
         };
+    }
+
+    private async getStorageBreakdown(): Promise<StorageBreakdownSummary> {
+        const now = Date.now();
+        if (this.storageBreakdownCache !== null && this.storageBreakdownCache.expiresAt > now) {
+            return this.storageBreakdownCache.value;
+        }
+        if (this.storageBreakdownPromise !== null) return this.storageBreakdownPromise;
+
+        const loadPromise = Promise.all([
+            this.getCachedSizeSummaries(),
+            this.getCachedDirectorySize(this.config.dropLog),
+            this.getCachedDirectorySize(this.config.thumbnail),
+        ])
+            .then(([sizeSummaries, dropLogSize, thumbnailSize]) => {
+                const value = {
+                    sizeByDirectory: new Map(sizeSummaries.map(item => [item.parentDirectoryName, item.size])),
+                    dropLogSize,
+                    thumbnailSize,
+                };
+                this.storageBreakdownCache = { expiresAt: Date.now() + 15_000, value };
+                return value;
+            })
+            .finally(() => {
+                if (this.storageBreakdownPromise === loadPromise) this.storageBreakdownPromise = null;
+            });
+        this.storageBreakdownPromise = loadPromise;
+        return loadPromise;
     }
 
     public async getLog(
@@ -151,24 +206,51 @@ export default class StorageApiModel implements IStorageApiModel {
                 sampledAt: now,
             };
         }
-        const allVolumes =
-            process.platform === 'win32' ? await this.getWindowsStorageVolumes() : await this.getUnixStorageVolumes();
-        const primaryVolumes = new Set(this.config.recorded.map(recorded => this.getVolumeKey(recorded.path)));
-        const items = allVolumes.filter(volume => !primaryVolumes.has(this.getVolumeKey(volume.path)));
-        this.storageVolumeCache = { expiresAt: now + 30_000, items };
+        if (this.storageVolumePromise !== null) {
+            const items = await this.storageVolumePromise;
+            return { items, sampledAt: now };
+        }
+        const loadPromise = (
+            process.platform === 'win32' ? this.getWindowsStorageVolumes() : this.getUnixStorageVolumes()
+        )
+            .then(allVolumes => {
+                const primaryVolumes = new Set(this.config.recorded.map(recorded => this.getVolumeKey(recorded.path)));
+                const items = allVolumes.filter(volume => !primaryVolumes.has(this.getVolumeKey(volume.path)));
+                this.storageVolumeCache = { expiresAt: Date.now() + 30_000, items };
+                return items;
+            })
+            .finally(() => {
+                if (this.storageVolumePromise === loadPromise) this.storageVolumePromise = null;
+            });
+        this.storageVolumePromise = loadPromise;
+        const items = await loadPromise;
         return {
             items,
             sampledAt: now,
         };
     }
 
-    private async getSystemInfo(): Promise<apid.SystemResourceInfo> {
+    public async getSystemInfo(): Promise<apid.SystemResourceInfo> {
+        const now = Date.now();
+        if (this.systemInfoCache !== null && this.systemInfoCache.expiresAt > now) return this.systemInfoCache.info;
+        if (this.systemInfoPromise !== null) return this.systemInfoPromise;
+
+        const loadPromise = this.loadSystemInfo();
+        this.systemInfoPromise = loadPromise;
+        try {
+            return await loadPromise;
+        } finally {
+            if (this.systemInfoPromise === loadPromise) this.systemInfoPromise = null;
+        }
+    }
+
+    private async loadSystemInfo(): Promise<apid.SystemResourceInfo> {
         const totalMemory = os.totalmem();
         const availableMemory = os.freemem();
         const usedMemory = Math.max(0, totalMemory - availableMemory);
         const cpu = await this.getCpuInfo();
 
-        return {
+        const info = {
             hostname: os.hostname(),
             platform: `${os.type()} ${os.release()}`,
             arch: os.arch(),
@@ -187,17 +269,22 @@ export default class StorageApiModel implements IStorageApiModel {
                 memoryUsed: process.memoryUsage().rss,
             },
         };
+        this.systemInfoCache = { expiresAt: Date.now() + 5_000, info };
+        return info;
     }
 
     private async getCpuInfo(): Promise<apid.SystemCpuInfo> {
-        let current = this.readCpuTimes();
-        let previous = this.previousCpuTimes;
-        if (previous === null) {
-            await new Promise(resolve => setTimeout(resolve, 150));
-            previous = current;
-            current = this.readCpuTimes();
-        }
+        const current = this.readCpuTimes();
+        const previous = this.previousCpuTimes;
         this.previousCpuTimes = current;
+        if (previous === null) {
+            const cpus = os.cpus();
+            return {
+                model: cpus[0]?.model.trim() ?? 'Unknown CPU',
+                logicalCores: cpus.length,
+                usagePercent: 0,
+            };
+        }
         const totalDelta = Math.max(0, current.total - previous.total);
         const idleDelta = Math.max(0, current.idle - previous.idle);
         const usagePercent = totalDelta > 0 ? Math.min(100, Math.max(0, (1 - idleDelta / totalDelta) * 100)) : 0;
@@ -503,6 +590,24 @@ export default class StorageApiModel implements IStorageApiModel {
             // Fall back to the path root when a configured directory is temporarily unavailable.
         }
         return path.parse(resolved).root || resolved;
+    }
+
+    private async getCachedSizeSummaries(): Promise<{ parentDirectoryName: string; size: number }[]> {
+        const now = Date.now();
+        if (this.sizeSummaryCache !== null && this.sizeSummaryCache.expiresAt > now) return this.sizeSummaryCache.items;
+        if (this.sizeSummaryPromise !== null) return this.sizeSummaryPromise;
+
+        const loadPromise = this.videoFileDB
+            .getSizeSummaries()
+            .then(items => {
+                this.sizeSummaryCache = { expiresAt: Date.now() + 15_000, items };
+                return items;
+            })
+            .finally(() => {
+                if (this.sizeSummaryPromise === loadPromise) this.sizeSummaryPromise = null;
+            });
+        this.sizeSummaryPromise = loadPromise;
+        return loadPromise;
     }
 
     private getDefaultLogDirectory(): string {

@@ -34,6 +34,10 @@ interface NavigationItem {
     count?: number;
 }
 
+interface SideNavigationState {
+    resetPage: 'search';
+}
+
 interface AppLayoutContextValue {
     toggleDrawer: () => void;
 }
@@ -170,7 +174,20 @@ export function AppLayout(): ReactNode {
                     const targetType = new URLSearchParams(targetSearch).get('type');
                     const selected = pathSelected && (targetType === null || new URLSearchParams(location.search).get('type') === targetType);
                     return (
-                        <ListItemButton key={item.label} selected={selected} onClick={() => void navigate(item.path)}>
+                        <ListItemButton
+                            key={item.label}
+                            selected={selected}
+                            onClick={() => {
+                                const options =
+                                    targetPath === '/search'
+                                        ? {
+                                              replace: location.pathname === '/search' && location.search.length === 0,
+                                              state: { resetPage: 'search' } satisfies SideNavigationState,
+                                          }
+                                        : undefined;
+                                void navigate(item.path, options);
+                            }}
+                        >
                             <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
                             <ListItemText
                                 primary={

@@ -2545,6 +2545,9 @@ components:
                 total:
                     description: 総容量 (byte)
                     type: integer
+                breakdownPending:
+                    description: 使用済み容量の内訳をバックグラウンドで集計中かどうか
+                    type: boolean
                 breakdown:
                     $ref: '#/components/schemas/StorageBreakdown'
 

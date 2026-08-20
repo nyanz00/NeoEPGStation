@@ -110,6 +110,7 @@ function PrimaryStorageSection({ items }: { items: StorageItem[] }): ReactNode {
                 <Stack spacing={2}>
                     {items.map(item => {
                         const rate = item.total > 0 ? Math.min(100, Math.max(0, (item.used / item.total) * 100)) : 0;
+                        const breakdownPending = item.breakdownPending === true;
                         const breakdownTotal = item.breakdown.recorded + item.breakdown.dropLogs + item.breakdown.thumbnails + item.breakdown.other;
                         const segmentWidth = (value: number): string => `${breakdownTotal > 0 ? (value / breakdownTotal) * 100 : 0}%`;
                         return (
@@ -131,40 +132,46 @@ function PrimaryStorageSection({ items }: { items: StorageItem[] }): ReactNode {
                                     </Stack>
                                     <Divider sx={{ my: 2 }} />
                                     <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                        使用済み容量の内訳
+                                        {breakdownPending ? '使用済み容量の内訳を集計中' : '使用済み容量の内訳'}
                                     </Typography>
-                                    <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>
-                                        <Box sx={{ width: segmentWidth(item.breakdown.recorded), bgcolor: 'primary.main' }} />
-                                        <Box sx={{ width: segmentWidth(item.breakdown.dropLogs), bgcolor: 'warning.main' }} />
-                                        <Box sx={{ width: segmentWidth(item.breakdown.thumbnails), bgcolor: 'secondary.main' }} />
-                                        <Box sx={{ width: segmentWidth(item.breakdown.other), bgcolor: 'text.disabled' }} />
-                                    </Box>
-                                    <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                録画データ
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.recorded)}</Typography>
-                                        </Grid>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                ドロップログ
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.dropLogs)}</Typography>
-                                        </Grid>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                サムネイル
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.thumbnails)}</Typography>
-                                        </Grid>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                その他
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.other)}</Typography>
-                                        </Grid>
-                                    </Grid>
+                                    {breakdownPending ? (
+                                        <LinearProgress sx={{ height: 14, borderRadius: 1 }} />
+                                    ) : (
+                                        <>
+                                            <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>
+                                                <Box sx={{ width: segmentWidth(item.breakdown.recorded), bgcolor: 'primary.main' }} />
+                                                <Box sx={{ width: segmentWidth(item.breakdown.dropLogs), bgcolor: 'warning.main' }} />
+                                                <Box sx={{ width: segmentWidth(item.breakdown.thumbnails), bgcolor: 'secondary.main' }} />
+                                                <Box sx={{ width: segmentWidth(item.breakdown.other), bgcolor: 'text.disabled' }} />
+                                            </Box>
+                                            <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        録画データ
+                                                    </Typography>
+                                                    <Typography>{fileSize(item.breakdown.recorded)}</Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        ドロップログ
+                                                    </Typography>
+                                                    <Typography>{fileSize(item.breakdown.dropLogs)}</Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        サムネイル
+                                                    </Typography>
+                                                    <Typography>{fileSize(item.breakdown.thumbnails)}</Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        その他
+                                                    </Typography>
+                                                    <Typography>{fileSize(item.breakdown.other)}</Typography>
+                                                </Grid>
+                                            </Grid>
+                                        </>
+                                    )}
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
                                         録画データはNeoEPGStationが管理する動画ファイル、ドロップログとサムネイルはconfig.ymlの各保存先を集計しています。
                                     </Typography>
@@ -326,9 +333,16 @@ export function StoragesPage(): ReactNode {
     const [displayMode, setDisplayMode] = useState<'resources' | 'mirakurun' | 'logs'>('resources');
     const resourceMode = displayMode === 'resources';
     const mirakurunMode = displayMode === 'mirakurun';
-    const systemInfo = useQuery({
+    const storageInfo = useQuery({
         queryKey: ['storages'],
         queryFn: api.getStorages,
+        enabled: resourceMode,
+        refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
+    });
+    const systemInfo = useQuery({
+        queryKey: ['system-resources'],
+        queryFn: api.getSystemResources,
         enabled: resourceMode,
         refetchInterval: 5_000,
         refetchIntervalInBackground: false,
@@ -336,7 +350,7 @@ export function StoragesPage(): ReactNode {
     const gpuInfo = useQuery({
         queryKey: ['system-gpus'],
         queryFn: api.getSystemGpus,
-        enabled: resourceMode && systemInfo.isSuccess,
+        enabled: resourceMode,
         refetchInterval: 5_000,
         refetchIntervalInBackground: false,
     });
@@ -359,6 +373,7 @@ export function StoragesPage(): ReactNode {
         }
         void Promise.all([
             queryClient.invalidateQueries({ queryKey: ['storages'] }),
+            queryClient.invalidateQueries({ queryKey: ['system-resources'] }),
             queryClient.invalidateQueries({ queryKey: ['system-gpus'] }),
             queryClient.invalidateQueries({ queryKey: ['system-volumes'] }),
         ]);
@@ -419,16 +434,32 @@ export function StoragesPage(): ReactNode {
                     <SystemLogsPanel />
                 ) : displayMode === 'mirakurun' ? (
                     <SystemMirakurunPanel />
-                ) : systemInfo.isPending ? (
-                    <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}>
-                        <CircularProgress />
-                    </Box>
-                ) : systemInfo.isError ? (
-                    <Typography color="error">システム情報を取得できませんでした: {systemInfo.error.message}</Typography>
                 ) : (
                     <Stack spacing={3}>
-                        <PrimaryStorageSection items={systemInfo.data.items} />
-                        <ResourceSection system={systemInfo.data.system} gpuItems={gpuInfo.data?.items} gpuPending={gpuInfo.isPending} gpuError={gpuInfo.isError} />
+                        {storageInfo.isPending ? (
+                            <Box sx={{ minHeight: 180, display: 'grid', placeItems: 'center' }}>
+                                <Stack spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                                    <CircularProgress size={30} />
+                                    <Typography variant="body2">プライマリストレージ情報を取得中</Typography>
+                                </Stack>
+                            </Box>
+                        ) : storageInfo.isError ? (
+                            <Typography color="error">ストレージ情報を取得できませんでした: {storageInfo.error.message}</Typography>
+                        ) : (
+                            <PrimaryStorageSection items={storageInfo.data.items} />
+                        )}
+                        {systemInfo.isPending ? (
+                            <Box sx={{ minHeight: 180, display: 'grid', placeItems: 'center' }}>
+                                <Stack spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                                    <CircularProgress size={30} />
+                                    <Typography variant="body2">システムリソース情報を取得中</Typography>
+                                </Stack>
+                            </Box>
+                        ) : systemInfo.isError ? (
+                            <Typography color="error">システムリソース情報を取得できませんでした: {systemInfo.error.message}</Typography>
+                        ) : (
+                            <ResourceSection system={systemInfo.data} gpuItems={gpuInfo.data?.items} gpuPending={gpuInfo.isPending} gpuError={gpuInfo.isError} />
+                        )}
                         <OtherStorageSection items={storageVolumes.data?.items} pending={storageVolumes.isPending} error={storageVolumes.isError} />
                     </Stack>
                 )}

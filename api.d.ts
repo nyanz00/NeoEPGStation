@@ -1342,6 +1342,7 @@ export interface DiskUsage {
  */
 export interface StorageItem extends DiskUsage {
     name: string;
+    breakdownPending?: boolean;
     breakdown: StorageBreakdown;
 }
 

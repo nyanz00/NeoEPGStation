@@ -47,7 +47,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { GetRecordedOption, RecordedCleanupPlanResult, RecordedItem } from '../../../api';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
@@ -252,6 +252,56 @@ function toEndOfDay(value: string): number | undefined {
     return start === undefined ? undefined : start + 24 * 60 * 60 * 1000 - 1;
 }
 
+async function waitForRecordedThumbnails(items: RecordedItem[]): Promise<void> {
+    const sources = items
+        .map(item => item.thumbnails?.[0])
+        .filter((thumbnail): thumbnail is number => typeof thumbnail === 'number')
+        .map(thumbnail => withBasePath(`/api/thumbnails/${thumbnail}`));
+    if (sources.length === 0) return;
+
+    const preload = Promise.allSettled(
+        sources.map(
+            source =>
+                new Promise<void>(resolve => {
+                    const image = new Image();
+                    image.onload = () => resolve();
+                    image.onerror = () => resolve();
+                    image.src = source;
+                    if (image.complete) resolve();
+                }),
+        ),
+    );
+    // Do not let a slow or unavailable thumbnail hold the whole page hostage.
+    await Promise.race([preload, new Promise(resolve => window.setTimeout(resolve, 400))]);
+}
+
+function createRecordedRequestOption(
+    filters: RecordedFilters,
+    page: number,
+    userId: ActiveUserId,
+    settings: { isHalfWidthDisplayed: boolean; recordedLength: number },
+): GetRecordedOption {
+    const specificRange = specificDateRange(filters);
+    return {
+        isHalfWidth: settings.isHalfWidthDisplayed,
+        offset: (page - 1) * settings.recordedLength,
+        limit: settings.recordedLength,
+        keyword: filters.keyword.length === 0 ? undefined : filters.keyword,
+        ruleId: filters.manualOnly ? 0 : typeof filters.ruleId === 'number' ? filters.ruleId : undefined,
+        channelId: typeof filters.channelId === 'number' ? filters.channelId : undefined,
+        genre: typeof filters.genre === 'number' ? filters.genre : undefined,
+        encodeModes: filters.encodeModes.length === 0 ? undefined : filters.encodeModes,
+        encodeModeMatch: filters.encodeModes.length === 0 ? undefined : filters.encodeModeMatch,
+        hasOriginalFile: filters.hasOriginalFile || undefined,
+        hasDrop: filters.hasDrop || undefined,
+        hasError: filters.hasError || undefined,
+        hasScrambling: filters.hasScrambling || undefined,
+        recordedStartAt: filters.dateMode === 'range' ? toStartOfDay(filters.startDate) : specificRange.start,
+        recordedEndAt: filters.dateMode === 'range' ? toEndOfDay(filters.endDate) : specificRange.end,
+        userId: typeof userId === 'number' ? userId : undefined,
+    };
+}
+
 function RecordedCard({
     item,
     channel,
@@ -321,7 +371,7 @@ function RecordedCard({
                     src={thumbnail === undefined ? undefined : withBasePath(`/api/thumbnails/${thumbnail}`)}
                     alt=""
                     draggable={!editMode}
-                    loading="lazy"
+                    loading="eager"
                     onError={event => {
                         event.currentTarget.style.display = 'none';
                     }}
@@ -449,7 +499,7 @@ function RecordedTableRow({
 export function RecordedPage(): ReactNode {
     const navigate = useNavigate();
     const location = useLocation();
-    const [searchParams, setSearchParams] = useSearchParams();
+    const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
     const settings = useSettings();
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
@@ -487,21 +537,66 @@ export function RecordedPage(): ReactNode {
     const [cleanupPlan, setCleanupPlan] = useState<RecordedCleanupPlanResult | null>(null);
     const specificMonthRef = useRef<HTMLInputElement>(null);
     const specificDayRef = useRef<HTMLInputElement>(null);
+
+    /**
+     * Vue's router always pushed a new route when the recorded query changed.
+     * Keep that behavior here, while making a no-op update a true no-op so
+     * opening/closing the search menu cannot create duplicate history entries.
+     */
+    const navigateRecordedQuery = useCallback(
+        (next: URLSearchParams, replace = false): void => {
+            const nextSearch = next.toString();
+            const currentSearch = location.search.startsWith('?') ? location.search.slice(1) : location.search;
+            if (nextSearch === currentSearch) return;
+            const target = `${location.pathname}${nextSearch.length > 0 ? `?${nextSearch}` : ''}`;
+            void navigate(target, replace ? { replace: true } : undefined);
+        },
+        [location.pathname, location.search, navigate],
+    );
+
+    // A POP navigation keeps the RecordedPage mounted. Re-read all URL state
+    // on every route change so the displayed page/filter never diverges from
+    // the address bar (for example page 24 becoming page 4 after Back).
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const nextPageValue = Number(params.get('page'));
+        const nextPage = Number.isSafeInteger(nextPageValue) && nextPageValue > 0 ? nextPageValue : 1;
+        const nextUserIdValue = params.get('userId');
+        const nextUserId: ActiveUserId =
+            nextUserIdValue === 'master' ? 'master' : Number.isSafeInteger(Number(nextUserIdValue)) && Number(nextUserIdValue) > 0 ? Number(nextUserIdValue) : null;
+        const nextFilters = readRecordedFilters(params);
+        const nextFocusValue = Number(params.get('focus'));
+        const nextFocus =
+            Number.isSafeInteger(nextFocusValue) && nextFocusValue > 0
+                ? nextFocusValue
+                : recordedReturnPosition !== null && recordedReturnPosition.url === `${location.pathname}${location.search}`
+                  ? recordedReturnPosition.recordedId
+                  : null;
+
+        setPage(nextPage);
+        setUserId(nextUserId);
+        setFilters(nextFilters);
+        setDraftFilters(nextFilters);
+        // Keep a focus marker alive while the one-shot focus query is removed
+        // with replace; otherwise the highlight disappears before scrolling.
+        if (nextFocus !== null) setFocusedRecordedId(nextFocus);
+    }, [location.pathname, location.search]);
+
     useEffect(() => {
         if (!searchParams.has('focus')) return;
         const next = new URLSearchParams(searchParams);
         next.delete('focus');
-        setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams]);
+        navigateRecordedQuery(next, true);
+    }, [navigateRecordedQuery, searchParams]);
     const changePage = useCallback(
-        (value: number): void => {
+        (value: number, replace = false): void => {
             setPage(value);
             const next = new URLSearchParams(searchParams);
             if (value <= 1) next.delete('page');
             else next.set('page', value.toString(10));
-            setSearchParams(next, { replace: true });
+            navigateRecordedQuery(next, replace);
         },
-        [searchParams, setSearchParams],
+        [navigateRecordedQuery, searchParams],
     );
     const applyFilters = useCallback(
         (value: RecordedFilters): void => {
@@ -512,9 +607,9 @@ export function RecordedPage(): ReactNode {
             const next = new URLSearchParams(searchParams);
             next.delete('page');
             writeRecordedFilters(next, nextFilters);
-            setSearchParams(next, { replace: true });
+            navigateRecordedQuery(next);
         },
-        [searchParams, setSearchParams],
+        [navigateRecordedQuery, searchParams],
     );
     const onUserChange = useCallback(
         (value: ActiveUserId) => {
@@ -524,37 +619,49 @@ export function RecordedPage(): ReactNode {
             next.delete('page');
             if (value === null) next.delete('userId');
             else next.set('userId', value.toString());
-            setSearchParams(next, { replace: true });
+            // UserSelector initializes itself after its users query resolves;
+            // replacing avoids an extra history entry for that initialization.
+            navigateRecordedQuery(next, true);
         },
-        [searchParams, setSearchParams],
+        [navigateRecordedQuery, searchParams],
     );
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const searchOptions = useQuery({ queryKey: ['recorded-options'], queryFn: api.getRecordedSearchOptions, staleTime: 60_000 });
     const rules = useQuery({ queryKey: ['recorded-search-rules'], queryFn: () => api.getRules({ type: 'normal', limit: 1000 }), staleTime: 60_000 });
-    const specificRange = specificDateRange(filters);
-    const requestOption: GetRecordedOption = {
-        isHalfWidth: settings.isHalfWidthDisplayed,
-        offset: (page - 1) * settings.recordedLength,
-        limit: settings.recordedLength,
-        keyword: filters.keyword.length === 0 ? undefined : filters.keyword,
-        ruleId: filters.manualOnly ? 0 : typeof filters.ruleId === 'number' ? filters.ruleId : undefined,
-        channelId: typeof filters.channelId === 'number' ? filters.channelId : undefined,
-        genre: typeof filters.genre === 'number' ? filters.genre : undefined,
-        encodeModes: filters.encodeModes.length === 0 ? undefined : filters.encodeModes,
-        encodeModeMatch: filters.encodeModes.length === 0 ? undefined : filters.encodeModeMatch,
-        hasOriginalFile: filters.hasOriginalFile || undefined,
-        hasDrop: filters.hasDrop || undefined,
-        hasError: filters.hasError || undefined,
-        hasScrambling: filters.hasScrambling || undefined,
-        recordedStartAt: filters.dateMode === 'range' ? toStartOfDay(filters.startDate) : specificRange.start,
-        recordedEndAt: filters.dateMode === 'range' ? toEndOfDay(filters.endDate) : specificRange.end,
-        userId: typeof userId === 'number' ? userId : undefined,
-    };
+    const requestOption = createRecordedRequestOption(filters, page, userId, settings);
+    const routePageValue = Number(searchParams.get('page'));
+    const routePage = Number.isSafeInteger(routePageValue) && routePageValue > 0 ? routePageValue : 1;
+    const routeUserIdValue = searchParams.get('userId');
+    const routeUserId: ActiveUserId =
+        routeUserIdValue === 'master' ? 'master' : Number.isSafeInteger(Number(routeUserIdValue)) && Number(routeUserIdValue) > 0 ? Number(routeUserIdValue) : null;
+    const routeFilters = readRecordedFilters(searchParams);
+    const routeRequestOption = createRecordedRequestOption(routeFilters, routePage, routeUserId, settings);
+    const requestMatchesRoute = JSON.stringify(requestOption) === JSON.stringify(routeRequestOption);
+    const recordedListUrlKey = useMemo(() => {
+        const params = new URLSearchParams(location.search);
+        params.delete('focus');
+        const query = params.toString();
+        return `${location.pathname}${query.length > 0 ? `?${query}` : ''}`;
+    }, [location.pathname, location.search]);
+    const [visibleRecordedListKey, setVisibleRecordedListKey] = useState(recordedListUrlKey);
     const records = useQuery({
         queryKey: ['recorded', requestOption],
         queryFn: () => api.getRecorded(requestOption),
         enabled: userId !== null,
     });
+    useEffect(() => {
+        if (!requestMatchesRoute || (!records.isSuccess && !records.isError)) return;
+        let cancelled = false;
+        const reveal = async (): Promise<void> => {
+            if (records.isSuccess) await waitForRecordedThumbnails(records.data.records);
+            if (!cancelled) setVisibleRecordedListKey(recordedListUrlKey);
+        };
+        void reveal();
+        return () => {
+            cancelled = true;
+        };
+    }, [recordedListUrlKey, records.data, records.isError, records.isSuccess, requestMatchesRoute]);
+    const isRecordedListVisible = visibleRecordedListKey === recordedListUrlKey && requestMatchesRoute && (records.isPending || records.isSuccess || records.isError);
     const subDirectories = useQuery({
         queryKey: ['recorded-sub-directories'],
         queryFn: api.getRecordedSubDirectories,
@@ -675,7 +782,7 @@ export function RecordedPage(): ReactNode {
     const selectedRecords = records.data?.records.filter(item => selected.has(item.id)) ?? [];
     const hasEncodingSelection = selectedRecords.some(item => item.isEncoding);
     useEffect(() => {
-        if (records.isSuccess && page > totalPages) changePage(totalPages);
+        if (records.isSuccess && page > totalPages) changePage(totalPages, true);
     }, [changePage, page, records.isSuccess, totalPages]);
     useEffect(() => {
         if (focusedRecordedId === null || !records.data?.records.some(item => item.id === focusedRecordedId)) return;
@@ -711,9 +818,9 @@ export function RecordedPage(): ReactNode {
                 scrollY: window.scrollY,
                 savedAt: Date.now(),
             };
-            void navigate(`/recorded/detail/${recordedId}`);
+            void navigate(`/recorded/detail/${recordedId}`, { state: { appBack: currentListUrl } });
         },
-        [location.pathname, location.search, navigate],
+        [currentListUrl, navigate],
     );
     const toggleSelection = (id: number): void =>
         setSelected(current => {
@@ -836,7 +943,14 @@ export function RecordedPage(): ReactNode {
                     アップロード
                 </MenuItem>
             </Menu>
-            <Box sx={{ p: 0.5 }}>
+            <Box
+                sx={{
+                    p: 0.5,
+                    opacity: isRecordedListVisible ? 1 : 0,
+                    visibility: isRecordedListVisible ? 'visible' : 'hidden',
+                    transition: 'opacity 500ms ease',
+                }}
+            >
                 {records.isPending ? (
                     <Box sx={{ py: 8, textAlign: 'center' }}>
                         <CircularProgress />

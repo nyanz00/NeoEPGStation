@@ -62,6 +62,7 @@ import type {
     SystemLogInfo,
     SystemLogSource,
     SystemMirakurunInfo,
+    SystemResourceInfo,
     SystemStorageVolumeList,
     StorageInfo,
     TwitterStatus,
@@ -414,6 +415,9 @@ export const api = {
     },
     async getSystemGpus(): Promise<SystemGpuList> {
         return (await apiClient.get<SystemGpuList>('/system/gpus')).data;
+    },
+    async getSystemResources(): Promise<SystemResourceInfo> {
+        return (await apiClient.get<SystemResourceInfo>('/system/resources')).data;
     },
     async getSystemVolumes(): Promise<SystemStorageVolumeList> {
         return (await apiClient.get<SystemStorageVolumeList>('/system/volumes')).data;

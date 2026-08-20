@@ -32,7 +32,7 @@ import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelId, ChannelItem, ChannelType, Genre, ManualReserveOption, ReserveItem, ReserveListItem, RuleSearchOption, ScheduleProgramItem } from '../../../api';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
@@ -447,6 +447,7 @@ function ProgramDialog({ program, channels, reserve, onClose }: ProgramDialogPro
 export function SearchPage(): ReactNode {
     const settings = useSettings();
     const [params] = useSearchParams();
+    const location = useLocation();
     const navigate = useNavigate();
     const parsedRuleId = Number(params.get('ruleId') ?? params.get('rule'));
     const ruleId = Number.isInteger(parsedRuleId) && parsedRuleId > 0 ? parsedRuleId : null;
@@ -478,6 +479,8 @@ export function SearchPage(): ReactNode {
     const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
     const autoSearchStarted = useRef(false);
     const ruleSearchStarted = useRef<number | null>(null);
+    const searchGeneration = useRef(0);
+    const handledSideNavigationResetKey = useRef<string | null>(null);
     const keywordInputRef = useRef<HTMLInputElement | null>(null);
     const resultsRef = useRef<HTMLDivElement | null>(null);
     const { notify } = useNotifications();
@@ -500,9 +503,10 @@ export function SearchPage(): ReactNode {
     }, [availableTypes, form.channelTypes.length]);
 
     const search = useMutation({
-        mutationFn: (option?: RuleSearchOption) =>
+        mutationFn: ({ option }: { option?: RuleSearchOption; generation: number }) =>
             api.searchPrograms({ option: option ?? toSearchOption(form), isHalfWidth: settings.isHalfWidthDisplayed, limit: settings.searchLength }),
-        onSuccess: result => {
+        onSuccess: (result, variables) => {
+            if (variables.generation !== searchGeneration.current) return;
             setSelectedProgram(null);
             setLastSelectedProgram(null);
             setPrograms(result);
@@ -510,19 +514,21 @@ export function SearchPage(): ReactNode {
                 window.requestAnimationFrame(() => window.requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })));
             }
         },
-        onError: error => notify(`検索に失敗しました: ${error.message}`, 'error'),
+        onError: (error, variables) => {
+            if (variables.generation === searchGeneration.current) notify(`検索に失敗しました: ${error.message}`, 'error');
+        },
     });
     useEffect(() => {
         if (ruleId === null || rule.data === undefined || ruleSearchStarted.current === ruleId) return;
         const nextForm = fromSearchOption(rule.data.searchOption);
         setForm(nextForm);
         ruleSearchStarted.current = ruleId;
-        search.mutate(toSearchOption(nextForm));
+        search.mutate({ option: toSearchOption(nextForm), generation: searchGeneration.current });
     }, [rule.data, ruleId, search]);
     useEffect(() => {
         if (params.get('auto') !== '1' || ruleId !== null || autoSearchStarted.current || channels.isPending || config.isPending || form.channelTypes.length === 0) return;
         autoSearchStarted.current = true;
-        search.mutate(undefined);
+        search.mutate({ generation: searchGeneration.current });
     }, [channels.isPending, config.isPending, form.channelTypes.length, params, ruleId, search]);
     const reserveRange = useMemo(() => {
         if (programs === null || programs.length === 0) return null;
@@ -550,22 +556,39 @@ export function SearchPage(): ReactNode {
 
     const submit = (event: FormEvent): void => {
         event.preventDefault();
-        search.mutate(undefined);
+        search.mutate({ generation: searchGeneration.current });
     };
 
-    const clearSearchForm = (): void => {
+    const clearSearchForm = useCallback((): void => {
         setForm({ ...defaultForm, channelTypes: availableTypes });
         setPrograms(null);
         setSelectedProgram(null);
         setLastSelectedProgram(null);
-    };
+    }, [availableTypes]);
+
+    const resetSearchState = useCallback((): void => {
+        searchGeneration.current += 1;
+        autoSearchStarted.current = false;
+        ruleSearchStarted.current = null;
+        search.reset();
+        clearSearchForm();
+    }, [clearSearchForm, search]);
 
     const resetSearchPage = (): void => {
-        clearSearchForm();
+        resetSearchState();
         navigate('/search', { replace: true });
         window.scrollTo({ top: 0, behavior: 'smooth' });
         window.requestAnimationFrame(() => keywordInputRef.current?.focus({ preventScroll: true }));
     };
+
+    useEffect(() => {
+        const state = location.state as { resetPage?: string } | null;
+        if (state?.resetPage !== 'search' || handledSideNavigationResetKey.current === location.key) return;
+        handledSideNavigationResetKey.current = location.key;
+        resetSearchState();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.requestAnimationFrame(() => keywordInputRef.current?.focus({ preventScroll: true }));
+    }, [location.key, location.state, resetSearchState]);
 
     const handleRuleSaved = (): void => {
         void api
@@ -866,9 +889,12 @@ export function SearchPage(): ReactNode {
                                         borderColor:
                                             reserve?.kind === 'conflict'
                                                 ? 'error.main'
-                                                : lastSelectedProgram?.id === program.id || reserve !== undefined
-                                                  ? 'primary.main'
-                                                  : 'divider',
+                                                : reserve?.kind === 'normal'
+                                                  ? 'error.main'
+                                                  : lastSelectedProgram?.id === program.id || reserve !== undefined
+                                                    ? 'primary.main'
+                                                    : 'divider',
+                                        borderWidth: reserve?.kind === 'normal' ? 4 : 1,
                                     }}
                                 >
                                     <CardActionArea
