@@ -1018,10 +1018,6 @@ export function RecordedPage(): ReactNode {
                             gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(auto-fill, minmax(min(280px, 100%), 300px))' },
                             justifyContent: 'center',
                             gap: { xs: 0.5, sm: 1 },
-                            // Vue's cards include a 4px margin on both sides. Keep
-                            // that outer spacing in the grid so a borderline FHD
-                            // width does not gain an extra column.
-                            px: 0.5,
                         }}
                     >
                         {records.data.records.map(item => (
