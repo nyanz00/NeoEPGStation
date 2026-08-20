@@ -257,56 +257,55 @@ function RecordedPlayer({
     }, [video]);
 
     useEffect(() => {
+        // Subtitle rendering and ASS-to-danmaku playback share the same player
+        // lifecycle.  Keep their setup in one effect so that changing either
+        // selection cannot let a cleanup from the other effect destroy the
+        // newly selected renderer/comment stream.
         rendererRef.current.clear();
-        if (video === null || subtitleText === null) return;
-        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
-        return () => rendererRef.current.clear();
-    }, [subtitleIsNicoJk, subtitleText, video]);
-
-    useEffect(() => {
-        if (!subtitleDanmaku) return;
         assCommentRef.current?.destroy();
         assCommentRef.current = null;
         coreRef.current?.clearDanmaku();
         onCommentsReset();
-        if (video === null || danmakuSubtitleText === null) return;
-        const comments = new AssCommentCore({
-            ass: danmakuSubtitleText,
-            video,
-            onComment: comment => coreRef.current?.drawDanmaku(comment),
-            onReset: () => {
-                coreRef.current?.clearDanmaku();
-                onCommentsReset();
-            },
-        });
-        assCommentRef.current = comments;
-        comments.start();
+        if (video === null) return;
+
+        // In danmaku mode the ordinary subtitle selector must still render
+        // through libass/JASSUB.  The danmaku selector is an additional track,
+        // not a replacement for the ordinary subtitle track.
+        if (subtitleText !== null) {
+            void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
+        }
+
+        let comments: AssCommentCore | null = null;
+        if (subtitleDanmaku && danmakuSubtitleText !== null) {
+            comments = new AssCommentCore({
+                ass: danmakuSubtitleText,
+                video,
+                onComment: comment => coreRef.current?.drawDanmaku(comment),
+                onReset: () => {
+                    coreRef.current?.clearDanmaku();
+                    onCommentsReset();
+                },
+            });
+        } else if (!subtitleDanmaku && subtitleText !== null && subtitleIsNicoJk) {
+            comments = new AssCommentCore({
+                ass: subtitleText,
+                video,
+                onComment,
+                onReset: onCommentsReset,
+            });
+        }
+        if (comments !== null) {
+            assCommentRef.current = comments;
+            comments.start();
+        }
+
         return () => {
-            comments.destroy();
+            rendererRef.current.clear();
+            comments?.destroy();
             if (assCommentRef.current === comments) assCommentRef.current = null;
             coreRef.current?.clearDanmaku();
         };
-    }, [danmakuSubtitleText, onCommentsReset, subtitleDanmaku, video]);
-
-    useEffect(() => {
-        if (subtitleDanmaku) return;
-        assCommentRef.current?.destroy();
-        assCommentRef.current = null;
-        onCommentsReset();
-        if (video === null || subtitleText === null || !subtitleIsNicoJk) return;
-        const comments = new AssCommentCore({
-            ass: subtitleText,
-            video,
-            onComment,
-            onReset: onCommentsReset,
-        });
-        assCommentRef.current = comments;
-        comments.start();
-        return () => {
-            comments.destroy();
-            if (assCommentRef.current === comments) assCommentRef.current = null;
-        };
-    }, [onComment, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
+    }, [danmakuSubtitleText, onComment, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
 
     const seekBy = (seconds: number): void => {
         if (video === null) return;
@@ -338,6 +337,25 @@ function RecordedPlayer({
                 '& .recorded-dplayer .dplayer-video-wrap': { bgcolor: '#000 !important' },
                 '& .recorded-dplayer .dplayer-video-wrap-aspect, & .recorded-dplayer video': { width: '100%', height: '100%' },
                 '& .recorded-dplayer video': { objectFit: 'contain' },
+                // DPlayer's WebGL danmaku renderer composites the video into
+                // its own canvas and makes the native video transparent.  A
+                // JASSUB canvas inserted immediately after the video would
+                // otherwise remain behind that opaque composite canvas, so
+                // keep the ASS/SRT layer above danmaku while leaving controls
+                // above both layers.
+                '& .recorded-dplayer .dplayer-danmaku': { zIndex: 2 },
+                '& .recorded-dplayer .JASSUB': {
+                    position: 'absolute !important',
+                    inset: '0 !important',
+                    width: '100% !important',
+                    height: '100% !important',
+                    zIndex: 3,
+                    pointerEvents: 'none',
+                },
+                '& .recorded-dplayer .dplayer-controller-mask, & .recorded-dplayer .dplayer-controller, & .recorded-dplayer .dplayer-bezel, & .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box':
+                    {
+                        zIndex: 4,
+                    },
                 '& .recorded-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
                     background: 'linear-gradient(to top, rgba(0,0,0,.86), transparent) !important',
@@ -848,13 +866,16 @@ export function RecordedWatchPage(): ReactNode {
     );
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
     const subtitleText = useQuery({
-        queryKey: ['video-subtitle-text', videoFileId, selectedSubtitleIndex],
+        // Keep the ordinary and danmaku tracks in separate query namespaces.
+        // Their numeric subtitleIndex values come from the same file and can
+        // otherwise share a cache entry while the two selectors are changing.
+        queryKey: ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex],
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
         enabled: validIds && !streaming && selectedSubtitleIndex !== null,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const danmakuSubtitleText = useQuery({
-        queryKey: ['video-subtitle-text', videoFileId, selectedDanmakuSubtitleIndex],
+        queryKey: ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex],
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
         enabled: validIds && !streaming && settings.watchPlaySubtitleDanmaku && selectedDanmakuSubtitleIndex !== null,
         staleTime: Number.POSITIVE_INFINITY,

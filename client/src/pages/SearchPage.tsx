@@ -886,15 +886,17 @@ export function SearchPage(): ReactNode {
                                     key={program.id}
                                     variant="outlined"
                                     sx={{
-                                        borderColor:
-                                            reserve?.kind === 'conflict'
-                                                ? 'error.main'
-                                                : reserve?.kind === 'normal'
-                                                  ? 'error.main'
-                                                  : lastSelectedProgram?.id === program.id || reserve !== undefined
-                                                    ? 'primary.main'
-                                                    : 'divider',
-                                        borderWidth: reserve?.kind === 'normal' ? 4 : 1,
+                                        // MuiCard's outlined style uses an !important divider color in the
+                                        // theme. Keep Vue's red reservation decoration from being replaced
+                                        // by that default color.
+                                        borderColor: theme =>
+                                            reserve?.kind === 'conflict' || reserve?.kind === 'normal'
+                                                ? `${theme.palette.error.main} !important`
+                                                : lastSelectedProgram?.id === program.id || reserve !== undefined
+                                                  ? 'primary.main'
+                                                  : 'divider',
+                                        borderWidth: reserve?.kind === 'normal' || reserve?.kind === 'conflict' ? 4 : 1,
+                                        borderStyle: reserve?.kind === 'conflict' ? 'dashed' : undefined,
                                     }}
                                 >
                                     <CardActionArea

@@ -41,7 +41,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import type { AddRuleOption, AnnictProgram, AnnictWorkDetail, AnnictWorkSummary, RuleSearchOption } from '../../../api';
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { RuleEditorDialog } from '../components/RuleEditorDialog';
@@ -49,7 +49,7 @@ import { api } from '../core/api/queries';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { useActiveUser } from '../core/storage/activeUser';
-import { type AnimeSortOrder, loadAnimeReturnPosition, loadAnimeSortOrder, saveAnimeReturnPosition, saveAnimeSortOrder } from '../core/storage/anime';
+import { clearAnimeReturnPosition, type AnimeSortOrder, loadAnimeReturnPosition, loadAnimeSortOrder, saveAnimeReturnPosition, saveAnimeSortOrder } from '../core/storage/anime';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 
@@ -442,6 +442,8 @@ function ProgramCard({ program, selected, onToggle }: { program: AnnictProgram; 
 
 export function AnimePage(): ReactNode {
     const navigate = useNavigate();
+    const location = useLocation();
+    const navigationType = useNavigationType();
     const { notify } = useNotifications();
     const [params, setParams] = useSearchParams();
     const queryClient = useQueryClient();
@@ -450,17 +452,23 @@ export function AnimePage(): ReactNode {
     const now = currentSeason();
     const parsedFocusAnnictId = Number(params.get('focus'));
     const focusAnnictId = Number.isInteger(parsedFocusAnnictId) && parsedFocusAnnictId > 0 ? parsedFocusAnnictId : null;
-    const returnPosition = useMemo(loadAnimeReturnPosition, []);
+    const returnPosition = useMemo(loadAnimeReturnPosition, [location.key]);
     const restoredPosition = focusAnnictId !== null && returnPosition?.annictId === focusAnnictId ? returnPosition : null;
+    // A POP back to the exact list history entry is the only case where a saved
+    // scroll position should be restored.  This keeps direct links and a fresh
+    // visit to /anime from inheriting a stale sessionStorage value.
+    const listReturnPosition = navigationType === 'POP' && returnPosition?.listLocationKey === location.key && returnPosition.scrollY !== undefined ? returnPosition : null;
+    const savedScrollY = listReturnPosition?.scrollY;
+    const initialPosition = restoredPosition ?? listReturnPosition;
     const yearParam = parseSeasonYear(params.get('year'));
     const seasonParam = params.get('season');
-    const [year, setYear] = useState(yearParam ?? restoredPosition?.year ?? Number(now.slice(0, 4)));
+    const [year, setYear] = useState(yearParam ?? initialPosition?.year ?? Number(now.slice(0, 4)));
     const [seasonName, setSeasonName] = useState<SeasonName>(
-        isSeasonName(seasonParam) ? seasonParam : ((restoredPosition?.seasonName as SeasonName | undefined) ?? (now.split('-')[1] as SeasonName)),
+        isSeasonName(seasonParam) ? seasonParam : ((initialPosition?.seasonName as SeasonName | undefined) ?? (now.split('-')[1] as SeasonName)),
     );
-    const [showNonTv, setShowNonTv] = useState(restoredPosition?.showNonTv ?? false);
-    const [watchingOnly, setWatchingOnly] = useState(restoredPosition?.watchingOnly ?? false);
-    const [filterKeyword, setFilterKeyword] = useState(restoredPosition?.filterKeyword ?? '');
+    const [showNonTv, setShowNonTv] = useState(initialPosition?.showNonTv ?? false);
+    const [watchingOnly, setWatchingOnly] = useState(initialPosition?.watchingOnly ?? false);
+    const [filterKeyword, setFilterKeyword] = useState(initialPosition?.filterKeyword ?? '');
     const [sortOrder, setSortOrder] = useState<AnimeSortOrder>(loadAnimeSortOrder);
     const [mode, setMode] = useState<'initial' | 'rerun'>(params.get('mode') === 'rerun' ? 'rerun' : 'initial');
     const [resolvedImageUrls, setResolvedImageUrls] = useState<Record<number, string>>({});
@@ -667,6 +675,31 @@ export function AnimePage(): ReactNode {
         });
         return () => window.cancelAnimationFrame(frame);
     }, [focusAnnictId, visibleWorks, works.isPending]);
+
+    useEffect(() => {
+        if (savedScrollY === undefined || works.isPending) return;
+        let cancelled = false;
+        let frame = 0;
+        let attempts = 0;
+        const restore = (): void => {
+            if (cancelled) return;
+            window.scrollTo({ top: savedScrollY, behavior: 'auto' });
+            // The list can be painted over several frames after a cached query
+            // resolves. Keep applying the saved position until the document can
+            // actually hold it, then consume the one-shot return marker.
+            if (Math.abs(window.scrollY - savedScrollY) > 1 && attempts < 120) {
+                attempts++;
+                frame = window.requestAnimationFrame(restore);
+                return;
+            }
+            clearAnimeReturnPosition();
+        };
+        frame = window.requestAnimationFrame(restore);
+        return () => {
+            cancelled = true;
+            window.cancelAnimationFrame(frame);
+        };
+    }, [savedScrollY, works.isPending, visibleWorks.length]);
 
     return (
         <>
@@ -902,7 +935,16 @@ export function AnimePage(): ReactNode {
                                                         toggleWorkSelection(work.annictId);
                                                         return;
                                                     }
-                                                    saveAnimeReturnPosition({ annictId: work.annictId, year, seasonName, showNonTv, watchingOnly, filterKeyword });
+                                                    saveAnimeReturnPosition({
+                                                        annictId: work.annictId,
+                                                        year,
+                                                        seasonName,
+                                                        showNonTv,
+                                                        watchingOnly,
+                                                        filterKeyword,
+                                                        scrollY: window.scrollY,
+                                                        listLocationKey: location.key,
+                                                    });
                                                     const detailParams = new URLSearchParams({ mode, year: String(year), season: seasonName });
                                                     void navigate(`/anime/${work.annictId}?${detailParams.toString()}`, {
                                                         state: { imageUrl: resolvedImageUrls[work.annictId] ?? work.imageUrl, mode, fromAnimeList: true },

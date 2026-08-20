@@ -275,6 +275,19 @@ async function waitForRecordedThumbnails(items: RecordedItem[]): Promise<void> {
     await Promise.race([preload, new Promise(resolve => window.setTimeout(resolve, 400))]);
 }
 
+/**
+ * Let a newly requested list spend one frame hidden before revealing it.
+ * React Query can return a cached page in the same commit as the URL change;
+ * without this pause, the opacity transition is skipped entirely on back/forward.
+ */
+async function waitForRecordedListHiddenFrame(): Promise<void> {
+    await new Promise<void>(resolve => {
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve());
+        });
+    });
+}
+
 function createRecordedRequestOption(
     filters: RecordedFilters,
     page: number,
@@ -644,6 +657,15 @@ export function RecordedPage(): ReactNode {
         return `${location.pathname}${query.length > 0 ? `?${query}` : ''}`;
     }, [location.pathname, location.search]);
     const [visibleRecordedListKey, setVisibleRecordedListKey] = useState(recordedListUrlKey);
+    const recordedTransitionRef = useRef({ requestSignature: '', duration: 500 });
+    const requestSignature = JSON.stringify(requestOption);
+    if (recordedTransitionRef.current.requestSignature !== requestSignature) {
+        recordedTransitionRef.current = {
+            requestSignature,
+            duration: queryClient.getQueryData(['recorded', requestOption]) === undefined ? 500 : 320,
+        };
+    }
+    const recordedListFadeDuration = recordedTransitionRef.current.duration;
     const records = useQuery({
         queryKey: ['recorded', requestOption],
         queryFn: () => api.getRecorded(requestOption),
@@ -654,6 +676,7 @@ export function RecordedPage(): ReactNode {
         let cancelled = false;
         const reveal = async (): Promise<void> => {
             if (records.isSuccess) await waitForRecordedThumbnails(records.data.records);
+            await waitForRecordedListHiddenFrame();
             if (!cancelled) setVisibleRecordedListKey(recordedListUrlKey);
         };
         void reveal();
@@ -948,7 +971,7 @@ export function RecordedPage(): ReactNode {
                     p: 0.5,
                     opacity: isRecordedListVisible ? 1 : 0,
                     visibility: isRecordedListVisible ? 'visible' : 'hidden',
-                    transition: 'opacity 500ms ease',
+                    transition: `opacity ${recordedListFadeDuration}ms ease`,
                 }}
             >
                 {records.isPending ? (
