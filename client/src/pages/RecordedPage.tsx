@@ -1169,7 +1169,7 @@ export function RecordedPage(): ReactNode {
                                                 setFileTypeMenuOpen(false);
                                             }}
                                         >
-                                            選択を完了
+                                            完了
                                         </Button>
                                     </ListSubheader>
                                     <MenuItem value="__ts__">
