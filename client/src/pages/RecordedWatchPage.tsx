@@ -108,6 +108,8 @@ function RecordedPlayer({
     webkitPlaybackMode,
     persistentBottomControls,
     showVolumePercent,
+    volumeBoostEnabled,
+    volumeBoostMaxPercent,
     onComment,
     onCommentsReset,
     onCommentStatus,
@@ -127,6 +129,8 @@ function RecordedPlayer({
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
+    volumeBoostEnabled: boolean;
+    volumeBoostMaxPercent: number;
     onComment: (comment: JikkyoComment) => void;
     onCommentsReset: () => void;
     onCommentStatus: (detail: string) => void;
@@ -187,6 +191,8 @@ function RecordedPlayer({
             enableAribSubtitle: source.enableAribSubtitle,
             enableDanmaku: subtitleDanmaku,
             forceSubtitleStroke,
+            volumeBoostEnabled,
+            volumeBoostMaxPercent,
             webkitPlaybackMode,
             themeColor: theme.palette.primary.main,
             commentsUrl: source.commentsUrl,
@@ -241,6 +247,8 @@ function RecordedPlayer({
         startPosition,
         subtitleDanmaku,
         theme.palette.primary.main,
+        volumeBoostEnabled,
+        volumeBoostMaxPercent,
     ]);
 
     useEffect(() => {
@@ -1268,6 +1276,8 @@ export function RecordedWatchPage(): ReactNode {
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
+                            volumeBoostEnabled={settings.watchVolumeBoostEnabled}
+                            volumeBoostMaxPercent={settings.watchVolumeBoostMaxPercent}
                             onComment={receiveComment}
                             onCommentsReset={resetComments}
                             onCommentStatus={updateCommentStatus}

@@ -40,6 +40,8 @@ export interface AppSettings {
     watchPlaySubtitleDanmaku: boolean;
     watchPersistentBottomControls: boolean;
     watchShowVolumePercent: boolean;
+    watchVolumeBoostEnabled: boolean;
+    watchVolumeBoostMaxPercent: number;
     watchResumePlayback: boolean;
     watchHistoryLength: number;
     annictAutoWatchMode: AnnictAutoWatchMode;
@@ -114,6 +116,8 @@ export const defaultSettings: AppSettings = {
     watchPlaySubtitleDanmaku: false,
     watchPersistentBottomControls: false,
     watchShowVolumePercent: true,
+    watchVolumeBoostEnabled: false,
+    watchVolumeBoostMaxPercent: 150,
     watchResumePlayback: true,
     watchHistoryLength: 50,
     annictAutoWatchMode: 'disabled',
@@ -202,6 +206,8 @@ function loadSettings(): AppSettings {
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
             watchPersistentBottomControls: parsed.watchPersistentBottomControls === true,
             watchShowVolumePercent: parsed.watchShowVolumePercent !== false,
+            watchVolumeBoostEnabled: parsed.watchVolumeBoostEnabled === true,
+            watchVolumeBoostMaxPercent: normalizePercent(parsed.watchVolumeBoostMaxPercent, 100, 200, 150),
             isHighlightRecordedOnReturn: parsed.isHighlightRecordedOnReturn !== false,
             webkitPlaybackMode: parsed.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(parsed.annictSupplementalChannelIds),
@@ -251,6 +257,8 @@ export const settingsStore = {
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
             watchPersistentBottomControls: value.watchPersistentBottomControls === true,
             watchShowVolumePercent: value.watchShowVolumePercent !== false,
+            watchVolumeBoostEnabled: value.watchVolumeBoostEnabled === true,
+            watchVolumeBoostMaxPercent: normalizePercent(value.watchVolumeBoostMaxPercent, 100, 200, 150),
             isHighlightRecordedOnReturn: value.isHighlightRecordedOnReturn !== false,
             webkitPlaybackMode: value.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(value.annictSupplementalChannelIds),

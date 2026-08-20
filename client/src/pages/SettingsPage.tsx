@@ -1065,6 +1065,26 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchShowVolumePercent} onChange={event => patch('watchShowVolumePercent', event.target.checked)} />}
                                     />
                                     <SettingRow
+                                        title="音量ブースト"
+                                        description="プレイヤーの音量を100%より大きくできるようにします。大音量による聴覚やスピーカーへの負担に注意してください。"
+                                        control={<Switch checked={draft.watchVolumeBoostEnabled} onChange={event => patch('watchVolumeBoostEnabled', event.target.checked)} />}
+                                    />
+                                    <SettingRow
+                                        title="音量ブーストの最大値"
+                                        description="音量バーで選べる最大値を100～200%の範囲で設定します。"
+                                        control={
+                                            <TextField
+                                                type="number"
+                                                size="small"
+                                                value={draft.watchVolumeBoostMaxPercent}
+                                                disabled={!draft.watchVolumeBoostEnabled}
+                                                onChange={event => patch('watchVolumeBoostMaxPercent', Number(event.target.value))}
+                                                slotProps={{ htmlInput: { min: 100, max: 200, step: 1 } }}
+                                                sx={{ width: 120 }}
+                                            />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="リジューム再生"
                                         description="PLAY／STREAMINGの再生位置を現在のEPGStationユーザーごとに保存し、次回同じ位置から再開します"
                                         control={<Switch checked={draft.watchResumePlayback} onChange={event => patch('watchResumePlayback', event.target.checked)} />}

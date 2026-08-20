@@ -119,5 +119,7 @@ export function updateDPlayerVolumePercent(container: HTMLElement): void {
     const video = container.querySelector<HTMLVideoElement>('video');
     const percent = container.querySelector<HTMLElement>('.neo-player-volume-percent');
     if (video === null || percent === null) return;
-    percent.textContent = `${video.muted ? 0 : Math.round(video.volume * 100).toString(10)}%`;
+    const controlledPercent = Number.parseInt(container.dataset.neoPlayerVolumePercent ?? '', 10);
+    const volumePercent = Number.isFinite(controlledPercent) ? controlledPercent : Math.round(video.volume * 100);
+    percent.textContent = `${video.muted ? 0 : volumePercent.toString(10)}%`;
 }

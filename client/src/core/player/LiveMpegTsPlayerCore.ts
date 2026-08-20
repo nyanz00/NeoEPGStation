@@ -2,10 +2,11 @@ import DPlayer from 'dplayer';
 import Hls from 'hls.js';
 import Mpegts from 'mpegts.js';
 import { isAppleMobileWebKit } from '../platform/webkit';
-import { getStoredPlayerMuted, getStoredPlayerVolume, setStoredPlayerMuted, setStoredPlayerVolume } from '../storage/player';
+import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMuted } from '../storage/player';
 import type { WebKitPlaybackMode } from '../storage/settings';
 import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import { LiveJikkyoCommentCore } from './LiveJikkyoCommentCore';
+import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 
 interface DPlayerDanmakuItem {
@@ -67,6 +68,8 @@ export interface LiveMpegTsPlayerCoreOption {
     isHevc: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
+    volumeBoostEnabled: boolean;
+    volumeBoostMaxPercent: number;
     themeColor: string;
     onReady?: (video: HTMLVideoElement | null) => void;
     onStateChange?: (state: LiveMpegTsPlayerState) => void;
@@ -120,6 +123,7 @@ export class LiveMpegTsPlayerCore {
     private streamInputStarted = false;
     private safariAutoplayTemporarilyMuted = false;
     private restartTimer: number | null = null;
+    private volumeController: PlayerVolumeController | null = null;
     private generation = 0;
     private pendingDanmaku: JikkyoComment[] = [];
     private danmakuFrame: number | null = null;
@@ -166,6 +170,7 @@ export class LiveMpegTsPlayerCore {
     }
 
     public activateAudio(): void {
+        this.volumeController?.activateAudio();
         if (this.player === null || !isAppleMobileWebKit() || getStoredPlayerMuted() || !this.player.video.muted) return;
         this.safariAutoplayTemporarilyMuted = false;
         this.player.video.muted = false;
@@ -239,7 +244,7 @@ export class LiveMpegTsPlayerCore {
             screenshot: true,
             pictureInPicture: true,
             crossOrigin: 'anonymous',
-            volume: getStoredPlayerVolume(),
+            volume: Math.min(1, getStoredPlayerVolumePercent(this.option.volumeBoostEnabled ? this.option.volumeBoostMaxPercent : 100) / 100),
             video: { url: this.option.src, type: 'mpegts' },
             subtitle: { type: 'aribb24' },
             pluginOptions: {
@@ -275,6 +280,13 @@ export class LiveMpegTsPlayerCore {
         const storedMuted = getStoredPlayerMuted();
         this.player = new DPlayer(options) as DPlayerInstance;
         this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container));
+        this.volumeController = new PlayerVolumeController({
+            container: this.option.container,
+            video: this.player.video,
+            boostEnabled: this.option.volumeBoostEnabled,
+            boostMaxPercent: this.option.volumeBoostMaxPercent,
+            onError: this.option.onWarn,
+        });
         const commentInput = this.option.container.querySelector<HTMLInputElement>('.dplayer-comment-input');
         if (commentInput !== null) {
             commentInput.maxLength = 75;
@@ -315,7 +327,6 @@ export class LiveMpegTsPlayerCore {
             if (this.player === null) return;
             updateDPlayerMobileVolumeControl(this.option.container, this.player.video.muted);
             if (this.safariAutoplayTemporarilyMuted) return;
-            setStoredPlayerVolume(this.player.video.volume);
             setStoredPlayerMuted(this.player.video.muted);
         });
         this.option.onControlsVisibilityChange?.(this.player.controller.isShow());
@@ -567,6 +578,8 @@ export class LiveMpegTsPlayerCore {
     }
 
     private destroyPlayer(): void {
+        this.volumeController?.destroy();
+        this.volumeController = null;
         this.startupBuffering = false;
         this.streamInputStarted = false;
         this.safariAutoplayTemporarilyMuted = false;

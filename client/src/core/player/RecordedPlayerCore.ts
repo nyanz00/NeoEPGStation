@@ -2,10 +2,11 @@ import DPlayer from 'dplayer';
 import Hls from 'hls.js';
 import Mpegts from 'mpegts.js';
 import { isAppleMobileWebKit } from '../platform/webkit';
-import { getStoredPlayerMuted, getStoredPlayerVolume, setStoredPlayerMuted, setStoredPlayerVolume } from '../storage/player';
+import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMuted } from '../storage/player';
 import type { WebKitPlaybackMode } from '../storage/settings';
 import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import { RecordedJikkyoCommentCore } from './RecordedJikkyoCommentCore';
+import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 
 export type RecordedPlayerSourceType = 'normal' | 'hls' | 'mpegts';
@@ -57,6 +58,8 @@ export interface RecordedPlayerCoreOption {
     enableAribSubtitle: boolean;
     enableDanmaku: boolean;
     forceSubtitleStroke: boolean;
+    volumeBoostEnabled: boolean;
+    volumeBoostMaxPercent: number;
     themeColor: string;
     webkitPlaybackMode: WebKitPlaybackMode;
     commentsUrl?: string;
@@ -104,6 +107,7 @@ export class RecordedPlayerCore {
     private destroyed = false;
     private restarting = false;
     private playbackErrorTimer: number | null = null;
+    private volumeController: PlayerVolumeController | null = null;
     private state: RecordedPlayerState = { isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' };
 
     constructor(option: RecordedPlayerCoreOption) {
@@ -129,6 +133,7 @@ export class RecordedPlayerCore {
     }
 
     public activateAudio(): void {
+        this.volumeController?.activateAudio();
         if (this.player === null || !isAppleMobileWebKit() || getStoredPlayerMuted() || !this.player.video.muted) return;
         this.player.video.muted = false;
         updateDPlayerMobileVolumeControl(this.option.container, false);
@@ -205,7 +210,7 @@ export class RecordedPlayerCore {
             screenshot: true,
             pictureInPicture: true,
             crossOrigin: 'anonymous',
-            volume: getStoredPlayerVolume(),
+            volume: Math.min(1, getStoredPlayerVolumePercent(this.option.volumeBoostEnabled ? this.option.volumeBoostMaxPercent : 100) / 100),
             playbackSpeed: [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2],
             video,
             pluginOptions: {
@@ -245,6 +250,13 @@ export class RecordedPlayerCore {
         const storedMuted = getStoredPlayerMuted();
         this.player = new DPlayer(options) as DPlayerInstance;
         this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container));
+        this.volumeController = new PlayerVolumeController({
+            container: this.option.container,
+            video: this.player.video,
+            boostEnabled: this.option.volumeBoostEnabled,
+            boostMaxPercent: this.option.volumeBoostMaxPercent,
+            onError: this.option.onError,
+        });
         if (storedMuted) this.player.muted(true);
         updateDPlayerMobileVolumeControl(this.option.container, this.player.video.muted);
         this.bindEvents();
@@ -275,7 +287,6 @@ export class RecordedPlayerCore {
         });
         player.on('volumechange', () => {
             updateDPlayerMobileVolumeControl(this.option.container, player.video.muted);
-            setStoredPlayerVolume(player.video.volume);
             setStoredPlayerMuted(player.video.muted);
         });
         player.on('error', () => {
@@ -344,6 +355,8 @@ export class RecordedPlayerCore {
     }
 
     private destroyPlayer(): void {
+        this.volumeController?.destroy();
+        this.volumeController = null;
         this.option.onControlsPortalReady?.(null);
         this.clearPlaybackErrorTimer();
         this.jikkyoCore?.destroy();
