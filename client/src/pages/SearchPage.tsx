@@ -12,7 +12,6 @@ import {
     CardContent,
     Checkbox,
     Chip,
-    CircularProgress,
     Dialog,
     DialogActions,
     DialogContent,
@@ -30,7 +29,7 @@ import {
 } from '@mui/material';
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChannelId, ChannelItem, ChannelType, Genre, ManualReserveOption, ReserveItem, ReserveListItem, RuleSearchOption, ScheduleProgramItem } from '../../../api';
+import type { ChannelId, ChannelItem, ChannelType, Genre, ManualReserveOption, ReserveListItem, RuleSearchOption, ScheduleProgramItem } from '../../../api';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
@@ -75,13 +74,6 @@ type ReserveKind = 'normal' | 'conflict' | 'skip' | 'overlap';
 interface ProgramReserve {
     kind: ReserveKind;
     item: ReserveListItem;
-}
-
-function ruleReserveStatus(item: ReserveItem): string | null {
-    if (item.isConflict) return '競合';
-    if (item.isSkip) return '除外';
-    if (item.isOverlap) return '重複';
-    return null;
 }
 
 const allKeywordFields: KeywordFields = { caseSensitive: false, regexp: false, name: true, description: true, extended: false };
@@ -456,11 +448,6 @@ export function SearchPage(): ReactNode {
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const rule = useQuery({ queryKey: ['rule', ruleId], queryFn: () => api.getRule(ruleId!), enabled: ruleId !== null });
-    const ruleReserves = useQuery({
-        queryKey: ['reserves', 'rule', ruleId, settings.isHalfWidthDisplayed],
-        queryFn: () => api.getReserves({ type: 'all', isHalfWidth: settings.isHalfWidthDisplayed, ruleId: ruleId! }),
-        enabled: ruleId !== null,
-    });
     const [form, setForm] = useState<SearchFormState>(() => {
         const genres = genresFromParams(params);
         return {
@@ -540,14 +527,6 @@ export function SearchPage(): ReactNode {
         enabled: reserveRange !== null,
     });
     const reserves = useMemo(() => reserveIndex(reserveLists.data), [reserveLists.data]);
-    const ruleReservedProgramIds = useMemo(() => {
-        if (ruleId === null || ruleReserves.data === undefined) return new Set<number>();
-        return new Set(ruleReserves.data.reserves.flatMap(reserve => (typeof reserve.programId === 'number' ? [reserve.programId] : [])));
-    }, [ruleId, ruleReserves.data]);
-    const visiblePrograms = useMemo(
-        () => programs?.filter(program => ruleId === null || !ruleReservedProgramIds.has(program.id)) ?? null,
-        [programs, ruleId, ruleReservedProgramIds],
-    );
     const channelOptions = useMemo(
         () => (channels.data ?? []).map(channel => ({ id: channel.id, label: channel.name, searchText: `${channel.name} ${channel.halfWidthName}` })),
         [channels.data],
@@ -832,62 +811,12 @@ export function SearchPage(): ReactNode {
                         </Stack>
                     </CardContent>
                 </Card>
-                {ruleId !== null && (
-                    <Box sx={{ mt: 3 }}>
-                        <Stack direction="row" sx={{ mb: 1.25, alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Typography variant="h6">このルールの予約</Typography>
-                            {ruleReserves.data !== undefined && <Typography color="text.secondary">{ruleReserves.data.total}件</Typography>}
-                        </Stack>
-                        {ruleReserves.isPending ? (
-                            <Box sx={{ py: 5, textAlign: 'center' }}>
-                                <CircularProgress size={28} />
-                            </Box>
-                        ) : ruleReserves.isError ? (
-                            <Typography color="error" sx={{ py: 3, textAlign: 'center' }}>
-                                予約情報を読み込めませんでした
-                            </Typography>
-                        ) : ruleReserves.data.reserves.length === 0 ? (
-                            <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                                このルールによる予約はありません
-                            </Typography>
-                        ) : (
-                            <Stack spacing={1.25}>
-                                {ruleReserves.data.reserves.map(reserve => {
-                                    const status = ruleReserveStatus(reserve);
-                                    return (
-                                        <Card key={reserve.id} variant="outlined" sx={{ borderColor: reserve.isConflict ? 'error.main' : 'divider' }}>
-                                            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                                    <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
-                                                        {reserve.name}
-                                                    </Typography>
-                                                    {status !== null && <Chip size="small" color={reserve.isConflict ? 'error' : 'default'} label={status} />}
-                                                </Stack>
-                                                <Typography variant="body2" color="text.secondary">
-                                                    {channelName(channels.data, reserve.channelId)}
-                                                </Typography>
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {formatProgramDate(reserve.startAt)} - {formatProgramTime(reserve.endAt)}（{programDuration(reserve)}分）
-                                                </Typography>
-                                                {reserve.description !== undefined && (
-                                                    <Typography variant="body2" sx={{ mt: 1 }}>
-                                                        {reserve.description}
-                                                    </Typography>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-                                    );
-                                })}
-                            </Stack>
-                        )}
-                    </Box>
-                )}
-                {visiblePrograms !== null && (
+                {programs !== null && (
                     <Stack ref={resultsRef} spacing={1.25} sx={{ mt: 3, scrollMarginTop: 72 }}>
                         <Typography color="text.secondary" sx={{ textAlign: 'right' }}>
-                            {visiblePrograms.length}件ヒット
+                            {programs.length}件ヒット
                         </Typography>
-                        {visiblePrograms.map(program => {
+                        {programs.map(program => {
                             const reserve = reserves.get(program.id);
                             return (
                                 <Card
@@ -953,7 +882,7 @@ export function SearchPage(): ReactNode {
                                 </Card>
                             );
                         })}
-                        {visiblePrograms.length === 0 && (
+                        {programs.length === 0 && (
                             <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center' }}>
                                 条件に一致する番組はありません
                             </Typography>
