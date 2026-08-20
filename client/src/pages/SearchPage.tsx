@@ -897,6 +897,21 @@ export function SearchPage(): ReactNode {
                                                   : 'divider',
                                         borderWidth: reserve?.kind === 'normal' || reserve?.kind === 'conflict' ? 4 : 1,
                                         borderStyle: reserve?.kind === 'conflict' ? 'dashed' : undefined,
+                                        outline: theme =>
+                                            reserve?.kind === 'normal' || reserve?.kind === 'conflict'
+                                                ? `3px ${reserve.kind === 'conflict' ? 'dashed' : 'solid'} ${theme.palette.error.main}`
+                                                : undefined,
+                                        outlineOffset: reserve?.kind === 'normal' || reserve?.kind === 'conflict' ? -4 : undefined,
+                                        ...(reserve?.kind === 'normal' || reserve?.kind === 'conflict'
+                                            ? {
+                                                  // The shared outlined-card override targets
+                                                  // `.MuiPaper-outlined` with equal importance. Increase
+                                                  // specificity as well so the reservation color wins.
+                                                  '&&.MuiPaper-outlined': {
+                                                      borderColor: theme => `${theme.palette.error.main} !important`,
+                                                  },
+                                              }
+                                            : {}),
                                     }}
                                 >
                                     <CardActionArea

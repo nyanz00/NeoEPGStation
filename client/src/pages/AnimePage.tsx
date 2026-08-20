@@ -86,6 +86,27 @@ function parseSeasonYear(value: string | null): number | undefined {
     return year >= 2000 && year <= 2100 ? year : undefined;
 }
 
+/**
+ * Compare a return marker with the current anime list route.
+ *
+ * The history key is not stable when the detail page has to use the safe
+ * replace fallback (for example after a direct/deep link).  The list query,
+ * however, is stable enough to identify the list context.  Missing values are
+ * accepted because the current season/mode are intentionally omitted from the
+ * initial `/anime` URL.
+ */
+function isSameAnimeListContext(position: ReturnType<typeof loadAnimeReturnPosition>, pathname: string, search: string): boolean {
+    if (position === null || pathname !== '/anime') return false;
+    const params = new URLSearchParams(search);
+    const mode = params.get('mode');
+    const year = parseSeasonYear(params.get('year'));
+    const season = params.get('season');
+    if (position.mode !== undefined && mode !== null && (mode === 'rerun' ? 'rerun' : 'initial') !== position.mode) return false;
+    if (year !== undefined && year !== position.year) return false;
+    if (season !== null && isSeasonName(season) && season !== position.seasonName) return false;
+    return true;
+}
+
 function releaseDateValue(value?: string): number {
     if (value === undefined) return Number.POSITIVE_INFINITY;
     const match = value.match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?/);
@@ -453,12 +474,14 @@ export function AnimePage(): ReactNode {
     const parsedFocusAnnictId = Number(params.get('focus'));
     const focusAnnictId = Number.isInteger(parsedFocusAnnictId) && parsedFocusAnnictId > 0 ? parsedFocusAnnictId : null;
     const returnPosition = useMemo(loadAnimeReturnPosition, [location.key]);
-    const restoredPosition = focusAnnictId !== null && returnPosition?.annictId === focusAnnictId ? returnPosition : null;
-    // A POP back to the exact list history entry is the only case where a saved
-    // scroll position should be restored.  This keeps direct links and a fresh
-    // visit to /anime from inheriting a stale sessionStorage value.
-    const listReturnPosition = navigationType === 'POP' && returnPosition?.listLocationKey === location.key && returnPosition.scrollY !== undefined ? returnPosition : null;
-    const savedScrollY = listReturnPosition?.scrollY;
+    const sameListContext = isSameAnimeListContext(returnPosition, location.pathname, location.search);
+    const restoredPosition = focusAnnictId !== null && returnPosition?.annictId === focusAnnictId && sameListContext ? returnPosition : null;
+    // A POP back to the anime list is the normal return path. Do not require
+    // location.key: a safe replace fallback creates a new key for the same
+    // list, while its route context remains unchanged.
+    const listReturnPosition = navigationType === 'POP' && sameListContext && returnPosition?.scrollY !== undefined ? returnPosition : null;
+    const scrollReturnPosition = restoredPosition?.scrollY !== undefined ? restoredPosition : listReturnPosition;
+    const savedScrollY = scrollReturnPosition?.scrollY;
     const initialPosition = restoredPosition ?? listReturnPosition;
     const yearParam = parseSeasonYear(params.get('year'));
     const seasonParam = params.get('season');
@@ -666,7 +689,7 @@ export function AnimePage(): ReactNode {
     };
 
     useEffect(() => {
-        if (focusAnnictId === null || works.isPending || restoredFocusRef.current === focusAnnictId) return;
+        if (focusAnnictId === null || works.isPending || savedScrollY !== undefined || restoredFocusRef.current === focusAnnictId) return;
         restoredFocusRef.current = focusAnnictId;
         const frame = window.requestAnimationFrame(() => {
             const card = document.querySelector<HTMLElement>(`[data-anime-work-id="${focusAnnictId}"]`);
@@ -674,24 +697,32 @@ export function AnimePage(): ReactNode {
             else window.scrollTo({ top: 0 });
         });
         return () => window.cancelAnimationFrame(frame);
-    }, [focusAnnictId, visibleWorks, works.isPending]);
+    }, [focusAnnictId, savedScrollY, visibleWorks, works.isPending]);
 
     useEffect(() => {
-        if (savedScrollY === undefined || works.isPending) return;
+        if (savedScrollY === undefined || works.data === undefined) return;
         let cancelled = false;
         let frame = 0;
         let attempts = 0;
+        const startedAt = performance.now();
+        const restoreCardId = scrollReturnPosition?.annictId;
         const restore = (): void => {
             if (cancelled) return;
             window.scrollTo({ top: savedScrollY, behavior: 'auto' });
+            const card = restoreCardId === undefined ? null : document.querySelector<HTMLElement>(`[data-anime-work-id="${restoreCardId}"]`);
+            const positionReached = Math.abs(window.scrollY - savedScrollY) <= 1;
+            const restoreComplete = positionReached && card !== null;
+            const timedOut = performance.now() - startedAt >= 2_000;
             // The list can be painted over several frames after a cached query
             // resolves. Keep applying the saved position until the document can
-            // actually hold it, then consume the one-shot return marker.
-            if (Math.abs(window.scrollY - savedScrollY) > 1 && attempts < 120) {
+            // actually hold it. This also prevents AppLayout's generic POP
+            // restoration from winning a race with the anime-specific marker.
+            if (!restoreComplete && !timedOut && attempts < 120) {
                 attempts++;
                 frame = window.requestAnimationFrame(restore);
                 return;
             }
+            if (!restoreComplete && card !== null) card.scrollIntoView({ block: 'center', behavior: 'auto' });
             clearAnimeReturnPosition();
         };
         frame = window.requestAnimationFrame(restore);
@@ -699,7 +730,7 @@ export function AnimePage(): ReactNode {
             cancelled = true;
             window.cancelAnimationFrame(frame);
         };
-    }, [savedScrollY, works.isPending, visibleWorks.length]);
+    }, [savedScrollY, scrollReturnPosition?.annictId, works.data, visibleWorks.length]);
 
     return (
         <>
@@ -942,6 +973,7 @@ export function AnimePage(): ReactNode {
                                                         showNonTv,
                                                         watchingOnly,
                                                         filterKeyword,
+                                                        mode,
                                                         scrollY: window.scrollY,
                                                         listLocationKey: location.key,
                                                     });

@@ -10,6 +10,8 @@ export interface AnimeReturnPosition {
     showNonTv: boolean;
     watchingOnly: boolean;
     filterKeyword: string;
+    /** The display mode of the list that opened the detail page. */
+    mode?: 'initial' | 'rerun';
     /** The list scroll position to restore after returning from a work detail. */
     scrollY?: number;
     /** React Router location key of the list entry that opened the detail page. */
@@ -51,6 +53,7 @@ export function loadAnimeReturnPosition(): AnimeReturnPosition | null {
         const seasonName = value.seasonName as string;
         const showNonTv = value.showNonTv as boolean;
         const filterKeyword = value.filterKeyword as string;
+        const mode = value.mode === 'rerun' || value.mode === 'initial' ? value.mode : undefined;
         const scrollY = typeof value.scrollY === 'number' && Number.isFinite(value.scrollY) && value.scrollY >= 0 ? value.scrollY : undefined;
         const listLocationKey = typeof value.listLocationKey === 'string' && value.listLocationKey.length > 0 ? value.listLocationKey : undefined;
         return {
@@ -60,6 +63,7 @@ export function loadAnimeReturnPosition(): AnimeReturnPosition | null {
             showNonTv,
             watchingOnly: value.watchingOnly === true,
             filterKeyword,
+            ...(mode === undefined ? {} : { mode }),
             ...(scrollY === undefined ? {} : { scrollY }),
             ...(listLocationKey === undefined ? {} : { listLocationKey }),
         };
