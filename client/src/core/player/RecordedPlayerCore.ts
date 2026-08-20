@@ -97,6 +97,7 @@ function aribb24Option(forceSubtitleStroke: boolean): Record<string, unknown> {
 export class RecordedPlayerCore {
     private static readonly CONTROLS_AUTO_HIDE_TIME = 1_500;
     private static readonly DANMAKU_FONT_SIZE = 34;
+    private static readonly TS_HLS_RELOAD_SEEK_GAP = 12;
     private static readonly RELOAD_ICON =
         '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></svg>';
 
@@ -109,6 +110,9 @@ export class RecordedPlayerCore {
     private restarting = false;
     private playbackErrorTimer: number | null = null;
     private volumeController: PlayerVolumeController | null = null;
+    private tsHlsSourceStartPosition = 0;
+    private lastStablePlaybackPosition = 0;
+    private tsHlsSeekReloading = false;
     private state: RecordedPlayerState = { isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' };
 
     constructor(option: RecordedPlayerCoreOption) {
@@ -171,6 +175,9 @@ export class RecordedPlayerCore {
     private async initPlayer(): Promise<void> {
         if (this.destroyed) return;
         this.setState({ isLoading: true, isBuffering: false, loadingText: '動画を準備中...' });
+        this.tsHlsSourceStartPosition = this.getSourceStartPosition(this.option.src);
+        this.lastStablePlaybackPosition = this.tsHlsSourceStartPosition;
+        this.tsHlsSeekReloading = false;
         window.Hls = Hls;
         window.mpegts = Mpegts;
         const video: { url: string; type?: string } = { url: this.option.src };
@@ -287,6 +294,10 @@ export class RecordedPlayerCore {
                 this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
             }
         });
+        player.on('timeupdate', () => {
+            if (!player.video.seeking && !this.tsHlsSeekReloading) this.lastStablePlaybackPosition = player.video.currentTime;
+        });
+        player.on('seeking', () => this.reloadTsHlsForLargeSeek(player));
         player.on('volumechange', () => {
             updateDPlayerMobileVolumeControl(this.option.container, player.video.muted);
             setStoredPlayerMuted(player.video.muted);
@@ -337,6 +348,49 @@ export class RecordedPlayerCore {
         void this.jikkyoCore.start();
     }
 
+    private reloadTsHlsForLargeSeek(player: DPlayerInstance): void {
+        if (this.option.type !== 'hls' || !this.option.enableAribSubtitle || this.tsHlsSeekReloading || this.player !== player) return;
+        const target = player.video.currentTime;
+        if (!Number.isFinite(target) || target < 0 || Math.abs(target - this.lastStablePlaybackPosition) < RecordedPlayerCore.TS_HLS_RELOAD_SEEK_GAP) return;
+        if (Math.abs(target - this.tsHlsSourceStartPosition) < 1 || this.isTimeBuffered(player.video, target)) return;
+        const hls = player.plugins.hls as Hls | undefined;
+        if (hls === undefined) return;
+
+        const source = new URL(this.option.src, window.location.href);
+        source.searchParams.set('ss', target.toFixed(3));
+        const shouldResume = !player.video.paused;
+        this.tsHlsSeekReloading = true;
+        this.tsHlsSourceStartPosition = target;
+        this.setState({ isLoading: true, isBuffering: true, loadingText: 'シーク先を準備中...' });
+        player.video.pause();
+        hls.stopLoad();
+        hls.once(Hls.Events.MANIFEST_PARSED, () => {
+            if (this.destroyed || this.player !== player) return;
+            this.tsHlsSeekReloading = false;
+            this.lastStablePlaybackPosition = target;
+            player.video.currentTime = target;
+            if (shouldResume) void player.video.play().catch(error => this.option.onError?.(error));
+        });
+        hls.loadSource(source.href);
+        hls.startLoad(target);
+    }
+
+    private isTimeBuffered(video: HTMLVideoElement, time: number): boolean {
+        for (let index = 0; index < video.buffered.length; index++) {
+            if (time >= video.buffered.start(index) - 0.5 && time <= video.buffered.end(index) + 0.5) return true;
+        }
+        return false;
+    }
+
+    private getSourceStartPosition(source: string): number {
+        try {
+            const value = Number(new URL(source, window.location.href).searchParams.get('ss'));
+            return Number.isFinite(value) && value >= 0 ? value : 0;
+        } catch {
+            return 0;
+        }
+    }
+
     private toggleMobileMuted(): void {
         if (this.player === null) return;
         this.player.video.muted = !this.player.video.muted;
@@ -357,6 +411,7 @@ export class RecordedPlayerCore {
     }
 
     private destroyPlayer(): void {
+        this.tsHlsSeekReloading = false;
         this.volumeController?.destroy();
         this.volumeController = null;
         this.option.onControlsPortalReady?.(null);
