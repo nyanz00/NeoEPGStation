@@ -12,6 +12,7 @@ export interface PlayerVolumeControllerOption {
     video: HTMLVideoElement;
     boostEnabled: boolean;
     boostMaxPercent: number;
+    onVolumeNotice?: (volumePercent: number) => void;
     onError?: (error: unknown) => void;
 }
 
@@ -21,6 +22,7 @@ export class PlayerVolumeController {
     private volumePercent: number;
     private audioContext: AudioContext | null = null;
     private gainNode: GainNode | null = null;
+    private audioGraphPromise: Promise<void> | null = null;
     private dragging = false;
     private applying = false;
     private destroyed = false;
@@ -34,7 +36,7 @@ export class PlayerVolumeController {
     }
 
     public activateAudio(): void {
-        if (this.volumePercent <= STANDARD_MAX_VOLUME_PERCENT || this.destroyed) return;
+        if (!this.option.boostEnabled || this.destroyed) return;
         this.ensureAudioGraph();
     }
 
@@ -43,6 +45,7 @@ export class PlayerVolumeController {
         this.stopDragging();
         this.option.container.removeEventListener('pointerdown', this.handleActivation, true);
         this.option.container.removeEventListener('keydown', this.handleActivation, true);
+        this.option.container.removeEventListener('wheel', this.handleWheel, true);
         this.option.video.removeEventListener('volumechange', this.handleNativeVolumeChange);
         const volumeBar = this.getVolumeBar();
         volumeBar?.removeEventListener('mousedown', this.handleVolumeStart, true);
@@ -52,9 +55,22 @@ export class PlayerVolumeController {
         if (this.audioContext !== null) void this.audioContext.close().catch(() => {});
         this.audioContext = null;
         this.gainNode = null;
+        this.audioGraphPromise = null;
     }
 
     private readonly handleActivation = (): void => this.activateAudio();
+
+    private readonly handleWheel = (event: WheelEvent): void => {
+        if (event.deltaY === 0) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const step = event.deltaY < 0 ? 5 : -5;
+        this.volumePercent = Math.min(this.maximumPercent, Math.max(0, this.volumePercent + step));
+        if (this.volumePercent > STANDARD_MAX_VOLUME_PERCENT) this.ensureAudioGraph();
+        this.option.video.muted = false;
+        this.applyVolume(true);
+        this.option.onVolumeNotice?.(this.volumePercent);
+    };
 
     private readonly handleNativeVolumeChange = (): void => {
         if (this.applying) return;
@@ -104,6 +120,7 @@ export class PlayerVolumeController {
         this.option.container.addEventListener('keydown', this.handleActivation, true);
         this.option.video.addEventListener('volumechange', this.handleNativeVolumeChange);
         if (!this.option.boostEnabled) return;
+        this.option.container.addEventListener('wheel', this.handleWheel, { capture: true, passive: false });
         const volumeBar = this.getVolumeBar();
         volumeBar?.addEventListener('mousedown', this.handleVolumeStart, true);
         volumeBar?.addEventListener('touchstart', this.handleVolumeStart, { capture: true, passive: false });
@@ -154,24 +171,37 @@ export class PlayerVolumeController {
             void this.audioContext?.resume().catch(error => this.option.onError?.(error));
             return;
         }
+        if (this.audioGraphPromise !== null) return;
         const AudioContextConstructor = window.AudioContext ?? (window as AudioContextWindow).webkitAudioContext;
         if (AudioContextConstructor === undefined) {
             this.fallbackToStandardVolume(new Error('Web Audio API is not supported'));
             return;
         }
-        try {
-            const audioContext = new AudioContextConstructor();
-            const source = audioContext.createMediaElementSource(this.option.video);
-            const gainNode = audioContext.createGain();
-            source.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            this.audioContext = audioContext;
-            this.gainNode = gainNode;
-            gainNode.gain.value = this.volumePercent / STANDARD_MAX_VOLUME_PERCENT;
-            void audioContext.resume().catch(error => this.option.onError?.(error));
-        } catch (error) {
-            this.fallbackToStandardVolume(error);
-        }
+        const audioContext = this.audioContext ?? new AudioContextConstructor();
+        this.audioContext = audioContext;
+        const promise = audioContext
+            .resume()
+            .then(() => {
+                if (this.destroyed || this.audioContext !== audioContext || this.gainNode !== null) return;
+                const source = audioContext.createMediaElementSource(this.option.video);
+                const gainNode = audioContext.createGain();
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                this.gainNode = gainNode;
+                gainNode.gain.value = Math.max(1, this.volumePercent / STANDARD_MAX_VOLUME_PERCENT);
+            })
+            .catch(error => {
+                if (this.audioContext === audioContext) {
+                    this.audioContext = null;
+                    void audioContext.close().catch(() => {});
+                }
+                if (this.volumePercent > STANDARD_MAX_VOLUME_PERCENT) this.fallbackToStandardVolume(error);
+                else this.option.onError?.(error);
+            })
+            .finally(() => {
+                if (this.audioGraphPromise === promise) this.audioGraphPromise = null;
+            });
+        this.audioGraphPromise = promise;
     }
 
     private fallbackToStandardVolume(error: unknown): void {

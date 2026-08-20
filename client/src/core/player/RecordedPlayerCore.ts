@@ -28,6 +28,7 @@ interface DPlayerInstance {
         isShow(): boolean;
     };
     volume(percentage?: number | string, nostorage?: boolean, nonotice?: boolean): number;
+    notice(text: string): void;
     muted(muted?: boolean): boolean;
     play(): void;
     danmaku?: {
@@ -255,6 +256,7 @@ export class RecordedPlayerCore {
             video: this.player.video,
             boostEnabled: this.option.volumeBoostEnabled,
             boostMaxPercent: this.option.volumeBoostMaxPercent,
+            onVolumeNotice: volumePercent => this.player?.notice(`音量 ${volumePercent.toString(10)}%`),
             onError: this.option.onError,
         });
         if (storedMuted) this.player.muted(true);

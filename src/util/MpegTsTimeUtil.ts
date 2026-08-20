@@ -6,6 +6,7 @@ const PCR_CYCLE_SECONDS = 2 ** 33 / 90000;
 const HEAD_SCAN_LIMIT = 256 * 1024 * 1024;
 const TAIL_SCAN_SIZE = 16 * 1024 * 1024;
 const READ_CHUNK_SIZE = 1024 * 1024;
+const SEEK_SCAN_WINDOW = 4 * 1024 * 1024;
 
 export interface MpegTsTimeInfo {
     startAt: number;
@@ -76,11 +77,12 @@ async function scanPackets(
     filePath: string,
     start: number,
     end: number,
-    onPacket: (packet: Buffer) => boolean,
+    onPacket: (packet: Buffer, offset: number) => boolean,
 ): Promise<void> {
     const file = await fs.promises.open(filePath, 'r');
     let position = start;
     let pending = Buffer.alloc(0);
+    let pendingOffset = start;
     let synchronized = false;
 
     try {
@@ -89,6 +91,7 @@ async function scanPackets(
             const chunk = Buffer.allocUnsafe(length);
             const result = await file.read(chunk, 0, length, position);
             if (result.bytesRead === 0) break;
+            if (pending.length === 0) pendingOffset = position;
             position += result.bytesRead;
             pending = Buffer.concat([pending, chunk.subarray(0, result.bytesRead)]);
 
@@ -106,28 +109,90 @@ async function scanPackets(
                         }
                     }
                     if (syncOffset < 0) {
-                        pending = pending.subarray(Math.max(0, pending.length - TS_PACKET_SIZE * 2));
+                        const retainedOffset = Math.max(0, pending.length - TS_PACKET_SIZE * 2);
+                        pending = pending.subarray(retainedOffset);
+                        pendingOffset += retainedOffset;
                         break;
                     }
                     pending = pending.subarray(syncOffset);
+                    pendingOffset += syncOffset;
                     synchronized = true;
                 }
 
                 if (pending.length < TS_PACKET_SIZE) break;
                 if (pending[0] !== 0x47) {
                     pending = pending.subarray(1);
+                    pendingOffset++;
                     synchronized = false;
                     continue;
                 }
 
                 const packet = pending.subarray(0, TS_PACKET_SIZE);
+                const packetOffset = pendingOffset;
                 pending = pending.subarray(TS_PACKET_SIZE);
-                if (onPacket(packet) === true) return;
+                pendingOffset += TS_PACKET_SIZE;
+                if (onPacket(packet, packetOffset) === true) return;
             }
         }
     } finally {
         await file.close();
     }
+}
+
+/**
+ * Finds a transport-stream packet close to the requested media time by PCR.
+ * Unlike a file-size ratio, PCR remains accurate for variable-bitrate recordings.
+ */
+export async function findMpegTsByteOffset(filePath: string, targetSeconds: number): Promise<number | null> {
+    if (!Number.isFinite(targetSeconds) || targetSeconds <= 0) return 0;
+    const stat = await fs.promises.stat(filePath);
+    if (stat.size < TS_PACKET_SIZE * 3) return null;
+
+    let firstPcr: PcrValue | null = null;
+    await scanPackets(filePath, 0, Math.min(stat.size, SEEK_SCAN_WINDOW), packet => {
+        const pcr = packetPcr(packet);
+        if (pcr === null) return false;
+        firstPcr = { pid: packetPid(packet), seconds: pcr };
+        return true;
+    });
+    const reference = firstPcr as PcrValue | null;
+    if (reference === null) return null;
+
+    let lower = 0;
+    let upper = stat.size;
+    let bestOffset = 0;
+    for (let iteration = 0; iteration < 24 && upper - lower > SEEK_SCAN_WINDOW / 4; iteration++) {
+        const scanStart = Math.floor((lower + upper) / 2);
+        let sample: { offset: number; elapsed: number } | null = null;
+        await scanPackets(filePath, scanStart, Math.min(stat.size, scanStart + SEEK_SCAN_WINDOW), (packet, offset) => {
+            if (packetPid(packet) !== reference.pid) return false;
+            const pcr = packetPcr(packet);
+            if (pcr === null) return false;
+            sample = { offset, elapsed: pcrDelta(reference.seconds, pcr) };
+            return true;
+        });
+        const resolvedSample = sample as { offset: number; elapsed: number } | null;
+        if (resolvedSample === null) {
+            upper = scanStart;
+        } else if (resolvedSample.elapsed <= targetSeconds) {
+            bestOffset = resolvedSample.offset;
+            lower = resolvedSample.offset + TS_PACKET_SIZE;
+        } else {
+            upper = scanStart;
+        }
+    }
+
+    const finalEnd = Math.min(stat.size, Math.max(upper, bestOffset + SEEK_SCAN_WINDOW));
+    await scanPackets(filePath, bestOffset, finalEnd, (packet, offset) => {
+        if (packetPid(packet) !== reference.pid) return false;
+        const pcr = packetPcr(packet);
+        if (pcr === null) return false;
+        if (pcrDelta(reference.seconds, pcr) > targetSeconds) return true;
+        bestOffset = offset;
+        return false;
+    });
+
+    return bestOffset;
 }
 
 /**

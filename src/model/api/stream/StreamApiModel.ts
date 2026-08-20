@@ -6,6 +6,7 @@ import * as path from 'path';
 import { PassThrough, Readable } from 'stream';
 import * as apid from '../../../../api';
 import ProcessUtil from '../../../util/ProcessUtil';
+import { findMpegTsByteOffset } from '../../../util/MpegTsTimeUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IProgramDB from '../../db/IProgramDB';
 import IRecordedDB from '../../db/IRecordedDB';
@@ -238,6 +239,7 @@ interface RecordedVodHlsMuxSessionOption {
 class RecordedVodHlsMuxSession {
     public lastAccess: number = Date.now();
     public readonly profileKey: string;
+    public readonly startSequence: number;
 
     private static readonly SEGMENT_WAIT_TIMEOUT = 60 * 1000;
 
@@ -252,6 +254,7 @@ class RecordedVodHlsMuxSession {
     constructor(option: RecordedVodHlsMuxSessionOption) {
         this.option = option;
         this.profileKey = option.profileKey;
+        this.startSequence = option.startSequence;
         this.highestReadySequence = option.startSequence - 1;
         this.directoryPromise = fs.promises.mkdtemp(path.join(os.tmpdir(), 'epgstation-vodhls-'));
     }
@@ -499,6 +502,7 @@ interface EncodedVodHlsMuxSessionOption {
 class EncodedVodHlsMuxSession {
     public lastAccess: number = Date.now();
     public readonly profileKey: string;
+    public readonly startSequence: number;
 
     private static readonly SEGMENT_WAIT_TIMEOUT = 60 * 1000;
     private static readonly STDERR_TAIL_MAX_BYTES = 256 * 1024;
@@ -516,6 +520,7 @@ class EncodedVodHlsMuxSession {
     constructor(option: EncodedVodHlsMuxSessionOption) {
         this.option = option;
         this.profileKey = option.profileKey;
+        this.startSequence = option.startSequence;
         this.highestReadySequence = option.startSequence - 1;
         this.directoryPromise = fs.promises.mkdtemp(path.join(os.tmpdir(), 'epgstation-encoded-vodhls-'));
     }
@@ -1488,6 +1493,14 @@ export default class StreamApiModel implements IStreamApiModel {
         session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession,
     ): void {
         if (typeof sessionId === 'undefined' || sessionId.length === 0 || sessionId.length > 128) return;
+        const current = this.vodHlsClients.get(sessionId)?.session;
+        if (current?.profileKey === session.profileKey && current.startSequence > session.startSequence) {
+            // A request for the old playback position can finish after a large
+            // forward seek. Serve that request, but do not let it move the client
+            // association backwards and make following requests rebase again.
+            session.keep();
+            return;
+        }
         this.vodHlsClients.set(sessionId, { session: session, lastAccess: Date.now() });
         this.managedVodHlsSessions.add(session);
         session.keep();
@@ -1597,8 +1610,13 @@ export default class StreamApiModel implements IStreamApiModel {
             start: startPosition,
         });
 
+        const pcrStartByte = await findMpegTsByteOffset(videoInfo.filePath, startPosition);
         const estimatedByte = Math.floor((videoInfo.size * startPosition) / videoInfo.duration);
-        const startByte = Math.max(0, estimatedByte - (estimatedByte % 188));
+        const startByte = pcrStartByte ?? Math.max(0, estimatedByte - (estimatedByte % 188));
+        this.log.stream.info(
+            `recorded VOD HLS TS seek: position=${startPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
+                `source=${pcrStartByte === null ? 'estimated' : 'pcr'}`,
+        );
         const session = new RecordedVodHlsMuxSession({
             profileKey: profileKey,
             config: config,
