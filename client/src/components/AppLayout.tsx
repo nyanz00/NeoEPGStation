@@ -21,11 +21,12 @@ import { api } from '../core/api/queries';
 import { appIconAssetUrl, getAppIconSet } from '../core/icons/appIcons';
 import { sideNavigationLabels, type SideNavigationItemId } from '../core/navigation';
 import { channelTypeLabel } from '../core/program';
+import { loadAppScrollPosition, rememberAppScrollPosition } from '../core/scrollRestoration';
+import { loadAnimeReturnPosition } from '../core/storage/anime';
 import { useSettings } from '../core/storage/settings';
 import { AlphaAIcon } from './icons/AlphaAIcon';
 
 const drawerWidth = 240;
-const scrollPositions = new Map<string, number>();
 const SCROLL_RESTORE_TIMEOUT_MS = 10_000;
 interface NavigationItem {
     label: string;
@@ -130,7 +131,13 @@ export function AppLayout(): ReactNode {
         let cancelled = false;
         let frame = 0;
         const restoreStartedAt = performance.now();
-        const target = navigationType === 'POP' ? (scrollPositions.get(location.key) ?? 0) : navigationType === 'PUSH' ? 0 : null;
+        const animeReturnPosition = location.pathname === '/anime' ? loadAnimeReturnPosition() : null;
+        const focusAnnictId = Number(new URLSearchParams(location.search).get('focus'));
+        const animeRestoresItself =
+            navigationType === 'POP' &&
+            animeReturnPosition !== null &&
+            (animeReturnPosition.listLocationKey === location.key || (Number.isInteger(focusAnnictId) && focusAnnictId === animeReturnPosition.annictId));
+        const target = animeRestoresItself ? null : navigationType === 'POP' ? (loadAppScrollPosition(location.key) ?? 0) : navigationType === 'PUSH' ? 0 : null;
 
         const restore = (): void => {
             if (cancelled || target === null) return;
@@ -141,8 +148,7 @@ export function AppLayout(): ReactNode {
         return () => {
             cancelled = true;
             window.cancelAnimationFrame(frame);
-            scrollPositions.set(location.key, window.scrollY);
-            if (scrollPositions.size > 100) scrollPositions.delete(scrollPositions.keys().next().value as string);
+            rememberAppScrollPosition(location.key, window.scrollY);
         };
     }, [location.key, navigationType]);
     useEffect(() => {

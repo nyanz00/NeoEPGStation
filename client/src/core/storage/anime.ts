@@ -16,6 +16,8 @@ export interface AnimeReturnPosition {
     scrollY?: number;
     /** React Router location key of the list entry that opened the detail page. */
     listLocationKey?: string;
+    /** The opened card's viewport offset, used as a stable visual anchor. */
+    anchorTop?: number;
 }
 
 export function loadAnimeSortOrder(): AnimeSortOrder {
@@ -56,6 +58,7 @@ export function loadAnimeReturnPosition(): AnimeReturnPosition | null {
         const mode = value.mode === 'rerun' || value.mode === 'initial' ? value.mode : undefined;
         const scrollY = typeof value.scrollY === 'number' && Number.isFinite(value.scrollY) && value.scrollY >= 0 ? value.scrollY : undefined;
         const listLocationKey = typeof value.listLocationKey === 'string' && value.listLocationKey.length > 0 ? value.listLocationKey : undefined;
+        const anchorTop = typeof value.anchorTop === 'number' && Number.isFinite(value.anchorTop) ? value.anchorTop : undefined;
         return {
             annictId,
             year,
@@ -66,6 +69,7 @@ export function loadAnimeReturnPosition(): AnimeReturnPosition | null {
             ...(mode === undefined ? {} : { mode }),
             ...(scrollY === undefined ? {} : { scrollY }),
             ...(listLocationKey === undefined ? {} : { listLocationKey }),
+            ...(anchorTop === undefined ? {} : { anchorTop }),
         };
     } catch {
         return null;

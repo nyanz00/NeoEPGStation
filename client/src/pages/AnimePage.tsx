@@ -48,6 +48,7 @@ import { RuleEditorDialog } from '../components/RuleEditorDialog';
 import { api } from '../core/api/queries';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
+import { rememberAppScrollPosition } from '../core/scrollRestoration';
 import { useActiveUser } from '../core/storage/activeUser';
 import { clearAnimeReturnPosition, type AnimeSortOrder, loadAnimeReturnPosition, loadAnimeSortOrder, saveAnimeReturnPosition, saveAnimeSortOrder } from '../core/storage/anime';
 import { useSettings } from '../core/storage/settings';
@@ -476,10 +477,10 @@ export function AnimePage(): ReactNode {
     const returnPosition = useMemo(loadAnimeReturnPosition, [location.key]);
     const sameListContext = isSameAnimeListContext(returnPosition, location.pathname, location.search);
     const restoredPosition = focusAnnictId !== null && returnPosition?.annictId === focusAnnictId && sameListContext ? returnPosition : null;
-    // A POP back to the anime list is the normal return path. Do not require
-    // location.key: a safe replace fallback creates a new key for the same
-    // list, while its route context remains unchanged.
-    const listReturnPosition = navigationType === 'POP' && sameListContext && returnPosition?.scrollY !== undefined ? returnPosition : null;
+    // A normal browser back restores the exact list history entry. A safe
+    // replace fallback has a new key, but carries focus and is handled above.
+    const listReturnPosition =
+        navigationType === 'POP' && sameListContext && returnPosition?.listLocationKey === location.key && returnPosition.scrollY !== undefined ? returnPosition : null;
     const scrollReturnPosition = restoredPosition?.scrollY !== undefined ? restoredPosition : listReturnPosition;
     const savedScrollY = scrollReturnPosition?.scrollY;
     const initialPosition = restoredPosition ?? listReturnPosition;
@@ -710,14 +711,20 @@ export function AnimePage(): ReactNode {
             if (cancelled) return;
             window.scrollTo({ top: savedScrollY, behavior: 'auto' });
             const card = restoreCardId === undefined ? null : document.querySelector<HTMLElement>(`[data-anime-work-id="${restoreCardId}"]`);
-            const positionReached = Math.abs(window.scrollY - savedScrollY) <= 1;
+            const anchorTop = scrollReturnPosition?.anchorTop;
+            if (card !== null && anchorTop !== undefined) {
+                const correction = card.getBoundingClientRect().top - anchorTop;
+                if (Math.abs(correction) > 1) window.scrollTo({ top: Math.max(0, window.scrollY + correction), behavior: 'auto' });
+            }
+            const positionReached =
+                card !== null && anchorTop !== undefined ? Math.abs(card.getBoundingClientRect().top - anchorTop) <= 1 : Math.abs(window.scrollY - savedScrollY) <= 1;
             const restoreComplete = positionReached && card !== null;
-            const timedOut = performance.now() - startedAt >= 2_000;
+            const timedOut = performance.now() - startedAt >= 10_000;
             // The list can be painted over several frames after a cached query
             // resolves. Keep applying the saved position until the document can
             // actually hold it. This also prevents AppLayout's generic POP
             // restoration from winning a race with the anime-specific marker.
-            if (!restoreComplete && !timedOut && attempts < 120) {
+            if (!restoreComplete && !timedOut && attempts < 600) {
                 attempts++;
                 frame = window.requestAnimationFrame(restore);
                 return;
@@ -961,11 +968,14 @@ export function AnimePage(): ReactNode {
                                             }}
                                         >
                                             <CardActionArea
-                                                onClick={() => {
+                                                onClick={event => {
                                                     if (selectionMode) {
                                                         toggleWorkSelection(work.annictId);
                                                         return;
                                                     }
+                                                    const card = event.currentTarget.closest('[data-anime-work-id]');
+                                                    const anchorTop = card?.getBoundingClientRect().top;
+                                                    rememberAppScrollPosition(location.key, window.scrollY);
                                                     saveAnimeReturnPosition({
                                                         annictId: work.annictId,
                                                         year,
@@ -976,6 +986,7 @@ export function AnimePage(): ReactNode {
                                                         mode,
                                                         scrollY: window.scrollY,
                                                         listLocationKey: location.key,
+                                                        ...(anchorTop === undefined || !Number.isFinite(anchorTop) ? {} : { anchorTop }),
                                                     });
                                                     const detailParams = new URLSearchParams({ mode, year: String(year), season: seasonName });
                                                     void navigate(`/anime/${work.annictId}?${detailParams.toString()}`, {

@@ -644,6 +644,15 @@ export function RecordedPage(): ReactNode {
         return `${location.pathname}${query.length > 0 ? `?${query}` : ''}`;
     }, [location.pathname, location.search]);
     const [visibleRecordedListKey, setVisibleRecordedListKey] = useState('');
+    const requestSignature = JSON.stringify(requestOption);
+    const recordedTransitionRef = useRef({ requestSignature: '', duration: 500 });
+    if (recordedTransitionRef.current.requestSignature !== requestSignature) {
+        recordedTransitionRef.current = {
+            requestSignature,
+            duration: queryClient.getQueryData(['recorded', requestOption]) === undefined ? 500 : 320,
+        };
+    }
+    const recordedListFadeDuration = recordedTransitionRef.current.duration;
     const records = useQuery({
         queryKey: ['recorded', requestOption],
         queryFn: () => api.getRecorded(requestOption),
@@ -949,7 +958,7 @@ export function RecordedPage(): ReactNode {
                     p: 0.5,
                     opacity: isRecordedListVisible ? 1 : 0,
                     visibility: isRecordedListVisible ? 'visible' : 'hidden',
-                    animation: isRecordedListVisible ? 'recorded-list-fade-in 500ms ease both' : 'none',
+                    animation: isRecordedListVisible ? `recorded-list-fade-in ${recordedListFadeDuration}ms ease both` : 'none',
                     '@keyframes recorded-list-fade-in': {
                         from: { opacity: 0 },
                         to: { opacity: 1 },

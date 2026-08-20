@@ -540,6 +540,14 @@ export function SearchPage(): ReactNode {
         enabled: reserveRange !== null,
     });
     const reserves = useMemo(() => reserveIndex(reserveLists.data), [reserveLists.data]);
+    const ruleReservedProgramIds = useMemo(() => {
+        if (ruleId === null || ruleReserves.data === undefined) return new Set<number>();
+        return new Set(ruleReserves.data.reserves.flatMap(reserve => (typeof reserve.programId === 'number' ? [reserve.programId] : [])));
+    }, [ruleId, ruleReserves.data]);
+    const visiblePrograms = useMemo(
+        () => programs?.filter(program => ruleId === null || !ruleReservedProgramIds.has(program.id)) ?? null,
+        [programs, ruleId, ruleReservedProgramIds],
+    );
     const channelOptions = useMemo(
         () => (channels.data ?? []).map(channel => ({ id: channel.id, label: channel.name, searchText: `${channel.name} ${channel.halfWidthName}` })),
         [channels.data],
@@ -874,12 +882,12 @@ export function SearchPage(): ReactNode {
                         )}
                     </Box>
                 )}
-                {programs !== null && (
+                {visiblePrograms !== null && (
                     <Stack ref={resultsRef} spacing={1.25} sx={{ mt: 3, scrollMarginTop: 72 }}>
                         <Typography color="text.secondary" sx={{ textAlign: 'right' }}>
-                            {programs.length}件ヒット
+                            {visiblePrograms.length}件ヒット
                         </Typography>
-                        {programs.map(program => {
+                        {visiblePrograms.map(program => {
                             const reserve = reserves.get(program.id);
                             return (
                                 <Card
@@ -945,7 +953,7 @@ export function SearchPage(): ReactNode {
                                 </Card>
                             );
                         })}
-                        {programs.length === 0 && (
+                        {visiblePrograms.length === 0 && (
                             <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center' }}>
                                 条件に一致する番組はありません
                             </Typography>
