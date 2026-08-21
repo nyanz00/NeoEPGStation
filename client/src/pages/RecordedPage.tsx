@@ -543,6 +543,8 @@ export function RecordedPage(): ReactNode {
     const [cleanupPath, setCleanupPath] = useState('');
     const [cleanupPlan, setCleanupPlan] = useState<RecordedCleanupPlanResult | null>(null);
     const [cleanupElapsedSeconds, setCleanupElapsedSeconds] = useState(0);
+    const cleanupAutofillAttemptedRef = useRef(false);
+    const cleanupAutofilledPathRef = useRef<string | null>(null);
     const specificMonthRef = useRef<HTMLInputElement>(null);
     const specificDayRef = useRef<HTMLInputElement>(null);
 
@@ -766,10 +768,17 @@ export function RecordedPage(): ReactNode {
         },
         onSuccess: result => {
             setCleanupPlan(result);
+            cleanupAutofilledPathRef.current = result.planPath;
             setCleanupPath(result.planPath);
             notify(`削除候補をリストへ書き出しました（録画 ${result.recordedFileCount} 件、サムネイル ${result.thumbnailFileCount} 件）。`, 'success');
         },
         onError: error => notify(`クリーンアップ候補を作成できません: ${error.message}`, 'error'),
+    });
+    const latestCleanupPlanPath = useQuery({
+        queryKey: ['recorded-cleanup-plan-path'],
+        queryFn: api.getLatestRecordedCleanupPlanPath,
+        enabled: cleanupOpen,
+        staleTime: 0,
     });
     const executeCleanup = useMutation({
         mutationFn: async () => {
@@ -799,6 +808,25 @@ export function RecordedPage(): ReactNode {
         }, 1_000);
         return () => window.clearInterval(timerId);
     }, [createCleanupPlan.isPending, executeCleanup.isPending]);
+    useEffect(() => {
+        if (!cleanupOpen) {
+            cleanupAutofillAttemptedRef.current = false;
+            return;
+        }
+        if (latestCleanupPlanPath.isFetching || cleanupAutofillAttemptedRef.current) return;
+
+        cleanupAutofillAttemptedRef.current = true;
+        const latestPath = latestCleanupPlanPath.data;
+        if (latestPath !== null && latestPath !== undefined) {
+            if (cleanupPath.length === 0 || cleanupPath === cleanupAutofilledPathRef.current) {
+                cleanupAutofilledPathRef.current = latestPath;
+                setCleanupPath(latestPath);
+            }
+        } else if (cleanupPath === cleanupAutofilledPathRef.current) {
+            cleanupAutofilledPathRef.current = null;
+            setCleanupPath('');
+        }
+    }, [cleanupOpen, cleanupPath.length, latestCleanupPlanPath.data, latestCleanupPlanPath.isFetching]);
     const channelMap = useMemo(() => new Map(channels.data?.map(channel => [channel.id, channel.name])), [channels.data]);
     const recordedChannelOptions = useMemo(
         () =>
@@ -1442,7 +1470,7 @@ export function RecordedPage(): ReactNode {
                                 クリーンアップは、まず削除候補リストを書き出します。ファイルを確認して、消したくない行を削除してから実行してください。
                             </Typography>
                             <Button sx={{ px: 0 }} onClick={() => createCleanupPlan.mutate()}>
-                                候補リストを作成
+                                {cleanupPath.length > 0 ? '候補リストを再作成' : '候補リストを作成'}
                             </Button>
                             {cleanupPlan !== null && (
                                 <Box sx={{ mt: 1.5 }}>
@@ -1467,13 +1495,25 @@ export function RecordedPage(): ReactNode {
                             <TextField
                                 label="候補リストのパス"
                                 value={cleanupPath}
-                                onChange={event => setCleanupPath(event.target.value)}
+                                onChange={event => {
+                                    cleanupAutofilledPathRef.current = null;
+                                    setCleanupPath(event.target.value);
+                                }}
                                 fullWidth
                                 slotProps={{
                                     input: {
                                         endAdornment:
-                                            cleanupPath.length === 0 ? undefined : (
-                                                <IconButton size="small" aria-label="候補リストのパスを消去" onClick={() => setCleanupPath('')}>
+                                            latestCleanupPlanPath.isFetching && cleanupPath.length === 0 ? (
+                                                <CircularProgress size={20} />
+                                            ) : cleanupPath.length === 0 ? undefined : (
+                                                <IconButton
+                                                    size="small"
+                                                    aria-label="候補リストのパスを消去"
+                                                    onClick={() => {
+                                                        cleanupAutofilledPathRef.current = null;
+                                                        setCleanupPath('');
+                                                    }}
+                                                >
                                                     <CloseOutlined fontSize="small" />
                                                 </IconButton>
                                             ),

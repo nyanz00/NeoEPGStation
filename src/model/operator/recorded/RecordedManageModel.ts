@@ -650,6 +650,34 @@ export default class RecordedManageModel implements IRecordedManageModel {
         };
     }
 
+    public async getLatestCleanupPlanPath(): Promise<string | null> {
+        const cleanupDir = this.getCleanupPlanDir();
+        let files: string[];
+        try {
+            files = await FileUtil.readDir(cleanupDir);
+        } catch (err: any) {
+            return null;
+        }
+
+        const plans: { path: string; mtimeMs: number }[] = [];
+        for (const file of files) {
+            if (/^recorded-cleanup-\d{8}-\d{6}\.txt$/.test(file) === false) continue;
+
+            const planPath = path.join(cleanupDir, file);
+            try {
+                const [stats, content] = await Promise.all([FileUtil.stat(planPath), FileUtil.readFile(planPath)]);
+                if (stats.isFile() && content.startsWith('# EPGStation cleanup plan')) {
+                    plans.push({ path: planPath, mtimeMs: stats.mtimeMs });
+                }
+            } catch (err: any) {
+                // The plan may have been moved or deleted while scanning.
+            }
+        }
+
+        plans.sort((left, right) => right.mtimeMs - left.mtimeMs);
+        return plans[0]?.path ?? null;
+    }
+
     public async executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult> {
         const resolvedPlanPath = path.resolve(planPath);
         if (this.isPathInDir(resolvedPlanPath, this.getCleanupPlanDir()) === false) {

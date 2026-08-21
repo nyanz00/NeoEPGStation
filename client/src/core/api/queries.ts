@@ -340,6 +340,10 @@ export const api = {
     async getRecordedSearchOptions(): Promise<RecordedSearchOptions> {
         return (await apiClient.get<RecordedSearchOptions>('/recorded/options')).data;
     },
+    async getLatestRecordedCleanupPlanPath(): Promise<string | null> {
+        const response = await apiClient.get<{ planPath: string }>('/recorded/cleanupPlan');
+        return response.status === 204 ? null : response.data.planPath;
+    },
     async createRecordedCleanupPlan(): Promise<RecordedCleanupPlanResult> {
         return (await apiClient.post<RecordedCleanupPlanResult>('/recorded/cleanupPlan', undefined, { timeout: 0 })).data;
     },
