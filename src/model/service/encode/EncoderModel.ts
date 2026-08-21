@@ -1,6 +1,5 @@
 import { ChildProcess } from 'child_process';
 import * as events from 'events';
-import * as fs from 'fs';
 import * as iconv from 'iconv-lite';
 import { inject, injectable } from 'inversify';
 import * as net from 'net';
@@ -938,7 +937,6 @@ class EncoderModel implements IEncoderModel {
     };
     private lastEncoderMessage: string = '';
     private onAmatsukazeTaskMatched: ((taskId: number) => void) | null = null;
-    private archiveInterruptedAmatsukazeOutput: boolean = false;
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -1057,16 +1055,6 @@ class EncoderModel implements IEncoderModel {
                 ? this.getAmatsukazeConfig(config.amatsukaze, encodeCmd.amatsukaze)
                 : undefined;
 
-        if (this.encodeOption.restartInterruptedAmatsukaze === true && typeof amatsukazeConfig !== 'undefined') {
-            this.progressInfo = {
-                percent: 0,
-                log: 'Amatsukazeの再起動前タスクをキャンセル中',
-            };
-            this.encodeEvent.emitUpdateEncodeProgress();
-            void this.restartInterruptedAmatsukaze(amatsukazeConfig);
-            return;
-        }
-
         // 出力先ディレクトリパスを取得する
         const outputDirPath =
             typeof encodeCmd.suffix === 'undefined'
@@ -1127,6 +1115,21 @@ class EncoderModel implements IEncoderModel {
                 this.log.encode.info(`mkdirp amatsukaze output: ${amatsukazeOutputDir}`);
                 await FileUtil.mkdir(amatsukazeOutputDir);
             }
+            if (this.encodeOption.restartInterruptedAmatsukaze === true && outputFilePath !== null) {
+                this.progressInfo = {
+                    percent: 0,
+                    log: 'Amatsukazeの再起動前タスクをキャンセル中',
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                void this.restartInterruptedAmatsukaze(
+                    amatsukazeConfig,
+                    inputFilePath,
+                    outputFilePath,
+                    amatsukazeOutputDir,
+                    amatsukazeStartedAt,
+                );
+                return;
+            }
             if (
                 this.encodeOption.resumeExistingAmatsukaze !== true &&
                 outputFilePath !== null &&
@@ -1141,13 +1144,7 @@ class EncoderModel implements IEncoderModel {
                     outputExtension,
                 );
                 if ((await this.existsFile(candidatePath)) === true) {
-                    if (this.archiveInterruptedAmatsukazeOutput) {
-                        const interruptedPath = `${candidatePath}.interrupted-${Date.now().toString(10)}`;
-                        await fs.promises.rename(candidatePath, interruptedPath);
-                        this.log.encode.warn(`archive interrupted Amatsukaze output: ${interruptedPath}`);
-                    } else {
-                        throw new Error(`AmatsukazeTemporaryOutputAlreadyExists: ${candidatePath}`);
-                    }
+                    throw new Error(`AmatsukazeTemporaryOutputAlreadyExists: ${candidatePath}`);
                 }
             }
             this.startAmatsukazePushClient(amatsukazeConfig, inputFilePath);
@@ -1407,13 +1404,27 @@ class EncoderModel implements IEncoderModel {
         );
     }
 
-    private async restartInterruptedAmatsukaze(amatsukaze: AmatsukazeEncodeConfig): Promise<void> {
+    private async restartInterruptedAmatsukaze(
+        amatsukaze: AmatsukazeEncodeConfig,
+        inputFilePath: string,
+        outputFilePath: string,
+        amatsukazeOutputDir: string,
+        startedAt: number,
+    ): Promise<void> {
         const host = amatsukaze.ip || '127.0.0.1';
         const port = amatsukaze.port ?? 32768;
         while (this.isCanceld === false) {
             try {
                 await AmatsukazePushConnection.cancelUnfinishedTasks(host, port, message =>
                     this.log.encode.info(message),
+                );
+                if (this.isCanceld) return;
+                await this.deleteInterruptedAmatsukazeOutput(
+                    amatsukaze,
+                    inputFilePath,
+                    outputFilePath,
+                    amatsukazeOutputDir,
+                    startedAt,
                 );
                 break;
             } catch (err: any) {
@@ -1429,18 +1440,10 @@ class EncoderModel implements IEncoderModel {
         }
         if (this.isCanceld || this.encodeOption === null) return;
 
-        const recoveredOutputPath = this.encodeOption.recoveryOutputFilePath;
-        if (typeof recoveredOutputPath === 'string' && (await this.existsFile(recoveredOutputPath)) === true) {
-            this.log.encode.info(`interrupted Amatsukaze output already completed: ${recoveredOutputPath}`);
-            await this.childEndProcessing(0, null, recoveredOutputPath);
-            return;
-        }
-
         delete this.encodeOption.restartInterruptedAmatsukaze;
         delete this.encodeOption.resumeExistingAmatsukaze;
         delete this.encodeOption.amatsukazeTaskId;
         this.encodeOption.recoveryStartedAt = Date.now();
-        this.archiveInterruptedAmatsukazeOutput = true;
         this.log.encode.info(`re-submit interrupted Amatsukaze task: ${this.encodeOption.encodeId}`);
 
         try {
@@ -1451,6 +1454,30 @@ class EncoderModel implements IEncoderModel {
             this.log.encode.error(err);
             await this.childEndProcessing(1, null, this.currentOutputFilePath);
         }
+    }
+
+    private async deleteInterruptedAmatsukazeOutput(
+        amatsukaze: AmatsukazeEncodeConfig,
+        inputFilePath: string,
+        outputFilePath: string,
+        outputDirPath: string,
+        startedAt: number,
+    ): Promise<void> {
+        const outputExtension = (amatsukaze.outputExtension || path.extname(outputFilePath)).toLowerCase();
+        const candidate = await this.findAmatsukazeOutputCandidate(
+            inputFilePath,
+            outputFilePath,
+            outputDirPath,
+            outputExtension,
+            amatsukaze.outputNameMatch || 'exact',
+            startedAt,
+            false,
+            false,
+        );
+        if (candidate === null) return;
+
+        this.log.encode.warn(`delete interrupted Amatsukaze output: ${candidate.path}`);
+        await FileUtil.unlink(candidate.path);
     }
 
     private stopAmatsukazePushClient(): void {
@@ -1698,6 +1725,7 @@ class EncoderModel implements IEncoderModel {
         outputNameMatch: 'exact' | 'prefix',
         startedAt: number,
         ignoreStartedAt: boolean,
+        excludeOutputFile: boolean = true,
     ): Promise<{ path: string; size: number; mtimeMs: number } | null> {
         const inputBaseName = path.basename(inputFilePath, path.extname(inputFilePath));
 
@@ -1707,7 +1735,7 @@ class EncoderModel implements IEncoderModel {
                 outputDirPath,
                 outputExtension,
             );
-            if (expectedPath === outputFilePath) {
+            if (excludeOutputFile && expectedPath === outputFilePath) {
                 return null;
             }
 
@@ -1733,7 +1761,7 @@ class EncoderModel implements IEncoderModel {
             }
 
             const filePath = path.join(outputDirPath, file);
-            if (filePath === outputFilePath) {
+            if (excludeOutputFile && filePath === outputFilePath) {
                 continue;
             }
 
