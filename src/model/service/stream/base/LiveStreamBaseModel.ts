@@ -98,14 +98,14 @@ export default abstract class LiveStreamBaseModel
         const poption = this.createProcessOption(streamId);
         if (poption !== null) {
             // エンコードプロセス生成
-            this.log.stream.info(`create encode process: ${poption.cmd}`);
+            this.log.stream.debug(`create encode process: ${poption.cmd}`);
             this.streamProcess = await this.processManager.create(poption).catch(err => {
                 if (this.stream !== null) {
                     this.stream.unpipe();
                     this.stream.destroy();
                 }
 
-                this.log.stream.error(`create encode process failed: ${poption.cmd}`);
+                this.log.stream.error('create encode process failed');
                 throw err;
             });
 
@@ -180,7 +180,7 @@ export default abstract class LiveStreamBaseModel
         }
 
         const cmds = this.processOption.preprocessor;
-        this.log.stream.info(`create live stream preprocessor: ${cmds.bin} ${cmds.args.join(' ')}`);
+        this.log.stream.debug(`create live stream preprocessor: ${cmds.bin} ${cmds.args.join(' ')}`);
         this.preProcessProcess = spawn(cmds.bin, cmds.args);
 
         this.preProcessProcess.on('exit', () => {

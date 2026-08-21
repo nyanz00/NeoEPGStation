@@ -6,6 +6,7 @@ import * as api from '../../api';
 
 const sources: apid.SystemLogSource[] = ['Operator', 'Service', 'EPGUpdater'];
 const categories: apid.SystemLogCategory[] = ['system', 'access', 'stream', 'encode'];
+const levels: apid.SystemLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'off'];
 
 export const get: Operation = async (req, res) => {
     const storageApiModel = container.get<IStorageApiModel>('IStorageApiModel');
@@ -20,6 +21,25 @@ export const get: Operation = async (req, res) => {
 
     try {
         api.responseJSON(res, 200, await storageApiModel.getLog(source, category, lines));
+    } catch (err: any) {
+        api.responseServerError(res, err.message);
+    }
+};
+
+export const put: Operation = async (req, res) => {
+    const storageApiModel = container.get<IStorageApiModel>('IStorageApiModel');
+    const { source, category, level } = (req.body ?? {}) as Partial<apid.SystemLogLevelSetting>;
+    if (
+        !sources.includes(source as apid.SystemLogSource) ||
+        !categories.includes(category as apid.SystemLogCategory) ||
+        !levels.includes(level as apid.SystemLogLevel)
+    ) {
+        api.responseError(res, { code: 400, message: 'invalid log level setting' });
+        return;
+    }
+
+    try {
+        api.responseJSON(res, 200, await storageApiModel.setLogLevel(source!, category!, level!));
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
@@ -64,6 +84,38 @@ get.apiDoc = {
                     schema: {
                         $ref: '#/components/schemas/Error',
                     },
+                },
+            },
+        },
+    },
+};
+
+put.apiDoc = {
+    summary: 'ログレベル変更',
+    tags: ['system'],
+    description: '指定したプロセス・ログ種別の実行時ログレベルを変更する',
+    requestBody: {
+        required: true,
+        content: {
+            'application/json': {
+                schema: { $ref: '#/components/schemas/SystemLogLevelSetting' },
+            },
+        },
+    },
+    responses: {
+        200: {
+            description: 'ログレベルを変更しました',
+            content: {
+                'application/json': {
+                    schema: { $ref: '#/components/schemas/SystemLogLevelSetting' },
+                },
+            },
+        },
+        default: {
+            description: '予期しないエラー',
+            content: {
+                'application/json': {
+                    schema: { $ref: '#/components/schemas/Error' },
                 },
             },
         },

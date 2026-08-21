@@ -94,11 +94,11 @@ export default abstract class RecordedStreamBaseModel
 
         // エンコードプロセス生成
         const poption = await this.createProcessOption(streamId);
-        this.log.stream.info(`create encode process: ${poption.cmd}`);
+        this.log.stream.debug(`create encode process: ${poption.cmd}`);
         try {
             this.streamProcess = await this.processManager.create(poption);
         } catch (err: any) {
-            this.log.stream.error(`create encode process failed: ${poption.cmd}`);
+            this.log.stream.error('create encode process failed');
             await this.stop();
         }
         if (this.streamProcess === null) {
@@ -304,7 +304,7 @@ export default abstract class RecordedStreamBaseModel
         }
 
         const cmds = this.processOption.preprocessor;
-        this.log.stream.info(`create recorded stream preprocessor: ${cmds.bin} ${cmds.args.join(' ')}`);
+        this.log.stream.debug(`create recorded stream preprocessor: ${cmds.bin} ${cmds.args.join(' ')}`);
         this.preProcessProcess = spawn(cmds.bin, cmds.args);
 
         this.preProcessProcess.on('exit', (code, signal) => {

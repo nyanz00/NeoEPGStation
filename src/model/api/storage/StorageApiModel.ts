@@ -8,6 +8,7 @@ import * as apid from '../../../../api';
 import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
 import IVideoFileDB from '../../db/IVideoFileDB';
+import { getRuntimeLogLevel, setRuntimeLogLevel } from '../../RuntimeLogLevel';
 import IStorageApiModel from './IStorageApiModel';
 
 interface CpuTimes {
@@ -39,6 +40,18 @@ export default class StorageApiModel implements IStorageApiModel {
     private gpuLoadPromise: Promise<apid.SystemGpuInfo[]> | null = null;
     private storageVolumeCache: { expiresAt: number; items: apid.SystemStorageVolume[] } | null = null;
     private storageVolumePromise: Promise<apid.SystemStorageVolume[]> | null = null;
+    private readonly systemDescriptor: {
+        hostname: string;
+        platform: string;
+        arch: string;
+        cpuModel: string;
+        logicalCores: number;
+        totalMemory: number;
+        pid: number;
+    };
+    private gpuDescriptors: Pick<apid.SystemGpuInfo, 'name' | 'memoryTotal'>[] | null = null;
+    private storageVolumeDescriptors:
+        Pick<apid.SystemStorageVolume, 'id' | 'name' | 'path' | 'type' | 'total'>[] | null = null;
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
@@ -46,6 +59,16 @@ export default class StorageApiModel implements IStorageApiModel {
     ) {
         this.config = configuration.getConfig();
         this.videoFileDB = videoFileDB;
+        const cpus = os.cpus();
+        this.systemDescriptor = {
+            hostname: os.hostname(),
+            platform: `${os.type()} ${os.release()}`,
+            arch: os.arch(),
+            cpuModel: cpus[0]?.model.trim() ?? 'Unknown CPU',
+            logicalCores: cpus.length,
+            totalMemory: os.totalmem(),
+            pid: process.pid,
+        };
         // Seed the CPU sample when the singleton is created so the first page
         // request can calculate usage without blocking for a second sample.
         this.previousCpuTimes = this.readCpuTimes();
@@ -62,11 +85,9 @@ export default class StorageApiModel implements IStorageApiModel {
             this.getSystemInfo(),
         ]);
         const now = Date.now();
-        const breakdown =
-            this.storageBreakdownCache !== null && this.storageBreakdownCache.expiresAt > now
-                ? this.storageBreakdownCache.value
-                : undefined;
-        if (breakdown === undefined) {
+        const breakdown = this.storageBreakdownCache?.value;
+        const breakdownPending = this.storageBreakdownCache === null || this.storageBreakdownCache.expiresAt <= now;
+        if (breakdownPending) {
             // Capacity and system cards must not wait for a full directory walk.
             // The next 5-second refresh will pick up the completed breakdown.
             void this.getStorageBreakdown().catch(() => undefined);
@@ -93,7 +114,7 @@ export default class StorageApiModel implements IStorageApiModel {
             items.push({
                 ...info,
                 name: r.name,
-                ...(breakdown === undefined ? { breakdownPending: true } : {}),
+                ...(breakdownPending ? { breakdownPending: true } : {}),
                 breakdown: {
                     recorded,
                     dropLogs,
@@ -154,6 +175,7 @@ export default class StorageApiModel implements IStorageApiModel {
                 return {
                     source,
                     category,
+                    level: getRuntimeLogLevel(source, category),
                     fileName,
                     exists: false,
                     size: 0,
@@ -179,6 +201,7 @@ export default class StorageApiModel implements IStorageApiModel {
             return {
                 source,
                 category,
+                level: getRuntimeLogLevel(source, category),
                 fileName,
                 exists: true,
                 size: stat.size,
@@ -189,6 +212,15 @@ export default class StorageApiModel implements IStorageApiModel {
         } finally {
             await handle.close();
         }
+    }
+
+    public async setLogLevel(
+        source: apid.SystemLogSource,
+        category: apid.SystemLogCategory,
+        level: apid.SystemLogLevel,
+    ): Promise<apid.SystemLogLevelSetting> {
+        setRuntimeLogLevel(source, category, level);
+        return { source, category, level };
     }
 
     public async getGpuInfo(): Promise<apid.SystemGpuList> {
@@ -215,7 +247,17 @@ export default class StorageApiModel implements IStorageApiModel {
         )
             .then(allVolumes => {
                 const primaryVolumes = new Set(this.config.recorded.map(recorded => this.getVolumeKey(recorded.path)));
-                const items = allVolumes.filter(volume => !primaryVolumes.has(this.getVolumeKey(volume.path)));
+                const sampledItems = allVolumes.filter(volume => !primaryVolumes.has(this.getVolumeKey(volume.path)));
+                if (this.storageVolumeDescriptors === null && sampledItems.length > 0) {
+                    this.storageVolumeDescriptors = sampledItems.map(({ id, name, path: volumePath, type, total }) => ({
+                        id,
+                        name,
+                        path: volumePath,
+                        type,
+                        total,
+                    }));
+                }
+                const items = this.mergeStorageVolumeSamples(sampledItems);
                 this.storageVolumeCache = { expiresAt: Date.now() + 30_000, items };
                 return items;
             })
@@ -245,15 +287,15 @@ export default class StorageApiModel implements IStorageApiModel {
     }
 
     private async loadSystemInfo(): Promise<apid.SystemResourceInfo> {
-        const totalMemory = os.totalmem();
+        const totalMemory = this.systemDescriptor.totalMemory;
         const availableMemory = os.freemem();
         const usedMemory = Math.max(0, totalMemory - availableMemory);
         const cpu = await this.getCpuInfo();
 
         const info = {
-            hostname: os.hostname(),
-            platform: `${os.type()} ${os.release()}`,
-            arch: os.arch(),
+            hostname: this.systemDescriptor.hostname,
+            platform: this.systemDescriptor.platform,
+            arch: this.systemDescriptor.arch,
             uptime: os.uptime(),
             sampledAt: Date.now(),
             cpu,
@@ -264,7 +306,7 @@ export default class StorageApiModel implements IStorageApiModel {
                 usagePercent: totalMemory > 0 ? (usedMemory / totalMemory) * 100 : 0,
             },
             process: {
-                pid: process.pid,
+                pid: this.systemDescriptor.pid,
                 uptime: process.uptime(),
                 memoryUsed: process.memoryUsage().rss,
             },
@@ -278,21 +320,18 @@ export default class StorageApiModel implements IStorageApiModel {
         const previous = this.previousCpuTimes;
         this.previousCpuTimes = current;
         if (previous === null) {
-            const cpus = os.cpus();
             return {
-                model: cpus[0]?.model.trim() ?? 'Unknown CPU',
-                logicalCores: cpus.length,
+                model: this.systemDescriptor.cpuModel,
+                logicalCores: this.systemDescriptor.logicalCores,
                 usagePercent: 0,
             };
         }
         const totalDelta = Math.max(0, current.total - previous.total);
         const idleDelta = Math.max(0, current.idle - previous.idle);
         const usagePercent = totalDelta > 0 ? Math.min(100, Math.max(0, (1 - idleDelta / totalDelta) * 100)) : 0;
-        const cpus = os.cpus();
-
         return {
-            model: cpus[0]?.model.trim() ?? 'Unknown CPU',
-            logicalCores: cpus.length,
+            model: this.systemDescriptor.cpuModel,
+            logicalCores: this.systemDescriptor.logicalCores,
             usagePercent,
         };
     }
@@ -310,10 +349,19 @@ export default class StorageApiModel implements IStorageApiModel {
 
     private async getGpuItems(): Promise<apid.SystemGpuInfo[]> {
         const now = Date.now();
-        if (this.gpuCache !== null && this.gpuCache.expiresAt > now) return this.gpuCache.items;
+        if (this.gpuCache !== null) {
+            if (this.gpuCache.expiresAt <= now && this.gpuLoadPromise === null) {
+                void this.refreshGpuItems(now).catch(() => undefined);
+            }
+            return this.gpuCache.items;
+        }
 
         if (this.gpuLoadPromise !== null) return this.gpuLoadPromise;
 
+        return this.refreshGpuItems(now);
+    }
+
+    private async refreshGpuItems(now: number): Promise<apid.SystemGpuInfo[]> {
         const loadPromise = this.loadGpuItems(now);
         this.gpuLoadPromise = loadPromise;
         try {
@@ -328,7 +376,11 @@ export default class StorageApiModel implements IStorageApiModel {
             this.getNvidiaGpuInfo(),
             process.platform === 'win32' ? this.getWindowsGpuInfo() : Promise.resolve([]),
         ]);
-        const items = this.mergeGpuInfo(nvidiaItems, windowsItems);
+        const sampledItems = this.mergeGpuInfo(nvidiaItems, windowsItems);
+        if (this.gpuDescriptors === null && sampledItems.length > 0) {
+            this.gpuDescriptors = sampledItems.map(({ name, memoryTotal }) => ({ name, memoryTotal }));
+        }
+        const items = this.mergeGpuSamples(sampledItems);
         this.gpuCache = { expiresAt: now + 10_000, items };
         return items;
     }
@@ -416,6 +468,20 @@ export default class StorageApiModel implements IStorageApiModel {
         return value === 'fixed' || value === 'removable' || value === 'network' || value === 'other';
     }
 
+    private mergeStorageVolumeSamples(sampledItems: apid.SystemStorageVolume[]): apid.SystemStorageVolume[] {
+        if (this.storageVolumeDescriptors === null) return sampledItems;
+        const previousItems = this.storageVolumeCache?.items ?? [];
+        return this.storageVolumeDescriptors.map(descriptor => {
+            const sample = sampledItems.find(item => item.id === descriptor.id);
+            const previous = previousItems.find(item => item.id === descriptor.id);
+            return {
+                ...descriptor,
+                available: sample?.available ?? previous?.available ?? descriptor.total,
+                used: sample?.used ?? previous?.used ?? 0,
+            };
+        });
+    }
+
     private mergeGpuInfo(nvidiaItems: apid.SystemGpuInfo[], windowsItems: apid.SystemGpuInfo[]): apid.SystemGpuInfo[] {
         const remainingNvidia = nvidiaItems.filter(item => !this.isSoftwareGpuAdapter(item.name));
         const merged = windowsItems
@@ -434,6 +500,21 @@ export default class StorageApiModel implements IStorageApiModel {
             });
 
         return [...merged, ...remainingNvidia];
+    }
+
+    private mergeGpuSamples(sampledItems: apid.SystemGpuInfo[]): apid.SystemGpuInfo[] {
+        if (this.gpuDescriptors === null) return sampledItems;
+        const previousItems = this.gpuCache?.items ?? [];
+        return this.gpuDescriptors.map(descriptor => {
+            const normalizedName = this.normalizeGpuName(descriptor.name);
+            const sample = sampledItems.find(item => this.normalizeGpuName(item.name) === normalizedName);
+            const previous = previousItems.find(item => this.normalizeGpuName(item.name) === normalizedName);
+            return {
+                ...descriptor,
+                usagePercent: sample?.usagePercent ?? previous?.usagePercent,
+                memoryUsed: sample?.memoryUsed ?? previous?.memoryUsed,
+            };
+        });
     }
 
     private isSoftwareGpuAdapter(name: string): boolean {

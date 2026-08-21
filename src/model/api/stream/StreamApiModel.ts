@@ -234,6 +234,7 @@ interface RecordedVodHlsMuxSessionOption {
     preprocessor: ProcessUtil.Cmds;
     command: string;
     log: ILogger;
+    temporaryDir: string;
 }
 
 class RecordedVodHlsMuxSession {
@@ -256,7 +257,9 @@ class RecordedVodHlsMuxSession {
         this.profileKey = option.profileKey;
         this.startSequence = option.startSequence;
         this.highestReadySequence = option.startSequence - 1;
-        this.directoryPromise = fs.promises.mkdtemp(path.join(os.tmpdir(), 'epgstation-vodhls-'));
+        this.directoryPromise = fs.promises
+            .mkdir(option.temporaryDir, { recursive: true })
+            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-vodhls-')));
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -383,11 +386,11 @@ class RecordedVodHlsMuxSession {
         );
 
         this.processes.push(preProcessProcess, encodeProcess, hlsMuxProcess);
-        this.option.log.stream.info(
+        this.option.log.stream.debug(
             `create recorded VOD HLS TS continuous preprocessor: ${preprocessor.bin} ${preprocessor.args.join(' ')}`,
         );
-        this.option.log.stream.info(`create recorded VOD HLS TS continuous process: ${this.option.command}`);
-        this.option.log.stream.info(`create recorded VOD HLS TS muxer: ${config.ffmpeg}`);
+        this.option.log.stream.debug(`create recorded VOD HLS TS continuous process: ${this.option.command}`);
+        this.option.log.stream.debug(`create recorded VOD HLS TS muxer: ${config.ffmpeg}`);
 
         const captureProcess = (name: string, process: ChildProcess): void => {
             let stderr = '';
@@ -497,6 +500,7 @@ interface EncodedVodHlsMuxSessionOption {
     subtitlePath?: string;
     subtitleStyle: SubtitleBurnInStyle;
     log: ILogger;
+    temporaryDir: string;
 }
 
 class EncodedVodHlsMuxSession {
@@ -522,7 +526,9 @@ class EncodedVodHlsMuxSession {
         this.profileKey = option.profileKey;
         this.startSequence = option.startSequence;
         this.highestReadySequence = option.startSequence - 1;
-        this.directoryPromise = fs.promises.mkdtemp(path.join(os.tmpdir(), 'epgstation-encoded-vodhls-'));
+        this.directoryPromise = fs.promises
+            .mkdir(option.temporaryDir, { recursive: true })
+            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-encoded-vodhls-')));
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -627,7 +633,7 @@ class EncodedVodHlsMuxSession {
             inputPixelFormat: this.option.videoInfo.videoPixelFormat,
         });
 
-        this.option.log.stream.info(
+        this.option.log.stream.debug(
             `create recorded VOD HLS encoded continuous process: ${command.bin} ${command.args.join(' ')}`,
         );
 
@@ -707,7 +713,7 @@ class EncodedVodHlsMuxSession {
             outputPath,
         ];
 
-        this.option.log.stream.info(
+        this.option.log.stream.debug(
             `extract recorded VOD HLS subtitle: ${this.option.config.ffmpeg} ${args.join(' ')}`,
         );
 
@@ -1629,6 +1635,7 @@ export default class StreamApiModel implements IStreamApiModel {
             preprocessor: preprocessor,
             command: command,
             log: this.log,
+            temporaryDir: config.temporaryDir ?? os.tmpdir(),
         });
 
         this.recordedVodHlsSessions.set(sessionKey, session);
@@ -1690,6 +1697,7 @@ export default class StreamApiModel implements IStreamApiModel {
                 outlineOpacityPercent: option.subtitleOutlineOpacity ?? 100,
             },
             log: this.log,
+            temporaryDir: this.configure.getConfig().temporaryDir ?? os.tmpdir(),
         });
 
         this.encodedVodHlsSessions.set(sessionKey, session);

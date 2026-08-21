@@ -5,6 +5,7 @@ import * as log4js from 'log4js';
 import * as path from 'path';
 import ILogger from './ILogger';
 import ILoggerModel from './ILoggerModel';
+import { isSystemLogLevel, readRuntimeLogLevels, runtimeLogLevelPath } from './RuntimeLogLevel';
 
 /**
  * Logger
@@ -12,6 +13,9 @@ import ILoggerModel from './ILoggerModel';
 @injectable()
 export default class LoggerModel implements ILoggerModel {
     private logger: ILogger | null = null;
+    private source: 'Operator' | 'Service' | 'EPGUpdater' | null = null;
+    private baseLevels: Record<keyof ILogger, string> | null = null;
+    private watchingRuntimeLevels: boolean = false;
 
     /**
      * 初期設定
@@ -53,6 +57,18 @@ export default class LoggerModel implements ILoggerModel {
             stream: log4js.getLogger('stream'),
             encode: log4js.getLogger('encode'),
         };
+        this.source = this.getSource(filePath);
+        this.baseLevels = {
+            system: this.getLevelName(this.logger.system.level),
+            access: this.getLevelName(this.logger.access.level),
+            stream: this.getLevelName(this.logger.stream.level),
+            encode: this.getLevelName(this.logger.encode.level),
+        };
+        this.applyRuntimeLevels();
+        if (this.source !== null && this.watchingRuntimeLevels === false) {
+            fs.watchFile(runtimeLogLevelPath, { interval: 1_000, persistent: false }, () => this.applyRuntimeLevels());
+            this.watchingRuntimeLevels = true;
+        }
     }
 
     /**
@@ -106,6 +122,27 @@ export default class LoggerModel implements ILoggerModel {
             .replace('%EPGUpdaterAccess%', this.createDefaultLogPath('EPGUpdater', 'access.log'))
             .replace('%EPGUpdaterStream%', this.createDefaultLogPath('EPGUpdater', 'stream.log'))
             .replace('%EPGUpdaterEncode%', this.createDefaultLogPath('EPGUpdater', 'encode.log'));
+    }
+
+    private getSource(filePath?: string): 'Operator' | 'Service' | 'EPGUpdater' | null {
+        const fileName = typeof filePath === 'string' ? path.basename(filePath).toLowerCase() : '';
+        if (fileName === 'operatorlogconfig.yml') return 'Operator';
+        if (fileName === 'servicelogconfig.yml') return 'Service';
+        if (fileName === 'epgupdaterlogconfig.yml') return 'EPGUpdater';
+        return null;
+    }
+
+    private applyRuntimeLevels(): void {
+        if (this.logger === null || this.source === null || this.baseLevels === null) return;
+        const overrides = readRuntimeLogLevels()[this.source] ?? {};
+        for (const category of ['system', 'access', 'stream', 'encode'] as const) {
+            const override = overrides[category];
+            this.logger[category].level = isSystemLogLevel(override) ? override : this.baseLevels[category];
+        }
+    }
+
+    private getLevelName(level: string | log4js.Level): string {
+        return (typeof level === 'string' ? level : level.levelStr).toLowerCase();
     }
     /**
      * ログファイルのファイルパスを生成する

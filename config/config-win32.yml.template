@@ -51,6 +51,9 @@ thumbnailSize: 480x270
 thumbnailPosition: 5
 channelLogo: '%ROOT%\channel-logo'
 
+# VOD HLS・字幕準備・Web再生変換の一時ファイル保存先。未指定時はAppData内のTempを使用します。
+# temporaryDir: 'D:\NeoEPGStationTemp'
+
 ffmpeg: C:\ffmpeg\ffmpeg.exe
 ffprobe: C:\ffmpeg\ffprobe.exe
 

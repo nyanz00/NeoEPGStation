@@ -60,6 +60,8 @@ import type {
     SystemGpuList,
     SystemLogCategory,
     SystemLogInfo,
+    SystemLogLevel,
+    SystemLogLevelSetting,
     SystemLogSource,
     SystemMirakurunInfo,
     SystemResourceInfo,
@@ -412,6 +414,9 @@ export const api = {
     },
     async getSystemLog(source: SystemLogSource, category: SystemLogCategory, lines: number = 500): Promise<SystemLogInfo> {
         return (await apiClient.get<SystemLogInfo>('/system/logs', { params: { source, category, lines } })).data;
+    },
+    async setSystemLogLevel(source: SystemLogSource, category: SystemLogCategory, level: SystemLogLevel): Promise<SystemLogLevelSetting> {
+        return (await apiClient.put<SystemLogLevelSetting>('/system/logs', { source, category, level })).data;
     },
     async getSystemGpus(): Promise<SystemGpuList> {
         return (await apiClient.get<SystemGpuList>('/system/gpus')).data;

@@ -38,10 +38,7 @@ export default class VideoApiModel implements IVideoApiModel {
     private subtitleTransferLocks: Set<apid.VideoFileId> = new Set();
     private subtitleTransferPathLocks: Set<string> = new Set();
     private subtitleTransferRecovery: Promise<void> = Promise.resolve();
-    private webPlaybackCacheDir: string = path.join(
-        os.tmpdir(),
-        `neoepgstation-web-playback-${process.pid.toString(10)}`,
-    );
+    private webPlaybackCacheDir: string;
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
@@ -54,6 +51,10 @@ export default class VideoApiModel implements IVideoApiModel {
         @inject('ILoggerModel') logger: ILoggerModel,
     ) {
         this.configuration = configuration;
+        this.webPlaybackCacheDir = path.join(
+            configuration.getConfig().temporaryDir ?? os.tmpdir(),
+            `neoepgstation-web-playback-${process.pid.toString(10)}`,
+        );
         this.videoFileDB = videoFileDB;
         this.recordedDB = recordedDB;
         this.apiUtil = apiUtil;

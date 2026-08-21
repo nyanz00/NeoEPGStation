@@ -131,47 +131,46 @@ function PrimaryStorageSection({ items }: { items: StorageItem[] }): ReactNode {
                                         </Typography>
                                     </Stack>
                                     <Divider sx={{ my: 2 }} />
-                                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                        {breakdownPending ? '使用済み容量の内訳を集計中' : '使用済み容量の内訳'}
-                                    </Typography>
-                                    {breakdownPending ? (
-                                        <LinearProgress sx={{ height: 14, borderRadius: 1 }} />
-                                    ) : (
-                                        <>
-                                            <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>
-                                                <Box sx={{ width: segmentWidth(item.breakdown.recorded), bgcolor: 'primary.main' }} />
-                                                <Box sx={{ width: segmentWidth(item.breakdown.dropLogs), bgcolor: 'warning.main' }} />
-                                                <Box sx={{ width: segmentWidth(item.breakdown.thumbnails), bgcolor: 'secondary.main' }} />
-                                                <Box sx={{ width: segmentWidth(item.breakdown.other), bgcolor: 'text.disabled' }} />
-                                            </Box>
-                                            <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        録画データ
-                                                    </Typography>
-                                                    <Typography>{fileSize(item.breakdown.recorded)}</Typography>
-                                                </Grid>
-                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        ドロップログ
-                                                    </Typography>
-                                                    <Typography>{fileSize(item.breakdown.dropLogs)}</Typography>
-                                                </Grid>
-                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        サムネイル
-                                                    </Typography>
-                                                    <Typography>{fileSize(item.breakdown.thumbnails)}</Typography>
-                                                </Grid>
-                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        その他
-                                                    </Typography>
-                                                    <Typography>{fileSize(item.breakdown.other)}</Typography>
-                                                </Grid>
-                                            </Grid>
-                                        </>
-                                    )}
+                                    <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
+                                        <Typography variant="subtitle2">使用済み容量の内訳</Typography>
+                                        {breakdownPending && (
+                                            <Typography variant="caption" color="text.secondary">
+                                                更新中
+                                            </Typography>
+                                        )}
+                                    </Stack>
+                                    <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>
+                                        <Box sx={{ width: segmentWidth(item.breakdown.recorded), bgcolor: 'primary.main' }} />
+                                        <Box sx={{ width: segmentWidth(item.breakdown.dropLogs), bgcolor: 'warning.main' }} />
+                                        <Box sx={{ width: segmentWidth(item.breakdown.thumbnails), bgcolor: 'secondary.main' }} />
+                                        <Box sx={{ width: segmentWidth(item.breakdown.other), bgcolor: 'text.disabled' }} />
+                                    </Box>
+                                    <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                録画データ
+                                            </Typography>
+                                            <Typography>{fileSize(item.breakdown.recorded)}</Typography>
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                ドロップログ
+                                            </Typography>
+                                            <Typography>{fileSize(item.breakdown.dropLogs)}</Typography>
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                サムネイル
+                                            </Typography>
+                                            <Typography>{fileSize(item.breakdown.thumbnails)}</Typography>
+                                        </Grid>
+                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                その他
+                                            </Typography>
+                                            <Typography>{fileSize(item.breakdown.other)}</Typography>
+                                        </Grid>
+                                    </Grid>
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
                                         録画データはNeoEPGStationが管理する動画ファイル、ドロップログとサムネイルはconfig.ymlの各保存先を集計しています。
                                     </Typography>

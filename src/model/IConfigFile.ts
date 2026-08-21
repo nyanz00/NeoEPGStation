@@ -198,6 +198,9 @@ export default interface IConfigFile {
     // upload
     uploadTempDir: string;
 
+    // VOD HLS・Web 再生変換等の一時ファイル保存先
+    temporaryDir?: string;
+
     ffmpeg: string;
     ffprobe: string;
 

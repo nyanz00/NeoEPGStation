@@ -4,6 +4,7 @@ import * as path from 'path';
 import 'reflect-metadata';
 import { install } from 'source-map-support';
 import ILoggerModel from '../ILoggerModel';
+import IConfiguration from '../IConfiguration';
 import IAnnictApiModel from '../api/annict/IAnnictApiModel';
 import container from '../ModelContainer';
 import * as containerSetter from '../ModelContainerSetter';
@@ -52,12 +53,13 @@ const isProcessRunning = (pid: number): boolean => {
 };
 
 const cleanupVodHlsTempDirs = (): void => {
-    const tmpDir = os.tmpdir();
+    const tmpDir = container.get<IConfiguration>('IConfiguration').getConfig().temporaryDir ?? os.tmpdir();
     const webPlaybackPrefix = 'neoepgstation-web-playback-';
     const targetPrefixes = ['epgstation-vodhls-', 'epgstation-encoded-vodhls-', webPlaybackPrefix];
     const targetNames = new Set(['epgstation-vodhls-subtitles']);
     let removedCount = 0;
 
+    fs.mkdirSync(tmpDir, { recursive: true });
     for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
         if (
             entry.isDirectory() === false ||

@@ -177,6 +177,11 @@ class Configuration implements IConfiguration {
         // streamfiles のパス整形
         newConfig.streamFilePath = this.directoryFormatting(newConfig.streamFilePath);
 
+        // 一時ファイル保存先のパス整形
+        if (typeof newConfig.temporaryDir !== 'undefined') {
+            newConfig.temporaryDir = this.directoryFormatting(newConfig.temporaryDir);
+        }
+
         return newConfig;
     }
 
