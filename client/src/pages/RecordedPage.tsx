@@ -774,9 +774,9 @@ export function RecordedPage(): ReactNode {
         },
         onError: error => notify(`クリーンアップ候補を作成できません: ${error.message}`, 'error'),
     });
-    const latestCleanupPlanPath = useQuery({
-        queryKey: ['recorded-cleanup-plan-path'],
-        queryFn: api.getLatestRecordedCleanupPlanPath,
+    const latestCleanupPlan = useQuery({
+        queryKey: ['recorded-cleanup-plan'],
+        queryFn: api.getLatestRecordedCleanupPlan,
         enabled: cleanupOpen,
         staleTime: 0,
     });
@@ -813,20 +813,22 @@ export function RecordedPage(): ReactNode {
             cleanupAutofillAttemptedRef.current = false;
             return;
         }
-        if (latestCleanupPlanPath.isFetching || cleanupAutofillAttemptedRef.current) return;
+        if (latestCleanupPlan.isFetching || cleanupAutofillAttemptedRef.current) return;
 
         cleanupAutofillAttemptedRef.current = true;
-        const latestPath = latestCleanupPlanPath.data;
-        if (latestPath !== null && latestPath !== undefined) {
+        const plan = latestCleanupPlan.data;
+        if (plan !== null && plan !== undefined) {
             if (cleanupPath.length === 0 || cleanupPath === cleanupAutofilledPathRef.current) {
-                cleanupAutofilledPathRef.current = latestPath;
-                setCleanupPath(latestPath);
+                cleanupAutofilledPathRef.current = plan.planPath;
+                setCleanupPath(plan.planPath);
+                setCleanupPlan(plan);
             }
         } else if (cleanupPath === cleanupAutofilledPathRef.current) {
             cleanupAutofilledPathRef.current = null;
             setCleanupPath('');
+            setCleanupPlan(null);
         }
-    }, [cleanupOpen, cleanupPath.length, latestCleanupPlanPath.data, latestCleanupPlanPath.isFetching]);
+    }, [cleanupOpen, cleanupPath, latestCleanupPlan.data, latestCleanupPlan.isFetching]);
     const channelMap = useMemo(() => new Map(channels.data?.map(channel => [channel.id, channel.name])), [channels.data]);
     const recordedChannelOptions = useMemo(
         () =>
@@ -1497,13 +1499,14 @@ export function RecordedPage(): ReactNode {
                                 value={cleanupPath}
                                 onChange={event => {
                                     cleanupAutofilledPathRef.current = null;
+                                    setCleanupPlan(null);
                                     setCleanupPath(event.target.value);
                                 }}
                                 fullWidth
                                 slotProps={{
                                     input: {
                                         endAdornment:
-                                            latestCleanupPlanPath.isFetching && cleanupPath.length === 0 ? (
+                                            latestCleanupPlan.isFetching && cleanupPath.length === 0 ? (
                                                 <CircularProgress size={20} />
                                             ) : cleanupPath.length === 0 ? undefined : (
                                                 <IconButton
@@ -1511,6 +1514,7 @@ export function RecordedPage(): ReactNode {
                                                     aria-label="候補リストのパスを消去"
                                                     onClick={() => {
                                                         cleanupAutofilledPathRef.current = null;
+                                                        setCleanupPlan(null);
                                                         setCleanupPath('');
                                                     }}
                                                 >

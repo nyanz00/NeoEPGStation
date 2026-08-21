@@ -275,9 +275,9 @@ export default class IPCServer implements IIPCServer {
             await this.recordedManage.changeProtect(recordedId, isProtect);
         };
 
-        // getLatestCleanupPlanPath
-        index[RecordedFunctions.getLatestCleanupPlanPath] = async () => {
-            return await this.recordedManage.getLatestCleanupPlanPath();
+        // getLatestCleanupPlan
+        index[RecordedFunctions.getLatestCleanupPlan] = async () => {
+            return await this.recordedManage.getLatestCleanupPlan();
         };
 
         // createCleanupPlan
