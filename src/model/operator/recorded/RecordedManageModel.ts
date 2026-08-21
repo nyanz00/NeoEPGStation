@@ -650,6 +650,79 @@ export default class RecordedManageModel implements IRecordedManageModel {
         };
     }
 
+    public async getLatestCleanupPlan(): Promise<apid.RecordedCleanupPlanResult | null> {
+        const cleanupDir = this.getCleanupPlanDir();
+        let files: string[];
+        try {
+            files = await FileUtil.readDir(cleanupDir);
+        } catch (err: any) {
+            return null;
+        }
+
+        const plans: { path: string; mtimeMs: number; content: string }[] = [];
+        for (const file of files) {
+            if (/^recorded-cleanup-\d{8}-\d{6}\.txt$/.test(file) === false) continue;
+
+            const planPath = path.join(cleanupDir, file);
+            try {
+                const [stats, content] = await Promise.all([FileUtil.stat(planPath), FileUtil.readFile(planPath)]);
+                if (stats.isFile() && content.startsWith('# EPGStation cleanup plan')) {
+                    plans.push({ path: planPath, mtimeMs: stats.mtimeMs, content });
+                }
+            } catch (err: any) {
+                // The plan may have been moved or deleted while scanning.
+            }
+        }
+
+        plans.sort((left, right) => right.mtimeMs - left.mtimeMs);
+        const latestPlan = plans[0];
+        return latestPlan === undefined ? null : this.summarizeCleanupPlan(latestPlan.path, latestPlan.content);
+    }
+
+    private summarizeCleanupPlan(planPath: string, content: string): apid.RecordedCleanupPlanResult {
+        const result: apid.RecordedCleanupPlanResult = {
+            planPath,
+            recordedFileCount: 0,
+            epgstationLikeRecordedFileCount: 0,
+            otherRecordedFileCount: 0,
+            recordedDirectoryCount: 0,
+            missingVideoFileCount: 0,
+            dropLogFileCount: 0,
+            missingDropLogFileCount: 0,
+            thumbnailFileCount: 0,
+            missingThumbnailFileCount: 0,
+        };
+
+        for (const line of content.split(/\r?\n/)) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.length === 0 || trimmedLine.startsWith('#')) continue;
+
+            const [command, , comment] = trimmedLine.split('\t');
+            if (command === 'DELETE_RECORDED_FILE') {
+                result.recordedFileCount++;
+                if (comment?.trim() === '# epgstation-like') {
+                    result.epgstationLikeRecordedFileCount++;
+                } else {
+                    result.otherRecordedFileCount++;
+                }
+            } else if (command === 'DELETE_RECORDED_DIR') {
+                result.recordedDirectoryCount++;
+            } else if (command === 'REMOVE_VIDEO_DB') {
+                result.missingVideoFileCount++;
+            } else if (command === 'DELETE_DROP_LOG_FILE') {
+                result.dropLogFileCount++;
+            } else if (command === 'REMOVE_DROP_LOG_DB') {
+                result.missingDropLogFileCount++;
+            } else if (command === 'DELETE_THUMBNAIL_FILE') {
+                result.thumbnailFileCount++;
+            } else if (command === 'REMOVE_THUMBNAIL_DB') {
+                result.missingThumbnailFileCount++;
+            }
+        }
+
+        return result;
+    }
+
     public async executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult> {
         const resolvedPlanPath = path.resolve(planPath);
         if (this.isPathInDir(resolvedPlanPath, this.getCleanupPlanDir()) === false) {

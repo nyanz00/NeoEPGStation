@@ -1,5 +1,6 @@
 import { ChildProcess } from 'child_process';
 import * as events from 'events';
+import * as fs from 'fs';
 import * as iconv from 'iconv-lite';
 import { inject, injectable } from 'inversify';
 import * as net from 'net';
@@ -44,6 +45,14 @@ interface AmatsukazePushStatus {
     updatedAt: number;
 }
 
+interface AmatsukazeUnfinishedTaskCancellation {
+    requestedTaskIds: Set<number> | null;
+    resolve: (count: number) => void;
+    reject: (err: Error) => void;
+    timeoutId: NodeJS.Timeout;
+    onLog: (message: string) => void;
+}
+
 class AmatsukazePushConnection {
     private static readonly RPC_CHANGE_ITEM = 103;
     private static readonly RPC_ON_UI_DATA = 200;
@@ -53,6 +62,9 @@ class AmatsukazePushConnection {
     private static readonly RECONNECT_MIN_DELAY_MS = 1000;
     private static readonly RECONNECT_MAX_DELAY_MS = 30 * 1000;
     private static readonly connections: Map<string, AmatsukazePushConnection> = new Map();
+    // Keep a successful promise for the process lifetime so later restored jobs do not
+    // cancel jobs that were freshly submitted after the recovery snapshot.
+    private static readonly restartRecoveryPromises: Map<string, Promise<number>> = new Map();
 
     public static subscribe(
         host: string,
@@ -101,6 +113,26 @@ class AmatsukazePushConnection {
         }
     }
 
+    public static cancelUnfinishedTasks(host: string, port: number, onLog: (message: string) => void): Promise<number> {
+        const key = `${host}:${port}`;
+        const existingPromise = AmatsukazePushConnection.restartRecoveryPromises.get(key);
+        if (typeof existingPromise !== 'undefined') return existingPromise;
+
+        let connection = AmatsukazePushConnection.connections.get(key);
+        if (typeof connection === 'undefined') {
+            connection = new AmatsukazePushConnection(key, host, port);
+            AmatsukazePushConnection.connections.set(key, connection);
+        }
+        const recoveryPromise = connection.cancelUnfinishedTasks(onLog).catch(err => {
+            if (AmatsukazePushConnection.restartRecoveryPromises.get(key) === recoveryPromise) {
+                AmatsukazePushConnection.restartRecoveryPromises.delete(key);
+            }
+            throw err;
+        });
+        AmatsukazePushConnection.restartRecoveryPromises.set(key, recoveryPromise);
+        return recoveryPromise;
+    }
+
     private static decodeXml(value: string): string {
         return value
             .replace(/&lt;/g, '<')
@@ -117,6 +149,7 @@ class AmatsukazePushConnection {
     private idleCloseTimerId: NodeJS.Timeout | null = null;
     private reconnectTimerId: NodeJS.Timeout | null = null;
     private reconnectAttempts: number = 0;
+    private unfinishedTaskCancellation: AmatsukazeUnfinishedTaskCancellation | null = null;
     private readonly decoder: TextDecoder = new TextDecoder('shift_jis');
 
     private constructor(
@@ -156,13 +189,13 @@ class AmatsukazePushConnection {
 
     public unsubscribe(subscriptionId: number): void {
         this.subscriptions.delete(subscriptionId);
-        if (this.subscriptions.size > 0 || this.idleCloseTimerId !== null) {
+        if (this.hasWork() || this.idleCloseTimerId !== null) {
             return;
         }
 
         this.idleCloseTimerId = setTimeout(() => {
             this.idleCloseTimerId = null;
-            if (this.subscriptions.size === 0) {
+            if (this.hasWork() === false) {
                 this.stop();
             }
         }, AmatsukazePushConnection.IDLE_CLOSE_DELAY_MS);
@@ -233,8 +266,35 @@ class AmatsukazePushConnection {
         return frame;
     }
 
+    private cancelUnfinishedTasks(onLog: (message: string) => void): Promise<number> {
+        if (this.unfinishedTaskCancellation !== null) {
+            return Promise.reject(new Error('Amatsukaze unfinished task cancellation is already running'));
+        }
+
+        if (this.idleCloseTimerId !== null) {
+            clearTimeout(this.idleCloseTimerId);
+            this.idleCloseTimerId = null;
+        }
+        return new Promise<number>((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                if (this.unfinishedTaskCancellation?.timeoutId !== timeoutId) return;
+                this.unfinishedTaskCancellation = null;
+                reject(new Error('Amatsukaze unfinished task cancellation timed out'));
+                this.scheduleIdleStop();
+            }, 15_000);
+            this.unfinishedTaskCancellation = {
+                requestedTaskIds: null,
+                resolve,
+                reject,
+                timeoutId,
+                onLog,
+            };
+            this.start();
+        });
+    }
+
     private start(): void {
-        if (this.socket !== null || this.reconnectTimerId !== null || this.subscriptions.size === 0) {
+        if (this.socket !== null || this.reconnectTimerId !== null || this.hasWork() === false) {
             return;
         }
 
@@ -264,7 +324,7 @@ class AmatsukazePushConnection {
     }
 
     private scheduleReconnect(): void {
-        if (this.subscriptions.size === 0 || this.reconnectTimerId !== null) return;
+        if (this.hasWork() === false || this.reconnectTimerId !== null) return;
         const delay = Math.min(
             AmatsukazePushConnection.RECONNECT_MAX_DELAY_MS,
             AmatsukazePushConnection.RECONNECT_MIN_DELAY_MS * 2 ** Math.min(this.reconnectAttempts, 5),
@@ -290,6 +350,18 @@ class AmatsukazePushConnection {
         this.recvBuffer = Buffer.alloc(0);
         this.reconnectAttempts = 0;
         AmatsukazePushConnection.connections.delete(this.key);
+    }
+
+    private hasWork(): boolean {
+        return this.subscriptions.size > 0 || this.unfinishedTaskCancellation !== null;
+    }
+
+    private scheduleIdleStop(): void {
+        if (this.hasWork() || this.idleCloseTimerId !== null) return;
+        this.idleCloseTimerId = setTimeout(() => {
+            this.idleCloseTimerId = null;
+            if (this.hasWork() === false) this.stop();
+        }, 1_000);
     }
 
     private onData(chunk: Buffer): void {
@@ -346,9 +418,62 @@ class AmatsukazePushConnection {
     }
 
     private handleUIData(xml: string): void {
+        this.handleUnfinishedTaskCancellation(xml);
         for (const subscription of this.subscriptions.values()) {
             subscription.handleUIData(xml);
         }
+    }
+
+    private handleUnfinishedTaskCancellation(xml: string): void {
+        const request = this.unfinishedTaskCancellation;
+        if (request === null) return;
+        const queueUpdate = AmatsukazePushConnection.readTag(xml, 'QueueUpdate');
+        if (typeof queueUpdate === 'undefined') return;
+
+        const activeTaskIds = new Set(
+            AmatsukazePushConnection.readTags(queueUpdate, 'Item')
+                .map(item => ({
+                    id: Number(AmatsukazePushConnection.readTag(item, 'Id')),
+                    state: (AmatsukazePushConnection.readTag(item, 'State') ?? '').trim().toLowerCase(),
+                }))
+                .filter(item => {
+                    return (
+                        Number.isNaN(item.id) === false &&
+                        item.state.length > 0 &&
+                        !['complete', 'failed', 'prefailed', 'canceled'].includes(item.state)
+                    );
+                })
+                .map(item => item.id),
+        );
+
+        if (request.requestedTaskIds === null) {
+            request.requestedTaskIds = activeTaskIds;
+            if (activeTaskIds.size === 0) {
+                request.onLog('amatsukaze restart recovery found no unfinished tasks');
+                this.finishUnfinishedTaskCancellation(0);
+                return;
+            }
+            request.onLog(
+                `amatsukaze restart recovery canceling ${activeTaskIds.size.toString(10)} unfinished task(s)`,
+            );
+            for (const taskId of activeTaskIds) {
+                this.sendFrame(this.createChangeItemFrame(taskId));
+            }
+            return;
+        }
+
+        const remaining = [...request.requestedTaskIds].filter(taskId => activeTaskIds.has(taskId));
+        if (remaining.length === 0) this.finishUnfinishedTaskCancellation(request.requestedTaskIds.size);
+    }
+
+    private finishUnfinishedTaskCancellation(count: number): void {
+        const request = this.unfinishedTaskCancellation;
+        if (request === null) return;
+        clearTimeout(request.timeoutId);
+        this.unfinishedTaskCancellation = null;
+        request.onLog(`amatsukaze restart recovery canceled ${count.toString(10)} unfinished task(s)`);
+        request.resolve(count);
+        this.scheduleIdleStop();
     }
 
     private notifyConnected(isConnected: boolean): void {
@@ -991,6 +1116,21 @@ class EncoderModel implements IEncoderModel {
                 this.log.encode.info(`mkdirp amatsukaze output: ${amatsukazeOutputDir}`);
                 await FileUtil.mkdir(amatsukazeOutputDir);
             }
+            if (this.encodeOption.restartInterruptedAmatsukaze === true && outputFilePath !== null) {
+                this.progressInfo = {
+                    percent: 0,
+                    log: 'Amatsukazeの再起動前タスクをキャンセル中',
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                void this.restartInterruptedAmatsukaze(
+                    amatsukazeConfig,
+                    inputFilePath,
+                    outputFilePath,
+                    amatsukazeOutputDir,
+                    amatsukazeStartedAt,
+                );
+                return;
+            }
             if (
                 this.encodeOption.resumeExistingAmatsukaze !== true &&
                 outputFilePath !== null &&
@@ -1265,6 +1405,108 @@ class EncoderModel implements IEncoderModel {
         );
     }
 
+    private async restartInterruptedAmatsukaze(
+        amatsukaze: AmatsukazeEncodeConfig,
+        inputFilePath: string,
+        outputFilePath: string,
+        amatsukazeOutputDir: string,
+        startedAt: number,
+    ): Promise<void> {
+        const host = amatsukaze.ip || '127.0.0.1';
+        const port = amatsukaze.port ?? 32768;
+        while (this.isCanceld === false) {
+            try {
+                await AmatsukazePushConnection.cancelUnfinishedTasks(host, port, message =>
+                    this.log.encode.info(message),
+                );
+                if (this.isCanceld) return;
+                await this.deleteInterruptedAmatsukazeOutput(
+                    amatsukaze,
+                    inputFilePath,
+                    outputFilePath,
+                    amatsukazeOutputDir,
+                    startedAt,
+                );
+                break;
+            } catch (err: any) {
+                this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                if (this.lastEncoderMessage.startsWith('UnsafeAmatsukazeOutputDeletion:')) {
+                    this.log.encode.error(this.lastEncoderMessage);
+                    await this.childEndProcessing(1, null, outputFilePath);
+                    return;
+                }
+                this.progressInfo = {
+                    percent: 0,
+                    log: 'Amatsukazeの再起動復旧を再試行中',
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                this.log.encode.warn(`amatsukaze restart recovery retry: ${this.lastEncoderMessage}`);
+                await new Promise(resolve => setTimeout(resolve, 5_000));
+            }
+        }
+        if (this.isCanceld || this.encodeOption === null) return;
+
+        delete this.encodeOption.restartInterruptedAmatsukaze;
+        delete this.encodeOption.resumeExistingAmatsukaze;
+        delete this.encodeOption.amatsukazeTaskId;
+        this.encodeOption.recoveryStartedAt = Date.now();
+        this.log.encode.info(`re-submit interrupted Amatsukaze task: ${this.encodeOption.encodeId}`);
+
+        try {
+            await this.start();
+        } catch (err: any) {
+            this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+            this.log.encode.error(`re-submit interrupted Amatsukaze task failed: ${this.encodeOption.encodeId}`);
+            this.log.encode.error(err);
+            await this.childEndProcessing(1, null, this.currentOutputFilePath);
+        }
+    }
+
+    private async deleteInterruptedAmatsukazeOutput(
+        amatsukaze: AmatsukazeEncodeConfig,
+        inputFilePath: string,
+        outputFilePath: string,
+        outputDirPath: string,
+        startedAt: number,
+    ): Promise<void> {
+        const outputExtension = (amatsukaze.outputExtension || path.extname(outputFilePath)).toLowerCase();
+        const candidate = await this.findAmatsukazeOutputCandidate(
+            inputFilePath,
+            outputFilePath,
+            outputDirPath,
+            outputExtension,
+            amatsukaze.outputNameMatch || 'exact',
+            startedAt,
+            false,
+            false,
+        );
+        if (candidate === null) return;
+        if (await this.isSameFile(candidate.path, inputFilePath)) {
+            throw new Error(`UnsafeAmatsukazeOutputDeletion: source file ${candidate.path}`);
+        }
+        if (['.ts', '.m2ts', '.mts'].includes(path.extname(candidate.path).toLowerCase())) {
+            throw new Error(`UnsafeAmatsukazeOutputDeletion: transport stream ${candidate.path}`);
+        }
+
+        this.log.encode.warn(`delete interrupted Amatsukaze output: ${candidate.path}`);
+        await FileUtil.unlink(candidate.path);
+    }
+
+    private async isSameFile(firstPath: string, secondPath: string): Promise<boolean> {
+        const normalize = (value: string): string => path.resolve(value).normalize('NFC').toLowerCase();
+        if (normalize(firstPath) === normalize(secondPath)) return true;
+
+        try {
+            const [firstRealPath, secondRealPath] = await Promise.all([
+                fs.promises.realpath(firstPath),
+                fs.promises.realpath(secondPath),
+            ]);
+            return normalize(firstRealPath) === normalize(secondRealPath);
+        } catch (err: any) {
+            return false;
+        }
+    }
+
     private stopAmatsukazePushClient(): void {
         if (this.amatsukazePushSubscription === null) {
             return;
@@ -1510,6 +1752,7 @@ class EncoderModel implements IEncoderModel {
         outputNameMatch: 'exact' | 'prefix',
         startedAt: number,
         ignoreStartedAt: boolean,
+        excludeOutputFile: boolean = true,
     ): Promise<{ path: string; size: number; mtimeMs: number } | null> {
         const inputBaseName = path.basename(inputFilePath, path.extname(inputFilePath));
 
@@ -1519,7 +1762,7 @@ class EncoderModel implements IEncoderModel {
                 outputDirPath,
                 outputExtension,
             );
-            if (expectedPath === outputFilePath) {
+            if (excludeOutputFile && expectedPath === outputFilePath) {
                 return null;
             }
 
@@ -1545,7 +1788,7 @@ class EncoderModel implements IEncoderModel {
             }
 
             const filePath = path.join(outputDirPath, file);
-            if (filePath === outputFilePath) {
+            if (excludeOutputFile && filePath === outputFilePath) {
                 continue;
             }
 

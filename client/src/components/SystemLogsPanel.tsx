@@ -17,9 +17,9 @@ import {
     ToggleButtonGroup,
     Typography,
 } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import type { SystemLogCategory, SystemLogSource } from '../../../api';
+import type { SystemLogCategory, SystemLogLevel, SystemLogSource } from '../../../api';
 import { api } from '../core/api/queries';
 
 const sourceLabels: Record<SystemLogSource, string> = {
@@ -37,6 +37,15 @@ const categoryLabels: Record<SystemLogCategory, string> = {
 
 const logLineLimitStorageKey = 'systemLogLineLimit';
 const logLineLimitOptions = [100, 250, 500, 1000, 2000] as const;
+const logLevelOptions: { value: SystemLogLevel; label: string }[] = [
+    { value: 'trace', label: 'TRACE' },
+    { value: 'debug', label: 'DEBUG' },
+    { value: 'info', label: 'INFO' },
+    { value: 'warn', label: 'WARN' },
+    { value: 'error', label: 'ERROR' },
+    { value: 'fatal', label: 'FATAL' },
+    { value: 'off', label: 'OFF' },
+];
 
 function loadLogLineLimit(): number {
     try {
@@ -64,6 +73,7 @@ function logColor(line: string): string {
 }
 
 export function SystemLogsPanel(): ReactNode {
+    const queryClient = useQueryClient();
     const [source, setSource] = useState<SystemLogSource>('Operator');
     const [category, setCategory] = useState<SystemLogCategory>('system');
     const [filter, setFilter] = useState('');
@@ -77,6 +87,12 @@ export function SystemLogsPanel(): ReactNode {
         queryFn: () => api.getSystemLog(source, category, lineLimit),
         refetchInterval: autoRefresh ? 2_000 : false,
         refetchIntervalInBackground: false,
+    });
+    const updateLogLevel = useMutation({
+        mutationFn: (level: SystemLogLevel) => api.setSystemLogLevel(source, category, level),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ['system-logs', source, category] });
+        },
     });
     const visibleLines = useMemo(() => {
         const normalizedFilter = filter.trim().toLocaleLowerCase();
@@ -106,32 +122,45 @@ export function SystemLogsPanel(): ReactNode {
             <Card variant="outlined">
                 <CardContent>
                     <Stack spacing={2}>
-                        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} sx={{ justifyContent: 'space-between' }}>
-                            <Box>
-                                <Typography variant="h5">EPGStationログ</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    プロセスとログの種類を切り替えて、指定した件数の最新ログを表示します。
-                                </Typography>
-                            </Box>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                                <FormControlLabel
-                                    control={<Switch checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} />}
-                                    label={
-                                        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                                            {autoRefresh ? <PlayArrowOutlined fontSize="small" /> : <PauseOutlined fontSize="small" />}
-                                            <span>自動更新</span>
-                                        </Stack>
-                                    }
-                                />
-                                <FormControlLabel control={<Switch checked={followTail} onChange={event => setFollowTail(event.target.checked)} />} label="末尾を追従" />
-                                <TextField select label="表示件数" size="small" value={lineLimit} onChange={event => setLineLimit(Number(event.target.value))} sx={{ width: 120 }}>
-                                    {logLineLimitOptions.map(value => (
-                                        <MenuItem key={value} value={value}>
-                                            {value}行
-                                        </MenuItem>
-                                    ))}
-                                </TextField>
-                            </Stack>
+                        <Box>
+                            <Typography variant="h5">EPGStationログ</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                最新ログを表示します。ログレベルは、選択中のプロセス・種類が実際に出力する閾値を変更します。
+                            </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: { xs: 'flex-start', lg: 'flex-end' }, flexWrap: 'wrap' }}>
+                            <FormControlLabel
+                                control={<Switch checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} />}
+                                label={
+                                    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                                        {autoRefresh ? <PlayArrowOutlined fontSize="small" /> : <PauseOutlined fontSize="small" />}
+                                        <span>自動更新</span>
+                                    </Stack>
+                                }
+                            />
+                            <FormControlLabel control={<Switch checked={followTail} onChange={event => setFollowTail(event.target.checked)} />} label="末尾を追従" />
+                            <TextField select label="表示件数" size="small" value={lineLimit} onChange={event => setLineLimit(Number(event.target.value))} sx={{ width: 120 }}>
+                                {logLineLimitOptions.map(value => (
+                                    <MenuItem key={value} value={value}>
+                                        {value}行
+                                    </MenuItem>
+                                ))}
+                            </TextField>
+                            <TextField
+                                select
+                                label="ログレベル"
+                                size="small"
+                                value={logs.data?.level ?? 'info'}
+                                disabled={logs.isPending || updateLogLevel.isPending}
+                                onChange={event => updateLogLevel.mutate(event.target.value as SystemLogLevel)}
+                                sx={{ width: 120 }}
+                            >
+                                {logLevelOptions.map(option => (
+                                    <MenuItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </MenuItem>
+                                ))}
+                            </TextField>
                         </Stack>
 
                         <Box>
@@ -190,6 +219,8 @@ export function SystemLogsPanel(): ReactNode {
                     </Stack>
                 </CardContent>
             </Card>
+
+            {updateLogLevel.isError && <Alert severity="error">ログレベルを変更できませんでした: {updateLogLevel.error.message}</Alert>}
 
             {logs.isError ? (
                 <Alert severity="error">ログを取得できませんでした: {logs.error.message}</Alert>

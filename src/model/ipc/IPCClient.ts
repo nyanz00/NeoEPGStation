@@ -315,6 +315,12 @@ export default class IPCClient implements IIPCClient {
                     },
                 });
             },
+            getLatestCleanupPlan: () => {
+                return this.send({
+                    model: ModelName.recorded,
+                    func: RecordedFunctions.getLatestCleanupPlan,
+                });
+            },
             createCleanupPlan: () => {
                 return this.send(
                     {

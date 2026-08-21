@@ -10,13 +10,21 @@ export interface AnimeReturnPosition {
     showNonTv: boolean;
     watchingOnly: boolean;
     filterKeyword: string;
+    /** The display mode of the list that opened the detail page. */
+    mode?: 'initial' | 'rerun';
+    /** The list scroll position to restore after returning from a work detail. */
+    scrollY?: number;
+    /** React Router location key of the list entry that opened the detail page. */
+    listLocationKey?: string;
+    /** The opened card's viewport offset, used as a stable visual anchor. */
+    anchorTop?: number;
 }
 
 export function loadAnimeSortOrder(): AnimeSortOrder {
     try {
         const value = localStorage.getItem(storageKey);
         return value === 'release-date' ? value : 'popularity';
-    } catch (_error) {
+    } catch {
         return 'popularity';
     }
 }
@@ -24,7 +32,7 @@ export function loadAnimeSortOrder(): AnimeSortOrder {
 export function saveAnimeSortOrder(value: AnimeSortOrder): void {
     try {
         localStorage.setItem(storageKey, value);
-    } catch (_error) {
+    } catch {
         // The current selection remains usable when storage is unavailable.
     }
 }
@@ -42,8 +50,28 @@ export function loadAnimeReturnPosition(): AnimeReturnPosition | null {
         ) {
             return null;
         }
-        return { ...(value as Omit<AnimeReturnPosition, 'watchingOnly'>), watchingOnly: value.watchingOnly === true };
-    } catch (_error) {
+        const annictId = value.annictId as number;
+        const year = value.year as number;
+        const seasonName = value.seasonName as string;
+        const showNonTv = value.showNonTv as boolean;
+        const filterKeyword = value.filterKeyword as string;
+        const mode = value.mode === 'rerun' || value.mode === 'initial' ? value.mode : undefined;
+        const scrollY = typeof value.scrollY === 'number' && Number.isFinite(value.scrollY) && value.scrollY >= 0 ? value.scrollY : undefined;
+        const listLocationKey = typeof value.listLocationKey === 'string' && value.listLocationKey.length > 0 ? value.listLocationKey : undefined;
+        const anchorTop = typeof value.anchorTop === 'number' && Number.isFinite(value.anchorTop) ? value.anchorTop : undefined;
+        return {
+            annictId,
+            year,
+            seasonName,
+            showNonTv,
+            watchingOnly: value.watchingOnly === true,
+            filterKeyword,
+            ...(mode === undefined ? {} : { mode }),
+            ...(scrollY === undefined ? {} : { scrollY }),
+            ...(listLocationKey === undefined ? {} : { listLocationKey }),
+            ...(anchorTop === undefined ? {} : { anchorTop }),
+        };
+    } catch {
         return null;
     }
 }
@@ -51,7 +79,15 @@ export function loadAnimeReturnPosition(): AnimeReturnPosition | null {
 export function saveAnimeReturnPosition(value: AnimeReturnPosition): void {
     try {
         sessionStorage.setItem(returnPositionStorageKey, JSON.stringify(value));
-    } catch (_error) {
+    } catch {
+        // Session storageが利用できない場合も通常のページ遷移は継続する。
+    }
+}
+
+export function clearAnimeReturnPosition(): void {
+    try {
+        sessionStorage.removeItem(returnPositionStorageKey);
+    } catch {
         // Session storageが利用できない場合も通常のページ遷移は継続する。
     }
 }

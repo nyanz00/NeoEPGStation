@@ -50,6 +50,9 @@ thumbnailSize: 480x270
 thumbnailPosition: 5
 channelLogo: '%ROOT%/channel-logo'
 
+# VOD HLS・字幕準備・Web再生変換の一時ファイル保存先。未指定時はOSの一時ディレクトリを使用します。
+# temporaryDir: '/var/tmp/neoepgstation'
+
 ffmpeg: /usr/local/bin/ffmpeg
 ffprobe: /usr/local/bin/ffprobe
 

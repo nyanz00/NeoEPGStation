@@ -10,4 +10,9 @@ export default interface IStorageApiModel {
         category: apid.SystemLogCategory,
         lineLimit: number,
     ): Promise<apid.SystemLogInfo>;
+    setLogLevel(
+        source: apid.SystemLogSource,
+        category: apid.SystemLogCategory,
+        level: apid.SystemLogLevel,
+    ): Promise<apid.SystemLogLevelSetting>;
 }

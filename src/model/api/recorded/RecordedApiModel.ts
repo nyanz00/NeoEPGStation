@@ -485,6 +485,10 @@ export default class RecordedApiModel implements IRecordedApiModel {
         return process.platform === 'win32' ? resolved.toLocaleLowerCase() : resolved;
     }
 
+    public getLatestCleanupPlan(): Promise<apid.RecordedCleanupPlanResult | null> {
+        return this.ipc.recorded.getLatestCleanupPlan();
+    }
+
     public createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult> {
         return this.ipc.recorded.createCleanupPlan();
     }

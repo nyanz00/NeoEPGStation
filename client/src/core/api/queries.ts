@@ -60,6 +60,8 @@ import type {
     SystemGpuList,
     SystemLogCategory,
     SystemLogInfo,
+    SystemLogLevel,
+    SystemLogLevelSetting,
     SystemLogSource,
     SystemMirakurunInfo,
     SystemResourceInfo,
@@ -338,11 +340,15 @@ export const api = {
     async getRecordedSearchOptions(): Promise<RecordedSearchOptions> {
         return (await apiClient.get<RecordedSearchOptions>('/recorded/options')).data;
     },
+    async getLatestRecordedCleanupPlan(): Promise<RecordedCleanupPlanResult | null> {
+        const response = await apiClient.get<RecordedCleanupPlanResult>('/recorded/cleanupPlan');
+        return response.status === 204 ? null : response.data;
+    },
     async createRecordedCleanupPlan(): Promise<RecordedCleanupPlanResult> {
-        return (await apiClient.post<RecordedCleanupPlanResult>('/recorded/cleanupPlan')).data;
+        return (await apiClient.post<RecordedCleanupPlanResult>('/recorded/cleanupPlan', undefined, { timeout: 0 })).data;
     },
     async executeRecordedCleanupPlan(planPath: string): Promise<RecordedCleanupExecuteResult> {
-        return (await apiClient.post<RecordedCleanupExecuteResult>('/recorded/cleanupExecute', { planPath })).data;
+        return (await apiClient.post<RecordedCleanupExecuteResult>('/recorded/cleanupExecute', { planPath }, { timeout: 0 })).data;
     },
     async uploadVideo(option: UploadVideoFileOption): Promise<void> {
         const form = new FormData();
@@ -412,6 +418,9 @@ export const api = {
     },
     async getSystemLog(source: SystemLogSource, category: SystemLogCategory, lines: number = 500): Promise<SystemLogInfo> {
         return (await apiClient.get<SystemLogInfo>('/system/logs', { params: { source, category, lines } })).data;
+    },
+    async setSystemLogLevel(source: SystemLogSource, category: SystemLogCategory, level: SystemLogLevel): Promise<SystemLogLevelSetting> {
+        return (await apiClient.put<SystemLogLevelSetting>('/system/logs', { source, category, level })).data;
     },
     async getSystemGpus(): Promise<SystemGpuList> {
         return (await apiClient.get<SystemGpuList>('/system/gpus')).data;

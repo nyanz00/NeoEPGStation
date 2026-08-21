@@ -2746,6 +2746,7 @@ components:
             required:
                 - source
                 - category
+                - level
                 - fileName
                 - exists
                 - size
@@ -2765,6 +2766,8 @@ components:
                         - access
                         - stream
                         - encode
+                level:
+                    $ref: '#/components/schemas/SystemLogLevel'
                 fileName:
                     type: string
                 exists:
@@ -2782,6 +2785,41 @@ components:
                 truncated:
                     description: 指定行数より古いログが存在するか
                     type: boolean
+
+        SystemLogLevel:
+            type: string
+            enum:
+                - trace
+                - debug
+                - info
+                - warn
+                - error
+                - fatal
+                - off
+
+        SystemLogLevelSetting:
+            description: プロセス・ログ種別ごとの実行時ログレベル
+            type: object
+            required:
+                - source
+                - category
+                - level
+            properties:
+                source:
+                    type: string
+                    enum:
+                        - Operator
+                        - Service
+                        - EPGUpdater
+                category:
+                    type: string
+                    enum:
+                        - system
+                        - access
+                        - stream
+                        - encode
+                level:
+                    $ref: '#/components/schemas/SystemLogLevel'
 
         SystemMirakurunChannel:
             description: Mirakurunが選局中のチャンネル

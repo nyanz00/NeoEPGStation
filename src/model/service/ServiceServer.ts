@@ -303,18 +303,16 @@ class ServiceServer implements IServiceServer {
             const socketioPort =
                 typeof this.config.socketioPort !== 'undefined' ? this.config.socketioPort : this.config.port;
 
-            const server = this.app.listen(this.config.port, () => {
-                this.log.system.info(`http server listening on ${this.config.port}`);
-            });
+            const server = this.app.listen(this.config.port);
+            await this.waitForListening(server, `http server listening on ${this.config.port}`);
 
             // socket.io
             if (socketioPort === this.config.port) {
                 socketioServers.push(server);
             } else {
                 const socketIOServer = http.createServer();
-                socketIOServer.listen(this.config.socketioPort, () => {
-                    this.log.system.info(`http SocketIO listening on ${this.config.socketioPort}`);
-                });
+                socketIOServer.listen(this.config.socketioPort);
+                await this.waitForListening(socketIOServer, `http SocketIO listening on ${this.config.socketioPort}`);
 
                 socketioServers.push(socketIOServer);
             }
@@ -339,11 +337,8 @@ class ServiceServer implements IServiceServer {
             }
 
             const httpsServer = https.createServer(option, this.app);
-            httpsServer.listen(this.config.https.port, () => {
-                if (typeof this.config.https !== 'undefined') {
-                    this.log.system.info(`https server listening on ${this.config.https.port}`);
-                }
-            });
+            httpsServer.listen(this.config.https.port);
+            await this.waitForListening(httpsServer, `https server listening on ${this.config.https.port}`);
 
             // socket.io
             if (typeof this.config.https.socketioPort === 'undefined') {
@@ -351,9 +346,11 @@ class ServiceServer implements IServiceServer {
             } else {
                 const socketIOServer = https.createServer(option);
                 socketioServers.push(socketIOServer);
-                socketIOServer.listen(this.config.https.socketioPort, () => {
-                    this.log.system.info(`https SocketIO listening on ${this.config.socketioPort}`);
-                });
+                socketIOServer.listen(this.config.https.socketioPort);
+                await this.waitForListening(
+                    socketIOServer,
+                    `https SocketIO listening on ${this.config.https.socketioPort}`,
+                );
             }
         }
 
@@ -369,7 +366,7 @@ class ServiceServer implements IServiceServer {
             );
             try {
                 const certificate = await this.tailscaleCertificateManager.initialize();
-                const servers = this.createTailscaleHttpsServers(certificate);
+                const servers = await this.createTailscaleHttpsServers(certificate);
                 this.tailscaleHttpsServers = servers.all;
                 this.socketIoManageModel.initialize(servers.socketio);
             } catch (err: any) {
@@ -382,14 +379,15 @@ class ServiceServer implements IServiceServer {
 
             this.tailscaleCertificateManager.start(certificate => {
                 if (this.tailscaleHttpsServers.length === 0) {
-                    try {
-                        const servers = this.createTailscaleHttpsServers(certificate);
-                        this.tailscaleHttpsServers = servers.all;
-                        this.socketIoManageModel.initialize(servers.socketio);
-                    } catch (err: any) {
-                        this.log.system.error('Tailscale HTTPS could not be started after certificate acquisition');
-                        this.log.system.error(err);
-                    }
+                    void this.createTailscaleHttpsServers(certificate)
+                        .then(servers => {
+                            this.tailscaleHttpsServers = servers.all;
+                            this.socketIoManageModel.initialize(servers.socketio);
+                        })
+                        .catch((err: any) => {
+                            this.log.system.error('Tailscale HTTPS could not be started after certificate acquisition');
+                            this.log.system.error(err);
+                        });
                     return;
                 }
 
@@ -411,10 +409,26 @@ class ServiceServer implements IServiceServer {
         }
     }
 
-    private createTailscaleHttpsServers(certificate: TailscaleCertificate): {
+    private waitForListening(server: http.Server | https.Server, message: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const onError = (err: Error): void => {
+                server.removeListener('listening', onListening);
+                reject(err);
+            };
+            const onListening = (): void => {
+                server.removeListener('error', onError);
+                this.log.system.info(message);
+                resolve();
+            };
+            server.once('error', onError);
+            server.once('listening', onListening);
+        });
+    }
+
+    private async createTailscaleHttpsServers(certificate: TailscaleCertificate): Promise<{
         all: https.Server[];
         socketio: https.Server[];
-    } {
+    }> {
         if (this.config.tailscaleHttps?.enabled !== true) {
             throw new Error('TailscaleHttpsIsNotEnabled');
         }
@@ -425,32 +439,39 @@ class ServiceServer implements IServiceServer {
         };
         const all: https.Server[] = [];
         const socketio: https.Server[] = [];
-        const httpsServer = https.createServer(option, this.app);
-        all.push(httpsServer);
-        httpsServer.listen(this.config.tailscaleHttps.port, () => {
-            if (this.config.tailscaleHttps?.enabled === true) {
-                this.log.system.info(
-                    `Tailscale https server listening on ${this.config.tailscaleHttps.port.toString(10)} for ${certificate.hostname}`,
+        try {
+            const httpsServer = https.createServer(option, this.app);
+            all.push(httpsServer);
+            httpsServer.listen(this.config.tailscaleHttps.port);
+            await this.waitForListening(
+                httpsServer,
+                `Tailscale https server listening on ${this.config.tailscaleHttps.port.toString(10)} for ${certificate.hostname}`,
+            );
+
+            if (typeof this.config.tailscaleHttps.socketioPort === 'undefined') {
+                socketio.push(httpsServer);
+            } else {
+                const socketIOServer = https.createServer(option);
+                all.push(socketIOServer);
+                socketio.push(socketIOServer);
+                socketIOServer.listen(this.config.tailscaleHttps.socketioPort);
+                await this.waitForListening(
+                    socketIOServer,
+                    `Tailscale https SocketIO listening on ${this.config.tailscaleHttps.socketioPort.toString(10)}`,
                 );
             }
-        });
 
-        if (typeof this.config.tailscaleHttps.socketioPort === 'undefined') {
-            socketio.push(httpsServer);
-        } else {
-            const socketIOServer = https.createServer(option);
-            all.push(socketIOServer);
-            socketio.push(socketIOServer);
-            socketIOServer.listen(this.config.tailscaleHttps.socketioPort, () => {
-                if (this.config.tailscaleHttps?.enabled === true) {
-                    this.log.system.info(
-                        `Tailscale https SocketIO listening on ${this.config.tailscaleHttps.socketioPort?.toString(10)}`,
-                    );
+            return { all, socketio };
+        } catch (err) {
+            for (const server of all) {
+                try {
+                    server.close();
+                } catch {
+                    // The server may have failed before it started listening.
                 }
-            });
+            }
+            throw err;
         }
-
-        return { all, socketio };
     }
 }
 

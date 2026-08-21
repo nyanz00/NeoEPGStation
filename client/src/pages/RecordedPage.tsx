@@ -102,6 +102,13 @@ const emptyFilters: RecordedFilters = {
     day: '',
 };
 
+function formatElapsedTime(totalSeconds: number): string {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':');
+}
+
 interface RecordedReturnPosition {
     url: string;
     recordedId: number;
@@ -535,6 +542,9 @@ export function RecordedPage(): ReactNode {
     const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false);
     const [cleanupPath, setCleanupPath] = useState('');
     const [cleanupPlan, setCleanupPlan] = useState<RecordedCleanupPlanResult | null>(null);
+    const [cleanupElapsedSeconds, setCleanupElapsedSeconds] = useState(0);
+    const cleanupAutofillAttemptedRef = useRef(false);
+    const cleanupAutofilledPathRef = useRef<string | null>(null);
     const specificMonthRef = useRef<HTMLInputElement>(null);
     const specificDayRef = useRef<HTMLInputElement>(null);
 
@@ -643,7 +653,16 @@ export function RecordedPage(): ReactNode {
         const query = params.toString();
         return `${location.pathname}${query.length > 0 ? `?${query}` : ''}`;
     }, [location.pathname, location.search]);
-    const [visibleRecordedListKey, setVisibleRecordedListKey] = useState(recordedListUrlKey);
+    const [visibleRecordedListKey, setVisibleRecordedListKey] = useState('');
+    const requestSignature = JSON.stringify(requestOption);
+    const recordedTransitionRef = useRef({ requestSignature: '', duration: 500 });
+    if (recordedTransitionRef.current.requestSignature !== requestSignature) {
+        recordedTransitionRef.current = {
+            requestSignature,
+            duration: queryClient.getQueryData(['recorded', requestOption]) === undefined ? 500 : 320,
+        };
+    }
+    const recordedListFadeDuration = recordedTransitionRef.current.duration;
     const records = useQuery({
         queryKey: ['recorded', requestOption],
         queryFn: () => api.getRecorded(requestOption),
@@ -749,10 +768,17 @@ export function RecordedPage(): ReactNode {
         },
         onSuccess: result => {
             setCleanupPlan(result);
+            cleanupAutofilledPathRef.current = result.planPath;
             setCleanupPath(result.planPath);
             notify(`削除候補をリストへ書き出しました（録画 ${result.recordedFileCount} 件、サムネイル ${result.thumbnailFileCount} 件）。`, 'success');
         },
         onError: error => notify(`クリーンアップ候補を作成できません: ${error.message}`, 'error'),
+    });
+    const latestCleanupPlan = useQuery({
+        queryKey: ['recorded-cleanup-plan'],
+        queryFn: api.getLatestRecordedCleanupPlan,
+        enabled: cleanupOpen,
+        staleTime: 0,
     });
     const executeCleanup = useMutation({
         mutationFn: async () => {
@@ -769,6 +795,40 @@ export function RecordedPage(): ReactNode {
         },
         onError: error => notify(`クリーンアップに失敗しました: ${error.message}`, 'error'),
     });
+    useEffect(() => {
+        if (!createCleanupPlan.isPending && !executeCleanup.isPending) {
+            setCleanupElapsedSeconds(0);
+            return;
+        }
+
+        const startedAt = Date.now();
+        setCleanupElapsedSeconds(0);
+        const timerId = window.setInterval(() => {
+            setCleanupElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+        }, 1_000);
+        return () => window.clearInterval(timerId);
+    }, [createCleanupPlan.isPending, executeCleanup.isPending]);
+    useEffect(() => {
+        if (!cleanupOpen) {
+            cleanupAutofillAttemptedRef.current = false;
+            return;
+        }
+        if (latestCleanupPlan.isFetching || cleanupAutofillAttemptedRef.current) return;
+
+        cleanupAutofillAttemptedRef.current = true;
+        const plan = latestCleanupPlan.data;
+        if (plan !== null && plan !== undefined) {
+            if (cleanupPath.length === 0 || cleanupPath === cleanupAutofilledPathRef.current) {
+                cleanupAutofilledPathRef.current = plan.planPath;
+                setCleanupPath(plan.planPath);
+                setCleanupPlan(plan);
+            }
+        } else if (cleanupPath === cleanupAutofilledPathRef.current) {
+            cleanupAutofilledPathRef.current = null;
+            setCleanupPath('');
+            setCleanupPlan(null);
+        }
+    }, [cleanupOpen, cleanupPath, latestCleanupPlan.data, latestCleanupPlan.isFetching]);
     const channelMap = useMemo(() => new Map(channels.data?.map(channel => [channel.id, channel.name])), [channels.data]);
     const recordedChannelOptions = useMemo(
         () =>
@@ -944,11 +1004,16 @@ export function RecordedPage(): ReactNode {
                 </MenuItem>
             </Menu>
             <Box
+                key={visibleRecordedListKey}
                 sx={{
                     p: 0.5,
                     opacity: isRecordedListVisible ? 1 : 0,
                     visibility: isRecordedListVisible ? 'visible' : 'hidden',
-                    transition: 'opacity 500ms ease',
+                    animation: isRecordedListVisible ? `recorded-list-fade-in ${recordedListFadeDuration}ms ease both` : 'none',
+                    '@keyframes recorded-list-fade-in': {
+                        from: { opacity: 0 },
+                        to: { opacity: 1 },
+                    },
                 }}
             >
                 {records.isPending ? (
@@ -1151,7 +1216,7 @@ export function RecordedPage(): ReactNode {
                                                 setFileTypeMenuOpen(false);
                                             }}
                                         >
-                                            選択を完了
+                                            完了
                                         </Button>
                                     </ListSubheader>
                                     <MenuItem value="__ts__">
@@ -1390,6 +1455,14 @@ export function RecordedPage(): ReactNode {
                             {createCleanupPlan.isPending ? '候補リスト作成中' : 'クリーンアップ実行中'}
                         </Typography>
                         <LinearProgress sx={{ mt: 3, height: 6, borderRadius: 1 }} />
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                            処理継続中・経過時間 {formatElapsedTime(cleanupElapsedSeconds)}
+                        </Typography>
+                        {createCleanupPlan.isPending && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                録画件数が多い場合、ファイル走査には時間がかかります。このままお待ちください。
+                            </Typography>
+                        )}
                     </DialogContent>
                 ) : (
                     <>
@@ -1399,7 +1472,7 @@ export function RecordedPage(): ReactNode {
                                 クリーンアップは、まず削除候補リストを書き出します。ファイルを確認して、消したくない行を削除してから実行してください。
                             </Typography>
                             <Button sx={{ px: 0 }} onClick={() => createCleanupPlan.mutate()}>
-                                候補リストを作成
+                                {cleanupPath.length > 0 ? '候補リストを再作成' : '候補リストを作成'}
                             </Button>
                             {cleanupPlan !== null && (
                                 <Box sx={{ mt: 1.5 }}>
@@ -1424,13 +1497,27 @@ export function RecordedPage(): ReactNode {
                             <TextField
                                 label="候補リストのパス"
                                 value={cleanupPath}
-                                onChange={event => setCleanupPath(event.target.value)}
+                                onChange={event => {
+                                    cleanupAutofilledPathRef.current = null;
+                                    setCleanupPlan(null);
+                                    setCleanupPath(event.target.value);
+                                }}
                                 fullWidth
                                 slotProps={{
                                     input: {
                                         endAdornment:
-                                            cleanupPath.length === 0 ? undefined : (
-                                                <IconButton size="small" aria-label="候補リストのパスを消去" onClick={() => setCleanupPath('')}>
+                                            latestCleanupPlan.isFetching && cleanupPath.length === 0 ? (
+                                                <CircularProgress size={20} />
+                                            ) : cleanupPath.length === 0 ? undefined : (
+                                                <IconButton
+                                                    size="small"
+                                                    aria-label="候補リストのパスを消去"
+                                                    onClick={() => {
+                                                        cleanupAutofilledPathRef.current = null;
+                                                        setCleanupPlan(null);
+                                                        setCleanupPath('');
+                                                    }}
+                                                >
                                                     <CloseOutlined fontSize="small" />
                                                 </IconButton>
                                             ),

@@ -78,6 +78,8 @@ function LivePlayer({
     forceSubtitleStroke,
     persistentBottomControls,
     showVolumePercent,
+    volumeBoostEnabled,
+    volumeBoostMaxPercent,
     sessionIdentity,
     onComment,
     onControlsVisibilityChange,
@@ -93,6 +95,8 @@ function LivePlayer({
     forceSubtitleStroke: boolean;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
+    volumeBoostEnabled: boolean;
+    volumeBoostMaxPercent: number;
     sessionIdentity: string;
     onComment: (comment: JikkyoComment) => void;
     onControlsVisibilityChange: (visible: boolean) => void;
@@ -129,6 +133,8 @@ function LivePlayer({
             isHevc,
             webkitPlaybackMode,
             forceSubtitleStroke,
+            volumeBoostEnabled,
+            volumeBoostMaxPercent,
             themeColor: theme.palette.primary.main,
             onReady: setVideo,
             onStateChange: setState,
@@ -163,6 +169,8 @@ function LivePlayer({
         src,
         sessionIdentity,
         theme.palette.primary.main,
+        volumeBoostEnabled,
+        volumeBoostMaxPercent,
     ]);
 
     useEffect(() => {
@@ -891,6 +899,8 @@ export function OnAirWatchPage(): ReactNode {
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
+                            volumeBoostEnabled={settings.watchVolumeBoostEnabled}
+                            volumeBoostMaxPercent={settings.watchVolumeBoostMaxPercent}
                             sessionIdentity={`${String(activeUser ?? 'none')}:${viewerProfile.profileId?.toString(10) ?? 'none'}:${viewerProfile.sessionToken ?? 'locked'}`}
                             onComment={receiveComment}
                             onControlsVisibilityChange={setOverlayVisible}

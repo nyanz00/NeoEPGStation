@@ -1408,10 +1408,18 @@ export interface SystemStorageVolumeList {
 
 export type SystemLogSource = 'Operator' | 'Service' | 'EPGUpdater';
 export type SystemLogCategory = 'system' | 'access' | 'stream' | 'encode';
+export type SystemLogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'off';
+
+export interface SystemLogLevelSetting {
+    source: SystemLogSource;
+    category: SystemLogCategory;
+    level: SystemLogLevel;
+}
 
 export interface SystemLogInfo {
     source: SystemLogSource;
     category: SystemLogCategory;
+    level: SystemLogLevel;
     fileName: string;
     exists: boolean;
     size: number;

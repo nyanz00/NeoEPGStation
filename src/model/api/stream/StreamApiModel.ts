@@ -6,6 +6,7 @@ import * as path from 'path';
 import { PassThrough, Readable } from 'stream';
 import * as apid from '../../../../api';
 import ProcessUtil from '../../../util/ProcessUtil';
+import { findMpegTsByteOffset } from '../../../util/MpegTsTimeUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IProgramDB from '../../db/IProgramDB';
 import IRecordedDB from '../../db/IRecordedDB';
@@ -205,7 +206,24 @@ interface RecordedVODHLSVideoInfoCacheEntry {
     promise: Promise<RecordedVODHLSVideoInfo>;
 }
 
+const VOD_HLS_SEEK_REBASE_MAX_GAP = 2;
+
+export const shouldRebaseRecordedVodHlsSession = (
+    startSequence: number,
+    highestReadySequence: number,
+    requestedSequence: number,
+    requestedSegmentExists: boolean,
+): boolean => {
+    if (requestedSequence < startSequence) return true;
+    if (requestedSegmentExists) return false;
+
+    // Keep the next couple of normal HLS read-ahead requests on the current
+    // process, but rebase a seek that skips over not-yet-generated segments.
+    return requestedSequence > Math.max(startSequence, highestReadySequence) + VOD_HLS_SEEK_REBASE_MAX_GAP;
+};
+
 interface RecordedVodHlsMuxSessionOption {
+    profileKey: string;
     config: ReturnType<IConfiguration['getConfig']>;
     videoInfo: RecordedVODHLSVideoInfo;
     segmentDuration: number;
@@ -216,10 +234,13 @@ interface RecordedVodHlsMuxSessionOption {
     preprocessor: ProcessUtil.Cmds;
     command: string;
     log: ILogger;
+    temporaryDir: string;
 }
 
 class RecordedVodHlsMuxSession {
     public lastAccess: number = Date.now();
+    public readonly profileKey: string;
+    public readonly startSequence: number;
 
     private static readonly SEGMENT_WAIT_TIMEOUT = 60 * 1000;
 
@@ -229,10 +250,16 @@ class RecordedVodHlsMuxSession {
     private fileStream: fs.ReadStream | null = null;
     private isCompleted: boolean = false;
     private startPromise: Promise<void> | null = null;
+    private highestReadySequence: number;
 
     constructor(option: RecordedVodHlsMuxSessionOption) {
         this.option = option;
-        this.directoryPromise = fs.promises.mkdtemp(path.join(os.tmpdir(), 'epgstation-vodhls-'));
+        this.profileKey = option.profileKey;
+        this.startSequence = option.startSequence;
+        this.highestReadySequence = option.startSequence - 1;
+        this.directoryPromise = fs.promises
+            .mkdir(option.temporaryDir, { recursive: true })
+            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-vodhls-')));
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -243,8 +270,22 @@ class RecordedVodHlsMuxSession {
 
         await this.start();
         const segmentPath = await this.waitSegmentFile(sequence);
+        const buffer = await fs.promises.readFile(segmentPath);
+        this.highestReadySequence = Math.max(this.highestReadySequence, sequence);
 
-        return fs.promises.readFile(segmentPath);
+        return buffer;
+    }
+
+    public async shouldRebase(sequence: number): Promise<boolean> {
+        const dir = await this.directoryPromise;
+        const segmentPath = path.join(dir, `segment-${sequence.toString(10)}.ts`);
+
+        return shouldRebaseRecordedVodHlsSession(
+            this.option.startSequence,
+            this.highestReadySequence,
+            sequence,
+            fs.existsSync(segmentPath),
+        );
     }
 
     public prefetch(_sequence: number): void {
@@ -259,6 +300,7 @@ class RecordedVodHlsMuxSession {
         const target = Math.min(Math.max(sequence, this.option.startSequence), this.option.segmentCount - 1);
         await this.start();
         await this.waitSegmentFile(target);
+        this.highestReadySequence = Math.max(this.highestReadySequence, target);
     }
 
     public keep(): void {
@@ -344,11 +386,11 @@ class RecordedVodHlsMuxSession {
         );
 
         this.processes.push(preProcessProcess, encodeProcess, hlsMuxProcess);
-        this.option.log.stream.info(
+        this.option.log.stream.debug(
             `create recorded VOD HLS TS continuous preprocessor: ${preprocessor.bin} ${preprocessor.args.join(' ')}`,
         );
-        this.option.log.stream.info(`create recorded VOD HLS TS continuous process: ${this.option.command}`);
-        this.option.log.stream.info(`create recorded VOD HLS TS muxer: ${config.ffmpeg}`);
+        this.option.log.stream.debug(`create recorded VOD HLS TS continuous process: ${this.option.command}`);
+        this.option.log.stream.debug(`create recorded VOD HLS TS muxer: ${config.ffmpeg}`);
 
         const captureProcess = (name: string, process: ChildProcess): void => {
             let stderr = '';
@@ -444,6 +486,7 @@ class RecordedVodHlsMuxSession {
 }
 
 interface EncodedVodHlsMuxSessionOption {
+    profileKey: string;
     config: ReturnType<IConfiguration['getConfig']>;
     videoInfo: RecordedVODHLSVideoInfo;
     segmentDuration: number;
@@ -457,10 +500,13 @@ interface EncodedVodHlsMuxSessionOption {
     subtitlePath?: string;
     subtitleStyle: SubtitleBurnInStyle;
     log: ILogger;
+    temporaryDir: string;
 }
 
 class EncodedVodHlsMuxSession {
     public lastAccess: number = Date.now();
+    public readonly profileKey: string;
+    public readonly startSequence: number;
 
     private static readonly SEGMENT_WAIT_TIMEOUT = 60 * 1000;
     private static readonly STDERR_TAIL_MAX_BYTES = 256 * 1024;
@@ -473,10 +519,16 @@ class EncodedVodHlsMuxSession {
     private isCompleted: boolean = false;
     private isStopping: boolean = false;
     private startPromise: Promise<void> | null = null;
+    private highestReadySequence: number;
 
     constructor(option: EncodedVodHlsMuxSessionOption) {
         this.option = option;
-        this.directoryPromise = fs.promises.mkdtemp(path.join(os.tmpdir(), 'epgstation-encoded-vodhls-'));
+        this.profileKey = option.profileKey;
+        this.startSequence = option.startSequence;
+        this.highestReadySequence = option.startSequence - 1;
+        this.directoryPromise = fs.promises
+            .mkdir(option.temporaryDir, { recursive: true })
+            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-encoded-vodhls-')));
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -487,8 +539,22 @@ class EncodedVodHlsMuxSession {
 
         await this.start();
         const segmentPath = await this.waitSegmentFile(sequence);
+        const buffer = await fs.promises.readFile(segmentPath);
+        this.highestReadySequence = Math.max(this.highestReadySequence, sequence);
 
-        return fs.promises.readFile(segmentPath);
+        return buffer;
+    }
+
+    public async shouldRebase(sequence: number): Promise<boolean> {
+        const dir = await this.directoryPromise;
+        const segmentPath = path.join(dir, `segment-${sequence.toString(10)}.ts`);
+
+        return shouldRebaseRecordedVodHlsSession(
+            this.option.startSequence,
+            this.highestReadySequence,
+            sequence,
+            fs.existsSync(segmentPath),
+        );
     }
 
     public prefetch(): void {
@@ -503,6 +569,7 @@ class EncodedVodHlsMuxSession {
         const target = Math.min(Math.max(sequence, this.option.startSequence), this.option.segmentCount - 1);
         await this.start();
         await this.waitSegmentFile(target);
+        this.highestReadySequence = Math.max(this.highestReadySequence, target);
     }
 
     public keep(): void {
@@ -566,7 +633,7 @@ class EncodedVodHlsMuxSession {
             inputPixelFormat: this.option.videoInfo.videoPixelFormat,
         });
 
-        this.option.log.stream.info(
+        this.option.log.stream.debug(
             `create recorded VOD HLS encoded continuous process: ${command.bin} ${command.args.join(' ')}`,
         );
 
@@ -646,7 +713,7 @@ class EncodedVodHlsMuxSession {
             outputPath,
         ];
 
-        this.option.log.stream.info(
+        this.option.log.stream.debug(
             `extract recorded VOD HLS subtitle: ${this.option.config.ffmpeg} ${args.join(' ')}`,
         );
 
@@ -1323,7 +1390,40 @@ export default class StreamApiModel implements IStreamApiModel {
 
         if (isEncodedVideo === true) {
             const streamOption = this.resolveEncodedVodHlsSubtitleOption(option);
-            const session = await this.getEncodedVodHlsSession(streamOption, videoInfo, segmentDuration);
+            const profileKey = this.createRecordedVodHlsSessionProfileKey(
+                streamOption,
+                videoInfo.filePath,
+                segmentDuration,
+            );
+            let session =
+                typeof option.vodSessionId === 'undefined'
+                    ? undefined
+                    : this.vodHlsClients.get(option.vodSessionId)?.session;
+            if (!(session instanceof EncodedVodHlsMuxSession) || session.profileKey !== profileKey) {
+                session = await this.findReusableRecordedVodHlsSession(
+                    this.encodedVodHlsSessions.values(),
+                    profileKey,
+                    sequence,
+                );
+            }
+            if (typeof session === 'undefined') {
+                session = await this.getEncodedVodHlsSession(streamOption, videoInfo, segmentDuration);
+            }
+            if (await session.shouldRebase(sequence)) {
+                const playPosition = sequence * segmentDuration;
+                session = await this.getEncodedVodHlsSession(
+                    {
+                        ...streamOption,
+                        playPosition: playPosition,
+                    },
+                    videoInfo,
+                    segmentDuration,
+                );
+                this.log.stream.info(
+                    `rebase recorded VOD HLS encoded session: videoFileId=${option.videoFileId.toString(10)}, ` +
+                        `sequence=${sequence.toString(10)}, position=${playPosition.toFixed(3)}`,
+                );
+            }
             this.registerRecordedVODHLSClient(streamOption.vodSessionId, session);
             const buffer = await session.getSegment(sequence);
 
@@ -1335,7 +1435,36 @@ export default class StreamApiModel implements IStreamApiModel {
             };
         }
 
-        const session = await this.getRecordedVodHlsSession(option, videoInfo, segmentDuration);
+        const profileKey = this.createRecordedVodHlsSessionProfileKey(option, videoInfo.filePath, segmentDuration);
+        let session =
+            typeof option.vodSessionId === 'undefined'
+                ? undefined
+                : this.vodHlsClients.get(option.vodSessionId)?.session;
+        if (!(session instanceof RecordedVodHlsMuxSession) || session.profileKey !== profileKey) {
+            session = await this.findReusableRecordedVodHlsSession(
+                this.recordedVodHlsSessions.values(),
+                profileKey,
+                sequence,
+            );
+        }
+        if (typeof session === 'undefined') {
+            session = await this.getRecordedVodHlsSession(option, videoInfo, segmentDuration);
+        }
+        if (await session.shouldRebase(sequence)) {
+            const playPosition = sequence * segmentDuration;
+            session = await this.getRecordedVodHlsSession(
+                {
+                    ...option,
+                    playPosition: playPosition,
+                },
+                videoInfo,
+                segmentDuration,
+            );
+            this.log.stream.info(
+                `rebase recorded VOD HLS TS session: videoFileId=${option.videoFileId.toString(10)}, ` +
+                    `sequence=${sequence.toString(10)}, position=${playPosition.toFixed(3)}`,
+            );
+        }
         this.registerRecordedVODHLSClient(option.vodSessionId, session);
         const buffer = await session.getSegment(sequence);
 
@@ -1370,6 +1499,14 @@ export default class StreamApiModel implements IStreamApiModel {
         session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession,
     ): void {
         if (typeof sessionId === 'undefined' || sessionId.length === 0 || sessionId.length > 128) return;
+        const current = this.vodHlsClients.get(sessionId)?.session;
+        if (current?.profileKey === session.profileKey && current.startSequence > session.startSequence) {
+            // A request for the old playback position can finish after a large
+            // forward seek. Serve that request, but do not let it move the client
+            // association backwards and make following requests rebase again.
+            session.keep();
+            return;
+        }
         this.vodHlsClients.set(sessionId, { session: session, lastAccess: Date.now() });
         this.managedVodHlsSessions.add(session);
         session.keep();
@@ -1380,6 +1517,21 @@ export default class StreamApiModel implements IStreamApiModel {
             if (client.session === session) return true;
         }
         return false;
+    }
+
+    private async findReusableRecordedVodHlsSession<T extends RecordedVodHlsMuxSession | EncodedVodHlsMuxSession>(
+        sessions: Iterable<T>,
+        profileKey: string,
+        sequence: number,
+    ): Promise<T | undefined> {
+        const candidates = [...sessions]
+            .filter(session => session.profileKey === profileKey)
+            .sort((left, right) => right.lastAccess - left.lastAccess);
+        for (const session of candidates) {
+            if ((await session.shouldRebase(sequence)) === false) return session;
+        }
+
+        return undefined;
     }
 
     private cleanupVodHlsSession(session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession): void {
@@ -1434,7 +1586,8 @@ export default class StreamApiModel implements IStreamApiModel {
     ): Promise<RecordedVodHlsMuxSession> {
         this.cleanupRecordedVodHlsSessions();
 
-        const sessionKey = this.createRecordedVodHlsSessionKey(option, videoInfo.filePath, segmentDuration);
+        const profileKey = this.createRecordedVodHlsSessionProfileKey(option, videoInfo.filePath, segmentDuration);
+        const sessionKey = this.createRecordedVodHlsSessionKey(option, profileKey, segmentDuration);
         await this.vodHlsCleanupPromises.get(`recorded:${sessionKey}`);
         const exists = this.recordedVodHlsSessions.get(sessionKey);
         if (typeof exists !== 'undefined') {
@@ -1463,9 +1616,15 @@ export default class StreamApiModel implements IStreamApiModel {
             start: startPosition,
         });
 
+        const pcrStartByte = await findMpegTsByteOffset(videoInfo.filePath, startPosition);
         const estimatedByte = Math.floor((videoInfo.size * startPosition) / videoInfo.duration);
-        const startByte = Math.max(0, estimatedByte - (estimatedByte % 188));
+        const startByte = pcrStartByte ?? Math.max(0, estimatedByte - (estimatedByte % 188));
+        this.log.stream.info(
+            `recorded VOD HLS TS seek: position=${startPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
+                `source=${pcrStartByte === null ? 'estimated' : 'pcr'}`,
+        );
         const session = new RecordedVodHlsMuxSession({
+            profileKey: profileKey,
             config: config,
             videoInfo: videoInfo,
             segmentDuration: segmentDuration,
@@ -1476,6 +1635,7 @@ export default class StreamApiModel implements IStreamApiModel {
             preprocessor: preprocessor,
             command: command,
             log: this.log,
+            temporaryDir: config.temporaryDir ?? os.tmpdir(),
         });
 
         this.recordedVodHlsSessions.set(sessionKey, session);
@@ -1491,7 +1651,8 @@ export default class StreamApiModel implements IStreamApiModel {
     ): Promise<EncodedVodHlsMuxSession> {
         this.cleanupEncodedVodHlsSessions();
 
-        const sessionKey = this.createRecordedVodHlsSessionKey(option, videoInfo.filePath, segmentDuration);
+        const profileKey = this.createRecordedVodHlsSessionProfileKey(option, videoInfo.filePath, segmentDuration);
+        const sessionKey = this.createRecordedVodHlsSessionKey(option, profileKey, segmentDuration);
         await this.vodHlsCleanupPromises.get(`encoded:${sessionKey}`);
         const exists = this.encodedVodHlsSessions.get(sessionKey);
         if (typeof exists !== 'undefined') {
@@ -1517,6 +1678,7 @@ export default class StreamApiModel implements IStreamApiModel {
         );
         const startPosition = startSequence * segmentDuration;
         const session = new EncodedVodHlsMuxSession({
+            profileKey: profileKey,
             config: this.configure.getConfig(),
             videoInfo: videoInfo,
             segmentDuration: segmentDuration,
@@ -1535,6 +1697,7 @@ export default class StreamApiModel implements IStreamApiModel {
                 outlineOpacityPercent: option.subtitleOutlineOpacity ?? 100,
             },
             log: this.log,
+            temporaryDir: this.configure.getConfig().temporaryDir ?? os.tmpdir(),
         });
 
         this.encodedVodHlsSessions.set(sessionKey, session);
@@ -1562,7 +1725,7 @@ export default class StreamApiModel implements IStreamApiModel {
         return option;
     }
 
-    private createRecordedVodHlsSessionKey(
+    private createRecordedVodHlsSessionProfileKey(
         option: apid.RecordedStreanOption,
         filePath: string,
         segmentDuration: number,
@@ -1581,8 +1744,15 @@ export default class StreamApiModel implements IStreamApiModel {
             option.subtitleOpacity ?? 100,
             option.subtitleOutlineSize ?? 100,
             option.subtitleOutlineOpacity ?? 100,
-            Math.max(0, Math.floor(option.playPosition / segmentDuration)),
         ].join('|');
+    }
+
+    private createRecordedVodHlsSessionKey(
+        option: apid.RecordedStreanOption,
+        profileKey: string,
+        segmentDuration: number,
+    ): string {
+        return `${profileKey}|${Math.max(0, Math.floor(option.playPosition / segmentDuration)).toString(10)}`;
     }
 
     private cleanupRecordedVodHlsSessions(): void {

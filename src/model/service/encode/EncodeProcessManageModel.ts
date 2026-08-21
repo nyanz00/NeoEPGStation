@@ -216,10 +216,11 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
      */
     private buildProcess(option: CreateProcessOption): ChildProcessInfo {
         let cmds: ProcessUtil.Cmds;
+        this.log.encode.debug(`build process: ${option.cmd}`);
         try {
             cmds = ProcessUtil.parseCmdStr(option.cmd);
         } catch (err: any) {
-            this.log.encode.error(`build process error: ${option.cmd}`);
+            this.log.encode.error('build process error');
             throw err;
         }
 

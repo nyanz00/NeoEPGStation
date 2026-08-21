@@ -14,6 +14,7 @@ import * as containerSetter from './model/ModelContainerSetter';
 import IRecordingManageModel from './model/operator/recording/IRecordingManageModel';
 import IReservationManageModel from './model/operator/reservation/IReservationManageModel';
 import IStorageManageModel from './model/operator/storage/IStorageManageModel';
+import { SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './model/service/ServiceProcess';
 import ProcessUtil from './util/ProcessUtil';
 install();
 
@@ -97,6 +98,7 @@ const runOperator = async () => {
 /**
  * Service 起動処理
  */
+const SERVICE_RESTART_LIMIT = 5;
 let serviceRestartCount = 0;
 const runService = async () => {
     const startedAt = Date.now();
@@ -110,10 +112,23 @@ const runService = async () => {
 
     const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
     let isRestartScheduled = false;
+    let resolveReady: () => void = () => {};
+    const ready = new Promise<void>(resolve => {
+        resolveReady = resolve;
+    });
     let lastHeartbeatAt = Date.now();
     let isHeartbeatTerminationStarted = false;
+    const stopWithoutRestart = (reason: string): void => {
+        log.system.fatal(reason);
+        log.system.fatal('stop NeoEPGStation without restarting service');
+        process.exitCode = 1;
+        setImmediate(() => process.exit(1));
+    };
     child.on('message', message => {
-        if ((message as any)?.type === 'heartbeat') lastHeartbeatAt = Date.now();
+        if (typeof message !== 'object' || message === null || !('type' in message)) return;
+        const serviceMessage = message as ServiceProcessMessage;
+        if (serviceMessage.type === 'heartbeat') lastHeartbeatAt = Date.now();
+        if (serviceMessage.type === 'ready') resolveReady();
     });
     const heartbeatMonitor = setInterval(() => {
         if (Date.now() - lastHeartbeatAt <= 20_000 || isHeartbeatTerminationStarted) return;
@@ -129,15 +144,25 @@ const runService = async () => {
         isRestartScheduled = true;
         const uptime = Date.now() - startedAt;
         serviceRestartCount = uptime >= 30_000 ? 0 : serviceRestartCount + 1;
+        if (serviceRestartCount >= SERVICE_RESTART_LIMIT) {
+            stopWithoutRestart(
+                `service process failed ${serviceRestartCount.toString(10)} times without staying up for 30 seconds: ${reason}`,
+            );
+            return;
+        }
         const delay = Math.min(30_000, 1_000 * 2 ** Math.min(serviceRestartCount, 5));
         log.system.fatal(`service process is down: ${reason}`);
         log.system.fatal(`restart service in ${delay.toString(10)} ms`);
         setTimeout(() => {
-            void runService();
+            void runService().then(resolveReady);
         }, delay);
     };
     child.once('exit', (code, signal) => {
         clearInterval(heartbeatMonitor);
+        if (code === SERVICE_EXIT_CODE_ADDRESS_IN_USE) {
+            stopWithoutRestart('service listen address is already in use');
+            return;
+        }
         scheduleRestart(`code=${code?.toString(10) ?? 'null'}, signal=${signal ?? 'null'}`);
     });
     child.once('error', err => {
@@ -159,7 +184,7 @@ const runService = async () => {
 
     log.system.info(`start service pid: ${child.pid}`);
 
-    // TODO ping pong
+    await ready;
 };
 
 /**

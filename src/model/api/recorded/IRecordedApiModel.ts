@@ -13,6 +13,7 @@ export default interface IRecordedApiModel {
     bulkChangeUser(option: apid.BulkUpdateRecordedUserOption): Promise<apid.BulkRecordedOperationResult>;
     getSubDirectories(): Promise<apid.RecordedSubDirectories>;
     moveToSubDirectory(option: apid.MoveRecordedSubDirectoryOption): Promise<apid.BulkRecordedOperationResult>;
+    getLatestCleanupPlan(): Promise<apid.RecordedCleanupPlanResult | null>;
     createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult>;
     executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult>;
     fileCleanup(): Promise<void>;

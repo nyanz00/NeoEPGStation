@@ -4,11 +4,13 @@ import * as path from 'path';
 import 'reflect-metadata';
 import { install } from 'source-map-support';
 import ILoggerModel from '../ILoggerModel';
+import IConfiguration from '../IConfiguration';
 import IAnnictApiModel from '../api/annict/IAnnictApiModel';
 import container from '../ModelContainer';
 import * as containerSetter from '../ModelContainerSetter';
 import IEncodeFinishModel from './encode/IEncodeFinishModel';
 import IServiceServer from './IServiceServer';
+import { isAddressInUseError, SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './ServiceProcess';
 install();
 
 containerSetter.set(container);
@@ -18,24 +20,25 @@ loggerModel.initialize(path.join(__dirname, '..', '..', '..', 'config', 'service
 
 const log = loggerModel.getLogger();
 let isFatalExitScheduled = false;
-const scheduleFatalExit = (): void => {
+const scheduleFatalExit = (err: unknown): void => {
     if (isFatalExitScheduled) return;
     isFatalExitScheduled = true;
-    setImmediate(() => process.exit(1));
+    const exitCode = isAddressInUseError(err) ? SERVICE_EXIT_CODE_ADDRESS_IN_USE : 1;
+    setImmediate(() => process.exit(exitCode));
 };
 process.on('uncaughtException', err => {
     log.system.fatal(`uncaughtException: ${err}`);
-    scheduleFatalExit();
+    scheduleFatalExit(err);
 });
 
 process.on('unhandledRejection', err => {
     log.system.fatal(`unhandledRejection: ${err}`);
-    scheduleFatalExit();
+    scheduleFatalExit(err);
 });
 
 if (typeof process.send === 'function') {
     const heartbeat = setInterval(() => {
-        process.send?.({ type: 'heartbeat' });
+        process.send?.({ type: 'heartbeat' } satisfies ServiceProcessMessage);
     }, 5_000);
     heartbeat.unref();
 }
@@ -50,12 +53,13 @@ const isProcessRunning = (pid: number): boolean => {
 };
 
 const cleanupVodHlsTempDirs = (): void => {
-    const tmpDir = os.tmpdir();
+    const tmpDir = container.get<IConfiguration>('IConfiguration').getConfig().temporaryDir ?? os.tmpdir();
     const webPlaybackPrefix = 'neoepgstation-web-playback-';
     const targetPrefixes = ['epgstation-vodhls-', 'epgstation-encoded-vodhls-', webPlaybackPrefix];
     const targetNames = new Set(['epgstation-vodhls-subtitles']);
     let removedCount = 0;
 
+    fs.mkdirSync(tmpDir, { recursive: true });
     for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
         if (
             entry.isDirectory() === false ||
@@ -92,11 +96,16 @@ const encodeFinishModel = container.get<IEncodeFinishModel>('IEncodeFinishModel'
 encodeFinishModel.set();
 
 const serviceServer = container.get<IServiceServer>('IServiceServer');
-void serviceServer.start().catch((err: any) => {
-    log.system.fatal(err);
-    console.error(err?.stack ?? err);
-    process.exit(1);
-});
+void serviceServer
+    .start()
+    .then(() => {
+        process.send?.({ type: 'ready' } satisfies ServiceProcessMessage);
+    })
+    .catch((err: any) => {
+        log.system.fatal(err);
+        console.error(err?.stack ?? err);
+        scheduleFatalExit(err);
+    });
 
 const annictApiModel = container.get<IAnnictApiModel>('IAnnictApiModel');
 let isAnnictRetryRunning = false;

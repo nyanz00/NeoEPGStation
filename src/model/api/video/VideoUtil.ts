@@ -20,9 +20,9 @@ interface PreparedSubtitleEntry {
 @injectable()
 export default class VideoUtil implements IVideoUtil {
     private static readonly PREPARED_SUBTITLE_TTL = 60 * 60 * 1000;
-    private static readonly PREPARED_SUBTITLE_ROOT = path.join(os.tmpdir(), 'epgstation-vodhls-subtitles');
 
     private config: IConfigFile;
+    private preparedSubtitleRoot: string;
     private videoFileDB: IVideoFileDB;
     private preparedSubtitles: Map<string, PreparedSubtitleEntry> = new Map();
     private preparedSubtitleKeysBySource: Map<string, string> = new Map();
@@ -33,6 +33,7 @@ export default class VideoUtil implements IVideoUtil {
         @inject('IVideoFileDB') videoFileDB: IVideoFileDB,
     ) {
         this.config = configuration.getConfig();
+        this.preparedSubtitleRoot = path.join(this.config.temporaryDir ?? os.tmpdir(), 'epgstation-vodhls-subtitles');
         this.videoFileDB = videoFileDB;
         this.cleanupPreparedSubtitleRoot();
     }
@@ -224,7 +225,7 @@ export default class VideoUtil implements IVideoUtil {
 
         this.cleanupPreparedSubtitles();
 
-        await fs.promises.mkdir(VideoUtil.PREPARED_SUBTITLE_ROOT, { recursive: true });
+        await fs.promises.mkdir(this.preparedSubtitleRoot, { recursive: true });
 
         const sourceStat = await fs.promises.stat(filePath);
         const sourceKey = [
@@ -262,7 +263,7 @@ export default class VideoUtil implements IVideoUtil {
         sourceKey: string,
     ): Promise<PreparedSubtitleInfo> {
         const key = crypto.randomBytes(16).toString('hex');
-        const outputPath = path.join(VideoUtil.PREPARED_SUBTITLE_ROOT, `${key}.ass`);
+        const outputPath = path.join(this.preparedSubtitleRoot, `${key}.ass`);
         const args = [
             '-hide_banner',
             '-loglevel',
@@ -373,7 +374,7 @@ export default class VideoUtil implements IVideoUtil {
     }
 
     private cleanupPreparedSubtitleRoot(): void {
-        fs.rmSync(VideoUtil.PREPARED_SUBTITLE_ROOT, { force: true, recursive: true });
+        fs.rmSync(this.preparedSubtitleRoot, { force: true, recursive: true });
     }
 
     private cleanupPreparedSubtitles(): void {

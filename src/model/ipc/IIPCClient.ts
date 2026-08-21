@@ -24,6 +24,7 @@ export interface IPCRecordedManageModel {
     createNewRecorded(option: apid.CreateNewRecordedOption): Promise<apid.RecordedId>;
     deleteVideoFile(videoFileId: apid.VideoFileId, isIgnoreProtection?: boolean): Promise<void>;
     changeProtect(recordedId: apid.RecordedId, isProtect: boolean): Promise<void>;
+    getLatestCleanupPlan(): Promise<apid.RecordedCleanupPlanResult | null>;
     createCleanupPlan(): Promise<apid.RecordedCleanupPlanResult>;
     executeCleanupPlan(planPath: string): Promise<apid.RecordedCleanupExecuteResult>;
     videoFileCleanup(): Promise<void>;
