@@ -1,5 +1,6 @@
 import { ChildProcess } from 'child_process';
 import * as events from 'events';
+import * as fs from 'fs';
 import * as iconv from 'iconv-lite';
 import { inject, injectable } from 'inversify';
 import * as net from 'net';
@@ -1429,6 +1430,11 @@ class EncoderModel implements IEncoderModel {
                 break;
             } catch (err: any) {
                 this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                if (this.lastEncoderMessage.startsWith('UnsafeAmatsukazeOutputDeletion:')) {
+                    this.log.encode.error(this.lastEncoderMessage);
+                    await this.childEndProcessing(1, null, outputFilePath);
+                    return;
+                }
                 this.progressInfo = {
                     percent: 0,
                     log: 'Amatsukazeの再起動復旧を再試行中',
@@ -1475,9 +1481,30 @@ class EncoderModel implements IEncoderModel {
             false,
         );
         if (candidate === null) return;
+        if (await this.isSameFile(candidate.path, inputFilePath)) {
+            throw new Error(`UnsafeAmatsukazeOutputDeletion: source file ${candidate.path}`);
+        }
+        if (['.ts', '.m2ts', '.mts'].includes(path.extname(candidate.path).toLowerCase())) {
+            throw new Error(`UnsafeAmatsukazeOutputDeletion: transport stream ${candidate.path}`);
+        }
 
         this.log.encode.warn(`delete interrupted Amatsukaze output: ${candidate.path}`);
         await FileUtil.unlink(candidate.path);
+    }
+
+    private async isSameFile(firstPath: string, secondPath: string): Promise<boolean> {
+        const normalize = (value: string): string => path.resolve(value).normalize('NFC').toLowerCase();
+        if (normalize(firstPath) === normalize(secondPath)) return true;
+
+        try {
+            const [firstRealPath, secondRealPath] = await Promise.all([
+                fs.promises.realpath(firstPath),
+                fs.promises.realpath(secondPath),
+            ]);
+            return normalize(firstRealPath) === normalize(secondRealPath);
+        } catch (err: any) {
+            return false;
+        }
     }
 
     private stopAmatsukazePushClient(): void {
