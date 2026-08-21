@@ -566,11 +566,21 @@ class EncodeManageModel implements IEncodeManageModel {
                     continue;
                 }
 
-                if (task.status === 'running' && encodeConfig.type === 'amatsukaze') {
-                    option.resumeExistingAmatsukaze = true;
+                const shouldRestartInterruptedAmatsukaze =
+                    encodeConfig.type === 'amatsukaze' &&
+                    (task.status === 'running' ||
+                        option.resumeExistingAmatsukaze === true ||
+                        option.restartInterruptedAmatsukaze === true);
+                if (shouldRestartInterruptedAmatsukaze) {
+                    // Amatsukaze task/console IDs can no longer be trusted after this process restarts.
+                    // The first restored task cancels the server-side unfinished snapshot, then every
+                    // persisted NeoEPGStation task is submitted again through the normal add flow.
+                    delete option.resumeExistingAmatsukaze;
+                    delete option.amatsukazeTaskId;
+                    option.restartInterruptedAmatsukaze = true;
                     option.recoveryStartedAt = Number(task.startedAt) || Number(task.updatedAt);
                     if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
-                    this.log.encode.info(`resume Amatsukaze task monitoring: ${task.encodeId}`);
+                    this.log.encode.warn(`restart interrupted Amatsukaze task from beginning: ${task.encodeId}`);
                 } else if (task.status === 'running') {
                     if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
                     this.log.encode.warn(`restart interrupted internal encode from beginning: ${task.encodeId}`);

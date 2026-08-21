@@ -377,8 +377,22 @@ export default class StorageApiModel implements IStorageApiModel {
             process.platform === 'win32' ? this.getWindowsGpuInfo() : Promise.resolve([]),
         ]);
         const sampledItems = this.mergeGpuInfo(nvidiaItems, windowsItems);
-        if (this.gpuDescriptors === null && sampledItems.length > 0) {
-            this.gpuDescriptors = sampledItems.map(({ name, memoryTotal }) => ({ name, memoryTotal }));
+        if (sampledItems.length > 0) {
+            if (this.gpuDescriptors === null) this.gpuDescriptors = [];
+            const sampledNameCounts = new Map<string, number>();
+            for (const { name, memoryTotal } of sampledItems) {
+                const normalizedName = this.normalizeGpuName(name);
+                const occurrence = sampledNameCounts.get(normalizedName) ?? 0;
+                sampledNameCounts.set(normalizedName, occurrence + 1);
+                const existing = this.gpuDescriptors.filter(
+                    descriptor => this.normalizeGpuName(descriptor.name) === normalizedName,
+                )[occurrence];
+                if (typeof existing === 'undefined') {
+                    this.gpuDescriptors.push({ name, memoryTotal });
+                } else if (existing.memoryTotal === undefined && memoryTotal !== undefined) {
+                    existing.memoryTotal = memoryTotal;
+                }
+            }
         }
         const items = this.mergeGpuSamples(sampledItems);
         this.gpuCache = { expiresAt: now + 10_000, items };

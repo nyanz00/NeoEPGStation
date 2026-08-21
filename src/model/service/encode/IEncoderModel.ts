@@ -4,6 +4,7 @@ export interface EncodeOption extends apid.AddEncodeProgramOption {
     encodeId: apid.EncodeId;
     /** Internal recovery metadata. It is never accepted from the public API. */
     resumeExistingAmatsukaze?: boolean;
+    restartInterruptedAmatsukaze?: boolean;
     amatsukazeTaskId?: number;
     recoveryStartedAt?: number;
     recoveryOutputFilePath?: string;

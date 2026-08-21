@@ -134,9 +134,12 @@ function PrimaryStorageSection({ items }: { items: StorageItem[] }): ReactNode {
                                     <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
                                         <Typography variant="subtitle2">使用済み容量の内訳</Typography>
                                         {breakdownPending && (
-                                            <Typography variant="caption" color="text.secondary">
-                                                更新中
-                                            </Typography>
+                                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    更新中
+                                                </Typography>
+                                                <CircularProgress size={12} thickness={5} />
+                                            </Stack>
                                         )}
                                     </Stack>
                                     <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>

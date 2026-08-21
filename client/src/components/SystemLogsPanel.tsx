@@ -122,47 +122,45 @@ export function SystemLogsPanel(): ReactNode {
             <Card variant="outlined">
                 <CardContent>
                     <Stack spacing={2}>
-                        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} sx={{ justifyContent: 'space-between' }}>
-                            <Box>
-                                <Typography variant="h5">EPGStationログ</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    最新ログを表示します。ログレベルは、選択中のプロセス・種類が実際に出力する閾値を変更します。
-                                </Typography>
-                            </Box>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                                <FormControlLabel
-                                    control={<Switch checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} />}
-                                    label={
-                                        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                                            {autoRefresh ? <PlayArrowOutlined fontSize="small" /> : <PauseOutlined fontSize="small" />}
-                                            <span>自動更新</span>
-                                        </Stack>
-                                    }
-                                />
-                                <FormControlLabel control={<Switch checked={followTail} onChange={event => setFollowTail(event.target.checked)} />} label="末尾を追従" />
-                                <TextField select label="表示件数" size="small" value={lineLimit} onChange={event => setLineLimit(Number(event.target.value))} sx={{ width: 120 }}>
-                                    {logLineLimitOptions.map(value => (
-                                        <MenuItem key={value} value={value}>
-                                            {value}行
-                                        </MenuItem>
-                                    ))}
-                                </TextField>
-                                <TextField
-                                    select
-                                    label="ログレベル"
-                                    size="small"
-                                    value={logs.data?.level ?? 'info'}
-                                    disabled={logs.isPending || updateLogLevel.isPending}
-                                    onChange={event => updateLogLevel.mutate(event.target.value as SystemLogLevel)}
-                                    sx={{ width: 120 }}
-                                >
-                                    {logLevelOptions.map(option => (
-                                        <MenuItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </MenuItem>
-                                    ))}
-                                </TextField>
-                            </Stack>
+                        <Box>
+                            <Typography variant="h5">EPGStationログ</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                最新ログを表示します。ログレベルは、選択中のプロセス・種類が実際に出力する閾値を変更します。
+                            </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: { xs: 'flex-start', lg: 'flex-end' }, flexWrap: 'wrap' }}>
+                            <FormControlLabel
+                                control={<Switch checked={autoRefresh} onChange={event => setAutoRefresh(event.target.checked)} />}
+                                label={
+                                    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                                        {autoRefresh ? <PlayArrowOutlined fontSize="small" /> : <PauseOutlined fontSize="small" />}
+                                        <span>自動更新</span>
+                                    </Stack>
+                                }
+                            />
+                            <FormControlLabel control={<Switch checked={followTail} onChange={event => setFollowTail(event.target.checked)} />} label="末尾を追従" />
+                            <TextField select label="表示件数" size="small" value={lineLimit} onChange={event => setLineLimit(Number(event.target.value))} sx={{ width: 120 }}>
+                                {logLineLimitOptions.map(value => (
+                                    <MenuItem key={value} value={value}>
+                                        {value}行
+                                    </MenuItem>
+                                ))}
+                            </TextField>
+                            <TextField
+                                select
+                                label="ログレベル"
+                                size="small"
+                                value={logs.data?.level ?? 'info'}
+                                disabled={logs.isPending || updateLogLevel.isPending}
+                                onChange={event => updateLogLevel.mutate(event.target.value as SystemLogLevel)}
+                                sx={{ width: 120 }}
+                            >
+                                {logLevelOptions.map(option => (
+                                    <MenuItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </MenuItem>
+                                ))}
+                            </TextField>
                         </Stack>
 
                         <Box>
