@@ -102,6 +102,13 @@ const emptyFilters: RecordedFilters = {
     day: '',
 };
 
+function formatElapsedTime(totalSeconds: number): string {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':');
+}
+
 interface RecordedReturnPosition {
     url: string;
     recordedId: number;
@@ -535,6 +542,7 @@ export function RecordedPage(): ReactNode {
     const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false);
     const [cleanupPath, setCleanupPath] = useState('');
     const [cleanupPlan, setCleanupPlan] = useState<RecordedCleanupPlanResult | null>(null);
+    const [cleanupElapsedSeconds, setCleanupElapsedSeconds] = useState(0);
     const specificMonthRef = useRef<HTMLInputElement>(null);
     const specificDayRef = useRef<HTMLInputElement>(null);
 
@@ -778,6 +786,19 @@ export function RecordedPage(): ReactNode {
         },
         onError: error => notify(`クリーンアップに失敗しました: ${error.message}`, 'error'),
     });
+    useEffect(() => {
+        if (!createCleanupPlan.isPending && !executeCleanup.isPending) {
+            setCleanupElapsedSeconds(0);
+            return;
+        }
+
+        const startedAt = Date.now();
+        setCleanupElapsedSeconds(0);
+        const timerId = window.setInterval(() => {
+            setCleanupElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+        }, 1_000);
+        return () => window.clearInterval(timerId);
+    }, [createCleanupPlan.isPending, executeCleanup.isPending]);
     const channelMap = useMemo(() => new Map(channels.data?.map(channel => [channel.id, channel.name])), [channels.data]);
     const recordedChannelOptions = useMemo(
         () =>
@@ -1404,6 +1425,14 @@ export function RecordedPage(): ReactNode {
                             {createCleanupPlan.isPending ? '候補リスト作成中' : 'クリーンアップ実行中'}
                         </Typography>
                         <LinearProgress sx={{ mt: 3, height: 6, borderRadius: 1 }} />
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                            処理継続中・経過時間 {formatElapsedTime(cleanupElapsedSeconds)}
+                        </Typography>
+                        {createCleanupPlan.isPending && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                録画件数が多い場合、ファイル走査には時間がかかります。このままお待ちください。
+                            </Typography>
+                        )}
                     </DialogContent>
                 ) : (
                     <>

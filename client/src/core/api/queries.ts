@@ -341,10 +341,10 @@ export const api = {
         return (await apiClient.get<RecordedSearchOptions>('/recorded/options')).data;
     },
     async createRecordedCleanupPlan(): Promise<RecordedCleanupPlanResult> {
-        return (await apiClient.post<RecordedCleanupPlanResult>('/recorded/cleanupPlan')).data;
+        return (await apiClient.post<RecordedCleanupPlanResult>('/recorded/cleanupPlan', undefined, { timeout: 0 })).data;
     },
     async executeRecordedCleanupPlan(planPath: string): Promise<RecordedCleanupExecuteResult> {
-        return (await apiClient.post<RecordedCleanupExecuteResult>('/recorded/cleanupExecute', { planPath })).data;
+        return (await apiClient.post<RecordedCleanupExecuteResult>('/recorded/cleanupExecute', { planPath }, { timeout: 0 })).data;
     },
     async uploadVideo(option: UploadVideoFileOption): Promise<void> {
         const form = new FormData();
