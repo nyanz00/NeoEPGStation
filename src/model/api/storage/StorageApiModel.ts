@@ -637,9 +637,11 @@ export default class StorageApiModel implements IStorageApiModel {
 
                         const pciAddress = path.basename(realDevicePath);
                         return {
-                            name:
-                                pciNames.get(pciAddress) ??
-                                this.getLinuxFallbackGpuName(normalizedVendorId, normalizedDeviceId),
+                            name: this.getLinuxGpuDisplayName(
+                                pciNames.get(pciAddress),
+                                normalizedVendorId,
+                                normalizedDeviceId,
+                            ),
                             devicePath,
                             vendorId: normalizedVendorId,
                         };
@@ -683,6 +685,13 @@ export default class StorageApiModel implements IStorageApiModel {
             '8086': 'Intel',
         };
         return `${vendorNames[vendorId] ?? 'GPU'} [${vendorId}:${deviceId}]`;
+    }
+
+    private getLinuxGpuDisplayName(pciName: string | undefined, vendorId: string, deviceId: string): string {
+        const marketingNames: Record<string, string> = {
+            '8086:0412': 'Intel HD Graphics 4600',
+        };
+        return marketingNames[`${vendorId}:${deviceId}`] ?? pciName ?? this.getLinuxFallbackGpuName(vendorId, deviceId);
     }
 
     private async getWindowsGpuInfo(): Promise<apid.SystemGpuInfo[]> {
