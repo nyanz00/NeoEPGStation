@@ -54,6 +54,15 @@ NeoEPGStationは、EPGStationのフロントエンドをvue2系からreactに移
     -   ~~[PostgreSQL](https://www.postgresql.org/) (version 9.5 以上)~~
 -   [FFmpeg](http://ffmpeg.org/)
 
+Web視聴で録画TSのサービスを抽出するにはtsreadexが必要です。Windowsでは配布済みバイナリを取得し、Linuxでは公式ソースを
+ビルドして、利用中のOSに合うファイルを自動配置できます。
+
+```
+$ npm run update-tsreadex
+```
+
+Linuxで実行する場合は、`git`、`make`、`g++`が必要です。
+
 sqlite3 パッケージのインストール時にバイナリが存在しなかった場合は次の環境も必要
 
 -   for Linux / macOS

@@ -18,7 +18,7 @@
         "validate-api": "node scripts/validate-openapi.js",
         "compile": "tsc",
         "watch": "tsc --watch",
-        "update-tsreadex": "powershell -ExecutionPolicy Bypass -File scripts/update-tsreadex.ps1",
+        "update-tsreadex": "node scripts/update-tsreadex.cjs",
         "orm-gen": "typeorm migration:generate src/db/migrations/${npm_config_db}/${npm_config_name} -d ./ormconfig.js",
         "orm-run": "typeorm migration:run -d ./ormconfig.js",
         "backup": "node dist/DBTools.js -m backup -o",

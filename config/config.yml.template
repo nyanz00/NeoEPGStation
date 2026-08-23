@@ -109,8 +109,8 @@ urlscheme:
 #     enabled: true
 #     encoder: QSVEncC
 #     qsvEncC: C:\qsvenc\QSVEncC64.exe
-#     # 未指定の場合は %ROOT%/thirdparty/tsreadex/tsreadex.exe を自動利用します。
-#     # tsreadex: C:\tsreadex\tsreadex.exe
+#     # 未指定の場合は %ROOT%/thirdparty/tsreadex/tsreadex.elf を自動利用します。
+#     # tsreadex: /opt/tsreadex/tsreadex
 #     defaultLiveQuality: 720p
 #     defaultRecordedQuality: 720p
 #     liveQualities:
