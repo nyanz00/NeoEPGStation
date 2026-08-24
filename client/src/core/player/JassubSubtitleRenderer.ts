@@ -60,6 +60,9 @@ export class JassubSubtitleRenderer {
             } as any,
             fallbackFont: 'noto sans jp',
             useLocalFonts: false,
+            // Keep the visible subtitle canvas readable so the player can
+            // composite ASS/SRT subtitles into overlay screenshots.
+            offscreenRender: false,
             onDemandRender: !isNicoJk,
             targetFps: isNicoJk ? 60 : 24,
         } as any);

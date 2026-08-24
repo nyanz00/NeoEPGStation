@@ -6,6 +6,12 @@ import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMute
 import type { WebKitPlaybackMode } from '../storage/settings';
 import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import { LiveJikkyoCommentCore } from './LiveJikkyoCommentCore';
+import {
+    downloadCompositeScreenshot,
+    DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
+    DPLAYER_COMPOSITE_SCREENSHOT_ICON,
+    type CompositeScreenshotDanmaku,
+} from './PlayerCompositeScreenshot';
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 
@@ -43,7 +49,7 @@ interface DPlayerInstance {
     danmaku?: {
         draw(comment: DPlayerDanmakuItem | DPlayerDanmakuItem[]): void;
         resize?: () => void;
-    };
+    } & CompositeScreenshotDanmaku;
     on(name: string, callback: () => void): void;
     destroy(): void;
 }
@@ -228,6 +234,13 @@ export class LiveMpegTsPlayerCore {
                     position: 'right',
                     click: () => this.restart(),
                 },
+                {
+                    name: DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
+                    ariaLabel: '字幕・danmaku付きスクリーンショット',
+                    icon: DPLAYER_COMPOSITE_SCREENSHOT_ICON,
+                    position: 'right',
+                    click: () => void this.captureCompositeScreenshot(),
+                },
             ],
             lang: 'ja-jp',
             live: true,
@@ -301,6 +314,20 @@ export class LiveMpegTsPlayerCore {
         this.bindPlayerEvents();
         this.initJikkyoCommentCore();
         this.startAppleAutoplay(storedMuted);
+    }
+
+    private async captureCompositeScreenshot(): Promise<void> {
+        if (this.player === null) return;
+        try {
+            await downloadCompositeScreenshot({
+                container: this.option.container,
+                video: this.player.video,
+                danmaku: this.player.danmaku,
+            });
+        } catch (error) {
+            this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
+            this.option.onWarn?.(error);
+        }
     }
 
     private bindPlayerEvents(): void {
