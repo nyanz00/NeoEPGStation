@@ -41,11 +41,11 @@
                     Object.entries(attributes).forEach(([name, value]) => link.setAttribute(name, value));
                     document.head.appendChild(link);
                 };
-                appendLink('app-manifest', 'manifest', `./${iconSet.manifest}?icon-set=${iconSetId}&v=2`, {
+                appendLink('app-manifest', 'manifest', `./${iconSet.manifest}?icon-set=${iconSetId}&v=3`, {
                     crossorigin: 'use-credentials',
                 });
-                appendLink('app-favicon', 'icon', `./icon/${iconSet.favicon}?v=2`);
-                appendLink('app-apple-touch-icon', 'apple-touch-icon', `./icon/${iconSet.ios}?v=2`, {
+                appendLink('app-favicon', 'icon', `./icon/${iconSet.favicon}?v=3`);
+                appendLink('app-apple-touch-icon', 'apple-touch-icon', `./icon/${iconSet.ios}?v=3`, {
                     sizes: '180x180',
                 });
             })();
