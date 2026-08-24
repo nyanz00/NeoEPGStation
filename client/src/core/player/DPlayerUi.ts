@@ -53,7 +53,7 @@ function isIPad(): boolean {
     return /iPad/i.test(navigator.userAgent) || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
 
-export function configureDPlayerUi(container: HTMLElement): HTMLElement {
+export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void): HTMLElement {
     const versionLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('.dplayer-menu-item a')).find(link => link.textContent?.trim().startsWith('DPlayer v'));
     if (versionLink !== undefined) {
         versionLink.href = DPLAYER_REPOSITORY_URL;
@@ -69,6 +69,19 @@ export function configureDPlayerUi(container: HTMLElement): HTMLElement {
     }
 
     configurePictureInPicture(container);
+
+    const settingButton = container.querySelector<HTMLElement>('.dplayer-setting-icon');
+    const settingBox = container.querySelector<HTMLElement>('.dplayer-setting-box');
+    settingButton?.addEventListener(
+        'click',
+        event => {
+            if (settingBox?.classList.contains('dplayer-setting-box-open') !== true) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closeSetting();
+        },
+        { capture: true },
+    );
 
     const volume = container.querySelector<HTMLElement>('.dplayer-volume');
     if (volume !== null && container.querySelector('.neo-player-volume-percent') === null) {

@@ -42,6 +42,9 @@ interface DPlayerInstance {
         hide(): void;
         isShow(): boolean;
     };
+    setting: {
+        hide(): void;
+    };
     volume(percentage?: number | string, nostorage?: boolean, nonotice?: boolean): number;
     notice(text: string): void;
     muted(muted?: boolean): boolean;
@@ -236,7 +239,7 @@ export class LiveMpegTsPlayerCore {
                 },
                 {
                     name: DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
-                    ariaLabel: '字幕・danmaku付きスクリーンショット',
+                    ariaLabel: '字幕付きスクリーンショット',
                     icon: DPLAYER_COMPOSITE_SCREENSHOT_ICON,
                     position: 'right',
                     click: () => void this.captureCompositeScreenshot(),
@@ -293,7 +296,7 @@ export class LiveMpegTsPlayerCore {
         };
         const storedMuted = getStoredPlayerMuted();
         this.player = new DPlayer(options) as DPlayerInstance;
-        this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container));
+        this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container, () => this.player?.setting.hide()));
         this.volumeController = new PlayerVolumeController({
             container: this.option.container,
             video: this.player.video,

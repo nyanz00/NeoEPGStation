@@ -1,6 +1,6 @@
 export const DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME = 'composite-screenshot';
 export const DPLAYER_COMPOSITE_SCREENSHOT_ICON =
-    '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 5.5 7.2 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h7M15.5 5.5 16.8 7H20a2 2 0 0 1 2 2v4"/><circle cx="12" cy="12" r="3.5"/><path d="M14 16h7M14 19h7"/></svg>';
+    '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M21 6h-3.2L16 4h-6v2h5.1L17 8h4v12H5v-9H3v9c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2M8 14c0 4.45 5.39 6.69 8.54 3.54S17.45 9 13 9c-2.76 0-5 2.24-5 5m5-3c1.64.05 2.95 1.36 3 3-.05 1.64-1.36 2.95-3 3-1.64-.05-2.95-1.36-3-3 .05-1.64 1.36-2.95 3-3M5 6h3V4H5V1H3v3H0v2h3v3h2"/></svg>';
 
 interface DanmakuCanvasItem {
     x: number;
