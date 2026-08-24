@@ -50,6 +50,7 @@ export default class StorageApiModel implements IStorageApiModel {
         hostname: string;
         platform: string;
         arch: string;
+        containerRuntime?: 'docker';
         cpuModel: string;
         logicalCores: number;
         totalMemory: number;
@@ -71,6 +72,7 @@ export default class StorageApiModel implements IStorageApiModel {
             hostname: os.hostname(),
             platform: `${os.type()} ${os.release()}`,
             arch: os.arch(),
+            containerRuntime: this.detectContainerRuntime(),
             cpuModel: cpus[0]?.model.trim() ?? 'Unknown CPU',
             logicalCores: cpus.length,
             totalMemory: os.totalmem(),
@@ -303,6 +305,7 @@ export default class StorageApiModel implements IStorageApiModel {
             hostname: this.systemDescriptor.hostname,
             platform: this.systemDescriptor.platform,
             arch: this.systemDescriptor.arch,
+            containerRuntime: this.systemDescriptor.containerRuntime,
             uptime: os.uptime(),
             sampledAt: Date.now(),
             cpu,
@@ -320,6 +323,13 @@ export default class StorageApiModel implements IStorageApiModel {
         };
         this.systemInfoCache = { expiresAt: Date.now() + 5_000, info };
         return info;
+    }
+
+    private detectContainerRuntime(): 'docker' | undefined {
+        if (process.env.NEOEPGSTATION_CONTAINER_RUNTIME === 'docker') return 'docker';
+        if (process.platform === 'linux' && fs.existsSync('/run/.containerenv')) return undefined;
+        if (process.platform === 'linux' && fs.existsSync('/.dockerenv')) return 'docker';
+        return undefined;
     }
 
     private async getCpuInfo(): Promise<apid.SystemCpuInfo> {

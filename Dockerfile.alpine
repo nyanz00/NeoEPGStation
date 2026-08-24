@@ -28,6 +28,7 @@ LABEL maintainer="l3tnun"
 RUN apk add --no-cache ffmpeg \
     && ln -sf /usr/bin/ffmpeg /usr/local/bin/ffmpeg \
     && ln -sf /usr/bin/ffprobe /usr/local/bin/ffprobe
+ENV NEOEPGSTATION_CONTAINER_RUNTIME=docker
 COPY --from=server-builder /app /app/
 COPY --from=client-builder /app/client /app/client/
 EXPOSE 8888

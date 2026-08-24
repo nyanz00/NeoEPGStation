@@ -2662,6 +2662,11 @@ components:
                     type: string
                 arch:
                     type: string
+                containerRuntime:
+                    description: コンテナ実行環境
+                    type: string
+                    enum:
+                        - docker
                 uptime:
                     description: OS稼働時間 (秒)
                     type: number

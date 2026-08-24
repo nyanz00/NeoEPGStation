@@ -48,6 +48,7 @@ RUN apt-get update \
     && ln -sf /usr/bin/ffmpeg /usr/local/bin/ffmpeg \
     && ln -sf /usr/bin/ffprobe /usr/local/bin/ffprobe \
     && rm -rf /var/lib/apt/lists/*
+ENV NEOEPGSTATION_CONTAINER_RUNTIME=docker
 COPY --from=server-builder /app /app/
 COPY --from=client-builder /app/client /app/client/
 EXPOSE 8888

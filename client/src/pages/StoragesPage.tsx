@@ -201,6 +201,7 @@ function ResourceSection({ system, gpuItems, gpuPending, gpuError }: ResourceSec
                 <Typography variant="h5">リソース</Typography>
                 <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
                     <Chip size="small" label={system.hostname} />
+                    {system.containerRuntime === 'docker' ? <Chip size="small" color="primary" variant="outlined" label="Docker" /> : null}
                     <Chip size="small" variant="outlined" label={`${system.platform} / ${system.arch}`} />
                 </Stack>
             </Stack>

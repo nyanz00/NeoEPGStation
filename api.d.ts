@@ -1380,6 +1380,7 @@ export interface SystemResourceInfo {
     hostname: string;
     platform: string;
     arch: string;
+    containerRuntime?: 'docker'; // コンテナ実行環境
     uptime: number;
     sampledAt: number;
     cpu: SystemCpuInfo;
