@@ -1,5 +1,5 @@
 # 詳細については、Dockerfile.debianのコメントを参照。
-FROM --platform=$BUILDPLATFORM node:18-alpine AS client-builder
+FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.23 AS client-builder
 COPY client/package*.json /app/client/
 WORKDIR /app/client
 RUN npm config set fetch-retries 10 \
@@ -9,11 +9,8 @@ RUN npm install --no-save --loglevel=info
 COPY . /app/
 RUN npm run build --loglevel=info
 
-FROM node:18-alpine3.19 AS server-builder
-RUN apk add --no-cache g++ make pkgconf python3 py3-pip
-# node-sqlite3 が依存する node-gyp が が依存する python3 の distutils 廃止に対応
-# node-sqlite3 が依存する node-gyp が v10 以上になれば不要になる
-RUN pip install --break-system-pack setuptools
+FROM node:24.18.0-alpine3.23 AS server-builder
+RUN apk add --no-cache g++ git make pkgconf python3
 WORKDIR /app
 COPY package*.json /app/
 ENV DOCKER="YES"
@@ -23,10 +20,14 @@ RUN npm config set fetch-retries 10 \
 RUN npm install --no-save --loglevel=info
 COPY . .
 RUN rm -rf client
+RUN npm run update-tsreadex
 RUN npm run build-server --loglevel=info
 
-FROM node:18-alpine
+FROM node:24.18.0-alpine3.23
 LABEL maintainer="l3tnun"
+RUN apk add --no-cache ffmpeg \
+    && ln -sf /usr/bin/ffmpeg /usr/local/bin/ffmpeg \
+    && ln -sf /usr/bin/ffprobe /usr/local/bin/ffprobe
 COPY --from=server-builder /app /app/
 COPY --from=client-builder /app/client /app/client/
 EXPOSE 8888

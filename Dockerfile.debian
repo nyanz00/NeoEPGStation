@@ -1,6 +1,6 @@
 # クライアントはプラットフォーム依存のコードを含まないため、BUILDPLATFORMでビルドした結果を
 # 全てのTARGETPLATFORMで再利用できる。これによりビルド時間を短縮できる。
-FROM --platform=$BUILDPLATFORM node:18-bookworm AS client-builder
+FROM --platform=$BUILDPLATFORM node:24.18.0-bookworm AS client-builder
 COPY client/package*.json /app/client/
 WORKDIR /app/client
 RUN npm config set fetch-retries 10 \
@@ -21,10 +21,11 @@ RUN npm run build --loglevel=info
 #
 # `npm run build-server`はプラットフォーム依存処理を含まないため、これをBUILDPLATFORMで実行すること
 # でビルド時間をさらに短縮可能だが、手順が煩雑で面倒なので現時点では行っていない。
-FROM node:18-bookworm AS server-builder
+FROM node:24.18.0-bookworm AS server-builder
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update
-RUN apt-get install -y build-essential python3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates git python3 \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package*.json /app/
 ENV DOCKER="YES"
@@ -36,10 +37,17 @@ RUN npm install --no-save --loglevel=info
 # をコピーする方法は，ファイルが追加された場合に変更する必要があるため採用しない。
 COPY . .
 RUN rm -rf client
+RUN npm run update-tsreadex
 RUN npm run build-server --loglevel=info
 
-FROM node:18-bookworm-slim
+FROM node:24.18.0-bookworm-slim
 LABEL maintainer="l3tnun"
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && ln -sf /usr/bin/ffmpeg /usr/local/bin/ffmpeg \
+    && ln -sf /usr/bin/ffprobe /usr/local/bin/ffprobe \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=server-builder /app /app/
 COPY --from=client-builder /app/client /app/client/
 EXPOSE 8888
