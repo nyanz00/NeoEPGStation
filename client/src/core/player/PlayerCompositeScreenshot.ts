@@ -23,19 +23,32 @@ export interface CompositeScreenshotOption {
 
 const MAX_CAPTURE_DIMENSION = 4_096;
 
+interface CaptureRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
 function isVisible(element: HTMLElement): boolean {
     const style = window.getComputedStyle(element);
     return style.display !== 'none' && style.visibility !== 'hidden' && Number.parseFloat(style.opacity || '1') > 0;
 }
 
-function drawCanvasLayer(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, rootRect: DOMRect, scale: number): void {
+function drawCanvasLayer(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, captureRect: CaptureRect, scale: number): void {
     if (!isVisible(canvas) || canvas.width <= 0 || canvas.height <= 0) return;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    context.drawImage(canvas, (rect.left - rootRect.left) * scale, (rect.top - rootRect.top) * scale, rect.width * scale, rect.height * scale);
+    context.drawImage(canvas, (rect.left - captureRect.left) * scale, (rect.top - captureRect.top) * scale, rect.width * scale, rect.height * scale);
 }
 
-function drawDanmaku(context: CanvasRenderingContext2D, rootRect: DOMRect, scale: number, container: HTMLElement, danmaku: CompositeScreenshotDanmaku | null | undefined): void {
+function drawDanmaku(
+    context: CanvasRenderingContext2D,
+    captureRect: CaptureRect,
+    scale: number,
+    container: HTMLElement,
+    danmaku: CompositeScreenshotDanmaku | null | undefined,
+): void {
     const layer = container.querySelector<HTMLElement>('.dplayer-danmaku');
     if (layer === null || !isVisible(layer) || danmaku?.canvasItems === undefined) return;
     const layerRect = layer.getBoundingClientRect();
@@ -45,18 +58,17 @@ function drawDanmaku(context: CanvasRenderingContext2D, rootRect: DOMRect, scale
     context.globalAlpha = Number.isFinite(opacity) ? opacity : 1;
     for (const item of danmaku.canvasItems) {
         if (item.bitmap.width <= 0 || item.bitmap.height <= 0) continue;
-        context.drawImage(
-            item.bitmap,
-            (layerRect.left - rootRect.left + item.x - item.bitmapPadding) * scale,
-            (layerRect.top - rootRect.top + item.y - item.bitmapPadding) * scale,
-            item.bitmapWidth * scale,
-            item.bitmapHeight * scale,
-        );
+        const left = layerRect.left - captureRect.left + item.x - item.bitmapPadding;
+        // A comment bitmap includes its own outline padding. Keep that padding
+        // and its lane origin inside the captured video instead of clipping it.
+        const layerTop = Math.max(0, layerRect.top - captureRect.top);
+        const top = Math.max(0, layerTop + item.y - item.bitmapPadding);
+        context.drawImage(item.bitmap, left * scale, top * scale, item.bitmapWidth * scale, item.bitmapHeight * scale);
     }
     context.restore();
 }
 
-function drawWebVttSubtitle(context: CanvasRenderingContext2D, container: HTMLElement, rootRect: DOMRect, scale: number): void {
+function drawWebVttSubtitle(context: CanvasRenderingContext2D, container: HTMLElement, captureRect: CaptureRect, scale: number): void {
     const subtitle = container.querySelector<HTMLElement>('.dplayer-subtitle');
     const text = subtitle?.textContent?.trim();
     if (subtitle === null || subtitle === undefined || text === undefined || text.length === 0 || !isVisible(subtitle)) return;
@@ -76,8 +88,8 @@ function drawWebVttSubtitle(context: CanvasRenderingContext2D, container: HTMLEl
     context.lineWidth = Math.max(2, fontSize * 0.08);
     context.strokeStyle = 'rgba(0, 0, 0, 0.75)';
     context.fillStyle = style.color || '#fff';
-    const x = (rect.left - rootRect.left + rect.width / 2) * scale;
-    const startY = (rect.top - rootRect.top) * scale;
+    const x = (rect.left - captureRect.left + rect.width / 2) * scale;
+    const startY = (rect.top - captureRect.top) * scale;
     lines.forEach((line, index) => {
         const y = startY + index * lineHeight;
         context.strokeText(line, x, y);
@@ -111,29 +123,30 @@ export async function downloadCompositeScreenshot(option: CompositeScreenshotOpt
 
     const root = container.querySelector<HTMLElement>('.dplayer-video-wrap-aspect');
     if (root === null) throw new Error('スクリーンショットの描画領域が見つかりません。');
-    const rootRect = root.getBoundingClientRect();
     const videoRect = video.getBoundingClientRect();
-    if (rootRect.width <= 0 || rootRect.height <= 0 || videoRect.width <= 0 || videoRect.height <= 0) {
+    if (videoRect.width <= 0 || videoRect.height <= 0) {
         throw new Error('スクリーンショットの描画領域を取得できません。');
     }
 
     const displayScale = Math.min(videoRect.width / video.videoWidth, videoRect.height / video.videoHeight);
     const videoWidth = video.videoWidth * displayScale;
     const videoHeight = video.videoHeight * displayScale;
-    const videoLeft = videoRect.left - rootRect.left + (videoRect.width - videoWidth) / 2;
-    const videoTop = videoRect.top - rootRect.top + (videoRect.height - videoHeight) / 2;
+    const captureRect: CaptureRect = {
+        left: videoRect.left + (videoRect.width - videoWidth) / 2,
+        top: videoRect.top + (videoRect.height - videoHeight) / 2,
+        width: videoWidth,
+        height: videoHeight,
+    };
     const nativeScale = 1 / displayScale;
-    const scale = Math.min(nativeScale, MAX_CAPTURE_DIMENSION / rootRect.width, MAX_CAPTURE_DIMENSION / rootRect.height);
+    const scale = Math.min(nativeScale, MAX_CAPTURE_DIMENSION / captureRect.width, MAX_CAPTURE_DIMENSION / captureRect.height);
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(rootRect.width * scale));
-    canvas.height = Math.max(1, Math.round(rootRect.height * scale));
+    canvas.width = Math.max(1, Math.round(captureRect.width * scale));
+    canvas.height = Math.max(1, Math.round(captureRect.height * scale));
     const context = canvas.getContext('2d');
     if (context === null) throw new Error('スクリーンショット用Canvasを初期化できませんでした。');
 
-    context.fillStyle = '#000';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(video, videoLeft * scale, videoTop * scale, videoWidth * scale, videoHeight * scale);
-    drawDanmaku(context, rootRect, scale, container, danmaku);
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    drawDanmaku(context, captureRect, scale, container, danmaku);
 
     const subtitleCanvases = [
         ...Array.from(root.children).filter((element): element is HTMLCanvasElement => element instanceof HTMLCanvasElement),
@@ -143,9 +156,9 @@ export async function downloadCompositeScreenshot(option: CompositeScreenshotOpt
     for (const subtitleCanvas of subtitleCanvases) {
         if (drawnCanvases.has(subtitleCanvas)) continue;
         drawnCanvases.add(subtitleCanvas);
-        drawCanvasLayer(context, subtitleCanvas, rootRect, scale);
+        drawCanvasLayer(context, subtitleCanvas, captureRect, scale);
     }
-    drawWebVttSubtitle(context, container, rootRect, scale);
+    drawWebVttSubtitle(context, container, captureRect, scale);
 
     const blob = await canvasToBlob(canvas);
     const url = URL.createObjectURL(blob);
