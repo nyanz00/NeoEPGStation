@@ -96,6 +96,10 @@ export interface AmatsukazeEncodeConfig {
     outputExtension?: string;
     outputNameMatch?: 'exact' | 'prefix';
     pendingTimeoutSec?: number;
+    pathMappings?: Array<{
+        from: string;
+        to: string;
+    }>;
 }
 
 /**

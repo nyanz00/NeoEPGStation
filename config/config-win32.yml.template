@@ -74,6 +74,11 @@ concurrentEncodeNum: 1
 #     finishDelaySec: 0
 #     stableSec: 10
 #     outputNameMatch: exact
+#     # NeoEPGStationとAmatsukaze Serverで同じファイルが異なるパスに見える場合に指定します。
+#     # AddTaskへ渡す入力・出力パスとTCP進捗のタスク照合に適用されます。
+#     pathMappings:
+#         - from: D:\Recorded # NeoEPGStationから見えるパス
+#           to: \\encode-server\Recorded # Amatsukaze Serverから見える同じ領域のパス
 #     # Progress, failure detection and cancellation use Amatsukaze GUI TCP push.
 #     pendingTimeoutSec: 300 # auto cancel after Amatsukaze pending; 0 disables
 

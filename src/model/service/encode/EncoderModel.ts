@@ -1108,6 +1108,14 @@ class EncoderModel implements IEncoderModel {
             outputFilePath !== null && typeof amatsukazeConfig !== 'undefined'
                 ? this.getAmatsukazeOutputDir(amatsukazeConfig, inputFilePath, outputFilePath)
                 : null;
+        const amatsukazeServerInputFilePath =
+            typeof amatsukazeConfig === 'undefined'
+                ? inputFilePath
+                : this.mapAmatsukazeServerPath(amatsukazeConfig, inputFilePath);
+        const amatsukazeServerOutputDir =
+            amatsukazeOutputDir === null || typeof amatsukazeConfig === 'undefined'
+                ? null
+                : this.mapAmatsukazeServerPath(amatsukazeConfig, amatsukazeOutputDir);
         const amatsukazeStartedAt = this.encodeOption.recoveryStartedAt ?? Date.now();
         if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
             try {
@@ -1148,7 +1156,7 @@ class EncoderModel implements IEncoderModel {
                     throw new Error(`AmatsukazeTemporaryOutputAlreadyExists: ${candidatePath}`);
                 }
             }
-            this.startAmatsukazePushClient(amatsukazeConfig, inputFilePath);
+            this.startAmatsukazePushClient(amatsukazeConfig, amatsukazeServerInputFilePath);
         }
 
         if (
@@ -1187,8 +1195,11 @@ class EncoderModel implements IEncoderModel {
 
         // プロセスの生成
         this.childProcess = await this.processManager.create({
-            input: inputFilePath,
-            output: outputFilePath,
+            input: typeof amatsukazeConfig === 'undefined' ? inputFilePath : amatsukazeServerInputFilePath,
+            output:
+                outputFilePath === null || typeof amatsukazeConfig === 'undefined'
+                    ? outputFilePath
+                    : this.mapAmatsukazeServerPath(amatsukazeConfig, outputFilePath),
             cmd: this.createEncodeCommand(encodeCmd.cmd, amatsukazeConfig),
             replace:
                 amatsukazeOutputDir === null || typeof amatsukazeConfig === 'undefined'
@@ -1198,7 +1209,7 @@ class EncoderModel implements IEncoderModel {
                           AMATSUKAZE_ROOT: amatsukazeConfig.root || '',
                           AMATSUKAZE_IP: amatsukazeConfig.ip || '127.0.0.1',
                           AMATSUKAZE_PORT: (amatsukazeConfig.port ?? 32768).toString(10),
-                          AMATSUKAZE_OUTPUT_DIR: amatsukazeOutputDir,
+                          AMATSUKAZE_OUTPUT_DIR: amatsukazeServerOutputDir,
                           AMATSUKAZE_PROFILE: amatsukazeConfig.profile || '',
                           AMATSUKAZE_PRIORITY: (amatsukazeConfig.priority ?? 3).toString(10),
                           AMATSUKAZE_PROC_MODE: amatsukazeConfig.procMode || 'auto',
@@ -1555,6 +1566,45 @@ class EncoderModel implements IEncoderModel {
 
     private replaceAmatsukazeOutputDirVariables(value: string, sourceDir: string, outputDir: string): string {
         return value.replace(/%SOURCE_DIR%/g, sourceDir).replace(/%OUTPUT_DIR%/g, outputDir);
+    }
+
+    private mapAmatsukazeServerPath(amatsukaze: AmatsukazeEncodeConfig, localPath: string): string {
+        const mappings = amatsukaze.pathMappings ?? [];
+        const resolvedLocalPath = path.resolve(localPath);
+        let matched: { from: string; to: string; relative: string } | null = null;
+
+        for (const mapping of mappings) {
+            if (
+                typeof mapping.from !== 'string' ||
+                mapping.from.length === 0 ||
+                typeof mapping.to !== 'string' ||
+                mapping.to.length === 0
+            ) {
+                continue;
+            }
+
+            const resolvedFrom = path.resolve(mapping.from);
+            const relative = path.relative(resolvedFrom, resolvedLocalPath);
+            const isInside =
+                relative.length === 0 ||
+                (relative !== '..' &&
+                    relative.startsWith(`..${path.sep}`) === false &&
+                    path.isAbsolute(relative) === false);
+            if (isInside === false || (matched !== null && resolvedFrom.length <= matched.from.length)) continue;
+
+            matched = {
+                from: resolvedFrom,
+                to: mapping.to,
+                relative,
+            };
+        }
+
+        if (matched === null) return localPath;
+        if (matched.relative.length === 0) return matched.to;
+
+        const isWindowsTarget = /^[a-zA-Z]:[\\/]/.test(matched.to) || /^\\\\/.test(matched.to);
+        const targetPath = isWindowsTarget ? path.win32 : path.posix;
+        return targetPath.join(matched.to, ...matched.relative.split(path.sep));
     }
 
     private createEncodeCommand(cmd: string | undefined, amatsukaze: AmatsukazeEncodeConfig | undefined): string {

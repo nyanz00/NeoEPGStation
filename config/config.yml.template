@@ -61,18 +61,28 @@ concurrentEncodeNum: 1
 
 # Amatsukaze AddTask integration common settings.
 # amatsukaze:
-#     addTaskPath: C:\Amatsukaze\exe_files\AmatsukazeAddTask.exe
-#     root: C:\Amatsukaze
+#     addTaskPath: /opt/amatsukaze/exe_files/AmatsukazeAddTask
+#     root: /opt/amatsukaze
 #     ip: 127.0.0.1
 #     port: 32768
 #     priority: 3
 #     noMove: true
 #     outputDirMode: encode # encode: EPGStation output folder, source: source TS folder
-#     temporaryOutputDir: C:\Amatsukaze\EPGStationTemp # optional: scan this folder, then move to the final folder
+#     temporaryOutputDir: /srv/amatsukaze-temp # optional: scan this folder, then move to the final folder
 #     waitIntervalSec: 10
 #     finishDelaySec: 30
 #     stableSec: 30
 #     outputNameMatch: exact
+#     # Dockerなど、NeoEPGStationとAmatsukaze Serverで同じファイルが異なるパスに見える場合に指定します。
+#     # AddTaskへ渡す入力・出力パスとTCP進捗のタスク照合に適用されます。
+#     pathMappings:
+#         - from: /app/recorded # NeoEPGStationから見えるパス
+#           to: /srv/recorded # Amatsukaze Serverから見える同じ領域のパス
+#     # DockerではAmatsukazeのディレクトリを /opt/amatsukaze へread-onlyでbind mountしてください。
+#     # ホスト側を更新すると、コンテナから使うAddTaskも同時に更新されます。
+#     # pathMappingsのto側もAddTaskから同じ絶対パスで見えるようにbind mountし、
+#     # NeoEPGStationコンテナとAmatsukaze Serverの双方から読み書きできる権限にしてください。
+#     # 例: /srv/recorded:/app/recorded と /srv/recorded:/srv/recorded
 #     # Progress, failure detection and cancellation use Amatsukaze GUI TCP push.
 #     pendingTimeoutSec: 300 # auto cancel after Amatsukaze pending; 0 disables
 
