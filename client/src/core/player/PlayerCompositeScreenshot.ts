@@ -98,9 +98,9 @@ function drawWebVttSubtitle(context: CanvasRenderingContext2D, container: HTMLEl
     context.restore();
 }
 
-function createFilename(): string {
+function createFilename(prefix: string): string {
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
-    return `Capture_Overlays_${timestamp}.png`;
+    return `${prefix}_${timestamp}.png`;
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -113,6 +113,29 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
             resolve(blob);
         }, 'image/png');
     });
+}
+
+async function downloadCanvas(canvas: HTMLCanvasElement, filename: string): Promise<void> {
+    const blob = await canvasToBlob(canvas);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = url;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export async function downloadVideoScreenshot(video: HTMLVideoElement): Promise<void> {
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) {
+        throw new Error('映像が表示されてからスクリーンショットを撮影してください。');
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (context === null) throw new Error('スクリーンショット用Canvasを初期化できませんでした。');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    await downloadCanvas(canvas, createFilename('Capture'));
 }
 
 export async function downloadCompositeScreenshot(option: CompositeScreenshotOption): Promise<void> {
@@ -160,11 +183,5 @@ export async function downloadCompositeScreenshot(option: CompositeScreenshotOpt
     }
     drawWebVttSubtitle(context, container, captureRect, scale);
 
-    const blob = await canvasToBlob(canvas);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.download = createFilename();
-    link.href = url;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    await downloadCanvas(canvas, createFilename('Capture_Overlays'));
 }

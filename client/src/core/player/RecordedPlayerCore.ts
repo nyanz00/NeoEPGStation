@@ -7,6 +7,7 @@ import type { WebKitPlaybackMode } from '../storage/settings';
 import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import {
     downloadCompositeScreenshot,
+    downloadVideoScreenshot,
     DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
     DPLAYER_COMPOSITE_SCREENSHOT_ICON,
     type CompositeScreenshotDanmaku,
@@ -273,7 +274,13 @@ export class RecordedPlayerCore {
         }
         const storedMuted = getStoredPlayerMuted();
         this.player = new DPlayer(options) as DPlayerInstance;
-        this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container, () => this.player?.setting.hide()));
+        this.option.onControlsPortalReady?.(
+            configureDPlayerUi(
+                this.option.container,
+                () => this.player?.setting.hide(),
+                () => void this.captureVideoScreenshot(),
+            ),
+        );
         this.volumeController = new PlayerVolumeController({
             container: this.option.container,
             video: this.player.video,
@@ -300,6 +307,16 @@ export class RecordedPlayerCore {
                 video: this.player.video,
                 danmaku: this.player.danmaku,
             });
+        } catch (error) {
+            this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
+            this.option.onError?.(error);
+        }
+    }
+
+    private async captureVideoScreenshot(): Promise<void> {
+        if (this.player === null) return;
+        try {
+            await downloadVideoScreenshot(this.player.video);
         } catch (error) {
             this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
             this.option.onError?.(error);

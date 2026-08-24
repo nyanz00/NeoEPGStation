@@ -53,7 +53,7 @@ function isIPad(): boolean {
     return /iPad/i.test(navigator.userAgent) || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
 
-export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void): HTMLElement {
+export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void, captureVideoScreenshot: () => void): HTMLElement {
     const versionLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('.dplayer-menu-item a')).find(link => link.textContent?.trim().startsWith('DPlayer v'));
     if (versionLink !== undefined) {
         versionLink.href = DPLAYER_REPOSITORY_URL;
@@ -69,6 +69,17 @@ export function configureDPlayerUi(container: HTMLElement, closeSetting: () => v
     }
 
     configurePictureInPicture(container);
+
+    const cameraButton = container.querySelector<HTMLElement>('.dplayer-camera-icon');
+    cameraButton?.addEventListener(
+        'click',
+        event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            captureVideoScreenshot();
+        },
+        { capture: true },
+    );
 
     const settingButton = container.querySelector<HTMLElement>('.dplayer-setting-icon');
     const settingBox = container.querySelector<HTMLElement>('.dplayer-setting-box');
