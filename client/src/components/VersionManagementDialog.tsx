@@ -56,6 +56,28 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         enabled: open,
         refetchInterval: query => (query.state.data?.job?.status === 'running' ? 2_000 : false),
     });
+    const job = info.data?.job;
+    const running = job?.status === 'running';
+    useEffect(() => {
+        if (!open || running) return;
+        let cancelled = false;
+        const refreshRemote = (): void => {
+            void api
+                .getSystemUpdateInfo(true)
+                .then(data => {
+                    if (!cancelled) queryClient.setQueryData<SystemUpdateInfo>(['system-update'], data);
+                })
+                .catch(() => {
+                    // The regular query keeps its cached data and error handling available.
+                });
+        };
+        refreshRemote();
+        const timer = window.setInterval(refreshRemote, 60_000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [open, queryClient, running]);
     useEffect(() => {
         if (info.data?.rememberedPackageManager !== null && info.data?.rememberedPackageManager !== undefined) {
             setPackageManager(info.data.rememberedPackageManager);
@@ -80,9 +102,6 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         onSuccess: data => queryClient.setQueryData(['system-update'], data),
         onError: error => notify(`更新情報を再取得できませんでした: ${error.message}`, 'error'),
     });
-    const job = info.data?.job;
-    const running = job?.status === 'running';
-
     const begin = (target: SystemUpdateTarget): void => {
         const label = target === 'stable' ? info.data?.targets.stable?.label : info.data?.targets.develop?.label;
         const localChangeNotice = preserveLocalChanges ? '未コミットの変更は退避され、更新後のファイルで上書きされます。' : '';
