@@ -10,6 +10,7 @@ const {
     createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
 } = require('../../dist/model/update/UpdateCommand.js');
+const { shouldInstallUpdateDependencies } = require('../../dist/model/update/UpdateDependency.js');
 
 test('update API accepts only fixed target and package manager enums', () => {
     assert.equal(
@@ -64,6 +65,20 @@ test('package commands run non-interactively without discarding the service envi
         CI: 'true',
         COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
     });
+});
+
+test('first updater run skips install when dependency files are unchanged', () => {
+    const current = { packageManager: 'pnpm', nodeVersion: 'v24.18.0', dependencyHash: 'current' };
+    assert.equal(shouldInstallUpdateDependencies(false, current, {}), false);
+    assert.equal(shouldInstallUpdateDependencies(true, current, {}), true);
+});
+
+test('saved dependency environment changes still require install', () => {
+    const current = { packageManager: 'pnpm', nodeVersion: 'v24.18.0', dependencyHash: 'current' };
+    assert.equal(shouldInstallUpdateDependencies(false, current, current), false);
+    assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, packageManager: 'npm' }), true);
+    assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, nodeVersion: 'v22.22.0' }), true);
+    assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, dependencyHash: 'previous' }), true);
 });
 
 test('ANSI color sequences are removed from update logs', () => {

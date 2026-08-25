@@ -17,6 +17,7 @@ import {
     createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
 } from './UpdateCommand';
+import { shouldInstallUpdateDependencies } from './UpdateDependency';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -261,11 +262,15 @@ export default class UpdateManager {
                 (
                     await this.git(['diff', '--name-only', oldCommit, targetCommit, '--', ...DEPENDENCY_FILES])
                 ).stdout.trim() !== '';
-            const installRequired =
-                dependencyFilesChanged ||
-                this.state.packageManager !== manager ||
-                this.state.nodeVersion !== process.version ||
-                this.state.dependencyHash !== dependencyHash;
+            const installRequired = shouldInstallUpdateDependencies(
+                dependencyFilesChanged,
+                { packageManager: manager, nodeVersion: process.version, dependencyHash },
+                {
+                    packageManager: this.state.packageManager,
+                    nodeVersion: this.state.nodeVersion,
+                    dependencyHash: this.state.dependencyHash,
+                },
+            );
 
             this.setStage(job, 'switching', `更新先 ${remoteTarget.label} へ切り替えています`);
             if (job.target === 'develop') {
