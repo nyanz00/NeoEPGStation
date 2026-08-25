@@ -12,7 +12,11 @@ import type {
     SystemUpdateTarget,
 } from '../../../api';
 import { isExpectedUpdateRepository, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
-import { createUpdateCommandInvocation, stripUpdateLogControlSequences } from './UpdateCommand';
+import {
+    createUpdateCommandInvocation,
+    createUpdatePackageEnvironment,
+    stripUpdateLogControlSequences,
+} from './UpdateCommand';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -519,7 +523,8 @@ export default class UpdateManager {
         const display = `${command} ${args.join(' ')}`;
         if (this.state.job !== undefined) this.append(this.state.job, `$ ${display}`);
         try {
-            const result = await this.command(executable, args, cwd);
+            const environment = command === 'npm' || command === 'pnpm' ? createUpdatePackageEnvironment() : undefined;
+            const result = await this.command(executable, args, cwd, environment);
             if (this.state.job !== undefined) {
                 const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
                 if (output !== '') this.append(this.state.job, output);
@@ -583,10 +588,16 @@ export default class UpdateManager {
         }
     }
 
-    private async command(command: string, args: string[], cwd = this.rootDir): Promise<CommandResult> {
+    private async command(
+        command: string,
+        args: string[],
+        cwd = this.rootDir,
+        env?: NodeJS.ProcessEnv,
+    ): Promise<CommandResult> {
         const invocation = createUpdateCommandInvocation(command, args);
         const result = await execFile(invocation.command, invocation.args, {
             cwd,
+            env,
             timeout: COMMAND_TIMEOUT,
             windowsHide: true,
             maxBuffer: 16 * 1024 * 1024,

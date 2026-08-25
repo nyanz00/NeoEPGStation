@@ -7,6 +7,7 @@ const {
 } = require('../../dist/model/update/UpdateValidation.js');
 const {
     createUpdateCommandInvocation,
+    createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
 } = require('../../dist/model/update/UpdateCommand.js');
 
@@ -54,6 +55,14 @@ test('Windows command shims are launched through cmd.exe', () => {
     assert.deepEqual(createUpdateCommandInvocation('git.exe', ['status'], 'win32', 'C:\\Windows\\cmd.exe'), {
         command: 'git.exe',
         args: ['status'],
+    });
+});
+
+test('package commands run non-interactively without discarding the service environment', () => {
+    assert.deepEqual(createUpdatePackageEnvironment({ PATH: 'C:\\node', CI: 'false' }), {
+        PATH: 'C:\\node',
+        CI: 'true',
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
     });
 });
 
