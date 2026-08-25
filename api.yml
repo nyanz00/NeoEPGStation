@@ -2362,7 +2362,7 @@ components:
 
         SystemUpdateInfo:
             type: object
-            required: [version, commit, branch, currentTag, isGitRepository, isClean, packageManager, rememberedPackageManager, targets, hasStableUpdate, job]
+            required: [version, commit, branch, currentTag, isGitRepository, isClean, gitError, packageManager, rememberedPackageManager, targets, hasStableUpdate, job]
             properties:
                 version: { type: string }
                 commit: { type: string, nullable: true }
@@ -2370,6 +2370,7 @@ components:
                 currentTag: { type: string, nullable: true }
                 isGitRepository: { type: boolean }
                 isClean: { type: boolean }
+                gitError: { type: string, nullable: true }
                 packageManager: { type: string, enum: [npm, pnpm] }
                 rememberedPackageManager: { type: string, enum: [npm, pnpm], nullable: true }
                 targets:

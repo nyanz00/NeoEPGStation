@@ -1537,6 +1537,7 @@ export interface SystemUpdateInfo {
     currentTag: string | null;
     isGitRepository: boolean;
     isClean: boolean;
+    gitError: string | null;
     packageManager: Exclude<SystemUpdatePackageManager, 'auto'>;
     rememberedPackageManager: Exclude<SystemUpdatePackageManager, 'auto'> | null;
     targets: {

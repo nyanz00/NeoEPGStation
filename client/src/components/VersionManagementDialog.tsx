@@ -73,8 +73,11 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                     <Alert severity="error">更新情報を取得できませんでした: {info.error.message}</Alert>
                 ) : info.data !== undefined ? (
                     <Stack spacing={2.5}>
-                        {!info.data.isGitRepository && <Alert severity="warning">Git clone環境ではないためWeb UIから更新できません。</Alert>}
-                        {!info.data.isClean && <Alert severity="warning">未コミットの変更があるため更新できません。</Alert>}
+                        {info.data.gitError !== null && <Alert severity="error">Gitを実行できませんでした: {info.data.gitError}</Alert>}
+                        {info.data.gitError === null && !info.data.isGitRepository && <Alert severity="warning">Git clone環境ではないためWeb UIから更新できません。</Alert>}
+                        {info.data.gitError === null && info.data.isGitRepository && !info.data.isClean && (
+                            <Alert severity="warning">未コミットの変更があるため更新できません。</Alert>
+                        )}
                         {info.data.targets.error !== null && <Alert severity="warning">最新情報の取得に失敗したため前回の情報を表示しています: {info.data.targets.error}</Alert>}
                         <Box>
                             <Typography variant="overline" color="text.secondary">
@@ -97,7 +100,14 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             <Button
                                 variant="contained"
                                 startIcon={<SystemUpdateAltOutlined />}
-                                disabled={running || start.isPending || !info.data.isGitRepository || !info.data.isClean || info.data.targets.stable === null}
+                                disabled={
+                                    running ||
+                                    start.isPending ||
+                                    info.data.gitError !== null ||
+                                    !info.data.isGitRepository ||
+                                    !info.data.isClean ||
+                                    info.data.targets.stable === null
+                                }
                                 onClick={() => begin('stable')}
                             >
                                 安定版 {info.data.targets.stable?.label ?? '取得不可'} へ更新
@@ -105,7 +115,14 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             <Button
                                 variant="outlined"
                                 startIcon={<SystemUpdateAltOutlined />}
-                                disabled={running || start.isPending || !info.data.isGitRepository || !info.data.isClean || info.data.targets.develop === null}
+                                disabled={
+                                    running ||
+                                    start.isPending ||
+                                    info.data.gitError !== null ||
+                                    !info.data.isGitRepository ||
+                                    !info.data.isClean ||
+                                    info.data.targets.develop === null
+                                }
                                 onClick={() => begin('develop')}
                             >
                                 {info.data.targets.develop?.label ?? 'develop取得不可'} へ更新

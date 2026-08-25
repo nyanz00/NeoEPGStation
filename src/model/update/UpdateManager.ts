@@ -58,6 +58,7 @@ export default class UpdateManager {
     private readonly rootDir: string;
     private readonly updateDir: string;
     private readonly statePath: string;
+    private readonly gitExecutable: string;
     private state: PersistedState;
     private running = false;
 
@@ -70,6 +71,7 @@ export default class UpdateManager {
         this.rootDir = path.resolve(__dirname, '..', '..', '..');
         this.updateDir = path.join(this.rootDir, 'data', 'update');
         this.statePath = path.join(this.updateDir, 'state.json');
+        this.gitExecutable = this.resolveGitExecutable();
         this.state = this.readState();
         this.running = this.state.job?.status === 'running';
         if (this.running && this.state.job !== undefined) {
@@ -90,15 +92,24 @@ export default class UpdateManager {
     }
 
     public async getInfo(force = false): Promise<SystemUpdateInfo> {
-        const [version, commit, branch, clean, isGitRepository] = await Promise.all([
-            this.readPackageVersion(),
-            this.gitOptional(['rev-parse', 'HEAD']),
-            this.gitOptional(['branch', '--show-current']),
-            this.gitOptional(['status', '--porcelain']),
-            this.gitOptional(['rev-parse', '--is-inside-work-tree']),
-        ]);
+        const version = await this.readPackageVersion();
+        let commit: string | null = null;
+        let branch: string | null = null;
+        let clean: string | null = null;
+        let isGitRepository: string | null = null;
+        let gitError: string | null = null;
+        try {
+            [commit, branch, clean, isGitRepository] = await Promise.all([
+                this.gitRequiredText(['rev-parse', 'HEAD']),
+                this.gitRequiredText(['branch', '--show-current']),
+                this.gitRequiredText(['status', '--porcelain']),
+                this.gitRequiredText(['rev-parse', '--is-inside-work-tree']),
+            ]);
+        } catch (err) {
+            gitError = this.safeMessage(err);
+        }
         const targets = await this.getRemoteTargets(force);
-        const currentTag = await this.gitOptional(['describe', '--tags', '--exact-match']);
+        const currentTag = gitError === null ? await this.gitOptional(['describe', '--tags', '--exact-match']) : null;
         const currentComparable = this.parseVersion(currentTag ?? '') ?? this.parseVersion(version);
         const stableComparable = this.parseVersion(targets.stable?.version ?? '');
         const hasStableUpdate =
@@ -113,6 +124,7 @@ export default class UpdateManager {
             currentTag,
             isGitRepository: isGitRepository === 'true',
             isClean: clean === '',
+            gitError,
             packageManager: this.detectPackageManager(),
             rememberedPackageManager: this.state.preferredPackageManager ?? this.state.packageManager ?? null,
             targets,
@@ -302,8 +314,8 @@ export default class UpdateManager {
         }
         try {
             const [heads, tags] = await Promise.all([
-                this.command('git', ['ls-remote', '--heads', REPOSITORY_URL, 'develop']),
-                this.command('git', ['ls-remote', '--tags', REPOSITORY_URL]),
+                this.git(['ls-remote', '--heads', REPOSITORY_URL, 'develop']),
+                this.git(['ls-remote', '--tags', REPOSITORY_URL]),
             ]);
             const developMatch = /^([0-9a-f]{40})\s+refs\/heads\/develop$/im.exec(heads.stdout);
             const tagCommits = new Map<string, string>();
@@ -431,7 +443,11 @@ export default class UpdateManager {
     }
 
     private git(args: string[]): Promise<CommandResult> {
-        return this.command('git', args);
+        return this.command(this.gitExecutable, ['-c', `safe.directory=${this.rootDir}`, ...args]);
+    }
+
+    private async gitRequiredText(args: string[]): Promise<string> {
+        return (await this.git(args)).stdout.trim();
     }
 
     private async gitOptional(args: string[]): Promise<string | null> {
@@ -451,6 +467,50 @@ export default class UpdateManager {
             encoding: 'utf8',
         });
         return { stdout: result.stdout, stderr: result.stderr };
+    }
+
+    private resolveGitExecutable(): string {
+        if (process.platform !== 'win32') return 'git';
+        const userHome = this.findWindowsUserHome();
+        const candidates = [
+            process.env.ProgramFiles === undefined
+                ? null
+                : path.join(process.env.ProgramFiles, 'Git', 'cmd', 'git.exe'),
+            process.env['ProgramFiles(x86)'] === undefined
+                ? null
+                : path.join(process.env['ProgramFiles(x86)'], 'Git', 'cmd', 'git.exe'),
+            userHome === null ? null : path.join(userHome, 'AppData', 'Local', 'Programs', 'Git', 'cmd', 'git.exe'),
+            userHome === null ? null : path.join(userHome, 'scoop', 'apps', 'git', 'current', 'cmd', 'git.exe'),
+            this.findGitHubDesktopGit(userHome),
+        ];
+        return (
+            candidates.find((candidate): candidate is string => candidate !== null && fs.existsSync(candidate)) ??
+            'git.exe'
+        );
+    }
+
+    private findWindowsUserHome(): string | null {
+        const match = /^([A-Za-z]:\\Users\\[^\\]+)(?:\\|$)/i.exec(this.rootDir);
+        return match?.[1] ?? null;
+    }
+
+    private findGitHubDesktopGit(userHome: string | null): string | null {
+        if (userHome === null) return null;
+        const desktopRoot = path.join(userHome, 'AppData', 'Local', 'GitHubDesktop');
+        try {
+            const versions = fs
+                .readdirSync(desktopRoot, { withFileTypes: true })
+                .filter(entry => entry.isDirectory() && entry.name.startsWith('app-'))
+                .map(entry => entry.name)
+                .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+            for (const version of versions) {
+                const candidate = path.join(desktopRoot, version, 'resources', 'app', 'git', 'cmd', 'git.exe');
+                if (fs.existsSync(candidate)) return candidate;
+            }
+        } catch {
+            return null;
+        }
+        return null;
     }
 
     private async readPackageVersion(): Promise<string> {
