@@ -214,7 +214,7 @@ function LivePlayer({
                 '& .onair-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
                 '& .onair-dplayer .dplayer-danmaku': { zIndex: 2 },
                 '& .onair-dplayer .neo-player-arib-canvas': { zIndex: 3 },
-                '& .onair-dplayer .dplayer-controller-mask, & .onair-dplayer .dplayer-controller, & .onair-dplayer .dplayer-bezel, & .onair-dplayer .dplayer-setting-box, & .onair-dplayer .dplayer-comment-setting-box':
+                '& .onair-dplayer .dplayer-controller-mask, & .onair-dplayer .dplayer-controller, & .onair-dplayer .dplayer-bezel, & .onair-dplayer .dplayer-setting-box, & .onair-dplayer .dplayer-comment-setting-box, & .onair-dplayer .dplayer-notice':
                     {
                         zIndex: 4,
                     },

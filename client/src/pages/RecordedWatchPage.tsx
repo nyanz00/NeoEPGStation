@@ -362,7 +362,7 @@ function RecordedPlayer({
                     zIndex: 3,
                     pointerEvents: 'none',
                 },
-                '& .recorded-dplayer .dplayer-controller-mask, & .recorded-dplayer .dplayer-controller, & .recorded-dplayer .dplayer-bezel, & .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box':
+                '& .recorded-dplayer .dplayer-controller-mask, & .recorded-dplayer .dplayer-controller, & .recorded-dplayer .dplayer-bezel, & .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box, & .recorded-dplayer .dplayer-notice':
                     {
                         zIndex: 4,
                     },

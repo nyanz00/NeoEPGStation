@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SystemUpdateInfo, SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 
@@ -50,6 +50,8 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     const queryClient = useQueryClient();
     const [packageManager, setPackageManager] = useState<SystemUpdatePackageManager>('auto');
     const [preserveLocalChanges, setPreserveLocalChanges] = useState(false);
+    const logRef = useRef<HTMLPreElement>(null);
+    const followLogsRef = useRef(true);
     const info = useQuery({
         queryKey: ['system-update'],
         queryFn: () => api.getSystemUpdateInfo(false),
@@ -58,6 +60,14 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     });
     const job = info.data?.job;
     const running = job?.status === 'running';
+    useEffect(() => {
+        if (open) followLogsRef.current = true;
+    }, [job?.id, open]);
+    useEffect(() => {
+        const logElement = logRef.current;
+        if (logElement === null || !followLogsRef.current) return;
+        logElement.scrollTop = logElement.scrollHeight;
+    }, [job?.id, job?.logs.length, open]);
     useEffect(() => {
         if (!open || running) return;
         let cancelled = false;
@@ -110,17 +120,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     };
 
     return (
-        <Dialog
-            open={open}
-            onClose={running ? undefined : onClose}
-            fullWidth
-            maxWidth="md"
-            slotProps={{
-                paper: {
-                    sx: !start.isPending && (job === null || job === undefined) ? undefined : { height: 'calc(100dvh - 32px)' },
-                },
-            }}
-        >
+        <Dialog open={open} onClose={running ? undefined : onClose} fullWidth maxWidth="md">
             <DialogTitle>バージョン管理</DialogTitle>
             <DialogContent dividers sx={{ minHeight: 0 }}>
                 {info.isPending ? (
@@ -221,10 +221,17 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 {job.error !== null && <Alert severity={job.status === 'rolled-back' ? 'warning' : 'error'}>{job.error}</Alert>}
                                 {job.stashCommit !== null && <Alert severity="info">更新前のローカル変更はstash {job.stashCommit.slice(0, 12)} に保存されています。</Alert>}
                                 <Box
+                                    ref={logRef}
                                     component="pre"
+                                    onScroll={event => {
+                                        const logElement = event.currentTarget;
+                                        followLogsRef.current = logElement.scrollHeight - logElement.scrollTop - logElement.clientHeight < 24;
+                                    }}
                                     sx={{
                                         m: 0,
                                         p: 1.5,
+                                        height: 300,
+                                        minHeight: 300,
                                         maxHeight: 300,
                                         overflow: 'auto',
                                         bgcolor: 'background.default',
