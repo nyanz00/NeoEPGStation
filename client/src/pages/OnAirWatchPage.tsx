@@ -211,7 +211,13 @@ function LivePlayer({
                 '& .onair-dplayer.dplayer': { width: '100%', height: '100%', bgcolor: 'transparent' },
                 '& .onair-dplayer .dplayer-video-wrap': { bgcolor: '#000 !important' },
                 '& .onair-dplayer .dplayer-video-wrap-aspect, & .onair-dplayer video': { width: '100%', height: '100%' },
-                '& .onair-dplayer video': { objectFit: 'contain' },
+                '& .onair-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
+                '& .onair-dplayer .dplayer-danmaku': { zIndex: 2 },
+                '& .onair-dplayer .neo-player-arib-canvas': { zIndex: 3 },
+                '& .onair-dplayer .dplayer-controller-mask, & .onair-dplayer .dplayer-controller, & .onair-dplayer .dplayer-bezel, & .onair-dplayer .dplayer-setting-box, & .onair-dplayer .dplayer-comment-setting-box':
+                    {
+                        zIndex: 4,
+                    },
                 '& .onair-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
                     background: 'linear-gradient(to top, rgba(0,0,0,.86), transparent) !important',
@@ -884,11 +890,9 @@ export function OnAirWatchPage(): ReactNode {
                         minHeight: '100dvh',
                         height: { lg: '100dvh' },
                         display: 'grid',
-                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
+                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen || panelMounted ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
                         gridTemplateRows: { xs: 'auto auto', lg: 'minmax(0, 1fr)' },
                         overflow: { lg: 'hidden' },
-                        transition: theme => theme.transitions.create('grid-template-columns', { duration: 160, easing: theme.transitions.easing.easeInOut }),
-                        '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
                     }}
                 >
                     <Box
@@ -966,48 +970,50 @@ export function OnAirWatchPage(): ReactNode {
                         </LivePlayer>
                     </Box>
 
-                    {(panelOpen || panelMounted) && (
-                        <Box
-                            component="aside"
-                            data-testid="onair-program-panel"
-                            aria-hidden={!panelOpen}
-                            sx={{
-                                minHeight: 0,
-                                minWidth: 0,
-                                height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                color: 'text.primary',
-                                bgcolor: 'background.paper',
-                                borderLeft: { lg: 1 },
-                                borderTop: { xs: 1, lg: 0 },
-                                borderColor: 'divider',
-                                overflow: 'hidden',
-                                opacity: panelOpen ? 1 : 0,
-                                transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
-                                pointerEvents: panelOpen ? 'auto' : 'none',
-                                transition: theme =>
-                                    theme.transitions.create(['height', 'opacity', 'transform'], {
-                                        duration: 160,
-                                        easing: theme.transitions.easing.easeInOut,
-                                    }),
-                                '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
-                            }}
-                        >
-                            <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
-                            <BottomNavigation
-                                showLabels
-                                value={panelTab}
-                                onChange={(_event, value: PanelTab) => setPanelTab(value)}
-                                sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
-                            >
-                                <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
-                                <BottomNavigationAction value="channels" label="チャンネル" icon={<SensorsOutlined />} />
-                                <BottomNavigationAction value="comments" label="コメント" icon={<ChatBubbleOutlineOutlined />} />
-                                <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
-                            </BottomNavigation>
-                        </Box>
-                    )}
+                    <Box
+                        component="aside"
+                        data-testid="onair-program-panel"
+                        aria-hidden={!panelOpen}
+                        sx={{
+                            minHeight: 0,
+                            minWidth: 0,
+                            height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            color: 'text.primary',
+                            bgcolor: 'background.paper',
+                            borderLeft: { lg: panelOpen || panelMounted ? 1 : 0 },
+                            borderTop: { xs: panelOpen || panelMounted ? 1 : 0, lg: 0 },
+                            borderColor: 'divider',
+                            overflow: 'hidden',
+                            opacity: panelOpen ? 1 : 0,
+                            transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
+                            pointerEvents: panelOpen ? 'auto' : 'none',
+                            transition: theme =>
+                                theme.transitions.create(['height', 'opacity', 'transform'], {
+                                    duration: 160,
+                                    easing: theme.transitions.easing.easeInOut,
+                                }),
+                            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                        }}
+                    >
+                        {(panelOpen || panelMounted) && (
+                            <>
+                                <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
+                                <BottomNavigation
+                                    showLabels
+                                    value={panelTab}
+                                    onChange={(_event, value: PanelTab) => setPanelTab(value)}
+                                    sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
+                                >
+                                    <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
+                                    <BottomNavigationAction value="channels" label="チャンネル" icon={<SensorsOutlined />} />
+                                    <BottomNavigationAction value="comments" label="コメント" icon={<ChatBubbleOutlineOutlined />} />
+                                    <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
+                                </BottomNavigation>
+                            </>
+                        )}
+                    </Box>
                 </Box>
             )}
             <GuideProgramDialog

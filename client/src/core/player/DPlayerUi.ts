@@ -54,6 +54,8 @@ function isIPad(): boolean {
 }
 
 export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void, captureVideoScreenshot: () => void): HTMLElement {
+    container.querySelectorAll<HTMLCanvasElement>('.dplayer-video-wrap-aspect > canvas').forEach(canvas => canvas.classList.add('neo-player-arib-canvas'));
+
     const versionLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('.dplayer-menu-item a')).find(link => link.textContent?.trim().startsWith('DPlayer v'));
     if (versionLink !== undefined) {
         versionLink.href = DPLAYER_REPOSITORY_URL;

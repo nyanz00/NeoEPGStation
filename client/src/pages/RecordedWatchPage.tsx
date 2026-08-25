@@ -344,14 +344,16 @@ function RecordedPlayer({
                 '& .recorded-dplayer.dplayer': { width: '100%', height: '100%', bgcolor: 'transparent' },
                 '& .recorded-dplayer .dplayer-video-wrap': { bgcolor: '#000 !important' },
                 '& .recorded-dplayer .dplayer-video-wrap-aspect, & .recorded-dplayer video': { width: '100%', height: '100%' },
-                '& .recorded-dplayer video': { objectFit: 'contain' },
+                '& .recorded-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
                 // DPlayer's WebGL danmaku renderer composites the video into
                 // its own canvas and makes the native video transparent.  A
                 // JASSUB canvas inserted immediately after the video would
                 // otherwise remain behind that opaque composite canvas, so
-                // keep the ASS/SRT layer above danmaku while leaving controls
-                // above both layers.
+                // keep subtitle layers above danmaku while leaving controls
+                // above them. The native video remains visible underneath as a
+                // fallback while the WebGL canvas is resized.
                 '& .recorded-dplayer .dplayer-danmaku': { zIndex: 2 },
+                '& .recorded-dplayer .neo-player-arib-canvas': { zIndex: 3 },
                 '& .recorded-dplayer .JASSUB': {
                     position: 'absolute !important',
                     inset: '0 !important',
@@ -1271,11 +1273,9 @@ export function RecordedWatchPage(): ReactNode {
                         minHeight: '100dvh',
                         height: { lg: '100dvh' },
                         display: 'grid',
-                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
+                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen || panelMounted ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
                         gridTemplateRows: { xs: 'auto auto', lg: 'minmax(0, 1fr)' },
                         overflow: { lg: 'hidden' },
-                        transition: theme => theme.transitions.create('grid-template-columns', { duration: 160, easing: theme.transitions.easing.easeInOut }),
-                        '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
                     }}
                 >
                     <Box component="section" sx={{ minWidth: 0, minHeight: 0, height: { lg: '100dvh' }, overflow: 'hidden', bgcolor: 'background.default' }}>
@@ -1399,51 +1399,53 @@ export function RecordedWatchPage(): ReactNode {
                             </Box>
                         </RecordedPlayer>
                     </Box>
-                    {(panelOpen || panelMounted) && (
-                        <Box
-                            component="aside"
-                            aria-hidden={!panelOpen}
-                            sx={{
-                                minHeight: 0,
-                                minWidth: 0,
-                                height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                color: 'text.primary',
-                                bgcolor: 'background.paper',
-                                borderLeft: { lg: 1 },
-                                borderTop: { xs: 1, lg: 0 },
-                                borderColor: 'divider',
-                                overflow: 'hidden',
-                                opacity: panelOpen ? 1 : 0,
-                                transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
-                                pointerEvents: panelOpen ? 'auto' : 'none',
-                                transition: theme =>
-                                    theme.transitions.create(['height', 'opacity', 'transform'], {
-                                        duration: 160,
-                                        easing: theme.transitions.easing.easeInOut,
-                                    }),
-                                '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
-                            }}
-                        >
-                            <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
-                            <BottomNavigation
-                                showLabels
-                                value={panelTab}
-                                onChange={(_event, value: PanelTab) => setPanelTab(value)}
-                                sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
-                            >
-                                <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
-                                <BottomNavigationAction value="rules" label="ルール" icon={<RuleOutlined />} />
-                                <BottomNavigationAction
-                                    value="comments"
-                                    label={streaming && !streamingUsesJikkyo ? '字幕' : 'コメント'}
-                                    icon={streaming && !streamingUsesJikkyo ? <SubtitlesOutlined /> : <ChatBubbleOutlineOutlined />}
-                                />
-                                <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
-                            </BottomNavigation>
-                        </Box>
-                    )}
+                    <Box
+                        component="aside"
+                        aria-hidden={!panelOpen}
+                        sx={{
+                            minHeight: 0,
+                            minWidth: 0,
+                            height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            color: 'text.primary',
+                            bgcolor: 'background.paper',
+                            borderLeft: { lg: panelOpen || panelMounted ? 1 : 0 },
+                            borderTop: { xs: panelOpen || panelMounted ? 1 : 0, lg: 0 },
+                            borderColor: 'divider',
+                            overflow: 'hidden',
+                            opacity: panelOpen ? 1 : 0,
+                            transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
+                            pointerEvents: panelOpen ? 'auto' : 'none',
+                            transition: theme =>
+                                theme.transitions.create(['height', 'opacity', 'transform'], {
+                                    duration: 160,
+                                    easing: theme.transitions.easing.easeInOut,
+                                }),
+                            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                        }}
+                    >
+                        {(panelOpen || panelMounted) && (
+                            <>
+                                <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
+                                <BottomNavigation
+                                    showLabels
+                                    value={panelTab}
+                                    onChange={(_event, value: PanelTab) => setPanelTab(value)}
+                                    sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
+                                >
+                                    <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
+                                    <BottomNavigationAction value="rules" label="ルール" icon={<RuleOutlined />} />
+                                    <BottomNavigationAction
+                                        value="comments"
+                                        label={streaming && !streamingUsesJikkyo ? '字幕' : 'コメント'}
+                                        icon={streaming && !streamingUsesJikkyo ? <SubtitlesOutlined /> : <ChatBubbleOutlineOutlined />}
+                                    />
+                                    <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
+                                </BottomNavigation>
+                            </>
+                        )}
+                    </Box>
                 </Box>
             )}
         </Box>
