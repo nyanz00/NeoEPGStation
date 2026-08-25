@@ -5,6 +5,10 @@ const {
     isStartSystemUpdateOption,
     STABLE_UPDATE_TAG_PATTERN,
 } = require('../../dist/model/update/UpdateValidation.js');
+const {
+    createUpdateCommandInvocation,
+    stripUpdateLogControlSequences,
+} = require('../../dist/model/update/UpdateCommand.js');
 
 test('update API accepts only fixed target and package manager enums', () => {
     assert.equal(
@@ -37,4 +41,22 @@ test('stable update tags exclude prereleases and option-like input', () => {
     for (const tag of ['v2.10.0-beta3', 'v2.10.0-rc1', '--upload-pack=evil', 'v2.10.0;calc']) {
         assert.equal(STABLE_UPDATE_TAG_PATTERN.test(tag), false);
     }
+});
+
+test('Windows command shims are launched through cmd.exe', () => {
+    assert.deepEqual(
+        createUpdateCommandInvocation('C:\\node\\pnpm.cmd', ['install'], 'win32', 'C:\\Windows\\cmd.exe'),
+        {
+            command: 'C:\\Windows\\cmd.exe',
+            args: ['/d', '/s', '/c', 'C:\\node\\pnpm.cmd', 'install'],
+        },
+    );
+    assert.deepEqual(createUpdateCommandInvocation('git.exe', ['status'], 'win32', 'C:\\Windows\\cmd.exe'), {
+        command: 'git.exe',
+        args: ['status'],
+    });
+});
+
+test('ANSI color sequences are removed from update logs', () => {
+    assert.equal(stripUpdateLogControlSequences('\u001b[32m[INFO]\u001b[39m backup'), '[INFO] backup');
 });

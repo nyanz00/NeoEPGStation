@@ -12,6 +12,7 @@ import type {
     SystemUpdateTarget,
 } from '../../../api';
 import { isExpectedUpdateRepository, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
+import { createUpdateCommandInvocation, stripUpdateLogControlSequences } from './UpdateCommand';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -79,6 +80,12 @@ export default class UpdateManager {
         this.statePath = path.join(this.updateDir, 'state.json');
         this.gitExecutable = this.resolveGitExecutable();
         this.state = this.readState();
+        if (this.state.job !== undefined) {
+            this.state.job.logs = this.state.job.logs.map(stripUpdateLogControlSequences);
+            if (this.state.job.error !== null) {
+                this.state.job.error = stripUpdateLogControlSequences(this.state.job.error);
+            }
+        }
         if (this.state.job !== undefined && typeof this.state.job.stashCommit !== 'string') {
             this.state.job.stashCommit = null;
         }
@@ -506,7 +513,9 @@ export default class UpdateManager {
 
     private async runLogged(command: string, args: string[], cwd = this.rootDir): Promise<void> {
         const executable =
-            process.platform === 'win32' && (command === 'npm' || command === 'pnpm') ? `${command}.cmd` : command;
+            process.platform === 'win32' && (command === 'npm' || command === 'pnpm')
+                ? this.resolveNodeCommandShim(command)
+                : command;
         const display = `${command} ${args.join(' ')}`;
         if (this.state.job !== undefined) this.append(this.state.job, `$ ${display}`);
         try {
@@ -575,7 +584,8 @@ export default class UpdateManager {
     }
 
     private async command(command: string, args: string[], cwd = this.rootDir): Promise<CommandResult> {
-        const result = await execFile(command, args, {
+        const invocation = createUpdateCommandInvocation(command, args);
+        const result = await execFile(invocation.command, invocation.args, {
             cwd,
             timeout: COMMAND_TIMEOUT,
             windowsHide: true,
@@ -603,6 +613,11 @@ export default class UpdateManager {
             candidates.find((candidate): candidate is string => candidate !== null && fs.existsSync(candidate)) ??
             'git.exe'
         );
+    }
+
+    private resolveNodeCommandShim(command: 'npm' | 'pnpm'): string {
+        const adjacent = path.join(path.dirname(process.execPath), `${command}.cmd`);
+        return fs.existsSync(adjacent) ? adjacent : `${command}.cmd`;
     }
 
     private findWindowsUserHome(): string | null {
@@ -691,7 +706,7 @@ export default class UpdateManager {
     }
 
     private redact(value: string): string {
-        return value
+        return stripUpdateLogControlSequences(value)
             .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1***:***@')
             .replace(/((?:token|password|secret|authorization)["'\s:=]+)[^\s,"']+/gi, '$1***');
     }

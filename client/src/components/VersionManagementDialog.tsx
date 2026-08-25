@@ -19,7 +19,7 @@ import {
     Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
+import type { SystemUpdateInfo, SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
 import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
@@ -64,9 +64,9 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
 
     const start = useMutation({
         mutationFn: (target: SystemUpdateTarget) => api.startSystemUpdate({ target, packageManager, preserveLocalChanges }),
-        onSuccess: () => {
+        onSuccess: job => {
             notify('更新処理を開始しました', 'info');
-            void queryClient.invalidateQueries({ queryKey: ['system-update'] });
+            queryClient.setQueryData<SystemUpdateInfo>(['system-update'], current => (current === undefined ? current : { ...current, job }));
         },
         onError: error => notify(`更新を開始できませんでした: ${error.message}`, 'error'),
     });
@@ -91,9 +91,19 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     };
 
     return (
-        <Dialog open={open} onClose={running ? undefined : onClose} fullWidth maxWidth="md">
+        <Dialog
+            open={open}
+            onClose={running ? undefined : onClose}
+            fullWidth
+            maxWidth="md"
+            slotProps={{
+                paper: {
+                    sx: !start.isPending && (job === null || job === undefined) ? undefined : { height: 'calc(100dvh - 32px)' },
+                },
+            }}
+        >
             <DialogTitle>バージョン管理</DialogTitle>
-            <DialogContent dividers>
+            <DialogContent dividers sx={{ minHeight: 0 }}>
                 {info.isPending ? (
                     <LinearProgress />
                 ) : info.isError ? (
