@@ -7,12 +7,22 @@ const {
 } = require('../../dist/model/update/UpdateValidation.js');
 
 test('update API accepts only fixed target and package manager enums', () => {
-    assert.equal(isStartSystemUpdateOption({ target: 'stable', packageManager: 'auto' }), true);
-    assert.equal(isStartSystemUpdateOption({ target: 'develop', packageManager: 'pnpm' }), true);
+    assert.equal(
+        isStartSystemUpdateOption({ target: 'stable', packageManager: 'auto', preserveLocalChanges: false }),
+        true,
+    );
+    assert.equal(
+        isStartSystemUpdateOption({ target: 'develop', packageManager: 'pnpm', preserveLocalChanges: true }),
+        true,
+    );
     for (const target of ['--upload-pack=evil', '../../etc/passwd', 'tag; rm -rf /', '-b', 'a'.repeat(101)]) {
-        assert.equal(isStartSystemUpdateOption({ target, packageManager: 'npm' }), false);
+        assert.equal(isStartSystemUpdateOption({ target, packageManager: 'npm', preserveLocalChanges: false }), false);
     }
-    assert.equal(isStartSystemUpdateOption({ target: 'stable', packageManager: 'npm; calc' }), false);
+    assert.equal(
+        isStartSystemUpdateOption({ target: 'stable', packageManager: 'npm; calc', preserveLocalChanges: false }),
+        false,
+    );
+    assert.equal(isStartSystemUpdateOption({ target: 'stable', packageManager: 'npm' }), false);
 });
 
 test('only the NeoEPGStation origin is accepted', () => {

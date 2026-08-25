@@ -1528,6 +1528,7 @@ export interface SystemUpdateJob {
     command: string | null;
     exitCode: number | null;
     timedOut: boolean;
+    stashCommit: string | null;
 }
 
 export interface SystemUpdateInfo {
@@ -1538,6 +1539,7 @@ export interface SystemUpdateInfo {
     isGitRepository: boolean;
     isClean: boolean;
     gitError: string | null;
+    dirtyFiles: string[];
     packageManager: Exclude<SystemUpdatePackageManager, 'auto'>;
     rememberedPackageManager: Exclude<SystemUpdatePackageManager, 'auto'> | null;
     targets: {
@@ -1553,4 +1555,5 @@ export interface SystemUpdateInfo {
 export interface StartSystemUpdateOption {
     target: SystemUpdateTarget;
     packageManager: SystemUpdatePackageManager;
+    preserveLocalChanges: boolean;
 }

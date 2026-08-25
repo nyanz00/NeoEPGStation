@@ -1,6 +1,23 @@
 import RestartAltOutlined from '@mui/icons-material/RestartAltOutlined';
 import SystemUpdateAltOutlined from '@mui/icons-material/SystemUpdateAltOutlined';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, LinearProgress, MenuItem, Select, Stack, Typography } from '@mui/material';
+import {
+    Alert,
+    Box,
+    Button,
+    Checkbox,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    FormControl,
+    FormControlLabel,
+    InputLabel,
+    LinearProgress,
+    MenuItem,
+    Select,
+    Stack,
+    Typography,
+} from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
 import { type ReactNode, useEffect, useState } from 'react';
@@ -24,6 +41,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     const { notify } = useNotifications();
     const queryClient = useQueryClient();
     const [packageManager, setPackageManager] = useState<SystemUpdatePackageManager>('auto');
+    const [preserveLocalChanges, setPreserveLocalChanges] = useState(false);
     const info = useQuery({
         queryKey: ['system-update'],
         queryFn: () => api.getSystemUpdateInfo(false),
@@ -37,7 +55,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     }, [info.data?.rememberedPackageManager]);
 
     const start = useMutation({
-        mutationFn: (target: SystemUpdateTarget) => api.startSystemUpdate({ target, packageManager }),
+        mutationFn: (target: SystemUpdateTarget) => api.startSystemUpdate({ target, packageManager, preserveLocalChanges }),
         onSuccess: () => {
             notify('更新処理を開始しました', 'info');
             void queryClient.invalidateQueries({ queryKey: ['system-update'] });
@@ -59,7 +77,8 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
 
     const begin = (target: SystemUpdateTarget): void => {
         const label = target === 'stable' ? info.data?.targets.stable?.label : info.data?.targets.develop?.label;
-        if (!window.confirm(`${label ?? target} へ更新します。DBとconfig.ymlのバックアップ後にコードを更新してビルドします。よろしいですか？`)) return;
+        const localChangeNotice = preserveLocalChanges ? '未コミットの変更は退避され、更新後のファイルで上書きされます。' : '';
+        if (!window.confirm(`${label ?? target} へ更新します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを更新してビルドします。よろしいですか？`)) return;
         start.mutate(target);
     };
 
@@ -76,7 +95,12 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                         {info.data.gitError !== null && <Alert severity="error">Gitを実行できませんでした: {info.data.gitError}</Alert>}
                         {info.data.gitError === null && !info.data.isGitRepository && <Alert severity="warning">Git clone環境ではないためWeb UIから更新できません。</Alert>}
                         {info.data.gitError === null && info.data.isGitRepository && !info.data.isClean && (
-                            <Alert severity="warning">未コミットの変更があるため更新できません。</Alert>
+                            <Alert severity="warning">
+                                <Typography variant="body2">未コミットの変更があります。</Typography>
+                                <Box component="pre" sx={{ m: 0, mt: 1, maxHeight: 120, overflow: 'auto', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+                                    {info.data.dirtyFiles.join('\n')}
+                                </Box>
+                            </Alert>
                         )}
                         {info.data.targets.error !== null && <Alert severity="warning">最新情報の取得に失敗したため前回の情報を表示しています: {info.data.targets.error}</Alert>}
                         <Box>
@@ -96,6 +120,12 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 <MenuItem value="pnpm">pnpm</MenuItem>
                             </Select>
                         </FormControl>
+                        {!info.data.isClean && info.data.gitError === null && info.data.isGitRepository && (
+                            <FormControlLabel
+                                control={<Checkbox checked={preserveLocalChanges} onChange={event => setPreserveLocalChanges(event.target.checked)} />}
+                                label="未コミットの変更を退避して上書き更新する"
+                            />
+                        )}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                             <Button
                                 variant="contained"
@@ -105,7 +135,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     start.isPending ||
                                     info.data.gitError !== null ||
                                     !info.data.isGitRepository ||
-                                    !info.data.isClean ||
+                                    (!info.data.isClean && !preserveLocalChanges) ||
                                     info.data.targets.stable === null
                                 }
                                 onClick={() => begin('stable')}
@@ -120,7 +150,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     start.isPending ||
                                     info.data.gitError !== null ||
                                     !info.data.isGitRepository ||
-                                    !info.data.isClean ||
+                                    (!info.data.isClean && !preserveLocalChanges) ||
                                     info.data.targets.develop === null
                                 }
                                 onClick={() => begin('develop')}
@@ -137,6 +167,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 {running && <LinearProgress />}
                                 <Typography variant="body2">段階: {job.stage}</Typography>
                                 {job.error !== null && <Alert severity={job.status === 'rolled-back' ? 'warning' : 'error'}>{job.error}</Alert>}
+                                {job.stashCommit !== null && <Alert severity="info">更新前のローカル変更はstash {job.stashCommit.slice(0, 12)} に保存されています。</Alert>}
                                 <Box
                                     component="pre"
                                     sx={{

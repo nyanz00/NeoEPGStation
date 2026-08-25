@@ -12,6 +12,7 @@ export const isStartSystemUpdateOption = (value: unknown): value is StartSystemU
     const option = value as Partial<StartSystemUpdateOption>;
     return (
         (option.target === 'stable' || option.target === 'develop') &&
-        (option.packageManager === 'auto' || option.packageManager === 'npm' || option.packageManager === 'pnpm')
+        (option.packageManager === 'auto' || option.packageManager === 'npm' || option.packageManager === 'pnpm') &&
+        typeof option.preserveLocalChanges === 'boolean'
     );
 };

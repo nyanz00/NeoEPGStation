@@ -20,7 +20,7 @@ export const post: Operation = async (req, res) => {
         return;
     }
     try {
-        api.responseJSON(res, 202, manager.start(option.target, option.packageManager));
+        api.responseJSON(res, 202, manager.start(option.target, option.packageManager, option.preserveLocalChanges));
     } catch (err: any) {
         api.responseError(res, { code: 409, message: err.message });
     }

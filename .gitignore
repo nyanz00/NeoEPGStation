@@ -6,7 +6,12 @@
 .devcontainer/.vscode-server/*
 recorded/*
 thumbnail/*.jpg
+channel-logo/*
+!channel-logo/.gitkeep
 data/streamfiles/*
+data/cleanup/*
+!data/cleanup/.gitkeep
+debug_dump_nal.bin
 .DS_Store
 config/*
 !config/*.template

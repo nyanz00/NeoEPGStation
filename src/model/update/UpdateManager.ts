@@ -73,6 +73,9 @@ export default class UpdateManager {
         this.statePath = path.join(this.updateDir, 'state.json');
         this.gitExecutable = this.resolveGitExecutable();
         this.state = this.readState();
+        if (this.state.job !== undefined && typeof this.state.job.stashCommit !== 'string') {
+            this.state.job.stashCommit = null;
+        }
         this.running = this.state.job?.status === 'running';
         if (this.running && this.state.job !== undefined) {
             this.state.job = {
@@ -109,6 +112,7 @@ export default class UpdateManager {
             gitError = this.safeMessage(err);
         }
         const targets = await this.getRemoteTargets(force);
+        const dirtyFiles = clean === null || clean === '' ? [] : clean.split(/\r?\n/).filter(Boolean);
         const currentTag = gitError === null ? await this.gitOptional(['describe', '--tags', '--exact-match']) : null;
         const currentComparable = this.parseVersion(currentTag ?? '') ?? this.parseVersion(version);
         const stableComparable = this.parseVersion(targets.stable?.version ?? '');
@@ -125,6 +129,7 @@ export default class UpdateManager {
             isGitRepository: isGitRepository === 'true',
             isClean: clean === '',
             gitError,
+            dirtyFiles,
             packageManager: this.detectPackageManager(),
             rememberedPackageManager: this.state.preferredPackageManager ?? this.state.packageManager ?? null,
             targets,
@@ -133,7 +138,11 @@ export default class UpdateManager {
         };
     }
 
-    public start(target: SystemUpdateTarget, requestedManager: SystemUpdatePackageManager): SystemUpdateJob {
+    public start(
+        target: SystemUpdateTarget,
+        requestedManager: SystemUpdatePackageManager,
+        preserveLocalChanges: boolean,
+    ): SystemUpdateJob {
         if (this.running) throw new Error('更新処理は既に実行中です');
         if (target !== 'stable' && target !== 'develop') throw new Error('更新対象が不正です');
         if (!['auto', 'npm', 'pnpm'].includes(requestedManager)) throw new Error('パッケージ管理方式が不正です');
@@ -154,11 +163,12 @@ export default class UpdateManager {
             command: null,
             exitCode: null,
             timedOut: false,
+            stashCommit: null,
         };
         this.state.job = job;
         this.running = true;
         this.writeState();
-        void this.run(job, requestedManager);
+        void this.run(job, requestedManager, preserveLocalChanges);
         return job;
     }
 
@@ -171,7 +181,11 @@ export default class UpdateManager {
         process.send({ type: 'update-restart-request' });
     }
 
-    private async run(job: SystemUpdateJob, requestedManager: SystemUpdatePackageManager): Promise<void> {
+    private async run(
+        job: SystemUpdateJob,
+        requestedManager: SystemUpdatePackageManager,
+        preserveLocalChanges: boolean,
+    ): Promise<void> {
         let oldCommit: string | null = null;
         let oldBranch: string | null = null;
         let switched = false;
@@ -179,7 +193,15 @@ export default class UpdateManager {
             this.setStage(job, 'checking', 'Gitリポジトリと更新対象を確認しています');
             await this.assertRepository();
             const dirty = await this.git(['status', '--porcelain']);
-            if (dirty.stdout.trim() !== '') throw new Error('未コミットの変更があるため更新できません');
+            if (dirty.stdout.trim() !== '') {
+                if (!preserveLocalChanges) throw new Error('未コミットの変更があるため更新できません');
+                this.setStage(job, 'stashing', '未コミットの変更をGit stashへ退避しています');
+                job.stashCommit = await this.stashLocalChanges(job.id);
+                this.append(job, `ローカル変更をstashへ退避しました: ${job.stashCommit.slice(0, 12)}`);
+                if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
+                    throw new Error('stash後も未コミットの変更が残っているため更新を中止しました');
+                }
+            }
             oldCommit = (await this.git(['rev-parse', 'HEAD'])).stdout.trim();
             oldBranch = (await this.git(['branch', '--show-current'])).stdout.trim() || null;
 
@@ -209,6 +231,7 @@ export default class UpdateManager {
                 if (fetchedDevelop !== targetCommit) throw new Error('developの更新先が一致しません');
             }
             if (targetCommit === oldCommit) {
+                await this.restoreStashedChanges(job);
                 this.finish(job, 'success', 'already-current', '既に選択したバージョンです');
                 return;
             }
@@ -234,11 +257,12 @@ export default class UpdateManager {
             this.setStage(job, 'switching', `更新先 ${remoteTarget.label} へ切り替えています`);
             if (job.target === 'develop') {
                 await this.git(['checkout', 'develop']);
+                switched = true;
                 await this.git(['merge', '--ff-only', targetCommit]);
             } else {
                 await this.git(['checkout', '--detach', targetCommit]);
+                switched = true;
             }
-            switched = true;
 
             if (installRequired) {
                 job.installRan = true;
@@ -254,6 +278,12 @@ export default class UpdateManager {
             this.state.nodeVersion = process.version;
             this.state.dependencyHash = dependencyHash;
             this.finish(job, 'success', 'completed', '更新とビルドが完了しました。再起動すると反映されます');
+            if (job.stashCommit !== null) {
+                this.append(
+                    job,
+                    `更新前のローカル変更はstash ${job.stashCommit.slice(0, 12)} に保存されています。必要な場合だけ手動で復元してください`,
+                );
+            }
             job.restartRequired = true;
             this.writeState();
         } catch (err: any) {
@@ -275,6 +305,7 @@ export default class UpdateManager {
                     }
                     if (job.installRan) await this.install(job.packageManager === 'pnpm' ? 'pnpm' : 'npm');
                     await this.build(job.packageManager === 'pnpm' ? 'pnpm' : 'npm');
+                    await this.restoreStashedChanges(job);
                     job.rollback = 'success';
                     this.finish(job, 'rolled-back', 'failed', '更新に失敗したため、更新前のコードへ復旧しました');
                 } catch (rollbackError: any) {
@@ -288,6 +319,7 @@ export default class UpdateManager {
                     );
                 }
             } else {
+                await this.restoreStashedChanges(job);
                 this.finish(job, 'failed', 'failed', job.error ?? '更新に失敗しました');
             }
         } finally {
@@ -302,6 +334,35 @@ export default class UpdateManager {
         }
         const origin = (await this.git(['remote', 'get-url', 'origin'])).stdout.trim();
         if (!isExpectedUpdateRepository(origin)) throw new Error('originがnyanz00/NeoEPGStationではありません');
+    }
+
+    private async stashLocalChanges(jobId: string): Promise<string> {
+        await this.git(['stash', 'push', '--include-untracked', '--message', `NeoEPGStation Web update ${jobId}`]);
+        const stashCommit = await this.gitRequiredText(['rev-parse', 'refs/stash']);
+        if (!/^[0-9a-f]{40}$/i.test(stashCommit)) throw new Error('ローカル変更のstashを確認できませんでした');
+        return stashCommit;
+    }
+
+    private async restoreStashedChanges(job: SystemUpdateJob): Promise<void> {
+        if (job.stashCommit === null) return;
+        const stashCommit = job.stashCommit;
+        this.append(job, `退避したローカル変更 ${stashCommit.slice(0, 12)} を復元しています`);
+        try {
+            await this.git(['stash', 'apply', '--index', stashCommit]);
+            const list = await this.git(['stash', 'list', '--format=%H%x09%gd']);
+            const match = list.stdout
+                .split(/\r?\n/)
+                .map(line => line.split('\t'))
+                .find(parts => parts[0] === stashCommit && /^stash@\{\d+\}$/.test(parts[1] ?? ''));
+            if (match !== undefined) await this.git(['stash', 'drop', match[1]]);
+            job.stashCommit = null;
+            this.append(job, '退避したローカル変更を復元しました');
+        } catch (err) {
+            this.append(
+                job,
+                `ローカル変更を自動復元できませんでした。stash ${stashCommit.slice(0, 12)} は保持されています: ${this.safeMessage(err)}`,
+            );
+        }
     }
 
     private async getRemoteTargets(force: boolean): Promise<SystemUpdateInfo['targets']> {
