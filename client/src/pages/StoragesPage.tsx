@@ -57,7 +57,7 @@ function VersionSection(): ReactNode {
                                 バージョン
                             </Typography>
                             <Typography variant="h6" noWrap>
-                                {updateInfo.data?.currentTag ?? `v${version.data?.version ?? updateInfo.data?.version ?? '取得中…'}`}
+                                v{version.data?.version ?? updateInfo.data?.version ?? '取得中…'}
                             </Typography>
                             {updateInfo.data?.commit !== null && updateInfo.data?.commit !== undefined && (
                                 <Typography variant="caption" color="text.secondary">

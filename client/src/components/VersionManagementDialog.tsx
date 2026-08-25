@@ -136,7 +136,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             <Typography variant="overline" color="text.secondary">
                                 現在
                             </Typography>
-                            <Typography variant="h6">{info.data.currentTag ?? `v${info.data.version}`}</Typography>
+                            <Typography variant="h6">v{info.data.version}</Typography>
                             <Typography variant="body2" color="text.secondary">
                                 {info.data.branch ?? 'detached HEAD'} / {info.data.commit?.slice(0, 8) ?? '不明'}
                             </Typography>
