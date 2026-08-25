@@ -66,6 +66,9 @@ import type {
     SystemMirakurunInfo,
     SystemResourceInfo,
     SystemStorageVolumeList,
+    SystemUpdateInfo,
+    SystemUpdateJob,
+    StartSystemUpdateOption,
     StorageInfo,
     TwitterStatus,
     TwitterTimeline,
@@ -279,6 +282,15 @@ export const api = {
     },
     async getVersion(): Promise<VersionInfo> {
         return (await apiClient.get<VersionInfo>('/version')).data;
+    },
+    async getSystemUpdateInfo(refresh = false): Promise<SystemUpdateInfo> {
+        return (await apiClient.get<SystemUpdateInfo>('/system/update', { params: { refresh }, timeout: 45_000 })).data;
+    },
+    async startSystemUpdate(option: StartSystemUpdateOption): Promise<SystemUpdateJob> {
+        return (await apiClient.post<SystemUpdateJob>('/system/update', option)).data;
+    },
+    async restartAfterSystemUpdate(): Promise<void> {
+        await apiClient.post('/system/update/restart');
     },
     async getUsers(): Promise<Users> {
         return (await apiClient.get<Users>('/users')).data;

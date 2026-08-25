@@ -107,6 +107,12 @@ export function DashboardPage(): ReactNode {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const version = useQuery({ queryKey: ['version'], queryFn: api.getVersion, staleTime: 60_000 });
+    const updateInfo = useQuery({
+        queryKey: ['system-update'],
+        queryFn: () => api.getSystemUpdateInfo(false),
+        staleTime: 10 * 60_000,
+        enabled: settings.isShowVersionUpdateNotification,
+    });
     const userId = typeof activeUser === 'number' ? activeUser : undefined;
     const [recording, recorded, reserves, reserveCounts, channels] = useQueries({
         queries: [
@@ -145,6 +151,16 @@ export function DashboardPage(): ReactNode {
                         <Typography component="h1" variant="h6" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '1.25rem' } }}>
                             NeoEPGStation v{version.data?.version ?? '1.0.0-beta.2'}
                         </Typography>
+                        {settings.isShowVersionUpdateNotification && updateInfo.data?.hasStableUpdate === true && (
+                            <Chip
+                                size="small"
+                                color="primary"
+                                label="更新あり"
+                                onClick={() => void navigate('/system')}
+                                aria-label={`${updateInfo.data.targets.stable?.label ?? '新しい安定版'}へ更新できます`}
+                                sx={{ cursor: 'pointer', flex: '0 0 auto' }}
+                            />
+                        )}
                         {!settings.isAppLogoHidden && <Box component="img" src={appIconAssetUrl(logoIcon)} alt="" sx={{ height: 25, width: 'auto', flex: '0 0 auto' }} />}
                     </Box>
                 }

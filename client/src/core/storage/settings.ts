@@ -21,6 +21,7 @@ export interface AppSettings {
     customCss: string;
     isEmphasizeLightThemeEdges: boolean;
     isHalfWidthDisplayed: boolean;
+    isShowVersionUpdateNotification: boolean;
     sideNavigationOrder: SideNavigationItemId[];
     hiddenSideNavigationItems: SideNavigationItemId[];
     isOnAirTabListView: boolean;
@@ -97,6 +98,7 @@ export const defaultSettings: AppSettings = {
     customCss: '',
     isEmphasizeLightThemeEdges: true,
     isHalfWidthDisplayed: true,
+    isShowVersionUpdateNotification: true,
     sideNavigationOrder: [...defaultSideNavigationOrder],
     hiddenSideNavigationItems: [],
     isOnAirTabListView: true,
@@ -192,6 +194,7 @@ function loadSettings(): AppSettings {
             isCustomCssEnabled: parsed.isCustomCssEnabled === true,
             customCss: typeof parsed.customCss === 'string' ? parsed.customCss : '',
             isShowInformationalChannels: showInformationalChannels,
+            isShowVersionUpdateNotification: parsed.isShowVersionUpdateNotification !== false,
             sideNavigationOrder: normalizeSideNavigationOrder(parsed.sideNavigationOrder),
             hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(parsed.hiddenSideNavigationItems),
             watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(
@@ -247,6 +250,7 @@ export const settingsStore = {
             customThemeColor: normalizeCustomThemeColor(value.customThemeColor),
             isCustomCssEnabled: value.isCustomCssEnabled === true,
             customCss: typeof value.customCss === 'string' ? value.customCss : '',
+            isShowVersionUpdateNotification: value.isShowVersionUpdateNotification !== false,
             sideNavigationOrder: normalizeSideNavigationOrder(value.sideNavigationOrder),
             hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(value.hiddenSideNavigationItems),
             watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(value.watchSubtitlePreferredKeywords),

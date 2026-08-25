@@ -2331,6 +2331,65 @@ components:
                 version:
                     type: string
 
+        SystemUpdateRemoteTarget:
+            type: object
+            required: [label, version, tag, commit]
+            properties:
+                label: { type: string }
+                version: { type: string, nullable: true }
+                tag: { type: string, nullable: true }
+                commit: { type: string }
+
+        SystemUpdateJob:
+            type: object
+            required: [id, target, packageManager, status, stage, startedAt, finishedAt, installRan, restartRequired, rollback, logs, error, command, exitCode, timedOut]
+            properties:
+                id: { type: string }
+                target: { type: string, enum: [stable, develop] }
+                packageManager: { type: string, enum: [auto, npm, pnpm] }
+                status: { type: string, enum: [running, success, failed, rolled-back, rollback-failed] }
+                stage: { type: string }
+                startedAt: { type: integer, format: int64 }
+                finishedAt: { type: integer, format: int64, nullable: true }
+                installRan: { type: boolean }
+                restartRequired: { type: boolean }
+                rollback: { type: string, enum: [none, running, success, failed] }
+                logs: { type: array, items: { type: string } }
+                error: { type: string, nullable: true }
+                command: { type: string, nullable: true }
+                exitCode: { type: integer, nullable: true }
+                timedOut: { type: boolean }
+
+        SystemUpdateInfo:
+            type: object
+            required: [version, commit, branch, currentTag, isGitRepository, isClean, packageManager, rememberedPackageManager, targets, hasStableUpdate, job]
+            properties:
+                version: { type: string }
+                commit: { type: string, nullable: true }
+                branch: { type: string, nullable: true }
+                currentTag: { type: string, nullable: true }
+                isGitRepository: { type: boolean }
+                isClean: { type: boolean }
+                packageManager: { type: string, enum: [npm, pnpm] }
+                rememberedPackageManager: { type: string, enum: [npm, pnpm], nullable: true }
+                targets:
+                    type: object
+                    required: [stable, develop, checkedAt, error]
+                    properties:
+                        stable: { allOf: [{ $ref: '#/components/schemas/SystemUpdateRemoteTarget' }], nullable: true }
+                        develop: { allOf: [{ $ref: '#/components/schemas/SystemUpdateRemoteTarget' }], nullable: true }
+                        checkedAt: { type: integer, format: int64 }
+                        error: { type: string, nullable: true }
+                hasStableUpdate: { type: boolean }
+                job: { allOf: [{ $ref: '#/components/schemas/SystemUpdateJob' }], nullable: true }
+
+        StartSystemUpdateOption:
+            type: object
+            required: [target, packageManager]
+            properties:
+                target: { type: string, enum: [stable, develop] }
+                packageManager: { type: string, enum: [auto, npm, pnpm] }
+
         EncodeProgramItem:
             description: エンコードプログラム情報
             type: object

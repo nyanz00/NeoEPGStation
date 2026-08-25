@@ -118,6 +118,7 @@ const runService = async () => {
     });
     let lastHeartbeatAt = Date.now();
     let isHeartbeatTerminationStarted = false;
+    let isApplicationRestartRequested = false;
     const stopWithoutRestart = (reason: string): void => {
         log.system.fatal(reason);
         log.system.fatal('stop NeoEPGStation without restarting service');
@@ -129,6 +130,15 @@ const runService = async () => {
         const serviceMessage = message as ServiceProcessMessage;
         if (serviceMessage.type === 'heartbeat') lastHeartbeatAt = Date.now();
         if (serviceMessage.type === 'ready') resolveReady();
+        if (serviceMessage.type === 'update-restart-request') {
+            if (isApplicationRestartRequested) return;
+            isApplicationRestartRequested = true;
+            log.system.info('restart NeoEPGStation after Web UI update');
+            void ProcessUtil.kill(child).finally(() => {
+                process.exitCode = 0;
+                setImmediate(() => process.exit(0));
+            });
+        }
     });
     const heartbeatMonitor = setInterval(() => {
         if (Date.now() - lastHeartbeatAt <= 20_000 || isHeartbeatTerminationStarted) return;
@@ -159,6 +169,7 @@ const runService = async () => {
     };
     child.once('exit', (code, signal) => {
         clearInterval(heartbeatMonitor);
+        if (isApplicationRestartRequested) return;
         if (code === SERVICE_EXIT_CODE_ADDRESS_IN_USE) {
             stopWithoutRestart('service listen address is already in use');
             return;

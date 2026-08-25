@@ -1185,6 +1185,16 @@ export function SettingsPage(): ReactNode {
                         {activeSettingsTab === 'display' && (
                             <SettingSection title="表示設定">
                                 <SettingRow
+                                    title="バージョン更新通知"
+                                    description="ダッシュボードに新しい安定版があることを表示する"
+                                    control={
+                                        <Switch
+                                            checked={draft.isShowVersionUpdateNotification}
+                                            onChange={event => patch('isShowVersionUpdateNotification', event.target.checked)}
+                                        />
+                                    }
+                                />
+                                <SettingRow
                                     title="放映中を放送波ごとのタブで表示"
                                     description="放映中を一つの一覧ではなく、地デジ・BS・CSなどのタブへ分ける"
                                     control={<Switch checked={draft.isOnAirTabListView} onChange={event => patch('isOnAirTabListView', event.target.checked)} />}

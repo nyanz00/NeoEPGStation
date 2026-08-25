@@ -5,11 +5,13 @@ import MemoryOutlined from '@mui/icons-material/MemoryOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import SettingsInputAntennaOutlined from '@mui/icons-material/SettingsInputAntennaOutlined';
 import StorageOutlined from '@mui/icons-material/StorageOutlined';
+import SystemUpdateAltOutlined from '@mui/icons-material/SystemUpdateAltOutlined';
 import { Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Grid, IconButton, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import type { StorageItem, SystemGpuInfo, SystemResourceInfo, SystemStorageVolume, SystemStorageVolumeType } from '../../../api';
 import { PageHeader } from '../components/PageHeader';
+import { VersionManagementDialog } from '../components/VersionManagementDialog';
 import { SystemLogsPanel } from '../components/SystemLogsPanel';
 import { SystemMirakurunPanel } from '../components/SystemMirakurunPanel';
 import { api } from '../core/api/queries';
@@ -38,6 +40,40 @@ function volumeTypeLabel(type: SystemStorageVolumeType): string {
     if (type === 'network') return 'ネットワーク';
     if (type === 'fixed') return '固定ディスク';
     return 'その他';
+}
+
+function VersionSection(): ReactNode {
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const version = useQuery({ queryKey: ['version'], queryFn: api.getVersion, staleTime: 60_000 });
+    const updateInfo = useQuery({ queryKey: ['system-update'], queryFn: () => api.getSystemUpdateInfo(false), staleTime: 60_000 });
+    return (
+        <>
+            <Card variant="outlined">
+                <CardContent>
+                    <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                        <SystemUpdateAltOutlined color="primary" />
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography variant="overline" color="text.secondary">
+                                バージョン
+                            </Typography>
+                            <Typography variant="h6" noWrap>
+                                {updateInfo.data?.currentTag ?? `v${version.data?.version ?? updateInfo.data?.version ?? '取得中…'}`}
+                            </Typography>
+                            {updateInfo.data?.commit !== null && updateInfo.data?.commit !== undefined && (
+                                <Typography variant="caption" color="text.secondary">
+                                    {updateInfo.data.branch ?? 'detached HEAD'} / {updateInfo.data.commit.slice(0, 8)}
+                                </Typography>
+                            )}
+                        </Box>
+                        <Button variant="outlined" onClick={() => setDialogOpen(true)}>
+                            バージョン管理
+                        </Button>
+                    </Stack>
+                </CardContent>
+            </Card>
+            <VersionManagementDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+        </>
+    );
 }
 
 interface UsageCardProps {
@@ -439,6 +475,7 @@ export function StoragesPage(): ReactNode {
                     <SystemMirakurunPanel />
                 ) : (
                     <Stack spacing={3}>
+                        <VersionSection />
                         {storageInfo.isPending ? (
                             <Box sx={{ minHeight: 180, display: 'grid', placeItems: 'center' }}>
                                 <Stack spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
