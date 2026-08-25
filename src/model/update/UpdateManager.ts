@@ -4,7 +4,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 
-import type { SystemUpdateInfo, SystemUpdateJob, SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
+import type {
+    SystemUpdateInfo,
+    SystemUpdateJob,
+    SystemUpdatePackageManager,
+    SystemUpdateRelation,
+    SystemUpdateTarget,
+} from '../../../api';
 import { isExpectedUpdateRepository, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
 
 const execFile = promisify(childProcess.execFile);
@@ -111,15 +117,11 @@ export default class UpdateManager {
         } catch (err) {
             gitError = this.safeMessage(err);
         }
-        const targets = await this.getRemoteTargets(force);
+        const remoteTargets = await this.getRemoteTargets(force);
+        const targets = await this.addTargetRelations(remoteTargets, commit);
         const dirtyFiles = clean === null || clean === '' ? [] : clean.split(/\r?\n/).filter(Boolean);
-        const currentTag = gitError === null ? await this.gitOptional(['describe', '--tags', '--exact-match']) : null;
-        const currentComparable = this.parseVersion(currentTag ?? '') ?? this.parseVersion(version);
-        const stableComparable = this.parseVersion(targets.stable?.version ?? '');
-        const hasStableUpdate =
-            stableComparable !== null &&
-            currentComparable !== null &&
-            this.compareVersion(stableComparable, currentComparable) > 0;
+        const currentTag = gitError === null ? await this.gitOptional(['describe', '--tags', '--always']) : null;
+        const hasStableUpdate = targets.stable?.relation === 'ahead';
 
         return {
             version,
@@ -206,14 +208,6 @@ export default class UpdateManager {
             oldBranch = (await this.git(['branch', '--show-current'])).stdout.trim() || null;
 
             this.setStage(job, 'fetching', '固定リポジトリから更新情報を取得しています');
-            await this.git([
-                'fetch',
-                '--force',
-                '--tags',
-                REPOSITORY_URL,
-                '+refs/heads/develop:refs/remotes/neoe-update/develop',
-                '+refs/heads/nyanz-master:refs/remotes/neoe-update/nyanz-master',
-            ]);
             const info = await this.getInfo(true);
             const remoteTarget = targetInfo(info, job.target);
             if (remoteTarget === null) throw new Error('選択した更新対象を取得できませんでした');
@@ -234,6 +228,14 @@ export default class UpdateManager {
                 await this.restoreStashedChanges(job);
                 this.finish(job, 'success', 'already-current', '既に選択したバージョンです');
                 return;
+            }
+            const relation = await this.getCommitRelation(oldCommit, targetCommit);
+            if (relation !== 'ahead') {
+                throw new Error(
+                    relation === 'behind'
+                        ? '選択した更新先は現在より古いため更新できません'
+                        : '選択した更新先は現在の履歴の先にないため更新できません',
+                );
             }
 
             this.setStage(job, 'backing-up', 'DBとconfig.ymlをバックアップしています');
@@ -374,6 +376,16 @@ export default class UpdateManager {
             return this.state.remoteCache;
         }
         try {
+            await this.git([
+                'fetch',
+                '--quiet',
+                '--force',
+                '--tags',
+                '--no-write-fetch-head',
+                REPOSITORY_URL,
+                '+refs/heads/develop:refs/remotes/neoe-update/develop',
+                '+refs/heads/nyanz-master:refs/remotes/neoe-update/nyanz-master',
+            ]);
             const [heads, tags] = await Promise.all([
                 this.git(['ls-remote', '--heads', REPOSITORY_URL, 'develop']),
                 this.git(['ls-remote', '--tags', REPOSITORY_URL]),
@@ -384,11 +396,19 @@ export default class UpdateManager {
                 const match = /^([0-9a-f]{40})\s+refs\/tags\/(v?\d+\.\d+\.\d+)(\^\{\})?$/.exec(line);
                 if (match !== null) tagCommits.set(match[2], match[1]);
             }
-            const stableTag = [...tagCommits.keys()].sort((a, b) => {
+            const stableCandidates = [...tagCommits.keys()].sort((a, b) => {
                 const av = this.parseVersion(a)!;
                 const bv = this.parseVersion(b)!;
                 return this.compareVersion(bv, av);
-            })[0];
+            });
+            let stableTag: string | undefined;
+            for (const candidate of stableCandidates) {
+                const commit = tagCommits.get(candidate)!;
+                if ((await this.isAncestor(commit, 'refs/remotes/neoe-update/nyanz-master')) === true) {
+                    stableTag = candidate;
+                    break;
+                }
+            }
             const targets: SystemUpdateInfo['targets'] = {
                 develop:
                     developMatch === null
@@ -398,6 +418,7 @@ export default class UpdateManager {
                               version: null,
                               tag: null,
                               commit: developMatch[1],
+                              relation: 'unknown',
                           },
                 stable:
                     stableTag === undefined
@@ -407,6 +428,7 @@ export default class UpdateManager {
                               version: stableTag.replace(/^v/, ''),
                               tag: stableTag,
                               commit: tagCommits.get(stableTag)!,
+                              relation: 'unknown',
                           },
                 checkedAt: Date.now(),
                 error: null,
@@ -427,6 +449,39 @@ export default class UpdateManager {
         const pnpmStore = path.join(this.rootDir, 'node_modules', '.pnpm');
         if (fs.existsSync(modulesYaml) || fs.existsSync(pnpmStore)) return 'pnpm';
         return this.state.preferredPackageManager ?? this.state.packageManager ?? 'npm';
+    }
+
+    private async addTargetRelations(
+        targets: SystemUpdateInfo['targets'],
+        currentCommit: string | null,
+    ): Promise<SystemUpdateInfo['targets']> {
+        if (currentCommit === null) return targets;
+        const add = async (target: SystemUpdateInfo['targets']['stable']) =>
+            target === null
+                ? null
+                : { ...target, relation: await this.getCommitRelation(currentCommit, target.commit) };
+        const [stable, develop] = await Promise.all([add(targets.stable), add(targets.develop)]);
+        return { ...targets, stable, develop };
+    }
+
+    private async getCommitRelation(currentCommit: string, targetCommit: string): Promise<SystemUpdateRelation> {
+        if (currentCommit === targetCommit) return 'same';
+        const currentIsAncestor = await this.isAncestor(currentCommit, targetCommit);
+        if (currentIsAncestor === true) return 'ahead';
+        const targetIsAncestor = await this.isAncestor(targetCommit, currentCommit);
+        if (targetIsAncestor === true) return 'behind';
+        if (currentIsAncestor === false && targetIsAncestor === false) return 'diverged';
+        return 'unknown';
+    }
+
+    private async isAncestor(ancestor: string, descendant: string): Promise<boolean | null> {
+        try {
+            await this.git(['merge-base', '--is-ancestor', ancestor, descendant]);
+            return true;
+        } catch (err: any) {
+            if (err?.code === 1) return false;
+            return null;
+        }
     }
 
     private async install(manager: 'npm' | 'pnpm'): Promise<void> {

@@ -37,6 +37,14 @@ const statusLabel: Record<string, string> = {
     'rollback-failed': '復旧失敗',
 };
 
+function relationSuffix(relation: string | undefined): string {
+    if (relation === 'same') return '（更新済み）';
+    if (relation === 'behind') return '（現在より古い）';
+    if (relation === 'diverged') return '（別の履歴）';
+    if (relation === 'unknown') return '（比較できません）';
+    return '';
+}
+
 export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     const { notify } = useNotifications();
     const queryClient = useQueryClient();
@@ -103,6 +111,17 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             </Alert>
                         )}
                         {info.data.targets.error !== null && <Alert severity="warning">最新情報の取得に失敗したため前回の情報を表示しています: {info.data.targets.error}</Alert>}
+                        {info.data.targets.stable !== null && info.data.targets.stable.relation !== 'ahead' && (
+                            <Alert severity="info">
+                                安定版 {info.data.targets.stable.label} は
+                                {info.data.targets.stable.relation === 'behind'
+                                    ? '現在より古いため'
+                                    : info.data.targets.stable.relation === 'same'
+                                      ? '既に適用済みのため'
+                                      : '現在の履歴の先にないため'}
+                                更新対象にできません。
+                            </Alert>
+                        )}
                         <Box>
                             <Typography variant="overline" color="text.secondary">
                                 現在
@@ -136,11 +155,13 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     info.data.gitError !== null ||
                                     !info.data.isGitRepository ||
                                     (!info.data.isClean && !preserveLocalChanges) ||
-                                    info.data.targets.stable === null
+                                    info.data.targets.stable === null ||
+                                    info.data.targets.stable.relation !== 'ahead'
                                 }
                                 onClick={() => begin('stable')}
                             >
-                                安定版 {info.data.targets.stable?.label ?? '取得不可'} へ更新
+                                安定版 {info.data.targets.stable?.label ?? '取得不可'}
+                                {relationSuffix(info.data.targets.stable?.relation)} へ更新
                             </Button>
                             <Button
                                 variant="outlined"
@@ -151,11 +172,13 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     info.data.gitError !== null ||
                                     !info.data.isGitRepository ||
                                     (!info.data.isClean && !preserveLocalChanges) ||
-                                    info.data.targets.develop === null
+                                    info.data.targets.develop === null ||
+                                    info.data.targets.develop.relation !== 'ahead'
                                 }
                                 onClick={() => begin('develop')}
                             >
-                                {info.data.targets.develop?.label ?? 'develop取得不可'} へ更新
+                                {info.data.targets.develop?.label ?? 'develop取得不可'}
+                                {relationSuffix(info.data.targets.develop?.relation)} へ更新
                             </Button>
                             <Button disabled={running || refresh.isPending} onClick={() => refresh.mutate()}>
                                 更新情報を再取得

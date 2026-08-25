@@ -1504,12 +1504,14 @@ export interface VersionInfo {
 export type SystemUpdateTarget = 'stable' | 'develop';
 export type SystemUpdatePackageManager = 'auto' | 'npm' | 'pnpm';
 export type SystemUpdateJobStatus = 'running' | 'success' | 'failed' | 'rolled-back' | 'rollback-failed';
+export type SystemUpdateRelation = 'ahead' | 'same' | 'behind' | 'diverged' | 'unknown';
 
 export interface SystemUpdateRemoteTarget {
     label: string;
     version: string | null;
     tag: string | null;
     commit: string;
+    relation: SystemUpdateRelation;
 }
 
 export interface SystemUpdateJob {
