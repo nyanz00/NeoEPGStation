@@ -804,6 +804,7 @@ export function RecordedWatchPage(): ReactNode {
     const validIds = Number.isSafeInteger(videoFileId) && videoFileId >= 0 && Number.isSafeInteger(recordedId) && recordedId >= 0;
     const valid = validIds && (!streaming || (Number.isSafeInteger(mode) && mode >= 0 && quality.length > 0));
     const [panelOpen, setPanelOpen] = useState(loadRecordedPlayerPanelOpen);
+    const [panelMounted, setPanelMounted] = useState(panelOpen);
     const [panelTab, setPanelTab] = useState<PanelTab>('program');
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
@@ -818,6 +819,16 @@ export function RecordedWatchPage(): ReactNode {
         } catch {
             // Playback remains available even when browser storage is unavailable.
         }
+    }, [panelOpen]);
+
+    useEffect(() => {
+        if (panelOpen) {
+            setPanelMounted(true);
+            return;
+        }
+
+        const timer = window.setTimeout(() => setPanelMounted(false), 180);
+        return () => window.clearTimeout(timer);
     }, [panelOpen]);
     const playerVideo = useRef<HTMLVideoElement | null>(null);
     const [progressVideo, setProgressVideo] = useState<HTMLVideoElement | null>(null);
@@ -1260,9 +1271,11 @@ export function RecordedWatchPage(): ReactNode {
                         minHeight: '100dvh',
                         height: { lg: '100dvh' },
                         display: 'grid',
-                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr)' },
+                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
                         gridTemplateRows: { xs: 'auto auto', lg: 'minmax(0, 1fr)' },
                         overflow: { lg: 'hidden' },
+                        transition: theme => theme.transitions.create('grid-template-columns', { duration: 160, easing: theme.transitions.easing.easeInOut }),
+                        '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
                     }}
                 >
                     <Box component="section" sx={{ minWidth: 0, minHeight: 0, height: { lg: '100dvh' }, overflow: 'hidden', bgcolor: 'background.default' }}>
@@ -1386,12 +1399,14 @@ export function RecordedWatchPage(): ReactNode {
                             </Box>
                         </RecordedPlayer>
                     </Box>
-                    {panelOpen && (
+                    {(panelOpen || panelMounted) && (
                         <Box
                             component="aside"
+                            aria-hidden={!panelOpen}
                             sx={{
                                 minHeight: 0,
-                                height: { xs: '72dvh', lg: '100dvh' },
+                                minWidth: 0,
+                                height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
                                 display: 'flex',
                                 flexDirection: 'column',
                                 color: 'text.primary',
@@ -1399,6 +1414,16 @@ export function RecordedWatchPage(): ReactNode {
                                 borderLeft: { lg: 1 },
                                 borderTop: { xs: 1, lg: 0 },
                                 borderColor: 'divider',
+                                overflow: 'hidden',
+                                opacity: panelOpen ? 1 : 0,
+                                transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
+                                pointerEvents: panelOpen ? 'auto' : 'none',
+                                transition: theme =>
+                                    theme.transitions.create(['height', 'opacity', 'transform'], {
+                                        duration: 160,
+                                        easing: theme.transitions.easing.easeInOut,
+                                    }),
+                                '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
                             }}
                         >
                             <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
