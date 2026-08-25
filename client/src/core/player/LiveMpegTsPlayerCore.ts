@@ -360,6 +360,10 @@ export class LiveMpegTsPlayerCore {
             });
         });
         this.player.on('playing', () => {
+            // Safari's startup event order can leave the controller visible after
+            // its initial pause. `playing` confirms playback before restarting
+            // auto-hide and does not alter the touch/audio activation path.
+            if (this.player?.controller.isShow()) this.player.controller.setAutoHide(LiveMpegTsPlayerCore.CONTROLS_AUTO_HIDE_TIME);
             if (this.isIos26HevcCompatibilityPlayback() && this.state.isLoading) {
                 // `playing` is more reliable than Safari's canplay/readyState
                 // bookkeeping: a decoded HEVC frame is actually advancing.

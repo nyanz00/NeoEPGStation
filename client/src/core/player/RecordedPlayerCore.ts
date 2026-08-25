@@ -330,6 +330,10 @@ export class RecordedPlayerCore {
         player.on('playing', () => {
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
+            // Safari can emit an initialization pause after DPlayer's play event,
+            // leaving the controls visible without an active auto-hide timer.
+            // Restart it only once media is actually advancing.
+            if (player.controller.isShow()) player.controller.setAutoHide(RecordedPlayerCore.CONTROLS_AUTO_HIDE_TIME);
         });
         player.on('canplay', () => {
             this.clearPlaybackErrorTimer();
