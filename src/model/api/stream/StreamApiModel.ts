@@ -249,6 +249,7 @@ class RecordedVodHlsMuxSession {
     private readonly processes: ChildProcess[] = [];
     private fileStream: fs.ReadStream | null = null;
     private isCompleted: boolean = false;
+    private isStopping: boolean = false;
     private startPromise: Promise<void> | null = null;
     private highestReadySequence: number;
 
@@ -308,6 +309,7 @@ class RecordedVodHlsMuxSession {
     }
 
     public async cleanup(): Promise<void> {
+        this.isStopping = true;
         this.fileStream?.destroy();
 
         await Promise.all(this.processes.map(process => ProcessUtil.kill(process).catch(() => {})));
@@ -402,7 +404,9 @@ class RecordedVodHlsMuxSession {
             process.on('exit', (code, signal) => {
                 const detail = stderr.trim();
                 const message = `recorded VOD HLS TS ${name} exited: code=${String(code)}, signal=${String(signal)}`;
-                if (code === 0 || (code === null && signal === null)) {
+                if (this.isStopping) {
+                    this.option.log.stream.debug(message);
+                } else if (code === 0 || (code === null && signal === null)) {
                     this.option.log.stream.info(message);
                 } else {
                     this.option.log.stream.warn(message + (detail.length === 0 ? '' : `\n${detail}`));
