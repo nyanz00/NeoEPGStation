@@ -1,6 +1,6 @@
 import * as apid from '../../../../api';
 import IPlayList from '../IPlayList';
-import { VideoRecordingTimeInfo } from './IVideoUtil';
+import { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil';
 
 export interface VideoFilePathInfo {
     path: string;
@@ -15,7 +15,11 @@ export default interface IVideoApiModel {
     getDuration(videoFileId: apid.VideoFileId): Promise<number>;
     getMpegTsRecordingTime(videoFileId: apid.VideoFileId): Promise<VideoRecordingTimeInfo | null>;
     getSubtitles(videoFileId: apid.VideoFileId): Promise<apid.VideoSubtitles>;
-    getSubtitleText(videoFileId: apid.VideoFileId, subtitleIndex: number): Promise<apid.VideoSubtitleText>;
+    getSubtitleText(
+        videoFileId: apid.VideoFileId,
+        subtitleIndex: number,
+        range?: SubtitleTextRange,
+    ): Promise<apid.VideoSubtitleText>;
     prepareSubtitle(videoFileId: apid.VideoFileId, subtitleIndex: number): Promise<apid.VideoPreparedSubtitle>;
     startSubtitleTransfer(
         targetVideoFileId: apid.VideoFileId,

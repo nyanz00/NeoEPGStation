@@ -16,7 +16,7 @@ import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
 import IApiUtil from '../IApiUtil';
 import IPlayList from '../IPlayList';
 import IVideoApiModel, { VideoFilePathInfo } from './IVideoApiModel';
-import IVideoUtil, { VideoRecordingTimeInfo } from './IVideoUtil';
+import IVideoUtil, { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil';
 
 @injectable()
 export default class VideoApiModel implements IVideoApiModel {
@@ -406,6 +406,7 @@ export default class VideoApiModel implements IVideoApiModel {
     public async getSubtitleText(
         videoFileId: apid.VideoFileId,
         subtitleIndex: number,
+        range?: SubtitleTextRange,
     ): Promise<apid.VideoSubtitleText> {
         const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
         if (filePath === null) {
@@ -413,7 +414,7 @@ export default class VideoApiModel implements IVideoApiModel {
         }
 
         return {
-            subtitleText: await this.videoUtil.getSubtitleText(filePath, subtitleIndex),
+            subtitleText: await this.videoUtil.getSubtitleText(filePath, subtitleIndex, range),
         };
     }
 

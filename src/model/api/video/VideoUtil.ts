@@ -10,7 +10,13 @@ import { analyzeMpegTsTime } from '../../../util/MpegTsTimeUtil';
 import IVideoFileDB from '../../db/IVideoFileDB';
 import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
-import IVideoUtil, { PreparedSubtitleInfo, VideoInfo, VideoRecordingTimeInfo, VideoSubtitleInfo } from './IVideoUtil';
+import IVideoUtil, {
+    PreparedSubtitleInfo,
+    SubtitleTextRange,
+    VideoInfo,
+    VideoRecordingTimeInfo,
+    VideoSubtitleInfo,
+} from './IVideoUtil';
 
 interface PreparedSubtitleEntry {
     filePath: string;
@@ -307,17 +313,29 @@ export default class VideoUtil implements IVideoUtil {
         };
     }
 
-    public async getSubtitleText(filePath: string, subtitleIndex: number): Promise<string> {
+    public async getSubtitleText(filePath: string, subtitleIndex: number, range?: SubtitleTextRange): Promise<string> {
         if (subtitleIndex < 0 || Number.isFinite(subtitleIndex) === false) {
             throw new Error('SubtitleIndexIsInvalid');
+        }
+        if (
+            range !== undefined &&
+            (Number.isFinite(range.startAt) === false ||
+                range.startAt < 0 ||
+                Number.isFinite(range.duration) === false ||
+                range.duration <= 0 ||
+                range.duration > 60 * 60)
+        ) {
+            throw new Error('SubtitleTextRangeIsInvalid');
         }
 
         const args = [
             '-hide_banner',
             '-loglevel',
             'warning',
+            ...(range !== undefined && range.startAt > 0 ? ['-copyts', '-ss', range.startAt.toFixed(3)] : []),
             '-i',
             filePath,
+            ...(range !== undefined ? ['-t', range.duration.toFixed(3)] : []),
             '-map',
             `0:s:${subtitleIndex.toString(10)}`,
             '-c:s',

@@ -123,6 +123,7 @@ export class RecordedPlayerCore {
     private tsHlsSourceStartPosition = 0;
     private lastStablePlaybackPosition = 0;
     private tsHlsSeekReloading = false;
+    private playbackFinished = false;
     private state: RecordedPlayerState = { isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' };
 
     constructor(option: RecordedPlayerCoreOption) {
@@ -188,6 +189,7 @@ export class RecordedPlayerCore {
         this.tsHlsSourceStartPosition = this.getSourceStartPosition(this.option.src);
         this.lastStablePlaybackPosition = this.tsHlsSourceStartPosition;
         this.tsHlsSeekReloading = false;
+        this.playbackFinished = false;
         window.Hls = Hls;
         window.mpegts = Mpegts;
         const video: { url: string; type?: string } = { url: this.option.src };
@@ -327,7 +329,7 @@ export class RecordedPlayerCore {
         const player = this.player;
         if (player === null) return;
         player.on('waiting', () => {
-            if (player.video.ended) {
+            if (this.playbackFinished || player.video.ended || this.isCompletedHlsAtEnd(player)) {
                 this.finishPlayback();
 
                 return;
@@ -335,6 +337,7 @@ export class RecordedPlayerCore {
             this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' });
         });
         player.on('playing', () => {
+            if (!this.isVideoAtEnd(player.video)) this.playbackFinished = false;
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
             // Safari can emit an initialization pause after DPlayer's play event,
@@ -358,10 +361,15 @@ export class RecordedPlayerCore {
             }
         });
         player.on('ended', () => this.finishPlayback());
+        const hls = player.plugins.hls as Hls | undefined;
+        hls?.on(Hls.Events.MEDIA_ENDED, () => this.finishPlayback());
         player.on('timeupdate', () => {
             if (!player.video.seeking && !this.tsHlsSeekReloading) this.lastStablePlaybackPosition = player.video.currentTime;
         });
-        player.on('seeking', () => this.reloadTsHlsForLargeSeek(player));
+        player.on('seeking', () => {
+            this.playbackFinished = false;
+            this.reloadTsHlsForLargeSeek(player);
+        });
         player.on('volumechange', () => {
             updateDPlayerMobileVolumeControl(this.option.container, player.video.muted);
             setStoredPlayerMuted(player.video.muted);
@@ -397,9 +405,21 @@ export class RecordedPlayerCore {
     }
 
     private finishPlayback(): void {
+        this.playbackFinished = true;
         this.clearPlaybackErrorTimer();
         this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
         this.player?.controller.show();
+    }
+
+    private isCompletedHlsAtEnd(player: DPlayerInstance): boolean {
+        const hls = player.plugins.hls as Hls | undefined;
+        if (hls === undefined || !this.isVideoAtEnd(player.video)) return false;
+
+        return hls.levels.some(level => level.details !== undefined && !level.details.live);
+    }
+
+    private isVideoAtEnd(video: HTMLVideoElement): boolean {
+        return Number.isFinite(video.duration) && video.duration > 0 && video.currentTime >= video.duration - 1;
     }
 
     private initJikkyoCore(): void {

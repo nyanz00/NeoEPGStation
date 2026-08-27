@@ -383,8 +383,12 @@ export const api = {
     async getVideoSubtitles(videoFileId: VideoFileId): Promise<VideoSubtitles> {
         return (await apiClient.get<VideoSubtitles>(`/videos/${videoFileId}/subtitles`)).data;
     },
-    async getVideoSubtitleText(videoFileId: VideoFileId, subtitleIndex: number): Promise<VideoSubtitleText> {
-        return (await apiClient.get<VideoSubtitleText>(`/videos/${videoFileId}/subtitles/${subtitleIndex}/text`)).data;
+    async getVideoSubtitleText(videoFileId: VideoFileId, subtitleIndex: number, range?: { startAt: number; duration: number }): Promise<VideoSubtitleText> {
+        return (
+            await apiClient.get<VideoSubtitleText>(`/videos/${videoFileId}/subtitles/${subtitleIndex}/text`, {
+                params: range,
+            })
+        ).data;
     },
     async prepareVideoSubtitle(videoFileId: VideoFileId, subtitleIndex: number): Promise<VideoPreparedSubtitle> {
         return (await apiClient.post<VideoPreparedSubtitle>(`/videos/${videoFileId}/subtitles/${subtitleIndex}/prepare`, {})).data;

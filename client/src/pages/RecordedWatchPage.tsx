@@ -52,6 +52,8 @@ import { useViewerProfile } from '../core/storage/viewerProfile';
 type PanelTab = 'program' | 'rules' | 'comments' | 'twitter';
 
 const RECORDED_PLAYER_PANEL_OPEN_STORAGE_KEY = 'neoepgstation-recorded-player-panel-open';
+const PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND = 30;
+const PLAY_SUBTITLE_PREVIEW_DURATION = 10 * 60 + PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND;
 
 function loadRecordedPlayerPanelOpen(): boolean {
     try {
@@ -859,6 +861,14 @@ export function RecordedWatchPage(): ReactNode {
         enabled: validIds && playbackUserId !== null,
         retry: false,
     });
+    const storedResumePosition =
+        playbackUserId !== null &&
+        settings.watchResumePlayback &&
+        playback.data !== undefined &&
+        playback.data.position >= 5 &&
+        (playback.data.duration <= 0 || playback.data.position < playback.data.duration - 10)
+            ? playback.data.position
+            : null;
     const annictEpisodeKey = ['recorded-annict-episode', recordedId, viewerProfile.profileId] as const;
     const annictEpisode = useQuery({
         queryKey: annictEpisodeKey,
@@ -886,19 +896,44 @@ export function RecordedWatchPage(): ReactNode {
         [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
     );
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
+    const subtitlePreviewStartAt = Math.max(0, (resumePosition ?? storedResumePosition ?? 0) - PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND);
+    const normalSubtitleEnabled = validIds && !streaming && selectedSubtitleIndex !== null;
+    const subtitleTextPreview = useQuery({
+        queryKey: ['video-subtitle-text-preview', videoFileId, 'normal', selectedSubtitleIndex, subtitlePreviewStartAt],
+        queryFn: () =>
+            api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!, {
+                startAt: subtitlePreviewStartAt,
+                duration: PLAY_SUBTITLE_PREVIEW_DURATION,
+            }),
+        enabled: normalSubtitleEnabled,
+        retry: false,
+        staleTime: Number.POSITIVE_INFINITY,
+    });
     const subtitleText = useQuery({
         // Keep the ordinary and danmaku tracks in separate query namespaces.
         // Their numeric subtitleIndex values come from the same file and can
         // otherwise share a cache entry while the two selectors are changing.
         queryKey: ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex],
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
-        enabled: validIds && !streaming && selectedSubtitleIndex !== null,
+        enabled: normalSubtitleEnabled && (subtitleTextPreview.isSuccess || subtitleTextPreview.isError),
+        staleTime: Number.POSITIVE_INFINITY,
+    });
+    const danmakuSubtitleEnabled = validIds && !streaming && settings.watchPlaySubtitleDanmaku && selectedDanmakuSubtitleIndex !== null;
+    const danmakuSubtitleTextPreview = useQuery({
+        queryKey: ['video-subtitle-text-preview', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex, subtitlePreviewStartAt],
+        queryFn: () =>
+            api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!, {
+                startAt: subtitlePreviewStartAt,
+                duration: PLAY_SUBTITLE_PREVIEW_DURATION,
+            }),
+        enabled: danmakuSubtitleEnabled,
+        retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const danmakuSubtitleText = useQuery({
         queryKey: ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex],
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
-        enabled: validIds && !streaming && settings.watchPlaySubtitleDanmaku && selectedDanmakuSubtitleIndex !== null,
+        enabled: danmakuSubtitleEnabled && (danmakuSubtitleTextPreview.isSuccess || danmakuSubtitleTextPreview.isError),
         staleTime: Number.POSITIVE_INFINITY,
     });
     const ruleId = recorded.data?.ruleId;
@@ -1150,14 +1185,6 @@ export function RecordedWatchPage(): ReactNode {
         if (panelTab === 'comments' && commentList.current !== null) commentList.current.scrollTop = commentList.current.scrollHeight;
     }, [comments, panelTab]);
     const channel = channels.data?.find(value => value.id === item?.channelId);
-    const storedResumePosition =
-        playbackUserId !== null &&
-        settings.watchResumePlayback &&
-        playback.data !== undefined &&
-        playback.data.position >= 5 &&
-        (playback.data.duration <= 0 || playback.data.position < playback.data.duration - 10)
-            ? playback.data.position
-            : null;
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;
         if (!streaming) return { src: getRecordedVideoPlayURL(videoFileId), type: 'normal', enableAribSubtitle: false };
@@ -1281,9 +1308,9 @@ export function RecordedWatchPage(): ReactNode {
                     <Box component="section" sx={{ minWidth: 0, minHeight: 0, height: { lg: '100dvh' }, overflow: 'hidden', bgcolor: 'background.default' }}>
                         <RecordedPlayer
                             source={source}
-                            subtitleText={!streaming && subtitleText.data !== undefined ? subtitleText.data.subtitleText : null}
+                            subtitleText={!streaming ? (subtitleText.data?.subtitleText ?? subtitleTextPreview.data?.subtitleText ?? null) : null}
                             subtitleIsNicoJk={!streaming && !settings.watchPlaySubtitleDanmaku && isNicoJkSubtitle(selectedSubtitle)}
-                            danmakuSubtitleText={!streaming && danmakuSubtitleText.data !== undefined ? danmakuSubtitleText.data.subtitleText : null}
+                            danmakuSubtitleText={!streaming ? (danmakuSubtitleText.data?.subtitleText ?? danmakuSubtitleTextPreview.data?.subtitleText ?? null) : null}
                             subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
