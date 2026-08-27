@@ -148,6 +148,8 @@ function RecordedPlayer({
     const coreRef = useRef<RecordedPlayerCore | null>(null);
     const rendererRef = useRef(new JassubSubtitleRenderer());
     const assCommentRef = useRef<AssCommentCore | null>(null);
+    const assCommentModeRef = useRef<'danmaku' | 'subtitle' | null>(null);
+    const assCommentVideoRef = useRef<HTMLVideoElement | null>(null);
     const [video, setVideo] = useState<HTMLVideoElement | null>(null);
     const [controlsVisible, setControlsVisible] = useState(true);
     const [controlsPortal, setControlsPortal] = useState<HTMLElement | null>(null);
@@ -186,6 +188,8 @@ function RecordedPlayer({
         rendererRef.current.clear();
         assCommentRef.current?.destroy();
         assCommentRef.current = null;
+        assCommentModeRef.current = null;
+        assCommentVideoRef.current = null;
         const core = new RecordedPlayerCore({
             container: container.current,
             src: source.src,
@@ -230,6 +234,8 @@ function RecordedPlayer({
             rendererRef.current.clear();
             assCommentRef.current?.destroy();
             assCommentRef.current = null;
+            assCommentModeRef.current = null;
+            assCommentVideoRef.current = null;
             core.destroy();
             if (keepTimer !== null) window.clearInterval(keepTimer);
             window.removeEventListener('pagehide', handlePageHide);
@@ -267,54 +273,57 @@ function RecordedPlayer({
     }, [video]);
 
     useEffect(() => {
-        // Subtitle rendering and ASS-to-danmaku playback share the same player
-        // lifecycle.  Keep their setup in one effect so that changing either
-        // selection cannot let a cleanup from the other effect destroy the
-        // newly selected renderer/comment stream.
-        rendererRef.current.clear();
-        assCommentRef.current?.destroy();
-        assCommentRef.current = null;
-        coreRef.current?.clearDanmaku();
-        onCommentsReset();
-        if (video === null) return;
+        if (video === null || subtitleText === null) {
+            rendererRef.current.clear();
+
+            return;
+        }
 
         // In danmaku mode the ordinary subtitle selector must still render
         // through libass/JASSUB.  The danmaku selector is an additional track,
         // not a replacement for the ordinary subtitle track.
-        if (subtitleText !== null) {
-            void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
-        }
+        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
+    }, [subtitleIsNicoJk, subtitleText, video]);
 
-        let comments: AssCommentCore | null = null;
-        if (subtitleDanmaku && danmakuSubtitleText !== null) {
-            comments = new AssCommentCore({
-                ass: danmakuSubtitleText,
-                video,
-                onComment: comment => coreRef.current?.drawDanmaku(comment),
-                onReset: () => {
-                    coreRef.current?.clearDanmaku();
-                    onCommentsReset();
-                },
-            });
-        } else if (!subtitleDanmaku && subtitleText !== null && subtitleIsNicoJk) {
-            comments = new AssCommentCore({
-                ass: subtitleText,
-                video,
-                onComment,
-                onReset: onCommentsReset,
-            });
-        }
-        if (comments !== null) {
-            assCommentRef.current = comments;
-            comments.start();
-        }
-
-        return () => {
-            rendererRef.current.clear();
-            comments?.destroy();
-            if (assCommentRef.current === comments) assCommentRef.current = null;
+    useEffect(() => {
+        const mode = subtitleDanmaku ? 'danmaku' : subtitleIsNicoJk ? 'subtitle' : null;
+        const ass = mode === 'danmaku' ? danmakuSubtitleText : mode === 'subtitle' ? subtitleText : null;
+        if (video === null || mode === null || ass === null) {
+            assCommentRef.current?.destroy();
+            assCommentRef.current = null;
+            assCommentModeRef.current = null;
+            assCommentVideoRef.current = null;
             coreRef.current?.clearDanmaku();
-        };
+            onCommentsReset();
+
+            return;
+        }
+
+        if (assCommentRef.current !== null && assCommentModeRef.current === mode && assCommentVideoRef.current === video) {
+            assCommentRef.current.updateAss(ass);
+
+            return;
+        }
+
+        assCommentRef.current?.destroy();
+        coreRef.current?.clearDanmaku();
+        onCommentsReset();
+        const comments = new AssCommentCore({
+            ass,
+            video,
+            onComment: mode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : onComment,
+            onReset:
+                mode === 'danmaku'
+                    ? () => {
+                          coreRef.current?.clearDanmaku();
+                          onCommentsReset();
+                      }
+                    : onCommentsReset,
+        });
+        assCommentRef.current = comments;
+        assCommentModeRef.current = mode;
+        assCommentVideoRef.current = video;
+        comments.start();
     }, [danmakuSubtitleText, onComment, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
 
     const seekBy = (seconds: number): void => {

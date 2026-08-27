@@ -14,7 +14,7 @@ export interface AssCommentCoreOption {
 
 export class AssCommentCore {
     private readonly option: AssCommentCoreOption;
-    private readonly comments: TimelineComment[];
+    private comments: TimelineComment[];
     private nextCommentIndex = 0;
     private animationFrameId: number | null = null;
     private lastCurrentTime = 0;
@@ -32,6 +32,14 @@ export class AssCommentCore {
         this.option.video.addEventListener('seeked', this.handleSeeked);
         this.option.video.addEventListener('play', this.handlePlay);
         this.animationFrameId = window.requestAnimationFrame(this.tick);
+    }
+
+    public updateAss(ass: string): void {
+        this.comments = parseAssComments(ass);
+        // Keep comments that are already moving on screen.  Start the new
+        // timeline just after the current position so the event at the swap
+        // boundary is not emitted twice.
+        this.resetPosition(this.option.video.currentTime + 0.1, false);
     }
 
     public destroy(): void {
