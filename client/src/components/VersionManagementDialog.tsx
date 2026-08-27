@@ -245,8 +245,15 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 {job.restartRequired && (
                                     <Alert
                                         severity="success"
+                                        sx={{ '& .MuiAlert-action': { flexShrink: 0 } }}
                                         action={
-                                            <Button color="inherit" startIcon={<RestartAltOutlined />} disabled={restart.isPending} onClick={() => restart.mutate()}>
+                                            <Button
+                                                color="inherit"
+                                                startIcon={<RestartAltOutlined />}
+                                                disabled={restart.isPending}
+                                                onClick={() => restart.mutate()}
+                                                sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
+                                            >
                                                 再起動
                                             </Button>
                                         }
