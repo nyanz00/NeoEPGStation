@@ -7,7 +7,8 @@ const manager = UpdateManager.getInstance();
 
 export const get: Operation = async (req, res) => {
     try {
-        api.responseJSON(res, 200, await manager.getInfo(req.query.refresh === 'true'));
+        const refresh: unknown = req.query.refresh;
+        api.responseJSON(res, 200, await manager.getInfo(refresh === true || refresh === 'true'));
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
