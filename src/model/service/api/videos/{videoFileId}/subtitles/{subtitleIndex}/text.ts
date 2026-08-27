@@ -58,8 +58,7 @@ get.apiDoc = {
             description: '部分取得する長さ（秒、最大3600秒）',
             schema: {
                 type: 'number',
-                minimum: 0,
-                exclusiveMinimum: true,
+                minimum: 0.001,
                 maximum: 3600,
             },
         },
