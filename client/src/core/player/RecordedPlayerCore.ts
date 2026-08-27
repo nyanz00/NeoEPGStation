@@ -326,7 +326,14 @@ export class RecordedPlayerCore {
     private bindEvents(): void {
         const player = this.player;
         if (player === null) return;
-        player.on('waiting', () => this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' }));
+        player.on('waiting', () => {
+            if (player.video.ended) {
+                this.finishPlayback();
+
+                return;
+            }
+            this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' });
+        });
         player.on('playing', () => {
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
@@ -341,10 +348,16 @@ export class RecordedPlayerCore {
         });
         player.on('pause', () => {
             player.controller.show();
+            if (player.video.ended) {
+                this.finishPlayback();
+
+                return;
+            }
             if (isAppleMobileWebKit() && this.option.autoplay && this.state.isLoading) {
                 this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
             }
         });
+        player.on('ended', () => this.finishPlayback());
         player.on('timeupdate', () => {
             if (!player.video.seeking && !this.tsHlsSeekReloading) this.lastStablePlaybackPosition = player.video.currentTime;
         });
@@ -381,6 +394,12 @@ export class RecordedPlayerCore {
             }, 2_500);
         });
         this.option.onControlsVisibilityChange?.(player.controller.isShow());
+    }
+
+    private finishPlayback(): void {
+        this.clearPlaybackErrorTimer();
+        this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
+        this.player?.controller.show();
     }
 
     private initJikkyoCore(): void {
