@@ -131,7 +131,7 @@ export default class VideoApiModel implements IVideoApiModel {
         }
 
         const videoCodec = await this.getPrimaryVideoCodec(source.path);
-        if (videoCodec !== 'hevc' && videoCodec !== 'h264') {
+        if (videoCodec !== 'hevc' && videoCodec !== 'h264' && videoCodec !== 'av1') {
             throw new Error(`WebPlaybackRemuxUnsupportedVideoCodec: ${videoCodec}`);
         }
 
@@ -164,6 +164,8 @@ export default class VideoApiModel implements IVideoApiModel {
         ];
         if (videoCodec === 'hevc') {
             args.push('-tag:v', 'hvc1');
+        } else if (videoCodec === 'av1') {
+            args.push('-tag:v', 'av01');
         }
         args.push('-movflags', '+faststart', '-write_tmcd', '0', temporaryPath);
 
