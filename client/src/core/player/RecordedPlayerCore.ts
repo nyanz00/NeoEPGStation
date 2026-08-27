@@ -329,7 +329,7 @@ export class RecordedPlayerCore {
         const player = this.player;
         if (player === null) return;
         player.on('waiting', () => {
-            if (this.playbackFinished || player.video.ended || this.isCompletedHlsAtEnd(player)) {
+            if (this.playbackFinished || player.video.ended) {
                 this.finishPlayback();
 
                 return;
@@ -337,7 +337,7 @@ export class RecordedPlayerCore {
             this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' });
         });
         player.on('playing', () => {
-            if (!this.isVideoAtEnd(player.video)) this.playbackFinished = false;
+            this.playbackFinished = false;
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
             // Safari can emit an initialization pause after DPlayer's play event,
@@ -362,11 +362,15 @@ export class RecordedPlayerCore {
         });
         player.on('ended', () => this.finishPlayback());
         const hls = player.plugins.hls as Hls | undefined;
-        hls?.on(Hls.Events.MEDIA_ENDED, () => this.finishPlayback());
+        hls?.on(Hls.Events.MEDIA_ENDED, (_event, data) => {
+            if (data.stalled) this.normalizeStalledHlsEnd(player);
+            else this.finishPlayback();
+        });
         player.on('timeupdate', () => {
             if (!player.video.seeking && !this.tsHlsSeekReloading) this.lastStablePlaybackPosition = player.video.currentTime;
         });
         player.on('seeking', () => {
+            if (this.playbackFinished && this.isAtDuration(player.video)) return;
             this.playbackFinished = false;
             this.reloadTsHlsForLargeSeek(player);
         });
@@ -411,15 +415,28 @@ export class RecordedPlayerCore {
         this.player?.controller.show();
     }
 
-    private isCompletedHlsAtEnd(player: DPlayerInstance): boolean {
-        const hls = player.plugins.hls as Hls | undefined;
-        if (hls === undefined || !this.isVideoAtEnd(player.video)) return false;
-
-        return hls.levels.some(level => level.details !== undefined && !level.details.live);
+    private normalizeStalledHlsEnd(player: DPlayerInstance): void {
+        if (this.destroyed || this.player !== player) return;
+        const video = player.video;
+        this.playbackFinished = true;
+        video.pause();
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+            try {
+                video.currentTime = video.duration;
+                video.dispatchEvent(new Event('timeupdate'));
+            } catch (error) {
+                this.option.onError?.(error);
+            }
+        }
+        // hls.js emits MEDIA_ENDED when MediaSource reached EOS but the browser
+        // omitted its native ended event.  Re-emit it so DPlayer and playback
+        // tracking complete through the same path as an ordinary media end.
+        video.dispatchEvent(new Event('ended'));
+        this.finishPlayback();
     }
 
-    private isVideoAtEnd(video: HTMLVideoElement): boolean {
-        return Number.isFinite(video.duration) && video.duration > 0 && video.currentTime >= video.duration - 1;
+    private isAtDuration(video: HTMLVideoElement): boolean {
+        return Number.isFinite(video.duration) && video.duration > 0 && Math.abs(video.duration - video.currentTime) < 0.01;
     }
 
     private initJikkyoCore(): void {
