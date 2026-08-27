@@ -53,7 +53,7 @@ type PanelTab = 'program' | 'rules' | 'comments' | 'twitter';
 
 const RECORDED_PLAYER_PANEL_OPEN_STORAGE_KEY = 'neoepgstation-recorded-player-panel-open';
 const PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND = 30;
-const PLAY_SUBTITLE_PREVIEW_DURATION = 10 * 60 + PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND;
+const PLAY_SUBTITLE_PREVIEW_DURATION = 3 * 60 + PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND;
 
 function loadRecordedPlayerPanelOpen(): boolean {
     try {
