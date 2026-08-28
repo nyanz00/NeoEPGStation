@@ -22,8 +22,8 @@ import {
     FormControlLabel,
     IconButton,
     InputLabel,
-    Menu,
     MenuItem,
+    Popover,
     Select,
     Stack,
     TextField,
@@ -68,19 +68,31 @@ function VideoActionButton({
             <Button variant="contained" color={color} startIcon={icon} onClick={event => setAnchor(event.currentTarget)}>
                 {label}
             </Button>
-            <Menu anchorEl={anchor} open={anchor !== null} onClose={() => setAnchor(null)}>
-                {files.map(file => (
-                    <MenuItem
-                        key={file.id}
-                        onClick={() => {
-                            setAnchor(null);
-                            onSelect(file);
-                        }}
-                    >
-                        {file.name}
-                    </MenuItem>
-                ))}
-            </Menu>
+            <Popover
+                anchorEl={anchor}
+                open={anchor !== null}
+                onClose={() => setAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                slotProps={{ paper: { sx: { maxWidth: 220, p: 1 } } }}
+            >
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {files.map(file => (
+                        <Button
+                            key={file.id}
+                            variant="contained"
+                            color="success"
+                            size="small"
+                            onClick={() => {
+                                setAnchor(null);
+                                onSelect(file);
+                            }}
+                        >
+                            {file.name}
+                        </Button>
+                    ))}
+                </Box>
+            </Popover>
         </>
     );
 }
