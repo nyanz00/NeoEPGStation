@@ -207,6 +207,7 @@ interface RecordedVODHLSVideoInfoCacheEntry {
 }
 
 const VOD_HLS_SEEK_REBASE_MAX_GAP = 2;
+const RECORDED_VOD_HLS_TS_PREROLL_SEGMENTS = 1;
 
 export const shouldRebaseRecordedVodHlsSession = (
     startSequence: number,
@@ -1606,12 +1607,18 @@ export default class StreamApiModel implements IStreamApiModel {
             throw new Error('RecordedVODHLSPreprocessorIsUndefined');
         }
         const segmentCount = Math.max(1, Math.ceil(videoInfo.duration / segmentDuration));
-        const startSequence = Math.min(
+        const requestedStartSequence = Math.min(
             Math.floor(
                 Math.min(Math.max(option.playPosition, 0), Math.max(videoInfo.duration - 0.001, 0)) / segmentDuration,
             ),
             segmentCount - 1,
         );
+        // A PCR points at an accurate transport-stream time, but not necessarily at an
+        // MPEG-2 sequence header from which a hardware decoder can initialize. Start one
+        // complete HLS segment earlier so the decoder sees the preceding GOP/header. The
+        // muxer keeps the earlier sequence number and timestamp, therefore the requested
+        // segment and timed metadata remain aligned instead of shifting by the preroll.
+        const startSequence = Math.max(0, requestedStartSequence - RECORDED_VOD_HLS_TS_PREROLL_SEGMENTS);
         const startPosition = startSequence * segmentDuration;
         const command = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config, {
             qualityName: option.quality,
@@ -1624,7 +1631,8 @@ export default class StreamApiModel implements IStreamApiModel {
         const estimatedByte = Math.floor((videoInfo.size * startPosition) / videoInfo.duration);
         const startByte = pcrStartByte ?? Math.max(0, estimatedByte - (estimatedByte % 188));
         this.log.stream.info(
-            `recorded VOD HLS TS seek: position=${startPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
+            `recorded VOD HLS TS seek: position=${(requestedStartSequence * segmentDuration).toFixed(3)}, ` +
+                `sourcePosition=${startPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
                 `source=${pcrStartByte === null ? 'estimated' : 'pcr'}`,
         );
         const session = new RecordedVodHlsMuxSession({
@@ -1643,7 +1651,7 @@ export default class StreamApiModel implements IStreamApiModel {
         });
 
         this.recordedVodHlsSessions.set(sessionKey, session);
-        session.prefetch(startSequence);
+        session.prefetch(requestedStartSequence);
 
         return session;
     }
