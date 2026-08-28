@@ -461,7 +461,8 @@ export class RecordedPlayerCore {
     }
 
     private scheduleHlsEndFallback(player: DPlayerInstance): void {
-        if ((!this.hlsBufferedToEnd && !this.hlsFinalFragmentBuffered) || this.hlsEndFallbackTimer !== null || !this.isAtFinalBufferedRange(player)) return;
+        const hasConfirmedHlsEnd = this.hlsBufferedToEnd || this.hlsFinalFragmentBuffered;
+        if ((!hasConfirmedHlsEnd && !this.isNearVodDuration(player)) || this.hlsEndFallbackTimer !== null || !this.isAtFinalBufferedRange(player)) return;
         const waitingAt = player.video.currentTime;
         this.hlsEndFallbackTimer = window.setTimeout(() => {
             this.hlsEndFallbackTimer = null;
@@ -477,14 +478,24 @@ export class RecordedPlayerCore {
                 return;
             }
             this.normalizeStalledHlsEnd(player);
-        }, 400);
+        }, 800);
+    }
+
+    private isNearVodDuration(player: DPlayerInstance): boolean {
+        if (this.option.type !== 'hls') return false;
+        const details = (player.plugins.hls as Hls | undefined)?.latestLevelDetails;
+        const video = player.video;
+        if (details?.live === true || !Number.isFinite(video.duration) || video.duration <= 0) return false;
+
+        return video.duration - video.currentTime <= 2;
     }
 
     private isAtFinalBufferedRange(player: DPlayerInstance): boolean {
+        if (this.option.type !== 'hls') return false;
         const hls = player.plugins.hls as Hls | undefined;
         const details = hls?.latestLevelDetails;
         const video = player.video;
-        if (details === null || details === undefined || details.live || video.buffered.length === 0) return false;
+        if (details?.live === true || video.buffered.length === 0) return false;
         const finalRange = video.buffered.length - 1;
         const start = video.buffered.start(finalRange);
         const end = video.buffered.end(finalRange);

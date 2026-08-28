@@ -1614,25 +1614,27 @@ export default class StreamApiModel implements IStreamApiModel {
             segmentCount - 1,
         );
         // A PCR points at an accurate transport-stream time, but not necessarily at an
-        // MPEG-2 sequence header from which a hardware decoder can initialize. Start one
-        // complete HLS segment earlier so the decoder sees the preceding GOP/header. The
-        // muxer keeps the earlier sequence number and timestamp, therefore the requested
-        // segment and timed metadata remain aligned instead of shifting by the preroll.
-        const startSequence = Math.max(0, requestedStartSequence - RECORDED_VOD_HLS_TS_PREROLL_SEGMENTS);
-        const startPosition = startSequence * segmentDuration;
+        // MPEG-2 sequence header from which a hardware decoder can initialize. Feed one
+        // complete HLS segment as preroll, then let the encoder discard it. The output
+        // sequence, timestamp, and timed metadata therefore remain at the requested time.
+        const sourceStartSequence = Math.max(0, requestedStartSequence - RECORDED_VOD_HLS_TS_PREROLL_SEGMENTS);
+        const startPosition = requestedStartSequence * segmentDuration;
+        const sourceStartPosition = sourceStartSequence * segmentDuration;
+        const preroll = startPosition - sourceStartPosition;
         const command = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config, {
             qualityName: option.quality,
             encoder: option.encoder,
             isHevc: option.isHevc,
             start: startPosition,
+            preroll: preroll,
         });
 
-        const pcrStartByte = await findMpegTsByteOffset(videoInfo.filePath, startPosition);
-        const estimatedByte = Math.floor((videoInfo.size * startPosition) / videoInfo.duration);
+        const pcrStartByte = await findMpegTsByteOffset(videoInfo.filePath, sourceStartPosition);
+        const estimatedByte = Math.floor((videoInfo.size * sourceStartPosition) / videoInfo.duration);
         const startByte = pcrStartByte ?? Math.max(0, estimatedByte - (estimatedByte % 188));
         this.log.stream.info(
-            `recorded VOD HLS TS seek: position=${(requestedStartSequence * segmentDuration).toFixed(3)}, ` +
-                `sourcePosition=${startPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
+            `recorded VOD HLS TS seek: position=${startPosition.toFixed(3)}, ` +
+                `sourcePosition=${sourceStartPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
                 `source=${pcrStartByte === null ? 'estimated' : 'pcr'}`,
         );
         const session = new RecordedVodHlsMuxSession({
@@ -1643,7 +1645,7 @@ export default class StreamApiModel implements IStreamApiModel {
             segmentCount: segmentCount,
             startByte: startByte,
             startPosition: startPosition,
-            startSequence: startSequence,
+            startSequence: requestedStartSequence,
             preprocessor: preprocessor,
             command: command,
             log: this.log,
