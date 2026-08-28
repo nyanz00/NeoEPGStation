@@ -65,7 +65,7 @@ function VideoActionButton({
     const [anchor, setAnchor] = useState<HTMLElement | null>(null);
     return (
         <>
-            <Button variant="contained" color={color} startIcon={icon} onClick={event => (files.length === 1 ? onSelect(files[0]) : setAnchor(event.currentTarget))}>
+            <Button variant="contained" color={color} startIcon={icon} onClick={event => setAnchor(event.currentTarget)}>
                 {label}
             </Button>
             <Menu anchorEl={anchor} open={anchor !== null} onClose={() => setAnchor(null)}>
