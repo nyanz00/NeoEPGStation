@@ -76,7 +76,7 @@ function VideoActionButton({
                 transformOrigin={{ vertical: 'top', horizontal: 'left' }}
                 slotProps={{ paper: { sx: { maxWidth: 220, p: 1 } } }}
             >
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 1 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
                     {files.map(file => (
                         <Button
                             key={file.id}
