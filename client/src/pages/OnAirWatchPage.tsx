@@ -239,8 +239,11 @@ function LivePlayer({
                 },
                 ...(persistentBottomControls
                     ? {
-                          '& .onair-dplayer .dplayer-video-wrap, & .onair-dplayer .dplayer-video-wrap-aspect': {
+                          '& .onair-dplayer .dplayer-video-wrap': {
                               height: 'calc(100% - 56px) !important',
+                          },
+                          '& .onair-dplayer .dplayer-video-wrap-aspect': {
+                              height: '100% !important',
                           },
                           '& .onair-dplayer .dplayer-controller-mask': {
                               height: '56px !important',

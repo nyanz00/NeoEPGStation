@@ -394,8 +394,11 @@ function RecordedPlayer({
                 },
                 ...(persistentBottomControls
                     ? {
-                          '& .recorded-dplayer .dplayer-video-wrap, & .recorded-dplayer .dplayer-video-wrap-aspect': {
+                          '& .recorded-dplayer .dplayer-video-wrap': {
                               height: 'calc(100% - 56px) !important',
+                          },
+                          '& .recorded-dplayer .dplayer-video-wrap-aspect': {
+                              height: '100% !important',
                           },
                           '& .recorded-dplayer .dplayer-controller-mask': {
                               height: '56px !important',
