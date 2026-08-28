@@ -124,6 +124,8 @@ export class RecordedPlayerCore {
     private lastStablePlaybackPosition = 0;
     private tsHlsSeekReloading = false;
     private playbackFinished = false;
+    private hlsBufferedToEnd = false;
+    private hlsEndFallbackTimer: number | null = null;
     private state: RecordedPlayerState = { isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' };
 
     constructor(option: RecordedPlayerCoreOption) {
@@ -190,6 +192,8 @@ export class RecordedPlayerCore {
         this.lastStablePlaybackPosition = this.tsHlsSourceStartPosition;
         this.tsHlsSeekReloading = false;
         this.playbackFinished = false;
+        this.hlsBufferedToEnd = false;
+        this.clearHlsEndFallbackTimer();
         window.Hls = Hls;
         window.mpegts = Mpegts;
         const video: { url: string; type?: string } = { url: this.option.src };
@@ -335,9 +339,11 @@ export class RecordedPlayerCore {
                 return;
             }
             this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' });
+            this.scheduleHlsEndFallback(player);
         });
         player.on('playing', () => {
             this.playbackFinished = false;
+            this.clearHlsEndFallbackTimer();
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
             // Safari can emit an initialization pause after DPlayer's play event,
@@ -346,6 +352,7 @@ export class RecordedPlayerCore {
             if (player.controller.isShow()) player.controller.setAutoHide(RecordedPlayerCore.CONTROLS_AUTO_HIDE_TIME);
         });
         player.on('canplay', () => {
+            this.clearHlsEndFallbackTimer();
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
         });
@@ -362,6 +369,14 @@ export class RecordedPlayerCore {
         });
         player.on('ended', () => this.finishPlayback());
         const hls = player.plugins.hls as Hls | undefined;
+        hls?.on(Hls.Events.MANIFEST_LOADING, () => {
+            this.hlsBufferedToEnd = false;
+            this.clearHlsEndFallbackTimer();
+        });
+        hls?.on(Hls.Events.BUFFERED_TO_END, () => {
+            this.hlsBufferedToEnd = true;
+            if (this.state.isBuffering) this.scheduleHlsEndFallback(player);
+        });
         hls?.on(Hls.Events.MEDIA_ENDED, (_event, data) => {
             if (data.stalled) this.normalizeStalledHlsEnd(player);
             else this.finishPlayback();
@@ -370,7 +385,7 @@ export class RecordedPlayerCore {
             if (!player.video.seeking && !this.tsHlsSeekReloading) this.lastStablePlaybackPosition = player.video.currentTime;
         });
         player.on('seeking', () => {
-            if (this.playbackFinished && this.isAtDuration(player.video)) return;
+            this.clearHlsEndFallbackTimer();
             this.playbackFinished = false;
             this.reloadTsHlsForLargeSeek(player);
         });
@@ -410,33 +425,61 @@ export class RecordedPlayerCore {
 
     private finishPlayback(): void {
         this.playbackFinished = true;
+        this.clearHlsEndFallbackTimer();
         this.clearPlaybackErrorTimer();
         this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
         this.player?.controller.show();
     }
 
     private normalizeStalledHlsEnd(player: DPlayerInstance): void {
-        if (this.destroyed || this.player !== player) return;
+        if (this.destroyed || this.player !== player || this.playbackFinished) return;
         const video = player.video;
         this.playbackFinished = true;
         video.pause();
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-            try {
-                video.currentTime = video.duration;
-                video.dispatchEvent(new Event('timeupdate'));
-            } catch (error) {
-                this.option.onError?.(error);
-            }
-        }
         // hls.js emits MEDIA_ENDED when MediaSource reached EOS but the browser
         // omitted its native ended event.  Re-emit it so DPlayer and playback
         // tracking complete through the same path as an ordinary media end.
+        video.dispatchEvent(new Event('timeupdate'));
         video.dispatchEvent(new Event('ended'));
         this.finishPlayback();
     }
 
-    private isAtDuration(video: HTMLVideoElement): boolean {
-        return Number.isFinite(video.duration) && video.duration > 0 && Math.abs(video.duration - video.currentTime) < 0.01;
+    private scheduleHlsEndFallback(player: DPlayerInstance): void {
+        if (!this.hlsBufferedToEnd || this.hlsEndFallbackTimer !== null || !this.isAtFinalBufferedRange(player)) return;
+        const waitingAt = player.video.currentTime;
+        this.hlsEndFallbackTimer = window.setTimeout(() => {
+            this.hlsEndFallbackTimer = null;
+            if (
+                this.destroyed ||
+                this.player !== player ||
+                this.playbackFinished ||
+                !this.state.isBuffering ||
+                player.video.seeking ||
+                Math.abs(player.video.currentTime - waitingAt) >= 0.05 ||
+                !this.isAtFinalBufferedRange(player)
+            ) {
+                return;
+            }
+            this.normalizeStalledHlsEnd(player);
+        }, 400);
+    }
+
+    private isAtFinalBufferedRange(player: DPlayerInstance): boolean {
+        const hls = player.plugins.hls as Hls | undefined;
+        const details = hls?.latestLevelDetails;
+        const video = player.video;
+        if (details === null || details === undefined || details.live || video.buffered.length === 0) return false;
+        const finalRange = video.buffered.length - 1;
+        const start = video.buffered.start(finalRange);
+        const end = video.buffered.end(finalRange);
+
+        return video.currentTime >= start - 0.05 && video.currentTime <= end + 0.05 && end - video.currentTime <= 1;
+    }
+
+    private clearHlsEndFallbackTimer(): void {
+        if (this.hlsEndFallbackTimer === null) return;
+        window.clearTimeout(this.hlsEndFallbackTimer);
+        this.hlsEndFallbackTimer = null;
     }
 
     private initJikkyoCore(): void {
@@ -519,6 +562,8 @@ export class RecordedPlayerCore {
 
     private destroyPlayer(): void {
         this.tsHlsSeekReloading = false;
+        this.hlsBufferedToEnd = false;
+        this.clearHlsEndFallbackTimer();
         this.volumeController?.destroy();
         this.volumeController = null;
         this.option.onControlsPortalReady?.(null);
