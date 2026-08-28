@@ -693,7 +693,7 @@ export function RecordedDetailPage(): ReactNode {
                 </Box>
             )}
 
-            <Dialog open={thumbnailOpen} onClose={() => setThumbnailOpen(false)} fullWidth maxWidth="xs">
+            <Dialog open={thumbnailOpen} onClose={() => setThumbnailOpen(false)} fullWidth maxWidth="xs" disableScrollLock>
                 <DialogTitle>サムネイル再生成</DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" sx={{ mb: 2 }}>
@@ -801,7 +801,7 @@ export function RecordedDetailPage(): ReactNode {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={encodeOpen} onClose={closeEncodeDialog} fullWidth maxWidth="sm">
+            <Dialog open={encodeOpen} onClose={closeEncodeDialog} fullWidth maxWidth="sm" disableScrollLock>
                 <DialogTitle>エンコード追加</DialogTitle>
                 <DialogContent>
                     <Stack spacing={2} sx={{ pt: 1 }}>
