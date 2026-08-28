@@ -125,6 +125,7 @@ export class RecordedPlayerCore {
     private tsHlsSeekReloading = false;
     private playbackFinished = false;
     private hlsBufferedToEnd = false;
+    private hlsFinalFragmentBuffered = false;
     private hlsEndFallbackTimer: number | null = null;
     private state: RecordedPlayerState = { isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' };
 
@@ -193,6 +194,7 @@ export class RecordedPlayerCore {
         this.tsHlsSeekReloading = false;
         this.playbackFinished = false;
         this.hlsBufferedToEnd = false;
+        this.hlsFinalFragmentBuffered = false;
         this.clearHlsEndFallbackTimer();
         window.Hls = Hls;
         window.mpegts = Mpegts;
@@ -371,7 +373,21 @@ export class RecordedPlayerCore {
         const hls = player.plugins.hls as Hls | undefined;
         hls?.on(Hls.Events.MANIFEST_LOADING, () => {
             this.hlsBufferedToEnd = false;
+            this.hlsFinalFragmentBuffered = false;
             this.clearHlsEndFallbackTimer();
+        });
+        hls?.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
+            const details = hls.latestLevelDetails;
+            if (details === null || details.live || data.frag.type !== 'main' || data.frag.sn !== details.endSN) return;
+            this.hlsFinalFragmentBuffered = true;
+            // The synthetic VOD playlist is published before all segments exist.
+            // After a seek, hls.js can append its final fragment without advancing
+            // its internal end-list tracker, leaving MediaSource open forever.
+            // Explicitly close the muxed A/V source once that final fragment is in
+            // the buffer so the browser can adjust duration to the actual media edge
+            // and emit its native ended event after playing the remaining frames.
+            if (!this.hlsBufferedToEnd) hls.trigger(Hls.Events.BUFFER_EOS, {});
+            if (this.state.isBuffering) this.scheduleHlsEndFallback(player);
         });
         hls?.on(Hls.Events.BUFFERED_TO_END, () => {
             this.hlsBufferedToEnd = true;
@@ -445,7 +461,7 @@ export class RecordedPlayerCore {
     }
 
     private scheduleHlsEndFallback(player: DPlayerInstance): void {
-        if (!this.hlsBufferedToEnd || this.hlsEndFallbackTimer !== null || !this.isAtFinalBufferedRange(player)) return;
+        if ((!this.hlsBufferedToEnd && !this.hlsFinalFragmentBuffered) || this.hlsEndFallbackTimer !== null || !this.isAtFinalBufferedRange(player)) return;
         const waitingAt = player.video.currentTime;
         this.hlsEndFallbackTimer = window.setTimeout(() => {
             this.hlsEndFallbackTimer = null;
@@ -563,6 +579,7 @@ export class RecordedPlayerCore {
     private destroyPlayer(): void {
         this.tsHlsSeekReloading = false;
         this.hlsBufferedToEnd = false;
+        this.hlsFinalFragmentBuffered = false;
         this.clearHlsEndFallbackTimer();
         this.volumeController?.destroy();
         this.volumeController = null;
