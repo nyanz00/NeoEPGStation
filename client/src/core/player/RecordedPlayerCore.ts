@@ -68,6 +68,7 @@ export interface RecordedPlayerCoreOption {
     type: RecordedPlayerSourceType;
     enableAribSubtitle: boolean;
     enableDanmaku: boolean;
+    danmakuHighRefreshRate: boolean;
     forceSubtitleStroke: boolean;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
@@ -274,6 +275,7 @@ export class RecordedPlayerCore {
                 user: 'EPGStation',
                 speedRate: 1,
                 fontSize: RecordedPlayerCore.DANMAKU_FONT_SIZE,
+                highRefreshRate: this.option.danmakuHighRefreshRate,
             };
             options.apiBackend = {
                 read: (readOption: { success: (comments: never[]) => void }) => readOption.success([]),

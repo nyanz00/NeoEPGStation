@@ -9,6 +9,7 @@ interface DanmakuCanvasItem {
     bitmapWidth: number;
     bitmapHeight: number;
     bitmapPadding: number;
+    element?: HTMLCanvasElement;
 }
 
 export interface CompositeScreenshotDanmaku {
@@ -58,6 +59,13 @@ function drawDanmaku(
     context.globalAlpha = Number.isFinite(opacity) ? opacity : 1;
     for (const item of danmaku.canvasItems) {
         if (item.bitmap.width <= 0 || item.bitmap.height <= 0) continue;
+        if (item.element?.isConnected) {
+            const rect = item.element.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                context.drawImage(item.bitmap, (rect.left - captureRect.left) * scale, (rect.top - captureRect.top) * scale, rect.width * scale, rect.height * scale);
+            }
+            continue;
+        }
         const left = layerRect.left - captureRect.left + item.x - item.bitmapPadding;
         // A comment bitmap includes its own outline padding. Keep that padding
         // and its lane origin inside the captured video instead of clipping it.

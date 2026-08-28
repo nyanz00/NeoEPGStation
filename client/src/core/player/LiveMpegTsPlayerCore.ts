@@ -79,6 +79,7 @@ export interface LiveMpegTsPlayerCoreOption {
     isHevc: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
+    danmakuHighRefreshRate: boolean;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
     themeColor: string;
@@ -284,6 +285,7 @@ export class LiveMpegTsPlayerCore {
                 user: 'EPGStation',
                 speedRate: 1,
                 fontSize: LiveMpegTsPlayerCore.DANMAKU_FONT_SIZE,
+                highRefreshRate: this.option.danmakuHighRefreshRate,
             },
             apiBackend: {
                 read: (readOption: { success: (comments: never[]) => void }) => readOption.success([]),

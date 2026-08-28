@@ -76,6 +76,7 @@ function LivePlayer({
     isHevc,
     webkitPlaybackMode,
     forceSubtitleStroke,
+    danmakuHighRefreshRate,
     persistentBottomControls,
     showVolumePercent,
     volumeBoostEnabled,
@@ -93,6 +94,7 @@ function LivePlayer({
     isHevc: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
+    danmakuHighRefreshRate: boolean;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
     volumeBoostEnabled: boolean;
@@ -133,6 +135,7 @@ function LivePlayer({
             isHevc,
             webkitPlaybackMode,
             forceSubtitleStroke,
+            danmakuHighRefreshRate,
             volumeBoostEnabled,
             volumeBoostMaxPercent,
             themeColor: theme.palette.primary.main,
@@ -159,6 +162,7 @@ function LivePlayer({
     }, [
         channelId,
         forceSubtitleStroke,
+        danmakuHighRefreshRate,
         isHevc,
         webkitPlaybackMode,
         lowLatency,
@@ -916,6 +920,7 @@ export function OnAirWatchPage(): ReactNode {
                             isHevc={settings.watchUseHevc}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
+                            danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}

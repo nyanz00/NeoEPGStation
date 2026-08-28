@@ -1050,6 +1050,13 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchPlaySubtitleDanmaku} onChange={event => patch('watchPlaySubtitleDanmaku', event.target.checked)} />}
                                     />
                                     <SettingRow
+                                        title="danmakuを高リフレッシュレートで描画（実験的機能）"
+                                        description="コメントを個別のGPU合成レイヤーとして描画します。高リフレッシュレート環境で滑らかになりますが、コメントが集中する場面ではGPUメモリや描画負荷が増える場合があります。"
+                                        control={
+                                            <Switch checked={draft.watchDanmakuHighRefreshRate} onChange={event => patch('watchDanmakuHighRefreshRate', event.target.checked)} />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="下部再生UIを常時表示"
                                         description="映像の下に再生操作を常時表示します。上部・中央UIは従来どおり必要なときだけ表示します。"
                                         control={

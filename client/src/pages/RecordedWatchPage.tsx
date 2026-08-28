@@ -107,6 +107,7 @@ function RecordedPlayer({
     danmakuSubtitleText,
     subtitleDanmaku,
     forceSubtitleStroke,
+    danmakuHighRefreshRate,
     webkitPlaybackMode,
     persistentBottomControls,
     showVolumePercent,
@@ -128,6 +129,7 @@ function RecordedPlayer({
     danmakuSubtitleText: string | null;
     subtitleDanmaku: boolean;
     forceSubtitleStroke: boolean;
+    danmakuHighRefreshRate: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
@@ -197,6 +199,7 @@ function RecordedPlayer({
             enableAribSubtitle: source.enableAribSubtitle,
             enableDanmaku: subtitleDanmaku,
             forceSubtitleStroke,
+            danmakuHighRefreshRate,
             volumeBoostEnabled,
             volumeBoostMaxPercent,
             webkitPlaybackMode,
@@ -243,6 +246,7 @@ function RecordedPlayer({
         };
     }, [
         forceSubtitleStroke,
+        danmakuHighRefreshRate,
         webkitPlaybackMode,
         onComment,
         onCommentStatus,
@@ -1325,6 +1329,7 @@ export function RecordedWatchPage(): ReactNode {
                             danmakuSubtitleText={!streaming ? (danmakuSubtitleText.data?.subtitleText ?? danmakuSubtitleTextPreview.data?.subtitleText ?? null) : null}
                             subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
+                            danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}

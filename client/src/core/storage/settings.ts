@@ -39,6 +39,7 @@ export interface AppSettings {
     watchStreamingSubtitleOutlineSizePercent: number;
     watchStreamingSubtitleOutlineOpacityPercent: number;
     watchPlaySubtitleDanmaku: boolean;
+    watchDanmakuHighRefreshRate: boolean;
     watchPersistentBottomControls: boolean;
     watchShowVolumePercent: boolean;
     watchVolumeBoostEnabled: boolean;
@@ -116,6 +117,7 @@ export const defaultSettings: AppSettings = {
     watchStreamingSubtitleOutlineSizePercent: 100,
     watchStreamingSubtitleOutlineOpacityPercent: 100,
     watchPlaySubtitleDanmaku: false,
+    watchDanmakuHighRefreshRate: false,
     watchPersistentBottomControls: false,
     watchShowVolumePercent: true,
     watchVolumeBoostEnabled: false,
@@ -207,6 +209,7 @@ function loadSettings(): AppSettings {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
+            watchDanmakuHighRefreshRate: parsed.watchDanmakuHighRefreshRate === true,
             watchPersistentBottomControls: parsed.watchPersistentBottomControls === true,
             watchShowVolumePercent: parsed.watchShowVolumePercent !== false,
             watchVolumeBoostEnabled: parsed.watchVolumeBoostEnabled === true,
@@ -259,6 +262,7 @@ export const settingsStore = {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
+            watchDanmakuHighRefreshRate: value.watchDanmakuHighRefreshRate === true,
             watchPersistentBottomControls: value.watchPersistentBottomControls === true,
             watchShowVolumePercent: value.watchShowVolumePercent !== false,
             watchVolumeBoostEnabled: value.watchVolumeBoostEnabled === true,
