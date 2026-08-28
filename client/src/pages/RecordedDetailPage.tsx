@@ -72,6 +72,7 @@ function VideoActionButton({
                 anchorEl={anchor}
                 open={anchor !== null}
                 onClose={() => setAnchor(null)}
+                disableScrollLock
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'left' }}
                 slotProps={{ paper: { sx: { maxWidth: 220, p: 1 } } }}
