@@ -1117,20 +1117,6 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchResumePlayback} onChange={event => patch('watchResumePlayback', event.target.checked)} />}
                                     />
                                     <SettingRow
-                                        title="視聴履歴の保存件数"
-                                        description="EPGStationユーザーごとに保持する録画番組の視聴履歴件数"
-                                        control={
-                                            <TextField
-                                                type="number"
-                                                size="small"
-                                                value={draft.watchHistoryLength}
-                                                onChange={event => patch('watchHistoryLength', Number(event.target.value))}
-                                                slotProps={{ htmlInput: { min: 1, max: 200, step: 1 } }}
-                                                sx={{ width: 120 }}
-                                            />
-                                        }
-                                    />
-                                    <SettingRow
                                         title="字幕の縁取り"
                                         description="Webプレイヤーの字幕へ縁取りを付けて読みやすくする"
                                         control={
@@ -1363,6 +1349,20 @@ export function SettingsPage(): ReactNode {
                                             value={draft.searchLength}
                                             onChange={event => patch('searchLength', Number(event.target.value))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                        />
+                                    }
+                                />
+                                <SettingRow
+                                    title="視聴履歴の保存件数"
+                                    description="EPGStationユーザーごとに保持する録画番組の視聴履歴件数"
+                                    control={
+                                        <TextField
+                                            type="number"
+                                            size="small"
+                                            value={draft.watchHistoryLength}
+                                            onChange={event => patch('watchHistoryLength', Number(event.target.value))}
+                                            slotProps={{ htmlInput: { min: 1, max: 200, step: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
