@@ -1301,6 +1301,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.recordedLength}
                                             onChange={event => patch('recordedLength', Number(event.target.value))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1313,6 +1314,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.reservesLength}
                                             onChange={event => patch('reservesLength', Math.max(1, Number(event.target.value)))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1325,6 +1327,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.recordingLength}
                                             onChange={event => patch('recordingLength', Math.max(1, Number(event.target.value)))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1337,6 +1340,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.rulesLength}
                                             onChange={event => patch('rulesLength', Math.max(1, Number(event.target.value)))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1349,6 +1353,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.searchLength}
                                             onChange={event => patch('searchLength', Number(event.target.value))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
