@@ -1051,7 +1051,7 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="danmakuを高リフレッシュレートで描画（実験的機能）"
-                                        description="コメントを個別のGPU合成レイヤーとして描画します。高リフレッシュレート環境で滑らかになりますが、コメントが集中する場面ではGPUメモリや描画負荷が増える場合があります。"
+                                        description="WebGL2でコメント画像をまとめて描画し、ディスプレイと同じ更新頻度で動かします。WebGL2を利用できない環境では従来の描画方式へ自動的に戻ります。"
                                         control={
                                             <Switch checked={draft.watchDanmakuHighRefreshRate} onChange={event => patch('watchDanmakuHighRefreshRate', event.target.checked)} />
                                         }
