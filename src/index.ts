@@ -6,6 +6,7 @@ import IEPGUpdateExecutorManageModel from './model/epgUpdater/IEPGUpdateExecutor
 import IEventSetter from './model/event/IEventSetter';
 import IConfiguration from './model/IConfiguration';
 import IConnectionCheckModel from './model/IConnectionCheckModel';
+import IDBOperator from './model/db/IDBOperator';
 import ILoggerModel from './model/ILoggerModel';
 import IMirakurunClientModel from './model/IMirakurunClientModel';
 import IIPCServer from './model/ipc/IIPCServer';
@@ -134,9 +135,65 @@ const runService = async () => {
             if (isApplicationRestartRequested) return;
             isApplicationRestartRequested = true;
             log.system.info('restart NeoEPGStation after Web UI update');
-            void ProcessUtil.kill(child).finally(() => {
+            void (async () => {
+                // Allow the restart API response to reach the browser before stopping the service.
+                await new Promise(resolve => setTimeout(resolve, 500));
+                const serviceStoppedGracefully = new Promise<boolean>(resolve => {
+                    const timeout = setTimeout(() => finish(false), 5_000);
+                    const finish = (value: boolean): void => {
+                        clearTimeout(timeout);
+                        child.removeListener('message', onMessage);
+                        child.removeListener('exit', onExit);
+                        resolve(value);
+                    };
+                    const onMessage = (shutdownMessage: unknown): void => {
+                        if (
+                            typeof shutdownMessage === 'object' &&
+                            shutdownMessage !== null &&
+                            'type' in shutdownMessage &&
+                            shutdownMessage.type === 'update-shutdown-ready'
+                        ) {
+                            finish(true);
+                        }
+                    };
+                    const onExit = (): void => finish(true);
+                    child.on('message', onMessage);
+                    child.once('exit', onExit);
+                });
+                try {
+                    child.send({ type: 'update-shutdown-request' } satisfies ServiceProcessMessage, err => {
+                        if (err !== null) log.system.warn(`service database shutdown IPC failed: ${err.message}`);
+                    });
+                } catch (err) {
+                    log.system.warn(`failed to request service database shutdown: ${err}`);
+                }
+                if ((await serviceStoppedGracefully) === false) {
+                    log.system.warn('service database shutdown timed out; force terminating process');
+                    await ProcessUtil.kill(child, 0);
+                }
+
+                await container.get<IEPGUpdateExecutorManageModel>('IEPGUpdateExecutorManageModel').shutdownForUpdate();
+                const operatorDatabaseClosed = container
+                    .get<IDBOperator>('IDBOperator')
+                    .closeConnection()
+                    .then(() => true)
+                    .catch(err => {
+                        log.system.warn(`failed to close operator database connection: ${err}`);
+                        return true;
+                    });
+                if (
+                    (await Promise.race([
+                        operatorDatabaseClosed,
+                        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5_000)),
+                    ])) === false
+                ) {
+                    log.system.warn('operator database shutdown timed out; continue Web UI update restart');
+                }
                 process.exitCode = 0;
                 setImmediate(() => process.exit(0));
+            })().catch(err => {
+                log.system.fatal(`Web UI update shutdown failed: ${err instanceof Error ? err.stack : err}`);
+                void ProcessUtil.kill(child, 0).finally(() => process.exit(1));
             });
         }
     });
