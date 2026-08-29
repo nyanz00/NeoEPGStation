@@ -15,6 +15,7 @@ import {
 import { RecordedJikkyoCommentCore } from './RecordedJikkyoCommentCore';
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
+import { getRecordedDanmakuDisplayTime } from './recordedDanmakuTiming';
 
 export type RecordedPlayerSourceType = 'normal' | 'hls' | 'mpegts';
 
@@ -163,6 +164,11 @@ export class RecordedPlayerCore {
 
     public drawDanmaku(comment: JikkyoComment): void {
         this.enqueueComment(comment);
+    }
+
+    public getDanmakuDisplayTime(comment: JikkyoComment, originalTime: number): number {
+        if (this.player === null) return originalTime;
+        return getRecordedDanmakuDisplayTime(comment, originalTime, this.player.video, this.option.container);
     }
 
     public clearDanmaku(): void {
@@ -519,6 +525,7 @@ export class RecordedPlayerCore {
             commentsUrl: this.option.commentsUrl,
             video: this.player.video,
             onComment: comment => this.enqueueComment(comment),
+            getDisplayTime: (comment, originalTime) => this.getDanmakuDisplayTime(comment, originalTime),
             onReset: () => {
                 this.player?.danmaku?.clear();
                 this.option.onCommentsReset?.();

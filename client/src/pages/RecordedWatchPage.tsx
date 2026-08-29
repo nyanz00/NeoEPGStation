@@ -342,6 +342,7 @@ function RecordedPlayer({
             ass,
             video,
             onComment: mode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : onComment,
+            getDisplayTime: mode === 'danmaku' ? (comment, originalTime) => coreRef.current?.getDanmakuDisplayTime(comment, originalTime) ?? originalTime : undefined,
             onReset:
                 mode === 'danmaku'
                     ? () => {

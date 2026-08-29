@@ -2,6 +2,7 @@ import type { JikkyoComment, JikkyoCommentPosition, JikkyoCommentSize } from './
 
 interface TimelineComment {
     time: number;
+    displayTime: number;
     comment: JikkyoComment;
 }
 
@@ -9,6 +10,7 @@ export interface AssCommentCoreOption {
     ass: string;
     video: HTMLVideoElement;
     onComment: (comment: JikkyoComment) => void;
+    getDisplayTime?: (comment: JikkyoComment, originalTime: number) => number;
     onReset?: () => void;
 }
 
@@ -23,6 +25,7 @@ export class AssCommentCore {
     constructor(option: AssCommentCoreOption) {
         this.option = option;
         this.comments = parseAssComments(option.ass);
+        this.refreshDisplayTimes();
     }
 
     public start(): void {
@@ -31,11 +34,13 @@ export class AssCommentCore {
         this.option.video.addEventListener('seeking', this.handleSeeking);
         this.option.video.addEventListener('seeked', this.handleSeeked);
         this.option.video.addEventListener('play', this.handlePlay);
+        this.option.video.addEventListener('durationchange', this.handleDurationChange);
         this.animationFrameId = window.requestAnimationFrame(this.tick);
     }
 
     public updateAss(ass: string): void {
         this.comments = parseAssComments(ass);
+        this.refreshDisplayTimes();
         // Keep comments that are already moving on screen.  Start the new
         // timeline just after the current position so the event at the swap
         // boundary is not emitted twice.
@@ -49,6 +54,7 @@ export class AssCommentCore {
         this.option.video.removeEventListener('seeking', this.handleSeeking);
         this.option.video.removeEventListener('seeked', this.handleSeeked);
         this.option.video.removeEventListener('play', this.handlePlay);
+        this.option.video.removeEventListener('durationchange', this.handleDurationChange);
     }
 
     private readonly tick = (): void => {
@@ -57,9 +63,9 @@ export class AssCommentCore {
         if (!video.paused && !video.seeking) {
             const currentTime = video.currentTime;
             if (currentTime + 0.5 < this.lastCurrentTime || currentTime - this.lastCurrentTime > 2) this.resetPosition(currentTime, true);
-            while (this.nextCommentIndex < this.comments.length && this.comments[this.nextCommentIndex].time <= currentTime + 0.05) {
+            while (this.nextCommentIndex < this.comments.length && this.comments[this.nextCommentIndex].displayTime <= currentTime + 0.05) {
                 const item = this.comments[this.nextCommentIndex];
-                if (item.time >= this.lastCurrentTime - 0.1) this.option.onComment(item.comment);
+                if (item.displayTime >= this.lastCurrentTime - 0.1) this.option.onComment(item.comment);
                 this.nextCommentIndex++;
             }
             this.lastCurrentTime = currentTime;
@@ -72,13 +78,24 @@ export class AssCommentCore {
     private readonly handlePlay = (): void => {
         if (Math.abs(this.option.video.currentTime - this.lastCurrentTime) > 0.5) this.resetPosition(this.option.video.currentTime, true);
     };
+    private readonly handleDurationChange = (): void => {
+        this.refreshDisplayTimes();
+        this.resetPosition(this.option.video.currentTime, false);
+    };
+
+    private refreshDisplayTimes(): void {
+        for (const item of this.comments) {
+            item.displayTime = this.option.getDisplayTime?.(item.comment, item.time) ?? item.time;
+        }
+        this.comments.sort((left, right) => left.displayTime - right.displayTime || left.time - right.time);
+    }
 
     private resetPosition(time: number, reset: boolean): void {
         let low = 0;
         let high = this.comments.length;
         while (low < high) {
             const middle = Math.floor((low + high) / 2);
-            if (this.comments[middle].time < time) low = middle + 1;
+            if (this.comments[middle].displayTime < time) low = middle + 1;
             else high = middle;
         }
         this.nextCommentIndex = low;
@@ -118,6 +135,7 @@ function parseAssComments(ass: string): TimelineComment[] {
         if (time === null || text.length === 0 || /\\p[1-9]\d*/i.test(raw)) continue;
         comments.push({
             time,
+            displayTime: time,
             comment: {
                 id: comments.length,
                 text,
