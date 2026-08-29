@@ -106,25 +106,42 @@ export class AssCommentCore {
 
 function parseAssComments(ass: string): TimelineComment[] {
     const comments: TimelineComment[] = [];
-    let inEvents = false;
-    let format: string[] = [];
+    const styleColors = new Map<string, string>();
+    let sectionName = '';
+    let styleFormat: string[] = [];
+    let eventFormat: string[] = [];
     for (const line of ass.split(/\r?\n/)) {
         const section = line.match(/^\s*\[([^\]]+)]\s*$/);
         if (section !== null) {
-            inEvents = section[1].toLowerCase() === 'events';
+            sectionName = section[1].trim().toLowerCase();
             continue;
         }
-        if (!inEvents) continue;
+
+        if (sectionName === 'v4+ styles' || sectionName === 'v4 styles') {
+            if (/^\s*Format:/i.test(line)) {
+                styleFormat = parseAssFormat(line);
+                continue;
+            }
+            if (!/^\s*Style:/i.test(line) || styleFormat.length === 0) continue;
+            const values = splitFields(line.slice(line.indexOf(':') + 1).trimStart(), styleFormat.length);
+            const fields = Object.fromEntries(styleFormat.map((name, index) => [name, values[index] ?? ''])) as Record<string, string>;
+            const styleName = fields.name?.trim().toLowerCase();
+            const primaryColor = parseAssColor(fields.primarycolour ?? fields.primarycolor);
+            if (styleName && primaryColor !== null) styleColors.set(styleName, primaryColor);
+            continue;
+        }
+
+        if (sectionName !== 'events') continue;
         if (/^\s*Format:/i.test(line)) {
-            format = line
+            eventFormat = line
                 .slice(line.indexOf(':') + 1)
                 .split(',')
                 .map(value => value.trim().toLowerCase());
             continue;
         }
-        if (!/^\s*Dialogue:/i.test(line) || format.length === 0) continue;
-        const values = splitFields(line.slice(line.indexOf(':') + 1).trimStart(), format.length);
-        const fields = Object.fromEntries(format.map((name, index) => [name, values[index] ?? ''])) as Record<string, string>;
+        if (!/^\s*Dialogue:/i.test(line) || eventFormat.length === 0) continue;
+        const values = splitFields(line.slice(line.indexOf(':') + 1).trimStart(), eventFormat.length);
+        const fields = Object.fromEntries(eventFormat.map((name, index) => [name, values[index] ?? ''])) as Record<string, string>;
         const time = parseAssTime(fields.start);
         const raw = fields.text ?? '';
         const text = raw
@@ -139,7 +156,7 @@ function parseAssComments(ass: string): TimelineComment[] {
             comment: {
                 id: comments.length,
                 text,
-                color: assColor(raw),
+                color: assColor(raw, styleColors.get((fields.style ?? '').trim().toLowerCase())),
                 position: assPosition(raw, fields.style ?? ''),
                 size: assSize(raw, fields.style ?? ''),
                 userId: fields.name ?? '',
@@ -149,6 +166,13 @@ function parseAssComments(ass: string): TimelineComment[] {
         });
     }
     return comments.sort((left, right) => left.time - right.time);
+}
+
+function parseAssFormat(line: string): string[] {
+    return line
+        .slice(line.indexOf(':') + 1)
+        .split(',')
+        .map(value => value.trim().toLowerCase());
 }
 
 function splitFields(value: string, count: number): string[] {
@@ -171,9 +195,15 @@ function parseAssTime(value: string | undefined): number | null {
     return Number.isFinite(result) ? result : null;
 }
 
-function assColor(value: string): string {
-    const match = value.match(/\\(?:1?c)&H([0-9a-f]{6,8})&/i);
-    const hex = (match?.[1] ?? 'FFFFFF').padStart(6, '0').slice(-6);
+function assColor(value: string, styleColor?: string): string {
+    const inlineColor = value.match(/\\(?:1?c)&H([0-9a-f]{6,8})&?/i)?.[1];
+    return parseAssColor(inlineColor) ?? styleColor ?? '#FFFFFF';
+}
+
+function parseAssColor(value: string | undefined): string | null {
+    const match = value?.trim().match(/^(?:&H)?([0-9a-f]{6,8})&?$/i);
+    if (match === undefined || match === null) return null;
+    const hex = match[1].padStart(6, '0').slice(-6);
     return `#${hex.slice(4, 6)}${hex.slice(2, 4)}${hex.slice(0, 2)}`;
 }
 
