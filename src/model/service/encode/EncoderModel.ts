@@ -654,7 +654,7 @@ class AmatsukazePushSubscription {
         } else if (stateChangeEvent === 'EncodeFailed' || stateChangeEvent === 'EncodeCanceled') {
             this.status = {
                 ...this.status,
-                errorMessage: stateChangeEvent,
+                errorMessage: this.status.errorMessage || stateChangeEvent,
                 updatedAt: Date.now(),
             };
             this.onUpdate(this.getStatus());
@@ -673,6 +673,7 @@ class AmatsukazePushSubscription {
             srcPath: this.readTag(item, 'SrcPath'),
             state: this.readTag(item, 'State') ?? '',
             stateLabel: this.readTag(item, 'StateLabel') ?? '',
+            failReason: this.readTag(item, 'FailReason') ?? '',
         }));
         const availableItems = queueItems.filter(
             item => Number.isNaN(item.id) === false && this.connection.canClaimTask(this.id, item.id),
@@ -736,12 +737,14 @@ class AmatsukazePushSubscription {
                 updatedAt: Date.now(),
             };
         } else if (['failed', 'prefailed', 'canceled'].includes(normalizedState)) {
+            const failureMessage =
+                matchedItem.failReason.trim() || matchedItem.stateLabel.trim() || matchedItem.state.trim();
             this.status = {
                 ...this.status,
                 isMatched: true,
                 isPending: false,
                 pendingMessage: null,
-                errorMessage: matchedItem.state,
+                errorMessage: failureMessage,
                 requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
@@ -937,6 +940,7 @@ class EncoderModel implements IEncoderModel {
         stderr: '',
     };
     private lastEncoderMessage: string = '';
+    private amatsukazeErrorMessage: string = '';
     private onAmatsukazeTaskMatched: ((taskId: number) => void) | null = null;
 
     constructor(
@@ -1008,6 +1012,7 @@ class EncoderModel implements IEncoderModel {
             this.log.encode.error('encodeOption is null');
             throw new Error('EncodeOptionIsNull');
         }
+        this.amatsukazeErrorMessage = '';
 
         // エンコード元ファイルの情報を取得
         const video = await this.videoFileDB.findId(this.encodeOption.sourceVideoFileId);
@@ -1528,10 +1533,14 @@ class EncoderModel implements IEncoderModel {
     }
 
     private updateAmatsukazePushProgress(status: AmatsukazePushStatus): void {
-        if (status.log === null && status.percent === null) {
+        const errorMessage = status.errorMessage?.trim() || null;
+        if (status.log === null && status.percent === null && errorMessage === null) {
             return;
         }
-        if (status.log !== null && status.log.trim().length > 0) {
+        if (errorMessage !== null) {
+            this.amatsukazeErrorMessage = errorMessage;
+            this.lastEncoderMessage = errorMessage;
+        } else if (status.log !== null && status.log.trim().length > 0) {
             this.lastEncoderMessage = status.log.trim();
         }
 
@@ -1540,7 +1549,12 @@ class EncoderModel implements IEncoderModel {
                 status.percent !== null && Number.isNaN(status.percent) === false
                     ? Math.max(0, Math.min(1, status.percent))
                     : (this.progressInfo?.percent ?? 0),
-            log: status.log !== null ? `Amatsukaze: ${status.log}` : (this.progressInfo?.log ?? 'Amatsukaze'),
+            log:
+                errorMessage !== null
+                    ? `Amatsukaze: ${errorMessage}`
+                    : status.log !== null
+                      ? `Amatsukaze: ${status.log}`
+                      : (this.progressInfo?.log ?? 'Amatsukaze'),
         };
         this.encodeEvent.emitUpdateEncodeProgress();
     }
@@ -1686,7 +1700,9 @@ class EncoderModel implements IEncoderModel {
             const requiresOutputReconcile = pushStatus?.requiresOutputReconcile === true;
             if (typeof pushStatus !== 'undefined') {
                 if (pushStatus.errorMessage !== null) {
-                    throw new Error(`Amatsukaze encode failed: ${pushStatus.errorMessage}`);
+                    const errorMessage = pushStatus.errorMessage.trim() || 'EncodeFailed';
+                    this.amatsukazeErrorMessage = errorMessage;
+                    throw new Error(`Amatsukaze encode failed: ${errorMessage}`);
                 }
                 isReadyForOutputScan = isReadyForOutputScan || pushStatus.isReadyForOutputScan;
                 if (pushStatus.isPending === true) {
@@ -2125,7 +2141,7 @@ class EncoderModel implements IEncoderModel {
             isError,
             outputFilePath,
             this.isCanceld,
-            this.lastEncoderMessage,
+            this.amatsukazeErrorMessage || this.lastEncoderMessage,
         );
         this.listener.removeAllListeners();
     }
