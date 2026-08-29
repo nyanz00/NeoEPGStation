@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import Mpegts from 'mpegts.js';
 import { isAppleMobileWebKit } from '../platform/webkit';
 import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMuted } from '../storage/player';
-import type { WebKitPlaybackMode } from '../storage/settings';
+import type { WatchDanmakuFrameRateLimit, WebKitPlaybackMode } from '../storage/settings';
 import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import {
     downloadCompositeScreenshot,
@@ -69,6 +69,7 @@ export interface RecordedPlayerCoreOption {
     enableAribSubtitle: boolean;
     enableDanmaku: boolean;
     danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     forceSubtitleStroke: boolean;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
@@ -276,6 +277,7 @@ export class RecordedPlayerCore {
                 speedRate: 1,
                 fontSize: RecordedPlayerCore.DANMAKU_FONT_SIZE,
                 highRefreshRate: this.option.danmakuHighRefreshRate,
+                maxFrameRate: this.option.danmakuFrameRateLimit === 'auto' ? undefined : Number(this.option.danmakuFrameRateLimit),
             };
             options.apiBackend = {
                 read: (readOption: { success: (comments: never[]) => void }) => readOption.success([]),

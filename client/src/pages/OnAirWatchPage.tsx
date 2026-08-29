@@ -46,7 +46,7 @@ import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
 import { channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, isLikelyBroadcastPauseTime, programDuration } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
-import { useSettings, type WebKitPlaybackMode } from '../core/storage/settings';
+import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 import { GuideProgramDialog, reserveIndex } from './GuidePage';
 
@@ -77,6 +77,7 @@ function LivePlayer({
     webkitPlaybackMode,
     forceSubtitleStroke,
     danmakuHighRefreshRate,
+    danmakuFrameRateLimit,
     persistentBottomControls,
     showVolumePercent,
     volumeBoostEnabled,
@@ -95,6 +96,7 @@ function LivePlayer({
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
     danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
     volumeBoostEnabled: boolean;
@@ -136,6 +138,7 @@ function LivePlayer({
             webkitPlaybackMode,
             forceSubtitleStroke,
             danmakuHighRefreshRate,
+            danmakuFrameRateLimit,
             volumeBoostEnabled,
             volumeBoostMaxPercent,
             themeColor: theme.palette.primary.main,
@@ -163,6 +166,7 @@ function LivePlayer({
         channelId,
         forceSubtitleStroke,
         danmakuHighRefreshRate,
+        danmakuFrameRateLimit,
         isHevc,
         webkitPlaybackMode,
         lowLatency,
@@ -921,6 +925,7 @@ export function OnAirWatchPage(): ReactNode {
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
+                            danmakuFrameRateLimit={settings.watchDanmakuFrameRateLimit}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}

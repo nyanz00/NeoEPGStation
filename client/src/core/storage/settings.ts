@@ -6,6 +6,7 @@ import { defaultSideNavigationOrder, normalizeHiddenSideNavigationItems, normali
 export type GuideViewMode = 'sequential' | 'minimum' | 'all';
 export type WatchStreamEncoderSetting = 'Config' | 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
 export type WebKitPlaybackMode = 'standard' | 'ios26';
+export type WatchDanmakuFrameRateLimit = 'auto' | '60' | '72' | '120' | '144';
 export type AnnictAutoWatchMode = 'disabled' | 'start' | 'progress';
 
 export interface AppSettings {
@@ -40,6 +41,7 @@ export interface AppSettings {
     watchStreamingSubtitleOutlineOpacityPercent: number;
     watchPlaySubtitleDanmaku: boolean;
     watchDanmakuHighRefreshRate: boolean;
+    watchDanmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     watchPersistentBottomControls: boolean;
     watchShowVolumePercent: boolean;
     watchVolumeBoostEnabled: boolean;
@@ -118,6 +120,7 @@ export const defaultSettings: AppSettings = {
     watchStreamingSubtitleOutlineOpacityPercent: 100,
     watchPlaySubtitleDanmaku: false,
     watchDanmakuHighRefreshRate: false,
+    watchDanmakuFrameRateLimit: 'auto',
     watchPersistentBottomControls: false,
     watchShowVolumePercent: true,
     watchVolumeBoostEnabled: false,
@@ -210,6 +213,7 @@ function loadSettings(): AppSettings {
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
             watchDanmakuHighRefreshRate: parsed.watchDanmakuHighRefreshRate === true,
+            watchDanmakuFrameRateLimit: normalizeDanmakuFrameRateLimit(parsed.watchDanmakuFrameRateLimit),
             watchPersistentBottomControls: parsed.watchPersistentBottomControls === true,
             watchShowVolumePercent: parsed.watchShowVolumePercent !== false,
             watchVolumeBoostEnabled: parsed.watchVolumeBoostEnabled === true,
@@ -263,6 +267,7 @@ export const settingsStore = {
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
             watchDanmakuHighRefreshRate: value.watchDanmakuHighRefreshRate === true,
+            watchDanmakuFrameRateLimit: normalizeDanmakuFrameRateLimit(value.watchDanmakuFrameRateLimit),
             watchPersistentBottomControls: value.watchPersistentBottomControls === true,
             watchShowVolumePercent: value.watchShowVolumePercent !== false,
             watchVolumeBoostEnabled: value.watchVolumeBoostEnabled === true,
@@ -287,6 +292,10 @@ export const settingsStore = {
         listeners.forEach(listener => listener());
     },
 };
+
+function normalizeDanmakuFrameRateLimit(value: unknown): WatchDanmakuFrameRateLimit {
+    return value === '60' || value === '72' || value === '120' || value === '144' ? value : 'auto';
+}
 
 export function useSettings(): AppSettings {
     return useSyncExternalStore(settingsStore.subscribe, settingsStore.getSnapshot);

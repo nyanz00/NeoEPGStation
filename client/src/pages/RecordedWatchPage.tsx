@@ -46,7 +46,7 @@ import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/pl
 import type { JikkyoComment } from '../core/player/jikkyoComment';
 import { formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
-import { useSettings, type WebKitPlaybackMode } from '../core/storage/settings';
+import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 
 type PanelTab = 'program' | 'rules' | 'comments' | 'twitter';
@@ -108,6 +108,7 @@ function RecordedPlayer({
     subtitleDanmaku,
     forceSubtitleStroke,
     danmakuHighRefreshRate,
+    danmakuFrameRateLimit,
     webkitPlaybackMode,
     persistentBottomControls,
     showVolumePercent,
@@ -130,6 +131,7 @@ function RecordedPlayer({
     subtitleDanmaku: boolean;
     forceSubtitleStroke: boolean;
     danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
@@ -200,6 +202,7 @@ function RecordedPlayer({
             enableDanmaku: subtitleDanmaku,
             forceSubtitleStroke,
             danmakuHighRefreshRate,
+            danmakuFrameRateLimit,
             volumeBoostEnabled,
             volumeBoostMaxPercent,
             webkitPlaybackMode,
@@ -247,6 +250,7 @@ function RecordedPlayer({
     }, [
         forceSubtitleStroke,
         danmakuHighRefreshRate,
+        danmakuFrameRateLimit,
         webkitPlaybackMode,
         onComment,
         onCommentStatus,
@@ -1330,6 +1334,7 @@ export function RecordedWatchPage(): ReactNode {
                             subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
+                            danmakuFrameRateLimit={settings.watchDanmakuFrameRateLimit}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}

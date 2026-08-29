@@ -1051,9 +1051,29 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="danmakuを高リフレッシュレートで描画（実験的機能）"
-                                        description="WebGL2でコメント画像をまとめて描画し、ディスプレイと同じ更新頻度で動かします。WebGL2を利用できない環境では従来の描画方式へ自動的に戻ります。"
+                                        description="WebGL2でコメント画像をまとめて描画し、ブラウザが通知する更新頻度で動かします。WebGL2を利用できない環境では従来の描画方式へ自動的に戻ります。"
                                         control={
                                             <Switch checked={draft.watchDanmakuHighRefreshRate} onChange={event => patch('watchDanmakuHighRefreshRate', event.target.checked)} />
+                                        }
+                                    />
+                                    <SettingRow
+                                        title="danmaku描画フレームレート上限"
+                                        description="Chromiumが異なるリフレッシュレートのモニターを正しく判別できない場合に、コメント描画の上限を指定します。自動ではブラウザの測定値を使用します。"
+                                        control={
+                                            <FormControl size="small" sx={{ minWidth: 220 }}>
+                                                <InputLabel>描画上限</InputLabel>
+                                                <Select
+                                                    label="描画上限"
+                                                    value={draft.watchDanmakuFrameRateLimit}
+                                                    onChange={event => patch('watchDanmakuFrameRateLimit', event.target.value as AppSettings['watchDanmakuFrameRateLimit'])}
+                                                >
+                                                    <MenuItem value="auto">自動</MenuItem>
+                                                    <MenuItem value="60">60 fps</MenuItem>
+                                                    <MenuItem value="72">72 fps</MenuItem>
+                                                    <MenuItem value="120">120 fps</MenuItem>
+                                                    <MenuItem value="144">144 fps</MenuItem>
+                                                </Select>
+                                            </FormControl>
                                         }
                                     />
                                     <SettingRow
