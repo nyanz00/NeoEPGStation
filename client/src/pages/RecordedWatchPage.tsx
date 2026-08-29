@@ -27,7 +27,7 @@ import {
 } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, RecordedItem, Rule, VideoSubtitle } from '../../../api';
-import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppLayout } from '../components/AppLayout';
@@ -159,6 +159,7 @@ function RecordedPlayer({
     const [controlsPortal, setControlsPortal] = useState<HTMLElement | null>(null);
     const [paused, setPaused] = useState(true);
     const [state, setState] = useState<RecordedPlayerState>({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' });
+    const pointerInPersistentBottomControlsRef = useRef(false);
     const showPlayerControls = useCallback((): void => {
         setControlsVisible(true);
         coreRef.current?.showControls();
@@ -169,6 +170,26 @@ function RecordedPlayer({
     }, []);
     const activatePlayerAudio = useCallback((): void => coreRef.current?.activateAudio(), []);
     const touchControls = useTouchPlayerControls(controlsVisible, showPlayerControls, hidePlayerControls, activatePlayerAudio);
+    const handlePointerMove = useCallback(
+        (event: ReactPointerEvent<HTMLElement>): void => {
+            if (event.pointerType === 'mouse' && persistentBottomControls) {
+                const playerRect = event.currentTarget.getBoundingClientRect();
+                const isInBottomControls = event.clientY >= playerRect.bottom - 56;
+                if (isInBottomControls) {
+                    if (!pointerInPersistentBottomControlsRef.current) {
+                        pointerInPersistentBottomControlsRef.current = true;
+                        setControlsVisible(false);
+                        onControlsVisibilityChange(false);
+                    }
+                    return;
+                }
+            }
+
+            pointerInPersistentBottomControlsRef.current = false;
+            showPlayerControls();
+        },
+        [onControlsVisibilityChange, persistentBottomControls, showPlayerControls],
+    );
 
     useLayoutEffect(() => {
         if (container.current === null) return;
@@ -226,6 +247,7 @@ function RecordedPlayer({
             onCommentsReset,
             onCommentStatus,
             onControlsVisibilityChange: visible => {
+                if (visible && pointerInPersistentBottomControlsRef.current) return;
                 setControlsVisible(visible);
                 onControlsVisibilityChange(visible);
             },
@@ -350,7 +372,10 @@ function RecordedPlayer({
     return (
         <Box
             {...touchControls}
-            onPointerMove={showPlayerControls}
+            onPointerMove={handlePointerMove}
+            onPointerLeave={() => {
+                pointerInPersistentBottomControlsRef.current = false;
+            }}
             sx={{
                 position: 'relative',
                 width: '100%',
