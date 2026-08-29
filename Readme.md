@@ -1,11 +1,39 @@
-# EPGStation
+# NeoEPGStation
 
-[Mirakurun](https://github.com/Chinachu/Mirakurun) を使用した録画管理ソフトです  
-iOS・Android での閲覧に最適化されたモバイルフレンドリーな Web インターフェイスが特徴です  
-PC からの閲覧でもモダンな UI で操作可能です
+[Mirakurun](https://github.com/Chinachu/Mirakurun)を利用した録画管理ソフト[EPGStation](https://github.com/l3tnun/EPGStation)とEPGStation-nyanzを基にしたフォークです。<br>
+モバイルフレンドリーな操作感はそのままに、WebUIを刷新し、アニメ録画支援機能・Amatsukazeとの接続機能・字幕表示に対応した新プレイヤーなどNeo版独自の機能を追加しています。
 
-## NeoEPGStation
-NeoEPGStationは、EPGStationのフロントエンドをvue2系からreactに移行し、フォーク作成者が欲しいと思った機能を出来る限り追加したバージョンです。変更点と導入上の注意は[別途ドキュメント](doc/neoepgstation.md)を参照してください。
+> [!IMPORTANT]
+>
+> 導入・移行前にDBや`config.yml`などの必要なデータを必ずバックアップしてください。同じDBへ旧EPGStationとNeoEPGStationを同時接続しないでください。
+
+詳細な変更点、設定例、既知の制約は[NeoEPGStationドキュメント](doc/neoepgstation.md)を参照してください。
+
+## スクリーンショット
+
+<!--
+撮影後、下記のプレースホルダーを画像へ差し替える想定です。
+推奨保存先: doc/images/readme/
+個人名、IPアドレス、保存パス、外部連携アカウントなどの写り込みを確認してください。
+-->
+
+|               ダッシュボード                |                      番組表                      |
+| :-----------------------------------------: | :----------------------------------------------: |
+| **画像: `doc/images/readme/dashboard.png`** |     **画像: `doc/images/readme/guide.png`**      |
+|  録画状況や最近の録画、予約をまとめて確認   | 放送波の切り替え、局名検索、ジャンル色設定に対応 |
+
+|                 アニメ録画支援                 |                      録画済み管理                      |
+| :--------------------------------------------: | :----------------------------------------------------: |
+|    **画像: `doc/images/readme/anime.png`**     |       **画像: `doc/images/readme/recorded.png`**       |
+| Annictの作品情報と放送候補から録画ルールを作成 | 詳細検索、一括編集、ファイル移動、クリーンアップに対応 |
+
+|                  Webプレイヤー                  |                    システム情報                     |
+| :---------------------------------------------: | :-------------------------------------------------: |
+|    **画像: `doc/images/readme/player.png`**     |      **画像: `doc/images/readme/system.png`**       |
+| 字幕・文字スーパー・danmaku・音量ブーストに対応 | CPU、メモリ、GPU、ストレージ、ログ、Mirakurunを確認 |
+
+<!-- モバイル表示を独立して見せたい場合は、次の1枚も追加する。 -->
+<!-- ![モバイル表示](doc/images/readme/mobile.png) -->
 
 ## 機能
 
@@ -30,208 +58,172 @@ NeoEPGStationは、EPGStationのフロントエンドをvue2系からreactに移
 [aribb24.js]: https://github.com/monyone/aribb24.js
 [mpegts.js]: https://github.com/xqq/mpegts.js
 
-## スクリーンショット
+### NeoEPGStationの大まかな変更点
 
-| ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/dashboard.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/live.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/program.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/recording.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/recorded.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/reserves.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/rule.png) | ![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/search.png) |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+- WebUIの刷新
+  - テーマカラーの選択や、サイドメニューの並び替えなどWebUIのカスタマイズ性を向上
+  - フロントエンドをVue 2からReactへ移行
+- アニメ録画支援機能の追加
+  - Annictと連携することで、指定した年とクールのアニメ一覧とその放送日時・局を取得し、予約ルールの作成を支援
+  - Web上でのアニメ視聴を管理し、Annictでの視聴状態と連動
+- ライブ視聴機能の改善
+  - ライブ視聴機能に[tsreadex](https://github.com/xtne6f/tsreadex)を組み込み安定性を向上
+  - NX-Jikkyoから実況コメントを取得し弾幕表示、アカウント連携でニコニコ実況にコメントする機能を追加
+- 番組表の視認性・操作性を向上
+  - 番組表の各カラムにMirakurunで取得局ロゴと放送波種別を表示するように変更
+  - 番組表タブ内で放送波種別や文字検索で番組表の絞り込み機能を追加
+- Amatsukazeとの直接接続に対応
+  - EPGStation側からAddTaskを使用してタスクを直接投入し、Amatsukaze serverとTCP接続することで進捗を管理
+- Webプレイヤーの刷新
+  - 共通Webプレイヤーを[tsukumijima版DPlayer](https://github.com/tsukumijima/DPlayer)をNeoEPGStation用に最適化したプレイヤーに変更
+  - STREAMING視聴時のHLSをVOD HLS方式に変更し、プレイヤー制御やシーク精度を改善
+  - JASSUBやDPlayerのdanmakuを使用し、mkv内の字幕やNicoJKコメント字幕のweb上での再生に対応
+- ユーザー機能の追加
+  - 各録画に対して所有ユーザーの概念を追加し、フィルタリング機能を向上
+  - ユーザーごとに視聴履歴を保存する機能を追加し、リジューム再生にも対応
+  - ユーザーに対して各SNSアカウントを連携しWebUI上でSNS投稿を可能に
+- ストレージタブをシステムタブに拡充
+  - システムタブ内でサーバーPCのリソースやストレージの内訳等を表示
+  - システムタブ内からWeb上でNeoEPGStationのアップデートの実行に対応
+- Tailscale MagicDNS HTTPSに対応
+  - サーバーPCにTailscaleを導入し、config.ymlに三行書き込むだけで簡単にHTTPS化、証明書の自動更新に対応
+- Discord通知機能
+  - Discordのwebhookを利用した通知機能をWebUI上から設定可能に
+- Windowsを主な使用環境として対応
+  - フォーク制作者の主な使用環境がWindowsであるため、Linuxでの動作確認も行っていますが主な対応環境はWindowsになります
 
----
-
-## デモ
-
-![](https://raw.githubusercontent.com/wiki/l3tnun/EPGStation/images/v2/demo.gif)
 
 ## 動作環境
 
--   Linux / macOS / Windows
--   [Node.js](http://nodejs.org/) : ^20.19.0 || ^22.13.0 || >=24.11.0
--   [Mirakurun](https://github.com/Chinachu/Mirakurun) : ^3.8.0 or [mirakc](https://github.com/mirakc/mirakc) : ^3.1.10
--   いずれかのデータベース
-    -   [SQLite3](https://www.sqlite.org/)（設定不要だが検索機能に制限あり）[標準]
-        -   [SQLite3 使用時の正規表現での検索の有効化について](doc/sqlite3-regexp.md)
-    -   [MySQL](https://www.mysql.com/jp/) ([MariaDB](https://mariadb.org/))【推奨(要設定)】※文字コードは utf8mb4
-        -   [Mirakurun 3.9.0-beta.24 以降の設定について](doc/mysql-mirakurun-3.9.0-beta.24.md)
-    -   ~~[PostgreSQL](https://www.postgresql.org/) (version 9.5 以上)~~
--   [FFmpeg](http://ffmpeg.org/)
+### 必須
 
-Web視聴で録画TSのサービスを抽出するにはtsreadexが必要です。Windowsでは配布済みバイナリを取得し、Linuxでは公式ソースを
-ビルドして、利用中のOSに合うファイルを自動配置できます。
+- Node.js `^20.19.0 || ^22.13.0 || >=24.11.0`
+- [Mirakurun-nyanz](https://github.com/nyanz00/Mirakurun)または[Mirakurun](https://github.com/Chinachu/Mirakurun)、[mirakc](https://github.com/mirakc/mirakc)での動作は未確認です
+- [FFmpeg](https://ffmpeg.org/)
+- 次のいずれかのデータベース
+    - better-sqlite3（標準）
+    - MySQL／MariaDB
 
-```
-$ npm run update-tsreadex
+録画TSからサービスを抽出してWeb視聴する場合は、tsreadexも必要です。
+
+```console
+npm run update-tsreadex
 ```
 
-Linuxで実行する場合は、`git`、`make`、`g++`が必要です。
+Linuxでは公式ソースをビルドするため、`git`、`make`、`g++`が必要です。
 
-sqlite3 パッケージのインストール時にバイナリが存在しなかった場合は次の環境も必要
+### 主な確認環境
 
--   for Linux / macOS
-    -   [Python v3.x](https://www.python.org/) node-gyp にて必要
-    -   [GCC](https://gcc.gnu.org/) node-gyp にて必要
--   ~~for Windows~~
-    -   ~~[windows-build-tools](https://npmjs.com/package/windows-build-tools) node-gyp にて必要~~
+- Windows 10／11
+- Ubuntu 22.04
+- Docker（Debian／Alpine）
+- Node.js 20／22／24
+- better-sqlite3、MariaDB／MySQL
 
-### 構築済み推奨環境
+環境ごとの確認範囲は[NeoEPGStationドキュメント](doc/neoepgstation.md#動作環境)を参照してください。
 
--   [docker-mirakurun-epgstation](https://github.com/l3tnun/docker-mirakurun-epgstation)
+## セットアップ
 
--   [nvenc + docker 環境での構築例](https://github.com/kazuki0824/EPGStation-nvenc-docker)
-    [(created by kazuki0824)](https://github.com/kazuki0824)
+- [Windowsセットアップ](doc/windows-setup.md)
+- [Linux／macOSセットアップ](doc/linux-setup.md)
+- [字幕表示／低遅延配信の設定](doc/caption-lowlatency-setup.md)
+- [設定項目一覧](doc/conf-manual.md)
 
----
+### npm
 
-## セットアップ方法
-
-### [Linux / macOS 用セットアップマニュアル](doc/linux-setup.md)
-
-### ~~[Windows 用セットアップマニュアル](doc/windows-setup.md)~~
-
-### [字幕表示 / 低遅延配信用セットアップマニュアル](doc/caption-lowlatency-setup.md)
-
----
-
-## アップデート方法
-
--   以下のコマンドを実行後に EPGStation を再起動する
-
-    ```
-    $ git pull
-    $ npm run all-install
-    $ npm run build
-    ```
-
----
-
-## v1 からの移行について
-
-[doc/v1migrate.md](doc/v1migrate.md) を参照
-
----
-
-## 動作確認
-
--   ブラウザから `http://<IPaddress>:<Port>/` にアクセスをする
--   curl や wget で API を叩く
-
-    ```
-    $ curl -o - http://<IPaddress>:<Port>/api/config
-    ```
-
-### ログの確認
-
-#### [ログ出力の詳細設定](doc/log-manual.md)
-
-#### logs/EPGUpdater
-
--   EPG 更新機能からのログが記録されています
-    -   `access.log`
-        -   基本的に空ファイル
-    -   `stream.log`
-        -   基本的に空ファイル
-    -   `system.log`
-        -   Mirakurun へのアクセスログ、番組情報の更新等のログ
-
-#### EPGStation/logs/Operator
-
--   録画管理機能からのログが記録されています
-    -   `access.log`
-        -   基本的に空ファイル
-    -   `stream.log`
-        -   基本的に空ファイル
-    -   `system.log`
-        -   Mirakurun へのアクセスログ、コマンドの実行、録画等のログ
-
-#### EPGStation/logs/Service
-
--   Web インターフェイスからのログ記録されています
-    -   `access.log`
-        -   Web インターフェイスへのアクセスログ
-    -   `stream.log`
-        -   ストリーミング配信ログ
-    -   `system.log`
-        -   Web サーバの動作ログ
-    -   `encode.log`
-        -   エンコード処理関連のログ
-
----
-
-## クライアント向け設定
-
--   EPGStation を利用する端末向けの設定を行うと快適に利用可能です
-
-### URL Scheme
-
--   EPGStation 上の動画再生を OS 上のアプリケーションで行うことが出来ます
-
-    -   [config.yml 内の設定 (iOS, Android, macOS, Windows)](doc/conf-manual.md#urlscheme)
-    -   [macOS 用の URL Scheme 設定方法](doc/mac-url-scheme.md)
-    -   [Windows 用の URL Scheme 設定方法](doc/windows-url-scheme.md)
-
--   上記以外の環境での設定は WebUI の設定で各ブラウザごとに設定してください
-
-### スマートフォン側の設定
-
-config.yml で設定したアプリをインストールしてください
-
----
-
-## データベースのバックアップとレストア
-
-データベースに含まれる以下の情報がバックアップ可能です
-
--   予約情報
--   録画済み番組情報
--   録画履歴
--   録画予約ルール
-
-バックアップデータはデータベースに依存しないので MySQL でバックアップし、SQLite3 へレストアなども可能です
-
-### 注意
-
-以下のファイルとディレクトリはバックアップに含まれません  
-別途手動でバックアップしてください
-
--   録画ファイル (recorded)
--   サムネイル (thumbnail)
--   ドロップログ (drop)
--   ログ (logs)
--   設定ファイル (config.yml)
-
-### バックアップ
-
--   以下のコマンドを実行
-
-```
-npm run backup FILENAME
+```console
+npm run all-install
+npm run update-tsreadex
+npm run build
+npm start
 ```
 
-### レストア
+### pnpm
 
--   config.yml に新しいデータベース設定を記述後に以下のコマンドを実行
-
+```console
+pnpm install
+pnpm run update-tsreadex
+pnpm run build
+pnpm start
 ```
-npm run restore FILENAME
+
+Windowsでは、管理者権限のPowerShellからサービスとして登録できます。
+
+```console
+npm run install-win-service
 ```
 
----
+## アップデート
 
-## Tips
+Git clone環境では、Web UIの「システム」→「バージョン管理」から次の更新先を選択できます。
 
-### Kodi との連携
+- `nyanz-master`の最新安定版タグ
+- `develop`ブランチの最新コミット
 
-[Kodi](https://kodi.tv/) との連携に対応しています詳細は [doc/kodi.md](doc/kodi.md) を参照してください
+Webアップデーターは更新前にDBと`config.yml`をバックアップし、必要な依存パッケージのインストールとビルドを実行します。ビルドに失敗した場合は更新前のコードへ自動復旧します。更新成功後は、画面に表示される再起動操作で新しいコードを反映してください。
 
-### Android 6.0 以上での注意
+コマンドラインから更新する場合は、使用しているパッケージマネージャーに合わせて実行します。
 
-Android の設定 -> ユーザー補助 にて "操作の監視" が必要なサービスを ON にしていると、番組表の動作が著しく重くなります  
-具体的なアプリは LMT Launcher や Pie Control などが挙げられます
+### npm
 
-該当サービスを OFF にするのが一番良いですが、それができない場合は Firefox での使用を試してみてください。
+```console
+git pull --ff-only
+npm run all-install
+npm run build
+```
+
+### pnpm
+
+```console
+git pull --ff-only
+pnpm install --frozen-lockfile
+pnpm run build
+```
+
+依存関係ファイルに変更がないことを確認できる場合は、installを省略してビルドのみ実行できます。更新後はNeoEPGStationを再起動してください。
+
+## バックアップと移行
+
+DBの通常バックアップは次のコマンドで作成できます。
+
+```console
+npm run backup backup.json
+```
+
+通常バックアップには、録画、予約、ルール、視聴履歴などのDBデータが含まれます。録画ファイル、サムネイル、ログ、`config.yml`、`data/viewer-profiles/credential.key`は別途バックアップしてください。
+
+視聴者プロフィールに保存した暗号化資格情報を復号するには、バックアップ元と同じ`data/viewer-profiles/credential.key`が必要です。このファイルを紛失した場合、保存済み資格情報は復元できません。
+
+- [DBバックアップと復元の詳細](doc/neoepgstation.md#dbバックアップと復元)
+- [既存環境からの移行](doc/neoepgstation.md#既存環境からの移行)
+- [EPGStation v1からの移行](doc/v1migrate.md)
+
+## ドキュメント
+
+- [NeoEPGStationの機能と注意事項](doc/neoepgstation.md)
+- [設定項目一覧](doc/conf-manual.md)
+- [ログ設定](doc/log-manual.md)
+- [Web API](doc/webapi.md)
+- [Kodi連携](doc/kodi.md)
+- [変更履歴](CHANGELOG.md)
+
+## 注意事項
+
+- このフォークは多数の独自機能を含みます。本番環境へ導入する前に、DBと設定をバックアップし、短い録画・再生・エンコードで確認してください。
+- SQLiteとMySQL／MariaDBの両方にmigrationがありますが、更新前のバックアップを推奨します。
+- チューナー、GPU、エンコーダー、字幕、放送局構成には環境差があります。
+- 外部サービスの障害や仕様変更により、Annict、SNS、コメントなど一部機能が利用できなくなる場合があります。
+- `nyanz-master`は確認済み安定版、`develop`は開発版です。
 
 ## Contributing
 
-[CONTRIBUTING.md](.github/CONTRIBUTING.md)
+[CONTRIBUTING.md](.github/CONTRIBUTING.md)を参照してください。
 
-## Licence
+## Credits
 
-[MIT Licence](LICENSE)
+- Original project: [l3tnun/EPGStation](https://github.com/l3tnun/EPGStation)
+- Tuner server: [Chinachu/Mirakurun](https://github.com/Chinachu/Mirakurun)
+
+## License
+
+[MIT License](LICENSE)
