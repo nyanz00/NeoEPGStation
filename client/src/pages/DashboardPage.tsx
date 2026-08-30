@@ -213,7 +213,7 @@ export function DashboardPage(): ReactNode {
                     </DashboardColumn>
                     <DashboardColumn title="予約" total={reserves.data?.total} morePath="/reserves?type=normal" badge={reserveCounts.data?.conflicts}>
                         {reserves.data?.reserves.map(item => (
-                            <ProgramCard key={item.id} item={item} />
+                            <ProgramCard key={item.id} item={item} channel={channelMap.get(item.channelId)} />
                         ))}
                         {reserves.data?.reserves.length === 0 && <Typography color="text.secondary">予約はありません</Typography>}
                     </DashboardColumn>
