@@ -118,7 +118,8 @@ export class RecordedPlayerCore {
     private player: DPlayerInstance | null = null;
     private jikkyoCore: RecordedJikkyoCommentCore | null = null;
     private pendingComments: JikkyoComment[] = [];
-    private commentFrame: number | null = null;
+    private commentFlushQueued = false;
+    private commentFlushGeneration = 0;
     private destroyed = false;
     private restarting = false;
     private playbackErrorTimer: number | null = null;
@@ -172,8 +173,8 @@ export class RecordedPlayerCore {
     }
 
     public clearDanmaku(): void {
-        if (this.commentFrame !== null) window.cancelAnimationFrame(this.commentFrame);
-        this.commentFrame = null;
+        this.commentFlushGeneration++;
+        this.commentFlushQueued = false;
         this.pendingComments = [];
         this.player?.danmaku?.clear();
     }
@@ -589,9 +590,12 @@ export class RecordedPlayerCore {
     private enqueueComment(comment: JikkyoComment): void {
         this.pendingComments.push(comment);
         this.option.onComment?.(comment);
-        if (this.commentFrame !== null) return;
-        this.commentFrame = window.requestAnimationFrame(() => {
-            this.commentFrame = null;
+        if (this.commentFlushQueued) return;
+        this.commentFlushQueued = true;
+        const generation = this.commentFlushGeneration;
+        queueMicrotask(() => {
+            if (generation !== this.commentFlushGeneration) return;
+            this.commentFlushQueued = false;
             const comments = this.pendingComments.splice(0);
             if (this.player === null || comments.length === 0) return;
             this.player.danmaku?.draw(comments.map(item => ({ text: item.text, color: item.color, type: item.position, size: item.size })));
@@ -609,8 +613,8 @@ export class RecordedPlayerCore {
         this.clearPlaybackErrorTimer();
         this.jikkyoCore?.destroy();
         this.jikkyoCore = null;
-        if (this.commentFrame !== null) window.cancelAnimationFrame(this.commentFrame);
-        this.commentFrame = null;
+        this.commentFlushGeneration++;
+        this.commentFlushQueued = false;
         this.pendingComments = [];
         if (this.player !== null) {
             try {

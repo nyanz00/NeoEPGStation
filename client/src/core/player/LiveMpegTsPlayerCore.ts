@@ -139,7 +139,8 @@ export class LiveMpegTsPlayerCore {
     private volumeController: PlayerVolumeController | null = null;
     private generation = 0;
     private pendingDanmaku: JikkyoComment[] = [];
-    private danmakuFrame: number | null = null;
+    private danmakuFlushQueued = false;
+    private danmakuFlushGeneration = 0;
     private state: LiveMpegTsPlayerState = {
         isLoading: true,
         isBuffering: false,
@@ -621,13 +622,16 @@ export class LiveMpegTsPlayerCore {
     private enqueueDanmaku(comment: JikkyoComment): void {
         this.pendingDanmaku.push(comment);
         this.option.onComment?.(comment);
-        if (this.danmakuFrame !== null) return;
+        if (this.danmakuFlushQueued) return;
 
-        // NX-Jikkyo may deliver multiple comments between two paints. Drawing each
-        // message immediately repeats DOM insertion and text measurement work and can
-        // stall animations already in flight. Flush one fragment per animation frame.
-        this.danmakuFrame = window.requestAnimationFrame(() => {
-            this.danmakuFrame = null;
+        // NX-Jikkyo may deliver several comments in one task. A microtask still
+        // batches them, but unlike a pending rAF it cannot remain stranded when a
+        // long browser suspension ends.
+        this.danmakuFlushQueued = true;
+        const generation = this.danmakuFlushGeneration;
+        queueMicrotask(() => {
+            if (generation !== this.danmakuFlushGeneration) return;
+            this.danmakuFlushQueued = false;
             const comments = this.pendingDanmaku.splice(0);
             if (this.destroyed || this.player === null || comments.length === 0) return;
             this.player.danmaku?.draw(comments.map(item => ({ text: item.text, color: item.color, type: item.position, size: item.size })));
@@ -644,8 +648,8 @@ export class LiveMpegTsPlayerCore {
         this.jikkyoCommentCore = null;
         this.option.container.classList.remove('onair-comment-post-enabled');
         this.option.onControlsPortalReady?.(null);
-        if (this.danmakuFrame !== null) window.cancelAnimationFrame(this.danmakuFrame);
-        this.danmakuFrame = null;
+        this.danmakuFlushGeneration++;
+        this.danmakuFlushQueued = false;
         this.pendingDanmaku = [];
         this.option.onReady?.(null);
         if (this.player === null) return;
