@@ -65,6 +65,8 @@ function EncodeCard({
     onDrop?: (event: DragEvent<HTMLElement>) => void;
 }): ReactNode {
     const percent = Math.min(100, Math.max(0, (item.percent ?? 0) * 100));
+    const scheduled = item.scheduledAt !== undefined;
+    const reorderable = waiting && !scheduled;
     return (
         <Card
             variant="outlined"
@@ -74,7 +76,7 @@ function EncodeCard({
         >
             <CardContent sx={{ display: 'flex', gap: 1.5, p: 1.5, '&:last-child': { pb: 1.5 } }} onClick={editing ? onSelect : undefined}>
                 {editing && <Checkbox checked={selected} onChange={onSelect} onClick={event => event.stopPropagation()} />}
-                {reordering && waiting && (
+                {reordering && reorderable && (
                     <Box
                         draggable
                         aria-label={`${item.recorded.name}をドラッグして並べ替え`}
@@ -101,7 +103,19 @@ function EncodeCard({
                         <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
                             {item.recorded.name}
                         </Typography>
-                        <Chip size="small" color={waiting ? 'default' : 'primary'} label={waiting ? (position === undefined ? '待機中' : `待機 ${position}`) : item.mode} />
+                        <Chip
+                            size="small"
+                            color={waiting ? 'default' : 'primary'}
+                            label={
+                                scheduled
+                                    ? `${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' }).format(new Date(item.scheduledAt!))}に解放`
+                                    : waiting
+                                      ? position === undefined
+                                          ? '待機中'
+                                          : `待機 ${position}`
+                                      : item.mode
+                            }
+                        />
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                         {channel?.name ?? item.recorded.channelId}
@@ -124,7 +138,7 @@ function EncodeCard({
                         </Box>
                     )}
                 </Box>
-                {reordering && waiting ? (
+                {reordering && reorderable ? (
                     <Stack spacing={0.25} sx={{ alignSelf: 'center' }}>
                         <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
                             <ArrowUpwardOutlined />
@@ -165,7 +179,7 @@ export function EncodePage(): ReactNode {
     const { notify } = useNotifications();
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const encodes = useQuery({ queryKey: ['encode', settings.isHalfWidthDisplayed], queryFn: () => api.getEncodes(settings.isHalfWidthDisplayed) });
-    const allItems = [...(encodes.data?.runningItems ?? []), ...(encodes.data?.waitItems ?? [])];
+    const allItems = [...(encodes.data?.runningItems ?? []), ...(encodes.data?.waitItems ?? []), ...(encodes.data?.scheduledItems ?? [])];
 
     useEffect(() => {
         if (!reordering && encodes.data !== undefined) {
@@ -365,7 +379,7 @@ export function EncodePage(): ReactNode {
                     <Typography color="error">エンコード情報を取得できませんでした</Typography>
                 ) : allItems.length === 0 ? (
                     <Typography color="text.secondary" sx={{ py: 7, textAlign: 'center' }}>
-                        実行中または待機中のエンコードはありません
+                        実行中、待機中、または開始予約中のエンコードはありません
                     </Typography>
                 ) : (
                     <Stack spacing={3}>
@@ -384,6 +398,14 @@ export function EncodePage(): ReactNode {
                                     待機中
                                 </Typography>
                                 {renderItems(reordering ? orderedWaitItems : encodes.data.waitItems, true)}
+                            </Box>
+                        )}
+                        {encodes.data.scheduledItems.length > 0 && (
+                            <Box>
+                                <Typography variant="h6" sx={{ mb: 1 }}>
+                                    エンコード予約
+                                </Typography>
+                                {renderItems(encodes.data.scheduledItems, true)}
                             </Box>
                         )}
                     </Stack>

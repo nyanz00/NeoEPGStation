@@ -26,6 +26,7 @@ import {
     SendMessage,
     ThumbnailFunctions,
 } from './IPCMessageDefine';
+import { AddEncodeOption } from '../service/encode/IEncoderModel';
 
 interface IFunctionIndex {
     [functionName: string]: (msg: SendMessage) => Promise<any>;
@@ -114,7 +115,7 @@ export default class IPCServer implements IIPCServer {
      * クライアントへエンコードを依頼する
      * @param addOption: apid.AddEncodeProgramOption
      */
-    public setEncode(addOption: apid.AddEncodeProgramOption): void {
+    public setEncode(addOption: AddEncodeOption): void {
         if (this.child === null) {
             throw new Error('ChildIsNull');
         }

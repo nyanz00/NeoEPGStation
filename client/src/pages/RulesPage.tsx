@@ -97,6 +97,7 @@ function RuleCard({
                     {rule.encodeOption?.mode1 !== undefined && (
                         <Typography variant="caption" color="text.secondary">
                             エンコード: {[rule.encodeOption.mode1, rule.encodeOption.mode2, rule.encodeOption.mode3].filter(Boolean).join('、')}
+                            {(rule.encodeOption.startDelayMinutes ?? 0) > 0 ? `（録画完了後${rule.encodeOption.startDelayMinutes}分待機）` : ''}
                         </Typography>
                     )}
                 </Box>

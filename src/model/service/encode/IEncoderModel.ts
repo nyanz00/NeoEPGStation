@@ -1,6 +1,11 @@
 import * as apid from '../../../../api';
 
-export interface EncodeOption extends apid.AddEncodeProgramOption {
+export interface AddEncodeOption extends apid.AddEncodeProgramOption {
+    /** Internal automatic-encode release time. It is never accepted from the public API. */
+    scheduledAt?: number;
+}
+
+export interface EncodeOption extends AddEncodeOption {
     encodeId: apid.EncodeId;
     /** Internal recovery metadata. It is never accepted from the public API. */
     resumeExistingAmatsukaze?: boolean;

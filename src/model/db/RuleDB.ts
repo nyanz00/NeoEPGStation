@@ -277,6 +277,7 @@ export default class RuleDB implements IRuleDB {
             directory3: null,
             isDeleteOriginalAfterEncode: false,
             updateThumbnail: false,
+            encodeStartDelayMinutes: 0,
         };
 
         if (typeof (<apid.Rule>rule).id !== 'undefined') {
@@ -340,6 +341,7 @@ export default class RuleDB implements IRuleDB {
                 typeof rule.encodeOption.directory3 === 'undefined' ? null : rule.encodeOption.directory3;
             convertedRule.isDeleteOriginalAfterEncode = rule.encodeOption.isDeleteOriginalAfterEncode;
             convertedRule.updateThumbnail = rule.encodeOption.updateThumbnail === true;
+            convertedRule.encodeStartDelayMinutes = rule.encodeOption.startDelayMinutes ?? 0;
         }
 
         return convertedRule;
@@ -538,6 +540,7 @@ export default class RuleDB implements IRuleDB {
         if (Object.keys(encodeOption).length > 0) {
             encodeOption.isDeleteOriginalAfterEncode = rule.isDeleteOriginalAfterEncode;
             encodeOption.updateThumbnail = rule.updateThumbnail;
+            encodeOption.startDelayMinutes = rule.encodeStartDelayMinutes;
             convertedRule.encodeOption = encodeOption;
         }
 

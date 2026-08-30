@@ -211,6 +211,10 @@ export default class EventSetter implements IEventSetter {
 
         // 録画完了
         this.recordingEvent.setFinishRecording(async (reserve, recorded, isNeedDeleteReservation, result) => {
+            const scheduledAt =
+                reserve.encodeStartDelayMinutes > 0
+                    ? Date.now() + reserve.encodeStartDelayMinutes * 60 * 1000
+                    : undefined;
             if (isNeedDeleteReservation === true) {
                 if (reserve.ruleId === null || (reserve.ruleId !== null && reserve.isEventRelay == true)) {
                     // 手動予約 or ルール予約によるイベントリレー予約を削除
@@ -241,6 +245,7 @@ export default class EventSetter implements IEventSetter {
                         mode: reserve.encodeMode1,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
                         updateThumbnail: reserve.updateThumbnail,
+                        scheduledAt,
                     });
                 }
 
@@ -257,6 +262,7 @@ export default class EventSetter implements IEventSetter {
                         mode: reserve.encodeMode2,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
                         updateThumbnail: reserve.updateThumbnail,
+                        scheduledAt,
                     });
                 }
 
@@ -273,6 +279,7 @@ export default class EventSetter implements IEventSetter {
                         mode: reserve.encodeMode3,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
                         updateThumbnail: reserve.updateThumbnail,
+                        scheduledAt,
                     });
                 }
             }

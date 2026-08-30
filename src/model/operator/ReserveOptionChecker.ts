@@ -236,6 +236,12 @@ export default class ReserveOptionChecker implements IReserveOptionChecker {
         if (typeof option.mode2 === 'undefined' && this.hasEncodeChannelOption(option.channelIds2, option.channelId2)) { return false; }
         // prettier-ignore
         if (typeof option.mode3 === 'undefined' && this.hasEncodeChannelOption(option.channelIds3, option.channelId3)) { return false; }
+        if (
+            typeof option.startDelayMinutes !== 'undefined' &&
+            (Number.isSafeInteger(option.startDelayMinutes) === false || option.startDelayMinutes < 0)
+        ) {
+            return false;
+        }
 
         return true;
     }

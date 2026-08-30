@@ -51,6 +51,7 @@ interface RuleEditorState {
     encodes: [EncodeSetting, EncodeSetting, EncodeSetting];
     deleteOriginal: boolean;
     updateThumbnail: boolean;
+    encodeStartDelayMinutes: string;
 }
 
 interface RuleEditorDialogProps {
@@ -101,6 +102,7 @@ function initialState(rule: Rule | undefined, activeUser: ActiveUserId, settings
         encodes: [firstEncode, encodeFromRule(rule, 2), encodeFromRule(rule, 3)],
         deleteOriginal: rule?.encodeOption?.isDeleteOriginalAfterEncode ?? settings.isCheckDeleteOriginalAfterEncode,
         updateThumbnail: rule?.encodeOption?.updateThumbnail === true,
+        encodeStartDelayMinutes: rule?.encodeOption?.startDelayMinutes?.toString(10) ?? '0',
     };
 }
 
@@ -135,6 +137,7 @@ function buildEncodeOption(state: RuleEditorState): ReserveEncodedOption | undef
     const option: ReserveEncodedOption = {
         isDeleteOriginalAfterEncode: state.deleteOriginal,
         updateThumbnail: state.updateThumbnail,
+        startDelayMinutes: Number(state.encodeStartDelayMinutes),
     };
     state.encodes.forEach((item, offset) => {
         if (item.mode.length === 0) return;
@@ -265,6 +268,10 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             if (typeof state.userId !== 'number') throw new Error('ルールを作成するユーザーを選択してください');
             const period = state.periodToAvoidDuplicate.length === 0 ? undefined : Number(state.periodToAvoidDuplicate);
             if (period !== undefined && (!Number.isFinite(period) || period < 0)) throw new Error('重複回避日数を正しく入力してください');
+            const encodeStartDelayMinutes = Number(state.encodeStartDelayMinutes);
+            if (state.encodes.some(encode => encode.mode.length > 0) && (Number.isSafeInteger(encodeStartDelayMinutes) === false || encodeStartDelayMinutes < 0)) {
+                throw new Error('エンコード開始待機時間を0以上の整数で入力してください');
+            }
             let effectiveSearchOption = searchOption;
             if (state.isTimeSpecification) {
                 if (state.timeName.trim().length === 0) throw new Error('番組名を入力してください');
@@ -496,6 +503,19 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                         <FormControlLabel
                             control={<Checkbox checked={state.updateThumbnail} onChange={event => setState(current => ({ ...current, updateThumbnail: event.target.checked }))} />}
                             label="サムネイル再生成"
+                        />
+                        <TextField
+                            size="small"
+                            type="number"
+                            label="エンコード開始待機時間（分）"
+                            disabled={state.encodes.every(encode => encode.mode.length === 0)}
+                            value={state.encodeStartDelayMinutes}
+                            onChange={event => setState(current => ({ ...current, encodeStartDelayMinutes: event.target.value }))}
+                            sx={{ width: 260 }}
+                            slotProps={{
+                                htmlInput: { min: 0, step: 1 },
+                            }}
+                            helperText="録画完了後、通常のエンコードキューへ投入するまで待機"
                         />
                     </Stack>
                 </Stack>

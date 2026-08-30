@@ -1106,6 +1106,10 @@ components:
                 updateThumbnail:
                     description: エンコード完了時にサムネイルを再生成するか
                     type: boolean
+                startDelayMinutes:
+                    description: 録画完了後に自動エンコードを開始可能にするまでの待機時間（分）
+                    type: integer
+                    minimum: 0
 
         AddedRule:
             description: ルール追加成功応答データ
@@ -2423,6 +2427,7 @@ components:
             required:
                 - runningItems
                 - waitItems
+                - scheduledItems
             properties:
                 runningItems:
                     type: array
@@ -2432,6 +2437,17 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/EncodeProgramItem'
+                scheduledItems:
+                    type: array
+                    items:
+                        allOf:
+                            - $ref: '#/components/schemas/EncodeProgramItem'
+                            - type: object
+                              required:
+                                  - scheduledAt
+                              properties:
+                                  scheduledAt:
+                                      $ref: '#/components/schemas/UnixtimeMS'
 
         EncodeQueueOrderOption:
             description: 待機中エンコードの実行順

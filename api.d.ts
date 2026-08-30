@@ -741,6 +741,7 @@ export interface ReserveEncodedOption {
     directory3?: string;
     isDeleteOriginalAfterEncode: boolean;
     updateThumbnail?: boolean;
+    startDelayMinutes?: number; // 録画完了後に自動エンコードを開始可能にするまでの待機時間（分）
 }
 
 /**
@@ -1199,6 +1200,7 @@ export interface ScheduleSearchOption {
 export interface EncodeInfo {
     runningItems: EncodeProgramItem[]; // エンコード中
     waitItems: EncodeProgramItem[]; // エンコード待ち
+    scheduledItems: EncodeProgramItem[]; // 開始時刻待ち
 }
 
 export interface EncodeQueueOrderOption {
@@ -1212,6 +1214,7 @@ export interface EncodeProgramItem {
     recorded: RecordedItem;
     percent?: number;
     log?: string;
+    scheduledAt?: UnixtimeMS;
 }
 
 /**
