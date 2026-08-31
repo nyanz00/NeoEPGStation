@@ -255,45 +255,45 @@ class EncodeManageModel implements IEncodeManageModel {
             EncodeManageModel.CREATE_ENCODING_PROCESS_PRIPORITY,
         );
         try {
-            if (this.runningQueue.length >= this.concurrentEncodeNum || this.waitQueue.length === 0) return;
+            while (this.runningQueue.length < this.concurrentEncodeNum && this.waitQueue.length > 0) {
+                const encoder = this.waitQueue.shift();
+                if (typeof encoder === 'undefined') break;
 
-            const encoder = this.waitQueue.shift();
-            if (typeof encoder === 'undefined') return;
+                const encodeOption = encoder.getEncodeOption();
+                if (encodeOption === null) {
+                    this.log.encode.warn('encodeOption is null');
+                    continue;
+                }
 
-            const encodeOption = encoder.getEncodeOption();
-            if (encodeOption === null) {
-                this.log.encode.warn('encodeOption is null');
-                return;
-            }
-
-            this.runningQueue.push(encoder);
-            await this.saveTask(encodeOption, 'running', this.runningQueue.length - 1, Date.now());
-            encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
-                this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
-            });
-            encoder.setOnAmatsukazeTaskMatched(taskId => {
-                encodeOption.amatsukazeTaskId = taskId;
-                void this.saveAmatsukazeTaskId(encodeOption).catch(err => {
-                    this.log.encode.warn(
-                        `save Amatsukaze task id failed: ${encodeOption.encodeId} -> ${taskId.toString(10)}`,
-                    );
-                    this.log.encode.warn(err);
+                this.runningQueue.push(encoder);
+                await this.saveTask(encodeOption, 'running', this.runningQueue.length - 1, Date.now());
+                encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
+                    this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
                 });
-            });
-
-            try {
-                await encoder.start();
-                await this.saveOutputFilePath(encodeOption.encodeId, encoder.getOutputFilePath());
-            } catch (err: any) {
-                this.log.encode.error(`create encode process error: ${encoder.getEncodeId()}`);
-                this.log.encode.error(err);
-                this.encodeEvent.emitErrorEncode({
-                    recordedId: encodeOption.recordedId,
-                    videoFileId: encodeOption.sourceVideoFileId,
-                    mode: encodeOption.mode,
-                    encoderMessage: err instanceof Error ? err.message : String(err),
+                encoder.setOnAmatsukazeTaskMatched(taskId => {
+                    encodeOption.amatsukazeTaskId = taskId;
+                    void this.saveAmatsukazeTaskId(encodeOption).catch(err => {
+                        this.log.encode.warn(
+                            `save Amatsukaze task id failed: ${encodeOption.encodeId} -> ${taskId.toString(10)}`,
+                        );
+                        this.log.encode.warn(err);
+                    });
                 });
-                process.nextTick(() => void this.finalize(encodeOption.encodeId));
+
+                try {
+                    await encoder.start();
+                    await this.saveOutputFilePath(encodeOption.encodeId, encoder.getOutputFilePath());
+                } catch (err: any) {
+                    this.log.encode.error(`create encode process error: ${encoder.getEncodeId()}`);
+                    this.log.encode.error(err);
+                    this.encodeEvent.emitErrorEncode({
+                        recordedId: encodeOption.recordedId,
+                        videoFileId: encodeOption.sourceVideoFileId,
+                        mode: encodeOption.mode,
+                        encoderMessage: err instanceof Error ? err.message : String(err),
+                    });
+                    process.nextTick(() => void this.finalize(encodeOption.encodeId));
+                }
             }
         } finally {
             this.executeManagementModel.unLockExecution(exeId);
@@ -748,21 +748,20 @@ class EncodeManageModel implements IEncodeManageModel {
                     continue;
                 }
 
-                const shouldRestartInterruptedAmatsukaze =
+                const shouldResumeInterruptedAmatsukaze =
                     encodeConfig.type === 'amatsukaze' &&
                     (task.status === 'running' ||
                         option.resumeExistingAmatsukaze === true ||
                         option.restartInterruptedAmatsukaze === true);
-                if (shouldRestartInterruptedAmatsukaze) {
-                    // Amatsukaze task/console IDs can no longer be trusted after this process restarts.
-                    // The first restored task cancels the server-side unfinished snapshot, then every
-                    // persisted NeoEPGStation task is submitted again through the normal add flow.
-                    delete option.resumeExistingAmatsukaze;
-                    delete option.amatsukazeTaskId;
-                    option.restartInterruptedAmatsukaze = true;
+                if (shouldResumeInterruptedAmatsukaze) {
+                    // Amatsukaze keeps its server-side queue alive when only NeoEPGStation restarts.
+                    // Reconnect by the persisted task ID first, then fall back to the source path if
+                    // the ID changed. Canceling the entire Amatsukaze queue can affect unrelated jobs.
+                    option.resumeExistingAmatsukaze = true;
+                    delete option.restartInterruptedAmatsukaze;
                     option.recoveryStartedAt = Number(task.startedAt) || Number(task.updatedAt);
                     if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
-                    this.log.encode.warn(`restart interrupted Amatsukaze task from beginning: ${task.encodeId}`);
+                    this.log.encode.info(`resume Amatsukaze task monitoring: ${task.encodeId}`);
                 } else if (task.status === 'running') {
                     if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
                     this.log.encode.warn(`restart interrupted internal encode from beginning: ${task.encodeId}`);
