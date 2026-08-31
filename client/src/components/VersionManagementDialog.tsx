@@ -113,9 +113,16 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         onError: error => notify(`更新情報を再取得できませんでした: ${error.message}`, 'error'),
     });
     const begin = (target: SystemUpdateTarget): void => {
-        const label = target === 'stable' ? info.data?.targets.stable?.label : info.data?.targets.develop?.label;
+        const targetInfo = target === 'stable' ? info.data?.targets.stable : info.data?.targets.develop;
+        const label = targetInfo?.label;
+        const rollback = targetInfo?.relation === 'behind';
         const localChangeNotice = preserveLocalChanges ? '未コミットの変更は退避され、更新後のファイルで上書きされます。' : '';
-        if (!window.confirm(`${label ?? target} へ更新します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを更新してビルドします。よろしいですか？`)) return;
+        if (
+            !window.confirm(
+                `${label ?? target} へ${rollback ? 'ロールバック' : '更新'}します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを切り替えてビルドします。よろしいですか？`,
+            )
+        )
+            return;
         start.mutate(target);
     };
 
@@ -140,15 +147,15 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             </Alert>
                         )}
                         {info.data.targets.error !== null && <Alert severity="warning">最新情報の取得に失敗したため前回の情報を表示しています: {info.data.targets.error}</Alert>}
-                        {info.data.targets.stable !== null && info.data.targets.stable.relation !== 'ahead' && (
+                        {info.data.targets.stable?.relation === 'behind' && info.data.targets.stable.canApply && (
+                            <Alert severity="warning">
+                                安定版 {info.data.targets.stable.label} は現在より古いバージョンです。DB互換性を妨げる不可逆な変更がないためロールバックできます。
+                            </Alert>
+                        )}
+                        {info.data.targets.stable !== null && !info.data.targets.stable.canApply && (
                             <Alert severity="info">
-                                安定版 {info.data.targets.stable.label} は
-                                {info.data.targets.stable.relation === 'behind'
-                                    ? '現在より古いため'
-                                    : info.data.targets.stable.relation === 'same'
-                                      ? '既に適用済みのため'
-                                      : '現在の履歴の先にないため'}
-                                更新対象にできません。
+                                安定版 {info.data.targets.stable.label} は更新対象にできません。
+                                {info.data.targets.stable.blockedReason === null ? '' : ` ${info.data.targets.stable.blockedReason}`}
                             </Alert>
                         )}
                         <Box>
@@ -185,12 +192,12 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     !info.data.isGitRepository ||
                                     (!info.data.isClean && !preserveLocalChanges) ||
                                     info.data.targets.stable === null ||
-                                    info.data.targets.stable.relation !== 'ahead'
+                                    !info.data.targets.stable.canApply
                                 }
                                 onClick={() => begin('stable')}
                             >
                                 安定版 {info.data.targets.stable?.label ?? '取得不可'}
-                                {relationSuffix(info.data.targets.stable?.relation)} へ更新
+                                {relationSuffix(info.data.targets.stable?.relation)} へ{info.data.targets.stable?.relation === 'behind' ? '戻す' : '更新'}
                             </Button>
                             <Button
                                 variant="outlined"
@@ -202,7 +209,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     !info.data.isGitRepository ||
                                     (!info.data.isClean && !preserveLocalChanges) ||
                                     info.data.targets.develop === null ||
-                                    info.data.targets.develop.relation !== 'ahead'
+                                    !info.data.targets.develop.canApply
                                 }
                                 onClick={() => begin('develop')}
                             >

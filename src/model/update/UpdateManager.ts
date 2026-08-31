@@ -9,6 +9,7 @@ import type {
     SystemUpdateJob,
     SystemUpdatePackageManager,
     SystemUpdateRelation,
+    SystemUpdateRemoteTarget,
     SystemUpdateTarget,
 } from '../../../api';
 import { isExpectedUpdateRepository, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
@@ -32,6 +33,22 @@ const DEPENDENCY_FILES = [
     'client/package.json',
     'client/package-lock.json',
 ];
+
+interface DatabaseRollbackBarrier {
+    migrationPaths: readonly string[];
+    reason: string;
+}
+
+// Add an entry when a DB migration makes older NeoEPGStation code unable to use the migrated DB.
+// Entries must never be removed: the updater uses their presence in both commits to decide whether
+// a rollback crosses an incompatible schema boundary. Additive migrations that older code can ignore
+// do not belong here.
+const DATABASE_ROLLBACK_BARRIERS: readonly DatabaseRollbackBarrier[] = [];
+
+interface TargetApplicability {
+    canApply: boolean;
+    blockedReason: string | null;
+}
 
 interface PersistedState {
     packageManager?: Exclude<SystemUpdatePackageManager, 'auto'>;
@@ -242,12 +259,11 @@ export default class UpdateManager {
                 return;
             }
             const relation = await this.getCommitRelation(oldCommit, targetCommit);
-            if (relation !== 'ahead') {
-                throw new Error(
-                    relation === 'behind'
-                        ? '選択した更新先は現在より古いため更新できません'
-                        : '選択した更新先は現在の履歴の先にないため更新できません',
-                );
+            const applicability = await this.getTargetApplicability(job.target, relation, oldCommit, targetCommit);
+            if (!applicability.canApply)
+                throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
+            if (relation === 'behind') {
+                this.append(job, 'DB互換性を確認しました。現在のDBを保持したまま安定版へロールバックします');
             }
 
             this.setStage(job, 'backing-up', 'DBとconfig.ymlをバックアップしています');
@@ -435,6 +451,8 @@ export default class UpdateManager {
                               tag: null,
                               commit: developMatch[1],
                               relation: 'unknown',
+                              canApply: false,
+                              blockedReason: '現在のコミットと比較できません',
                           },
                 stable:
                     stableTag === undefined
@@ -445,6 +463,8 @@ export default class UpdateManager {
                               tag: stableTag,
                               commit: tagCommits.get(stableTag)!,
                               relation: 'unknown',
+                              canApply: false,
+                              blockedReason: '現在のコミットと比較できません',
                           },
                 checkedAt: Date.now(),
                 error: null,
@@ -471,13 +491,69 @@ export default class UpdateManager {
         targets: SystemUpdateInfo['targets'],
         currentCommit: string | null,
     ): Promise<SystemUpdateInfo['targets']> {
-        if (currentCommit === null) return targets;
-        const add = async (target: SystemUpdateInfo['targets']['stable']) =>
-            target === null
-                ? null
-                : { ...target, relation: await this.getCommitRelation(currentCommit, target.commit) };
-        const [stable, develop] = await Promise.all([add(targets.stable), add(targets.develop)]);
+        const add = async (
+            targetKind: SystemUpdateTarget,
+            target: SystemUpdateRemoteTarget | null,
+        ): Promise<SystemUpdateRemoteTarget | null> => {
+            if (target === null) return null;
+            if (currentCommit === null) {
+                return {
+                    ...target,
+                    relation: 'unknown',
+                    canApply: false,
+                    blockedReason: '現在のコミットと比較できません',
+                };
+            }
+            const relation = await this.getCommitRelation(currentCommit, target.commit);
+            const applicability = await this.getTargetApplicability(targetKind, relation, currentCommit, target.commit);
+            return { ...target, relation, ...applicability };
+        };
+        const [stable, develop] = await Promise.all([add('stable', targets.stable), add('develop', targets.develop)]);
         return { ...targets, stable, develop };
+    }
+
+    private async getTargetApplicability(
+        target: SystemUpdateTarget,
+        relation: SystemUpdateRelation,
+        currentCommit: string,
+        targetCommit: string,
+    ): Promise<TargetApplicability> {
+        if (relation === 'ahead') return { canApply: true, blockedReason: null };
+        if (relation === 'same') return { canApply: false, blockedReason: '既に選択したバージョンです' };
+        if (relation === 'behind') {
+            if (target !== 'stable') {
+                return { canApply: false, blockedReason: 'developを過去のコミットへ戻すことはできません' };
+            }
+            const databaseReason = await this.getDatabaseRollbackBlockReason(currentCommit, targetCommit);
+            if (databaseReason !== null) return { canApply: false, blockedReason: databaseReason };
+            return { canApply: true, blockedReason: null };
+        }
+        if (relation === 'diverged') {
+            return { canApply: false, blockedReason: '選択した更新先は現在とは別の履歴にあります' };
+        }
+        return { canApply: false, blockedReason: '現在のコミットと更新先を比較できません' };
+    }
+
+    private async getDatabaseRollbackBlockReason(currentCommit: string, targetCommit: string): Promise<string | null> {
+        for (const barrier of DATABASE_ROLLBACK_BARRIERS) {
+            const [currentFiles, targetFiles] = await Promise.all([
+                Promise.all(barrier.migrationPaths.map(file => this.gitPathExists(currentCommit, file))),
+                Promise.all(barrier.migrationPaths.map(file => this.gitPathExists(targetCommit, file))),
+            ]);
+            if (currentFiles.some(Boolean) && !targetFiles.some(Boolean)) {
+                return `DBに旧バージョンと互換性のない変更が含まれるためロールバックできません: ${barrier.reason}`;
+            }
+        }
+        return null;
+    }
+
+    private async gitPathExists(commit: string, file: string): Promise<boolean> {
+        try {
+            await this.git(['cat-file', '-e', `${commit}:${file}`]);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     private async getCommitRelation(currentCommit: string, targetCommit: string): Promise<SystemUpdateRelation> {

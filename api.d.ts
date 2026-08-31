@@ -1515,6 +1515,8 @@ export interface SystemUpdateRemoteTarget {
     tag: string | null;
     commit: string;
     relation: SystemUpdateRelation;
+    canApply: boolean;
+    blockedReason: string | null;
 }
 
 export interface SystemUpdateJob {

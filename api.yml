@@ -2337,13 +2337,15 @@ components:
 
         SystemUpdateRemoteTarget:
             type: object
-            required: [label, version, tag, commit, relation]
+            required: [label, version, tag, commit, relation, canApply, blockedReason]
             properties:
                 label: { type: string }
                 version: { type: string, nullable: true }
                 tag: { type: string, nullable: true }
                 commit: { type: string }
                 relation: { type: string, enum: [ahead, same, behind, diverged, unknown] }
+                canApply: { type: boolean }
+                blockedReason: { type: string, nullable: true }
 
         SystemUpdateJob:
             type: object
