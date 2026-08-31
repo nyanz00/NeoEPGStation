@@ -3,13 +3,24 @@ export const DPLAYER_COMPOSITE_SCREENSHOT_ICON =
     '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M21 6h-3.2L16 4h-6v2h5.1L17 8h4v12H5v-9H3v9c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2M8 14c0 4.45 5.39 6.69 8.54 3.54S17.45 9 13 9c-2.76 0-5 2.24-5 5m5-3c1.64.05 2.95 1.36 3 3-.05 1.64-1.36 2.95-3 3-1.64-.05-2.95-1.36-3-3 .05-1.64 1.36-2.95 3-3M5 6h3V4H5V1H3v3H0v2h3v3h2"/></svg>';
 
 interface DanmakuCanvasItem {
+    type?: 'right' | 'top' | 'bottom';
     x: number;
     y: number;
+    startX?: number;
+    endX?: number;
     bitmap: HTMLCanvasElement;
     bitmapWidth: number;
     bitmapHeight: number;
     bitmapPadding: number;
     element?: HTMLCanvasElement;
+    placement?: {
+        item: {
+            startedAt: number;
+            startedMediaTime: number | null;
+            duration: number;
+            renderedElapsed?: number;
+        };
+    };
 }
 
 export interface CompositeScreenshotDanmaku {
@@ -49,6 +60,7 @@ function drawDanmaku(
     scale: number,
     container: HTMLElement,
     danmaku: CompositeScreenshotDanmaku | null | undefined,
+    mediaTimeMilliseconds: number | null,
 ): void {
     const layer = container.querySelector<HTMLElement>('.dplayer-danmaku');
     if (layer === null || !isVisible(layer) || danmaku?.canvasItems === undefined) return;
@@ -66,7 +78,15 @@ function drawDanmaku(
             }
             continue;
         }
-        const left = layerRect.left - captureRect.left + item.x - item.bitmapPadding;
+        let x = item.x;
+        const timing = item.placement?.item;
+        if (item.type === 'right' && item.startX !== undefined && item.endX !== undefined && timing !== undefined && timing.duration > 0) {
+            const elapsedFromMedia = mediaTimeMilliseconds !== null && timing.startedMediaTime !== null ? mediaTimeMilliseconds - timing.startedMediaTime : null;
+            const elapsed = Math.max(timing.renderedElapsed ?? 0, elapsedFromMedia ?? performance.now() - timing.startedAt);
+            const progress = Math.min(1, Math.max(0, elapsed / timing.duration));
+            x = item.startX + (item.endX - item.startX) * progress;
+        }
+        const left = layerRect.left - captureRect.left + x - item.bitmapPadding;
         // A comment bitmap includes its own outline padding. Keep that padding
         // and its lane origin inside the captured video instead of clipping it.
         const layerTop = Math.max(0, layerRect.top - captureRect.top);
@@ -177,7 +197,8 @@ export async function downloadCompositeScreenshot(option: CompositeScreenshotOpt
     if (context === null) throw new Error('スクリーンショット用Canvasを初期化できませんでした。');
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    drawDanmaku(context, captureRect, scale, container, danmaku);
+    const mediaTimeMilliseconds = Number.isFinite(video.currentTime) && video.currentTime >= 0 ? video.currentTime * 1000 : null;
+    drawDanmaku(context, captureRect, scale, container, danmaku, mediaTimeMilliseconds);
 
     const subtitleCanvases = [
         ...Array.from(root.children).filter((element): element is HTMLCanvasElement => element instanceof HTMLCanvasElement),
