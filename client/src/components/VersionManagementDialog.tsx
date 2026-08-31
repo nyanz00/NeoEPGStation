@@ -117,9 +117,13 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         const label = targetInfo?.label;
         const rollback = targetInfo?.relation === 'behind';
         const localChangeNotice = preserveLocalChanges ? '未コミットの変更は退避され、更新後のファイルで上書きされます。' : '';
+        const developWarning =
+            target === 'develop'
+                ? '\n\n【警告】develop版はテストされていない開発中のコードです。更新後にNeoEPGStationが起動できなくなり、手動での復旧が必要になる可能性があります。'
+                : '';
         if (
             !window.confirm(
-                `${label ?? target} へ${rollback ? 'ロールバック' : '更新'}します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを切り替えてビルドします。よろしいですか？`,
+                `${label ?? target} へ${rollback ? 'ロールバック' : '更新'}します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを切り替えてビルドします。${developWarning}\n\n続行しますか？`,
             )
         )
             return;
@@ -180,6 +184,16 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 control={<Checkbox checked={preserveLocalChanges} onChange={event => setPreserveLocalChanges(event.target.checked)} />}
                                 label="未コミットの変更を退避して上書き更新する"
                             />
+                        )}
+                        {info.data.targets.develop?.canApply && (
+                            <Alert severity="error" variant="outlined">
+                                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                    develop版への更新は危険です
+                                </Typography>
+                                <Typography variant="body2">
+                                    develop版はテストされていない開発中のコードです。更新後にNeoEPGStationが起動できなくなり、手動での復旧が必要になる可能性があります。
+                                </Typography>
+                            </Alert>
                         )}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                             <Button
