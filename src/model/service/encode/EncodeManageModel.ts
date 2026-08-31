@@ -690,7 +690,21 @@ class EncodeManageModel implements IEncodeManageModel {
     private async restorePersistedQueue(): Promise<void> {
         try {
             const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
-            const tasks = await repository.find({ order: { position: 'ASC', encodeId: 'ASC' } });
+            const tasks = await repository.find();
+            const restoreStatusOrder: Record<string, number> = {
+                running: 0,
+                waiting: 1,
+                scheduled: 2,
+            };
+            tasks.sort((left, right) => {
+                const statusOrder =
+                    (restoreStatusOrder[left.status] ?? Number.MAX_SAFE_INTEGER) -
+                    (restoreStatusOrder[right.status] ?? Number.MAX_SAFE_INTEGER);
+                if (statusOrder !== 0) return statusOrder;
+                if (left.position !== right.position) return left.position - right.position;
+
+                return left.encodeId - right.encodeId;
+            });
             let maxEncodeId = 0;
             const overdueScheduledOptions: EncodeOption[] = [];
 
