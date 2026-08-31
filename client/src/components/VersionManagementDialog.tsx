@@ -153,7 +153,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                         {info.data.targets.error !== null && <Alert severity="warning">最新情報の取得に失敗したため前回の情報を表示しています: {info.data.targets.error}</Alert>}
                         {info.data.targets.stable?.relation === 'behind' && info.data.targets.stable.canApply && (
                             <Alert severity="warning">
-                                安定版 {info.data.targets.stable.label} は現在より古いバージョンです。DB互換性を妨げる不可逆な変更がないためロールバックできます。
+                                安定版 {info.data.targets.stable.label} は現在より古いバージョンですが、DB互換性を妨げる不可逆な変更がないためロールバックできます。
                             </Alert>
                         )}
                         {info.data.targets.stable !== null && !info.data.targets.stable.canApply && (
