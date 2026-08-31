@@ -11,6 +11,7 @@ export interface EncodeOption extends AddEncodeOption {
     resumeExistingAmatsukaze?: boolean;
     restartInterruptedAmatsukaze?: boolean;
     amatsukazeTaskId?: number;
+    amatsukazeConsoleId?: number;
     recoveryStartedAt?: number;
     recoveryOutputFilePath?: string;
 }

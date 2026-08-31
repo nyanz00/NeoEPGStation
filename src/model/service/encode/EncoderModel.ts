@@ -59,6 +59,7 @@ class AmatsukazePushConnection {
         port: number,
         inputFilePath: string,
         initialTaskId: number | null,
+        initialConsoleId: number | null,
         allowRecoveryFallback: boolean,
         onUpdate: (status: AmatsukazePushStatus) => void,
         onTaskMatched: (taskId: number) => void,
@@ -74,6 +75,7 @@ class AmatsukazePushConnection {
         return connection.subscribe(
             inputFilePath,
             initialTaskId,
+            initialConsoleId,
             allowRecoveryFallback,
             onUpdate,
             onTaskMatched,
@@ -128,6 +130,7 @@ class AmatsukazePushConnection {
     private subscribe(
         inputFilePath: string,
         initialTaskId: number | null,
+        initialConsoleId: number | null,
         allowRecoveryFallback: boolean,
         onUpdate: (status: AmatsukazePushStatus) => void,
         onTaskMatched: (taskId: number) => void,
@@ -143,6 +146,7 @@ class AmatsukazePushConnection {
             this,
             inputFilePath,
             initialTaskId,
+            initialConsoleId,
             allowRecoveryFallback,
             onUpdate,
             onTaskMatched,
@@ -396,7 +400,7 @@ class AmatsukazePushSubscription {
     };
     private taskId: number | null;
     private consoleTail: string = '';
-    private consoleMatchSource: 'none' | 'fallback' | 'queue' = 'none';
+    private consoleMatchSource: 'none' | 'persisted' | 'fallback' | 'queue' = 'none';
     private hasConnectedOnce: boolean = false;
 
     constructor(
@@ -404,12 +408,22 @@ class AmatsukazePushSubscription {
         private readonly connection: AmatsukazePushConnection,
         private readonly inputFilePath: string,
         initialTaskId: number | null,
+        initialConsoleId: number | null,
         private readonly allowRecoveryFallback: boolean,
         private readonly onUpdate: (status: AmatsukazePushStatus) => void,
         private readonly onTaskMatched: (taskId: number) => void,
         private readonly onLog: (message: string) => void,
     ) {
         this.taskId = initialTaskId;
+        if (initialConsoleId !== null && initialConsoleId >= 0) {
+            this.consoleMatchSource = 'persisted';
+            this.status = {
+                ...this.status,
+                isMatched: initialTaskId !== null,
+                consoleId: initialConsoleId,
+                updatedAt: Date.now(),
+            };
+        }
     }
 
     public stop(): void {
@@ -1282,6 +1296,7 @@ class EncoderModel implements IEncoderModel {
             port,
             inputFilePath,
             this.encodeOption?.amatsukazeTaskId ?? null,
+            this.encodeOption?.amatsukazeConsoleId ?? null,
             this.encodeOption?.resumeExistingAmatsukaze === true,
             status => this.updateAmatsukazePushProgress(status),
             taskId => {
@@ -1302,6 +1317,16 @@ class EncoderModel implements IEncoderModel {
     }
 
     private updateAmatsukazePushProgress(status: AmatsukazePushStatus): void {
+        if (
+            status.consoleId !== null &&
+            this.encodeOption !== null &&
+            this.encodeOption.amatsukazeConsoleId !== status.consoleId
+        ) {
+            this.encodeOption.amatsukazeConsoleId = status.consoleId;
+            if (typeof this.encodeOption.amatsukazeTaskId === 'number') {
+                this.onAmatsukazeTaskMatched?.(this.encodeOption.amatsukazeTaskId);
+            }
+        }
         const errorMessage = status.errorMessage?.trim() || null;
         if (status.log === null && status.percent === null && errorMessage === null) {
             return;
