@@ -597,6 +597,9 @@ function ChannelPanel({
 function CommentPanel({
     comments,
     listRef,
+    autoFollow,
+    onScroll,
+    onReturnToCurrent,
     canPost,
     isPremium,
     postingTarget,
@@ -604,6 +607,9 @@ function CommentPanel({
 }: {
     comments: JikkyoComment[];
     listRef: RefObject<HTMLDivElement | null>;
+    autoFollow: boolean;
+    onScroll: (list: HTMLDivElement) => void;
+    onReturnToCurrent: () => void;
     canPost: boolean;
     isPremium: boolean;
     postingTarget: 'nicolive' | 'nx-jikkyo' | null;
@@ -629,13 +635,18 @@ function CommentPanel({
     };
     return (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Box ref={listRef} sx={{ minHeight: 0, flex: 1, overflowY: 'auto', p: 1.5 }}>
+            <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ minHeight: 0, flex: 1, overflowY: 'auto', p: 1.5 }}>
                 <Stack direction="row" spacing={1} sx={{ mb: 1.5, alignItems: 'center' }}>
                     <ChatBubbleOutlineOutlined />
                     <Typography variant="h6" sx={{ fontWeight: 800 }}>
                         コメント
                     </Typography>
                 </Stack>
+                {!autoFollow && comments.length > 0 && (
+                    <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
+                        現在位置に戻る
+                    </Button>
+                )}
                 {comments.length === 0 ? (
                     <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center' }}>
                         実況コメントを待っています…
@@ -737,6 +748,7 @@ export function OnAirWatchPage(): ReactNode {
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [reserveDialogOpen, setReserveDialogOpen] = useState(false);
     const [comments, setComments] = useState<JikkyoComment[]>([]);
+    const [commentAutoFollow, setCommentAutoFollow] = useState(true);
     const commentBuffer = useRef<JikkyoComment[]>([]);
     const commentsVisible = useRef(false);
     const commentFlushTimer = useRef<number | null>(null);
@@ -835,6 +847,7 @@ export function OnAirWatchPage(): ReactNode {
     useEffect(() => {
         commentBuffer.current = [];
         setComments([]);
+        setCommentAutoFollow(true);
     }, [channelId]);
     useEffect(() => {
         commentsVisible.current = panelTab === 'comments';
@@ -846,10 +859,23 @@ export function OnAirWatchPage(): ReactNode {
         },
         [],
     );
-    useEffect(() => {
+    const scrollCommentsToCurrent = useCallback((): void => {
         if (panelTab !== 'comments' || commentList.current === null) return;
         commentList.current.scrollTop = commentList.current.scrollHeight;
-    }, [comments, panelTab]);
+    }, [panelTab]);
+    const handleCommentScroll = useCallback(
+        (list: HTMLDivElement): void => {
+            if (commentAutoFollow && list.scrollHeight - list.clientHeight - list.scrollTop > 8) setCommentAutoFollow(false);
+        },
+        [commentAutoFollow],
+    );
+    const returnCommentsToCurrent = useCallback((): void => {
+        setCommentAutoFollow(true);
+        scrollCommentsToCurrent();
+    }, [scrollCommentsToCurrent]);
+    useEffect(() => {
+        if (commentAutoFollow) scrollCommentsToCurrent();
+    }, [comments, commentAutoFollow, scrollCommentsToCurrent]);
     useEffect(() => {
         if (panelOpen) {
             setPanelMounted(true);
@@ -901,6 +927,9 @@ export function OnAirWatchPage(): ReactNode {
                 <CommentPanel
                     comments={comments}
                     listRef={commentList}
+                    autoFollow={commentAutoFollow}
+                    onScroll={handleCommentScroll}
+                    onReturnToCurrent={returnCommentsToCurrent}
                     canPost={canPostComment}
                     isPremium={niconicoStatus.data?.account?.isPremium === true}
                     postingTarget={commentPostingTarget}

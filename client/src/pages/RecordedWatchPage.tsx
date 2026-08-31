@@ -12,6 +12,7 @@ import {
     BottomNavigation,
     BottomNavigationAction,
     Box,
+    Button,
     CircularProgress,
     Divider,
     FormControl,
@@ -710,22 +711,30 @@ function CommentPanel({
     comments,
     status,
     listRef,
-    nextCommentIndex,
+    autoFollow,
+    onScroll,
+    onReturnToCurrent,
 }: {
     comments: JikkyoComment[];
     status: string;
     listRef: RefObject<HTMLDivElement | null>;
-    nextCommentIndex: number | null;
+    autoFollow: boolean;
+    onScroll: (list: HTMLDivElement) => void;
+    onReturnToCurrent: () => void;
 }): ReactNode {
-    const currentCommentIndex = nextCommentIndex === null ? null : Math.max(0, Math.min(nextCommentIndex - 1, comments.length - 1));
     return (
-        <Box ref={listRef} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
+        <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
             <Stack direction="row" spacing={1} sx={{ mb: 1.5, alignItems: 'center' }}>
                 <ChatBubbleOutlineOutlined />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>
                     コメント
                 </Typography>
             </Stack>
+            {!autoFollow && comments.length > 0 && (
+                <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
+                    現在位置に戻る
+                </Button>
+            )}
             {comments.length === 0 ? (
                 <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
                     {status}
@@ -740,9 +749,6 @@ function CommentPanel({
                             spacing={1}
                             sx={{
                                 alignItems: 'flex-start',
-                                borderLeft: 2,
-                                borderColor: index === currentCommentIndex ? 'primary.main' : 'transparent',
-                                pl: 0.75,
                                 contentVisibility: 'auto',
                                 containIntrinsicSize: '28px',
                             }}
@@ -914,7 +920,9 @@ export function RecordedWatchPage(): ReactNode {
     const [comments, setComments] = useState<JikkyoComment[]>([]);
     const [nextCommentIndex, setNextCommentIndex] = useState<number | null>(null);
     const [commentStatus, setCommentStatus] = useState(streaming ? '実況過去ログを取得しています…' : 'ASS実況字幕を選択すると、再生中のコメントをここにも表示します。');
+    const [commentAutoFollow, setCommentAutoFollow] = useState(true);
     const commentList = useRef<HTMLDivElement | null>(null);
+    const expectedCommentScrollTop = useRef<number | null>(null);
     const recorded = useQuery({
         queryKey: ['recorded-detail', recordedId, settings.isHalfWidthDisplayed],
         queryFn: () => api.getRecordedItem(recordedId, settings.isHalfWidthDisplayed),
@@ -1020,6 +1028,8 @@ export function RecordedWatchPage(): ReactNode {
     const resetComments = useCallback((): void => {
         setComments([]);
         setNextCommentIndex(null);
+        setCommentAutoFollow(true);
+        expectedCommentScrollTop.current = null;
     }, []);
     const updateCommentStatus = useCallback((detail: string): void => setCommentStatus(detail), []);
     const updateControlsVisibility = useCallback((visible: boolean): void => setOverlayVisible(visible), []);
@@ -1230,19 +1240,39 @@ export function RecordedWatchPage(): ReactNode {
             );
         }
     }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, settings.watchPlaySubtitleDanmaku, streaming]);
-    useEffect(() => {
+    const scrollCommentsToCurrent = useCallback((): number | null => {
         const list = commentList.current;
-        if (panelTab !== 'comments' || list === null || nextCommentIndex === null || comments.length === 0) return;
-        const index = Math.max(0, Math.min(nextCommentIndex - 1, comments.length - 1));
-        const frame = window.requestAnimationFrame(() => {
+        if (panelTab !== 'comments' || list === null || nextCommentIndex === null || comments.length === 0) return null;
+        return window.requestAnimationFrame(() => {
+            if (commentList.current !== list) return;
+            const index = Math.max(0, Math.min(nextCommentIndex - 1, comments.length - 1));
             const item = list.querySelector<HTMLElement>(`[data-comment-index="${index.toString(10)}"]`);
             if (item === null) return;
             const listRect = list.getBoundingClientRect();
             const itemRect = item.getBoundingClientRect();
-            list.scrollTop += itemRect.top - listRect.top - list.clientHeight * 0.65;
+            const desiredScrollTop = Math.max(0, Math.min(list.scrollHeight - list.clientHeight, list.scrollTop + itemRect.top - listRect.top - list.clientHeight * 0.65));
+            expectedCommentScrollTop.current = desiredScrollTop;
+            list.scrollTop = desiredScrollTop;
         });
-        return () => window.cancelAnimationFrame(frame);
     }, [comments, nextCommentIndex, panelTab]);
+    const handleCommentScroll = useCallback(
+        (list: HTMLDivElement): void => {
+            const expected = expectedCommentScrollTop.current;
+            if (commentAutoFollow && expected !== null && Math.abs(list.scrollTop - expected) > 4) setCommentAutoFollow(false);
+        },
+        [commentAutoFollow],
+    );
+    const returnCommentsToCurrent = useCallback((): void => {
+        setCommentAutoFollow(true);
+        scrollCommentsToCurrent();
+    }, [scrollCommentsToCurrent]);
+    useEffect(() => {
+        if (!commentAutoFollow) return;
+        const frame = scrollCommentsToCurrent();
+        return () => {
+            if (frame !== null) window.cancelAnimationFrame(frame);
+        };
+    }, [commentAutoFollow, scrollCommentsToCurrent]);
     const channel = channels.data?.find(value => value.id === item?.channelId);
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;
@@ -1328,7 +1358,14 @@ export function RecordedWatchPage(): ReactNode {
                     onSelect={index => void changeStreamingSubtitle(index)}
                 />
             ) : (
-                <CommentPanel comments={comments} status={commentStatus} listRef={commentList} nextCommentIndex={nextCommentIndex} />
+                <CommentPanel
+                    comments={comments}
+                    status={commentStatus}
+                    listRef={commentList}
+                    autoFollow={commentAutoFollow}
+                    onScroll={handleCommentScroll}
+                    onReturnToCurrent={returnCommentsToCurrent}
+                />
             );
         }
         return <TwitterPanel programTitle={item.name} channelName={channel?.name} videoSelector=".recorded-dplayer video" />;
