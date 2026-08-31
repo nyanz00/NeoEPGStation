@@ -46,7 +46,6 @@ interface AmatsukazePushStatus {
 
 class AmatsukazePushConnection {
     private static readonly RPC_CHANGE_ITEM = 103;
-    private static readonly RPC_REQUEST = 111;
     private static readonly RPC_ON_UI_DATA = 200;
     private static readonly RPC_ON_CONSOLE_UPDATE = 201;
     private static readonly RPC_ON_ENCODE_STATE = 202;
@@ -151,9 +150,6 @@ class AmatsukazePushConnection {
         );
         this.subscriptions.set(subscription.id, subscription);
         this.start();
-        if (this.socket !== null && this.socket.connecting === false) {
-            this.sendFrame(this.createQueueRequestFrame());
-        }
 
         return subscription;
     }
@@ -237,22 +233,6 @@ class AmatsukazePushConnection {
         return frame;
     }
 
-    private createQueueRequestFrame(): Buffer {
-        const xml =
-            '<ServerRequest xmlns="http://schemas.datacontract.org/2004/07/Amatsukaze.Server">Queue</ServerRequest>';
-        const xmlBytes = Buffer.from(xml, 'utf8');
-        const chunked = Buffer.alloc(4 + xmlBytes.length);
-        chunked.writeInt32LE(xmlBytes.length, 0);
-        xmlBytes.copy(chunked, 4);
-
-        const frame = Buffer.alloc(6 + chunked.length);
-        frame.writeInt16LE(AmatsukazePushConnection.RPC_REQUEST, 0);
-        frame.writeInt32LE(chunked.length, 2);
-        chunked.copy(frame, 6);
-
-        return frame;
-    }
-
     private start(): void {
         if (this.socket !== null || this.reconnectTimerId !== null || this.subscriptions.size === 0) {
             return;
@@ -261,7 +241,6 @@ class AmatsukazePushConnection {
         const socket = net.createConnection({ host: this.host, port: this.port }, () => {
             if (this.socket !== socket) return;
             this.reconnectAttempts = 0;
-            this.sendFrame(this.createQueueRequestFrame());
             this.notifyConnected(true);
             this.notifyLog(`amatsukaze push connected: ${this.host}:${this.port}`);
         });
