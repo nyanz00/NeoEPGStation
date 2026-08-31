@@ -80,7 +80,8 @@ export interface RecordedPlayerCoreOption {
     onReady?: (video: HTMLVideoElement) => void;
     onStateChange?: (state: RecordedPlayerState) => void;
     onComment?: (comment: JikkyoComment) => void;
-    onCommentsReset?: () => void;
+    onCommentsChange?: (comments: JikkyoComment[]) => void;
+    onCommentPositionChange?: (nextCommentIndex: number) => void;
     onCommentStatus?: (detail: string) => void;
     onControlsVisibilityChange?: (visible: boolean) => void;
     onControlsPortalReady?: (container: HTMLElement | null) => void;
@@ -526,10 +527,11 @@ export class RecordedPlayerCore {
             commentsUrl: this.option.commentsUrl,
             video: this.player.video,
             onComment: comment => this.enqueueComment(comment),
+            onCommentsChange: comments => this.option.onCommentsChange?.(comments),
+            onPositionChange: index => this.option.onCommentPositionChange?.(index),
             getDisplayTime: (comment, originalTime) => this.getDanmakuDisplayTime(comment, originalTime),
             onReset: () => {
                 this.player?.danmaku?.clear();
-                this.option.onCommentsReset?.();
             },
             onStatus: detail => this.option.onCommentStatus?.(detail),
             onError: error => this.option.onError?.(error),

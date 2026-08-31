@@ -5,6 +5,8 @@ export interface RecordedJikkyoCommentCoreOption {
     commentsUrl: string;
     video: HTMLVideoElement;
     onComment: (comment: JikkyoComment) => void;
+    onCommentsChange?: (comments: JikkyoComment[]) => void;
+    onPositionChange?: (nextCommentIndex: number) => void;
     getDisplayTime?: (comment: JikkyoComment, originalTime: number) => number;
     onReset?: () => void;
     onStatus?: (detail: string) => void;
@@ -47,6 +49,7 @@ export class RecordedJikkyoCommentCore {
                       }))
                       .sort((left, right) => left.displayTime - right.displayTime || left.comment.time - right.comment.time)
                 : [];
+            this.notifyCommentsChanged();
             this.resetPosition(this.option.video.currentTime, false);
             this.option.video.addEventListener('seeking', this.handleSeeking);
             this.option.video.addEventListener('seeked', this.handleSeeked);
@@ -79,6 +82,7 @@ export class RecordedJikkyoCommentCore {
         if (!video.paused && !video.seeking) {
             const currentTime = video.currentTime;
             if (currentTime + 0.5 < this.lastCurrentTime || currentTime - this.lastCurrentTime > 2) this.resetPosition(currentTime, true);
+            const previousIndex = this.nextCommentIndex;
             while (this.nextCommentIndex < this.comments.length && this.comments[this.nextCommentIndex].displayTime <= currentTime + 0.05) {
                 const item = this.comments[this.nextCommentIndex];
                 if (item.displayTime >= this.lastCurrentTime - 0.1) {
@@ -86,6 +90,7 @@ export class RecordedJikkyoCommentCore {
                 }
                 this.nextCommentIndex++;
             }
+            if (this.nextCommentIndex !== previousIndex) this.option.onPositionChange?.(this.nextCommentIndex);
             this.lastCurrentTime = currentTime;
         }
         this.animationFrameId = window.requestAnimationFrame(this.tick);
@@ -114,6 +119,11 @@ export class RecordedJikkyoCommentCore {
         }
         this.nextCommentIndex = low;
         this.lastCurrentTime = time;
+        this.option.onPositionChange?.(this.nextCommentIndex);
         if (reset) this.option.onReset?.();
+    }
+
+    private notifyCommentsChanged(): void {
+        this.option.onCommentsChange?.(this.comments.map(item => ({ ...item.comment, vpos: Math.round(item.comment.time * 100) })));
     }
 }

@@ -10,6 +10,8 @@ export interface AssCommentCoreOption {
     ass: string;
     video: HTMLVideoElement;
     onComment: (comment: JikkyoComment) => void;
+    onCommentsChange?: (comments: JikkyoComment[]) => void;
+    onPositionChange?: (nextCommentIndex: number) => void;
     getDisplayTime?: (comment: JikkyoComment, originalTime: number) => number;
     onReset?: () => void;
 }
@@ -30,6 +32,7 @@ export class AssCommentCore {
 
     public start(): void {
         this.destroyed = false;
+        this.notifyCommentsChanged();
         this.resetPosition(this.option.video.currentTime, false);
         this.option.video.addEventListener('seeking', this.handleSeeking);
         this.option.video.addEventListener('seeked', this.handleSeeked);
@@ -41,6 +44,7 @@ export class AssCommentCore {
     public updateAss(ass: string): void {
         this.comments = parseAssComments(ass);
         this.refreshDisplayTimes();
+        this.notifyCommentsChanged();
         // Keep comments that are already moving on screen.  Start the new
         // timeline just after the current position so the event at the swap
         // boundary is not emitted twice.
@@ -63,11 +67,13 @@ export class AssCommentCore {
         if (!video.paused && !video.seeking) {
             const currentTime = video.currentTime;
             if (currentTime + 0.5 < this.lastCurrentTime || currentTime - this.lastCurrentTime > 2) this.resetPosition(currentTime, true);
+            const previousIndex = this.nextCommentIndex;
             while (this.nextCommentIndex < this.comments.length && this.comments[this.nextCommentIndex].displayTime <= currentTime + 0.05) {
                 const item = this.comments[this.nextCommentIndex];
                 if (item.displayTime >= this.lastCurrentTime - 0.1) this.option.onComment(item.comment);
                 this.nextCommentIndex++;
             }
+            if (this.nextCommentIndex !== previousIndex) this.option.onPositionChange?.(this.nextCommentIndex);
             this.lastCurrentTime = currentTime;
         }
         this.animationFrameId = window.requestAnimationFrame(this.tick);
@@ -100,7 +106,12 @@ export class AssCommentCore {
         }
         this.nextCommentIndex = low;
         this.lastCurrentTime = time;
+        this.option.onPositionChange?.(this.nextCommentIndex);
         if (reset) this.option.onReset?.();
+    }
+
+    private notifyCommentsChanged(): void {
+        this.option.onCommentsChange?.(this.comments.map(item => item.comment));
     }
 }
 

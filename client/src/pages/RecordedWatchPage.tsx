@@ -114,7 +114,8 @@ function RecordedPlayer({
     showVolumePercent,
     volumeBoostEnabled,
     volumeBoostMaxPercent,
-    onComment,
+    onCommentsChange,
+    onCommentPositionChange,
     onCommentsReset,
     onCommentStatus,
     onControlsVisibilityChange,
@@ -137,7 +138,8 @@ function RecordedPlayer({
     showVolumePercent: boolean;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
-    onComment: (comment: JikkyoComment) => void;
+    onCommentsChange: (comments: JikkyoComment[]) => void;
+    onCommentPositionChange: (nextCommentIndex: number) => void;
     onCommentsReset: () => void;
     onCommentStatus: (detail: string) => void;
     onControlsVisibilityChange: (visible: boolean) => void;
@@ -243,8 +245,8 @@ function RecordedPlayer({
                 else nextVideo.addEventListener('loadedmetadata', restorePlayback, { once: true });
             },
             onStateChange: setState,
-            onComment,
-            onCommentsReset,
+            onCommentsChange,
+            onCommentPositionChange,
             onCommentStatus,
             onControlsVisibilityChange: visible => {
                 if (visible && pointerInPersistentBottomControlsRef.current) return;
@@ -274,7 +276,8 @@ function RecordedPlayer({
         danmakuHighRefreshRate,
         danmakuFrameRateLimit,
         webkitPlaybackMode,
-        onComment,
+        onCommentsChange,
+        onCommentPositionChange,
         onCommentStatus,
         onCommentsReset,
         onControlsVisibilityChange,
@@ -341,21 +344,22 @@ function RecordedPlayer({
         const comments = new AssCommentCore({
             ass,
             video,
-            onComment: mode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : onComment,
+            onComment: mode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : () => {},
+            onCommentsChange,
+            onPositionChange: onCommentPositionChange,
             getDisplayTime: mode === 'danmaku' ? (comment, originalTime) => coreRef.current?.getDanmakuDisplayTime(comment, originalTime) ?? originalTime : undefined,
             onReset:
                 mode === 'danmaku'
                     ? () => {
                           coreRef.current?.clearDanmaku();
-                          onCommentsReset();
                       }
-                    : onCommentsReset,
+                    : undefined,
         });
         assCommentRef.current = comments;
         assCommentModeRef.current = mode;
         assCommentVideoRef.current = video;
         comments.start();
-    }, [danmakuSubtitleText, onComment, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
+    }, [danmakuSubtitleText, onCommentPositionChange, onCommentsChange, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
 
     const seekBy = (seconds: number): void => {
         if (video === null) return;
@@ -702,7 +706,18 @@ function commentTime(comment: JikkyoComment): string {
     return `${minutes.toString(10).padStart(2, '0')}:${(seconds % 60).toString(10).padStart(2, '0')}`;
 }
 
-function CommentPanel({ comments, status, listRef }: { comments: JikkyoComment[]; status: string; listRef: RefObject<HTMLDivElement | null> }): ReactNode {
+function CommentPanel({
+    comments,
+    status,
+    listRef,
+    nextCommentIndex,
+}: {
+    comments: JikkyoComment[];
+    status: string;
+    listRef: RefObject<HTMLDivElement | null>;
+    nextCommentIndex: number | null;
+}): ReactNode {
+    const currentCommentIndex = nextCommentIndex === null ? null : Math.max(0, Math.min(nextCommentIndex - 1, comments.length - 1));
     return (
         <Box ref={listRef} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
             <Stack direction="row" spacing={1} sx={{ mb: 1.5, alignItems: 'center' }}>
@@ -720,9 +735,17 @@ function CommentPanel({ comments, status, listRef }: { comments: JikkyoComment[]
                     {comments.map((comment, index) => (
                         <Stack
                             key={`${comment.id.toString(10)}-${comment.postedAt.toString(10)}-${index.toString(10)}`}
+                            data-comment-index={index}
                             direction="row"
                             spacing={1}
-                            sx={{ alignItems: 'flex-start' }}
+                            sx={{
+                                alignItems: 'flex-start',
+                                borderLeft: 2,
+                                borderColor: index === currentCommentIndex ? 'primary.main' : 'transparent',
+                                pl: 0.75,
+                                contentVisibility: 'auto',
+                                containIntrinsicSize: '28px',
+                            }}
                         >
                             <Typography sx={{ minWidth: 0, flex: 1, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{comment.text}</Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ pt: 0.2, flex: '0 0 auto' }}>
@@ -889,11 +912,9 @@ export function RecordedWatchPage(): ReactNode {
     const attemptAutoWatchRef = useRef<() => Promise<void>>(async () => {});
     const playbackStarted = useRef(false);
     const [comments, setComments] = useState<JikkyoComment[]>([]);
+    const [nextCommentIndex, setNextCommentIndex] = useState<number | null>(null);
     const [commentStatus, setCommentStatus] = useState(streaming ? '実況過去ログを取得しています…' : 'ASS実況字幕を選択すると、再生中のコメントをここにも表示します。');
     const commentList = useRef<HTMLDivElement | null>(null);
-    const commentBuffer = useRef<JikkyoComment[]>([]);
-    const commentsVisible = useRef(false);
-    const commentFlushTimer = useRef<number | null>(null);
     const recorded = useQuery({
         queryKey: ['recorded-detail', recordedId, settings.isHalfWidthDisplayed],
         queryFn: () => api.getRecordedItem(recordedId, settings.isHalfWidthDisplayed),
@@ -994,19 +1015,11 @@ export function RecordedWatchPage(): ReactNode {
     const selectedVideo = item?.videoFiles?.find(video => video.id === videoFileId);
     const streamingUsesJikkyo = streaming && selectedVideo?.type === 'ts';
 
-    const receiveComment = useCallback((comment: JikkyoComment): void => {
-        commentBuffer.current = [...commentBuffer.current.slice(-499), comment];
-        if (!commentsVisible.current || commentFlushTimer.current !== null) return;
-        commentFlushTimer.current = window.setTimeout(() => {
-            commentFlushTimer.current = null;
-            setComments([...commentBuffer.current]);
-        }, 100);
-    }, []);
+    const replaceComments = useCallback((nextComments: JikkyoComment[]): void => setComments(nextComments), []);
+    const updateCommentPosition = useCallback((index: number): void => setNextCommentIndex(index), []);
     const resetComments = useCallback((): void => {
-        commentBuffer.current = [];
-        if (commentFlushTimer.current !== null) window.clearTimeout(commentFlushTimer.current);
-        commentFlushTimer.current = null;
         setComments([]);
+        setNextCommentIndex(null);
     }, []);
     const updateCommentStatus = useCallback((detail: string): void => setCommentStatus(detail), []);
     const updateControlsVisibility = useCallback((visible: boolean): void => setOverlayVisible(visible), []);
@@ -1218,18 +1231,18 @@ export function RecordedWatchPage(): ReactNode {
         }
     }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, settings.watchPlaySubtitleDanmaku, streaming]);
     useEffect(() => {
-        commentsVisible.current = panelTab === 'comments';
-        if (commentsVisible.current) setComments([...commentBuffer.current]);
-    }, [panelTab]);
-    useEffect(
-        () => () => {
-            if (commentFlushTimer.current !== null) window.clearTimeout(commentFlushTimer.current);
-        },
-        [],
-    );
-    useEffect(() => {
-        if (panelTab === 'comments' && commentList.current !== null) commentList.current.scrollTop = commentList.current.scrollHeight;
-    }, [comments, panelTab]);
+        const list = commentList.current;
+        if (panelTab !== 'comments' || list === null || nextCommentIndex === null || comments.length === 0) return;
+        const index = Math.max(0, Math.min(nextCommentIndex - 1, comments.length - 1));
+        const frame = window.requestAnimationFrame(() => {
+            const item = list.querySelector<HTMLElement>(`[data-comment-index="${index.toString(10)}"]`);
+            if (item === null) return;
+            const listRect = list.getBoundingClientRect();
+            const itemRect = item.getBoundingClientRect();
+            list.scrollTop += itemRect.top - listRect.top - list.clientHeight * 0.65;
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [comments, nextCommentIndex, panelTab]);
     const channel = channels.data?.find(value => value.id === item?.channelId);
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;
@@ -1315,7 +1328,7 @@ export function RecordedWatchPage(): ReactNode {
                     onSelect={index => void changeStreamingSubtitle(index)}
                 />
             ) : (
-                <CommentPanel comments={comments} status={commentStatus} listRef={commentList} />
+                <CommentPanel comments={comments} status={commentStatus} listRef={commentList} nextCommentIndex={nextCommentIndex} />
             );
         }
         return <TwitterPanel programTitle={item.name} channelName={channel?.name} videoSelector=".recorded-dplayer video" />;
@@ -1366,7 +1379,8 @@ export function RecordedWatchPage(): ReactNode {
                             showVolumePercent={settings.watchShowVolumePercent}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}
                             volumeBoostMaxPercent={settings.watchVolumeBoostMaxPercent}
-                            onComment={receiveComment}
+                            onCommentsChange={replaceComments}
+                            onCommentPositionChange={updateCommentPosition}
                             onCommentsReset={resetComments}
                             onCommentStatus={updateCommentStatus}
                             onControlsVisibilityChange={updateControlsVisibility}
