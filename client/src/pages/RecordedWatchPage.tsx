@@ -888,6 +888,7 @@ export function RecordedWatchPage(): ReactNode {
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
     const [selectedDanmakuSubtitleIndex, setSelectedDanmakuSubtitleIndex] = useState<number | null>(null);
+    const [subtitleSelectionSignature, setSubtitleSelectionSignature] = useState<string | null>(null);
     const [preparingSubtitleIndex, setPreparingSubtitleIndex] = useState<number | 'none' | null>(null);
     const [resumePosition, setResumePosition] = useState<number | null>(null);
     const [resumePlaying, setResumePlaying] = useState(true);
@@ -971,8 +972,17 @@ export function RecordedWatchPage(): ReactNode {
         [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
     );
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
+    const selectedDanmakuSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedDanmakuSubtitleIndex);
+    const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${settings.watchPlaySubtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
+    const subtitleSelectionReady = subtitleSelectionSignature === currentSubtitleSelectionSignature;
     const subtitlePreviewStartAt = Math.max(0, (resumePosition ?? storedResumePosition ?? 0) - PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND);
-    const normalSubtitleEnabled = validIds && !streaming && selectedSubtitleIndex !== null;
+    const normalSubtitleEnabled =
+        validIds &&
+        !streaming &&
+        subtitleSelectionReady &&
+        selectedSubtitleIndex !== null &&
+        selectedSubtitle !== undefined &&
+        (!settings.watchPlaySubtitleDanmaku || !isDanmakuSubtitle(selectedSubtitle));
     const subtitleTextPreview = useQuery({
         queryKey: ['video-subtitle-text-preview', videoFileId, 'normal', selectedSubtitleIndex, subtitlePreviewStartAt],
         queryFn: () =>
@@ -984,16 +994,14 @@ export function RecordedWatchPage(): ReactNode {
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
-    const subtitleText = useQuery({
-        // Keep the ordinary and danmaku tracks in separate query namespaces.
-        // Their numeric subtitleIndex values come from the same file and can
-        // otherwise share a cache entry while the two selectors are changing.
-        queryKey: ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex],
-        queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
-        enabled: normalSubtitleEnabled && (subtitleTextPreview.isSuccess || subtitleTextPreview.isError),
-        staleTime: Number.POSITIVE_INFINITY,
-    });
-    const danmakuSubtitleEnabled = validIds && !streaming && settings.watchPlaySubtitleDanmaku && selectedDanmakuSubtitleIndex !== null;
+    const danmakuSubtitleEnabled =
+        validIds &&
+        !streaming &&
+        subtitleSelectionReady &&
+        settings.watchPlaySubtitleDanmaku &&
+        selectedDanmakuSubtitleIndex !== null &&
+        selectedDanmakuSubtitle !== undefined &&
+        isDanmakuSubtitle(selectedDanmakuSubtitle);
     const danmakuSubtitleTextPreview = useQuery({
         queryKey: ['video-subtitle-text-preview', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex, subtitlePreviewStartAt],
         queryFn: () =>
@@ -1005,10 +1013,24 @@ export function RecordedWatchPage(): ReactNode {
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
+    const startupSubtitlePreviewsSettled =
+        (!normalSubtitleEnabled || subtitleTextPreview.isSuccess || subtitleTextPreview.isError) &&
+        (!danmakuSubtitleEnabled || danmakuSubtitleTextPreview.isSuccess || danmakuSubtitleTextPreview.isError);
+    const subtitleText = useQuery({
+        // Keep the ordinary and danmaku tracks in separate query namespaces.
+        // Their numeric subtitleIndex values come from the same file and can
+        // otherwise share a cache entry while the two selectors are changing.
+        queryKey: ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex],
+        queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
+        // Do not let one track's full-file extraction compete with another
+        // track that is still being prepared for initial playback.
+        enabled: normalSubtitleEnabled && startupSubtitlePreviewsSettled,
+        staleTime: Number.POSITIVE_INFINITY,
+    });
     const danmakuSubtitleText = useQuery({
         queryKey: ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex],
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
-        enabled: danmakuSubtitleEnabled && (danmakuSubtitleTextPreview.isSuccess || danmakuSubtitleTextPreview.isError),
+        enabled: danmakuSubtitleEnabled && startupSubtitlePreviewsSettled,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const ruleId = recorded.data?.ruleId;
@@ -1188,6 +1210,7 @@ export function RecordedWatchPage(): ReactNode {
     useEffect(() => {
         setSelectedSubtitleIndex(null);
         setSelectedDanmakuSubtitleIndex(null);
+        setSubtitleSelectionSignature(null);
     }, [videoFileId]);
     useEffect(() => {
         setResumePosition(null);
@@ -1198,6 +1221,7 @@ export function RecordedWatchPage(): ReactNode {
         if (!settings.watchPlaySubtitleDanmaku) {
             setSelectedSubtitleIndex(preferredSubtitleIndex(subtitles.data.items, settings.watchSubtitlePreferredKeywords));
             setSelectedDanmakuSubtitleIndex(null);
+            setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
             return;
         }
 
@@ -1209,7 +1233,8 @@ export function RecordedWatchPage(): ReactNode {
         // When the priority keyword only matches the danmaku track, do not
         // accidentally reuse that track as an ordinary subtitle.
         setSelectedSubtitleIndex(preferredNormal);
-    }, [settings.watchPlaySubtitleDanmaku, settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
+        setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
+    }, [currentSubtitleSelectionSignature, settings.watchPlaySubtitleDanmaku, settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
     useEffect(() => {
         resetComments();
         setCommentStatus(
