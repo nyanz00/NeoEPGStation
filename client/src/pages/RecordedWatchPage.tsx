@@ -983,6 +983,8 @@ export function RecordedWatchPage(): ReactNode {
         selectedSubtitleIndex !== null &&
         selectedSubtitle !== undefined &&
         (!settings.watchPlaySubtitleDanmaku || !isDanmakuSubtitle(selectedSubtitle));
+    const normalSubtitleTextQueryKey = ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex] as const;
+    const normalSubtitleTextCached = queryClient.getQueryData(normalSubtitleTextQueryKey) !== undefined;
     const subtitleTextPreview = useQuery({
         queryKey: ['video-subtitle-text-preview', videoFileId, 'normal', selectedSubtitleIndex, subtitlePreviewStartAt],
         queryFn: () =>
@@ -990,7 +992,7 @@ export function RecordedWatchPage(): ReactNode {
                 startAt: subtitlePreviewStartAt,
                 duration: PLAY_SUBTITLE_PREVIEW_DURATION,
             }),
-        enabled: normalSubtitleEnabled,
+        enabled: normalSubtitleEnabled && !normalSubtitleTextCached,
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
@@ -1002,6 +1004,8 @@ export function RecordedWatchPage(): ReactNode {
         selectedDanmakuSubtitleIndex !== null &&
         selectedDanmakuSubtitle !== undefined &&
         isDanmakuSubtitle(selectedDanmakuSubtitle);
+    const danmakuSubtitleTextQueryKey = ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex] as const;
+    const danmakuSubtitleTextCached = queryClient.getQueryData(danmakuSubtitleTextQueryKey) !== undefined;
     const danmakuSubtitleTextPreview = useQuery({
         queryKey: ['video-subtitle-text-preview', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex, subtitlePreviewStartAt],
         queryFn: () =>
@@ -1009,18 +1013,18 @@ export function RecordedWatchPage(): ReactNode {
                 startAt: subtitlePreviewStartAt,
                 duration: PLAY_SUBTITLE_PREVIEW_DURATION,
             }),
-        enabled: danmakuSubtitleEnabled,
+        enabled: danmakuSubtitleEnabled && !danmakuSubtitleTextCached,
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const startupSubtitlePreviewsSettled =
-        (!normalSubtitleEnabled || subtitleTextPreview.isSuccess || subtitleTextPreview.isError) &&
-        (!danmakuSubtitleEnabled || danmakuSubtitleTextPreview.isSuccess || danmakuSubtitleTextPreview.isError);
+        (!normalSubtitleEnabled || normalSubtitleTextCached || subtitleTextPreview.isSuccess || subtitleTextPreview.isError) &&
+        (!danmakuSubtitleEnabled || danmakuSubtitleTextCached || danmakuSubtitleTextPreview.isSuccess || danmakuSubtitleTextPreview.isError);
     const subtitleText = useQuery({
         // Keep the ordinary and danmaku tracks in separate query namespaces.
         // Their numeric subtitleIndex values come from the same file and can
         // otherwise share a cache entry while the two selectors are changing.
-        queryKey: ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex],
+        queryKey: normalSubtitleTextQueryKey,
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
         // Do not let one track's full-file extraction compete with another
         // track that is still being prepared for initial playback.
@@ -1028,11 +1032,58 @@ export function RecordedWatchPage(): ReactNode {
         staleTime: Number.POSITIVE_INFINITY,
     });
     const danmakuSubtitleText = useQuery({
-        queryKey: ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex],
+        queryKey: danmakuSubtitleTextQueryKey,
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
         enabled: danmakuSubtitleEnabled && startupSubtitlePreviewsSettled,
         staleTime: Number.POSITIVE_INFINITY,
     });
+    const prioritySubtitleFullExtractionsSettled =
+        (normalSubtitleEnabled || danmakuSubtitleEnabled) &&
+        (!normalSubtitleEnabled || subtitleText.isSuccess || subtitleText.isError) &&
+        (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError);
+    useEffect(() => {
+        if (streaming || !subtitleSelectionReady || !prioritySubtitleFullExtractionsSettled) return;
+
+        const prioritySubtitleIndexes = new Set<number>();
+        if (normalSubtitleEnabled && selectedSubtitleIndex !== null) prioritySubtitleIndexes.add(selectedSubtitleIndex);
+        if (danmakuSubtitleEnabled && selectedDanmakuSubtitleIndex !== null) prioritySubtitleIndexes.add(selectedDanmakuSubtitleIndex);
+        const remainingSubtitles = subtitleItems.filter(subtitle => !prioritySubtitleIndexes.has(subtitle.subtitleIndex));
+        let disposed = false;
+
+        const prefetchRemainingSubtitles = async (): Promise<void> => {
+            for (const subtitle of remainingSubtitles) {
+                if (disposed) return;
+                const role = settings.watchPlaySubtitleDanmaku && isDanmakuSubtitle(subtitle) ? 'danmaku' : 'normal';
+                try {
+                    await queryClient.prefetchQuery({
+                        queryKey: ['video-subtitle-text', videoFileId, role, subtitle.subtitleIndex],
+                        queryFn: () => api.getVideoSubtitleText(videoFileId, subtitle.subtitleIndex),
+                        retry: false,
+                        staleTime: Number.POSITIVE_INFINITY,
+                    });
+                } catch {
+                    // Background preparation must not interrupt playback or
+                    // prevent the remaining subtitle tracks from being tried.
+                }
+            }
+        };
+        void prefetchRemainingSubtitles();
+        return () => {
+            disposed = true;
+        };
+    }, [
+        danmakuSubtitleEnabled,
+        normalSubtitleEnabled,
+        prioritySubtitleFullExtractionsSettled,
+        queryClient,
+        selectedDanmakuSubtitleIndex,
+        selectedSubtitleIndex,
+        settings.watchPlaySubtitleDanmaku,
+        streaming,
+        subtitleItems,
+        subtitleSelectionReady,
+        videoFileId,
+    ]);
     const ruleId = recorded.data?.ruleId;
     const relatedSearch = recorded.data === undefined ? undefined : createRecordedRelatedSearchOption(recorded.data);
     const rule = useQuery({ queryKey: ['rule', ruleId], queryFn: () => api.getRule(ruleId!), enabled: ruleId !== undefined });
