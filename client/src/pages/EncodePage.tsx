@@ -38,7 +38,6 @@ function EncodeCard({
     waiting,
     editing,
     reordering,
-    position,
     selected,
     channel,
     onSelect,
@@ -53,7 +52,6 @@ function EncodeCard({
     waiting: boolean;
     editing: boolean;
     reordering: boolean;
-    position?: number;
     selected: boolean;
     channel?: ChannelItem;
     onSelect: () => void;
@@ -106,15 +104,7 @@ function EncodeCard({
                         <Chip
                             size="small"
                             color={waiting ? 'default' : 'primary'}
-                            label={
-                                scheduled
-                                    ? `${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' }).format(new Date(item.scheduledAt!))}に解放`
-                                    : waiting
-                                      ? position === undefined
-                                          ? '待機中'
-                                          : `待機 ${position}`
-                                      : item.mode
-                            }
+                            label={scheduled ? `${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' }).format(new Date(item.scheduledAt!))}に解放` : item.mode}
                         />
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
@@ -277,7 +267,6 @@ export function EncodePage(): ReactNode {
                     waiting={waiting}
                     editing={editing}
                     reordering={reordering}
-                    position={reordering && waiting ? index + 1 : undefined}
                     selected={selected.has(item.id)}
                     channel={channels.data?.find(channel => channel.id === item.recorded.channelId)}
                     onSelect={() => toggle(item.id)}
