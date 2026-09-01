@@ -10,6 +10,17 @@ interface WebkitFullscreenElement extends HTMLElement {
     webkitRequestFullscreen?: () => Promise<void> | void;
 }
 
+export interface DPlayerQualityOption {
+    index: number;
+    name: string;
+}
+
+interface DPlayerQualityControl {
+    options: DPlayerQualityOption[];
+    selectedIndex: number;
+    onChange: (index: number) => void;
+}
+
 function configurePictureInPicture(container: HTMLElement): void {
     const video = container.querySelector<HTMLVideoElement>('video');
     const buttons = container.querySelectorAll<HTMLElement>('.dplayer-pip-icon');
@@ -53,7 +64,7 @@ function isIPad(): boolean {
     return /iPad/i.test(navigator.userAgent) || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
 
-export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void, captureVideoScreenshot: () => void): HTMLElement {
+export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void, captureVideoScreenshot: () => void, qualityControl?: DPlayerQualityControl): HTMLElement {
     container.querySelectorAll<HTMLCanvasElement>('.dplayer-video-wrap-aspect > canvas').forEach(canvas => canvas.classList.add('neo-player-arib-canvas'));
 
     const versionLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('.dplayer-menu-item a')).find(link => link.textContent?.trim().startsWith('DPlayer v'));
@@ -71,6 +82,25 @@ export function configureDPlayerUi(container: HTMLElement, closeSetting: () => v
     }
 
     configurePictureInPicture(container);
+
+    if (qualityControl !== undefined) {
+        container.querySelectorAll<HTMLElement>('.dplayer-setting-quality-item').forEach((item, position) => {
+            item.addEventListener(
+                'click',
+                event => {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    const option = qualityControl.options[position];
+                    if (option === undefined || option.index === qualityControl.selectedIndex) {
+                        closeSetting();
+                        return;
+                    }
+                    qualityControl.onChange(option.index);
+                },
+                { capture: true },
+            );
+        });
+    }
 
     const cameraButton = container.querySelector<HTMLElement>('.dplayer-camera-icon');
     cameraButton?.addEventListener(

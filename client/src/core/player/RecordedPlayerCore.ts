@@ -4,7 +4,7 @@ import Mpegts from 'mpegts.js';
 import { isAppleMobileWebKit } from '../platform/webkit';
 import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMuted } from '../storage/player';
 import type { WatchDanmakuFrameRateLimit, WebKitPlaybackMode } from '../storage/settings';
-import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
+import { configureDPlayerUi, type DPlayerQualityOption, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import {
     downloadCompositeScreenshot,
     downloadVideoScreenshot,
@@ -77,6 +77,9 @@ export interface RecordedPlayerCoreOption {
     themeColor: string;
     webkitPlaybackMode: WebKitPlaybackMode;
     commentsUrl?: string;
+    qualityOptions?: DPlayerQualityOption[];
+    selectedQualityIndex?: number;
+    onQualityChange?: (index: number) => void;
     onReady?: (video: HTMLVideoElement) => void;
     onStateChange?: (state: RecordedPlayerState) => void;
     onComment?: (comment: JikkyoComment) => void;
@@ -208,9 +211,19 @@ export class RecordedPlayerCore {
         this.clearHlsEndFallbackTimer();
         window.Hls = Hls;
         window.mpegts = Mpegts;
-        const video: { url: string; type?: string } = { url: this.option.src };
+        const video: {
+            url: string;
+            type?: string;
+            quality?: Array<{ name: string; url: string; type?: string }>;
+            defaultQuality?: number;
+        } = { url: this.option.src };
         if (this.option.type === 'hls') video.type = 'hls';
         if (this.option.type === 'mpegts') video.type = 'mpegts';
+        if (this.option.qualityOptions !== undefined && this.option.qualityOptions.length > 0 && this.option.selectedQualityIndex !== undefined) {
+            video.quality = this.option.qualityOptions.map(option => ({ name: option.name, url: this.option.src, type: video.type }));
+            const selectedPosition = this.option.qualityOptions.findIndex(option => option.index === this.option.selectedQualityIndex);
+            video.defaultQuality = selectedPosition >= 0 ? selectedPosition : 0;
+        }
         const autoplay = this.option.autoplay && !(isAppleMobileWebKit() && this.option.webkitPlaybackMode === 'ios26');
         const options: any = {
             container: this.option.container,
@@ -299,6 +312,13 @@ export class RecordedPlayerCore {
                 this.option.container,
                 () => this.player?.setting.hide(),
                 () => void this.captureVideoScreenshot(),
+                this.option.qualityOptions !== undefined && this.option.selectedQualityIndex !== undefined && this.option.onQualityChange !== undefined
+                    ? {
+                          options: this.option.qualityOptions,
+                          selectedIndex: this.option.selectedQualityIndex,
+                          onChange: this.option.onQualityChange,
+                      }
+                    : undefined,
             ),
         );
         this.volumeController = new PlayerVolumeController({

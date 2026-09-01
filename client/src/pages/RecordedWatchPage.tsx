@@ -34,7 +34,14 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppLayout } from '../components/AppLayout';
 import { TwitterPanel } from '../components/TwitterPanel';
 import { api } from '../core/api/queries';
-import { createRecordedRelatedSearchOption, getRecordedStreamURL, getRecordedVideoPlayURL, type RecordedStreamType } from '../core/media/recorded';
+import {
+    createRecordedRelatedSearchOption,
+    getRecordedStreamOptions,
+    getRecordedStreamURL,
+    getRecordedVideoPlayURL,
+    saveRecordedSelectStreamSettings,
+    type RecordedStreamType,
+} from '../core/media/recorded';
 import { isDanmakuSubtitle, preferredSubtitleIndex } from '../core/media/subtitles';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
@@ -124,6 +131,9 @@ function RecordedPlayer({
     startPosition,
     resumePlaying,
     sessionIdentity,
+    qualityOptions,
+    selectedQualityIndex,
+    onQualityChange,
     children,
 }: {
     source: PlayerSource;
@@ -148,6 +158,9 @@ function RecordedPlayer({
     startPosition: number | null;
     resumePlaying: boolean;
     sessionIdentity: string;
+    qualityOptions?: Array<{ index: number; name: string }>;
+    selectedQualityIndex?: number;
+    onQualityChange?: (index: number) => void;
     children: ReactNode;
 }): ReactNode {
     const theme = useTheme();
@@ -232,6 +245,9 @@ function RecordedPlayer({
             webkitPlaybackMode,
             themeColor: theme.palette.primary.main,
             commentsUrl: source.commentsUrl,
+            qualityOptions,
+            selectedQualityIndex,
+            onQualityChange,
             autoplay: resumePlaying,
             onReady: nextVideo => {
                 setVideo(nextVideo);
@@ -283,7 +299,10 @@ function RecordedPlayer({
         onCommentsReset,
         onControlsVisibilityChange,
         onVideoReady,
+        onQualityChange,
+        qualityOptions,
         resumePlaying,
+        selectedQualityIndex,
         sessionIdentity,
         source,
         startPosition,
@@ -959,6 +978,7 @@ export function RecordedWatchPage(): ReactNode {
     annictEpisodeRef.current = annictEpisode.data;
     settingsRef.current = settings;
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000, enabled: validIds });
+    const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig, staleTime: Number.POSITIVE_INFINITY, enabled: streaming });
     const subtitles = useQuery({
         queryKey: ['video-subtitles', videoFileId],
         queryFn: () => api.getVideoSubtitles(videoFileId),
@@ -1094,6 +1114,9 @@ export function RecordedWatchPage(): ReactNode {
     });
     const item = recorded.data;
     const selectedVideo = item?.videoFiles?.find(video => video.id === videoFileId);
+    const streamingOptions = useMemo(() => getRecordedStreamOptions(selectedVideo ?? null, config.data), [config.data, selectedVideo]);
+    const selectedStreamingOption = streamingOptions.find(option => option.type === streamType);
+    const streamingQualityOptions = useMemo(() => (selectedStreamingOption?.qualities ?? []).map((name, index) => ({ index, name })), [selectedStreamingOption?.qualities]);
     const streamingUsesJikkyo = streaming && selectedVideo?.type === 'ts';
 
     const replaceComments = useCallback((nextComments: JikkyoComment[]): void => setComments(nextComments), []);
@@ -1350,6 +1373,25 @@ export function RecordedWatchPage(): ReactNode {
         };
     }, [commentAutoFollow, scrollCommentsToCurrent]);
     const channel = channels.data?.find(value => value.id === item?.channelId);
+    const changeStreamingQuality = useCallback(
+        (nextMode: number): void => {
+            if (!streaming || selectedStreamingOption === undefined || nextMode === mode) return;
+            const nextQuality = selectedStreamingOption.qualities[nextMode];
+            if (nextQuality === undefined) return;
+
+            const video = playerVideo.current;
+            const nextPosition = video?.currentTime ?? 0;
+            const shouldResume = video !== null && !video.paused;
+            const next = new URLSearchParams(params);
+            next.set('mode', nextMode.toString(10));
+            next.set('quality', nextQuality);
+            setResumePosition(nextPosition);
+            setResumePlaying(shouldResume);
+            saveRecordedSelectStreamSettings({ type: streamType, mode: nextMode, subtitleIndex: streamSubtitleIndex });
+            setParams(next, { replace: true });
+        },
+        [mode, params, selectedStreamingOption, setParams, streamSubtitleIndex, streamType, streaming],
+    );
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;
         if (!streaming) return { src: getRecordedVideoPlayURL(videoFileId), type: 'normal', enableAribSubtitle: false };
@@ -1501,6 +1543,9 @@ export function RecordedWatchPage(): ReactNode {
                             startPosition={resumePosition ?? storedResumePosition}
                             resumePlaying={resumePlaying}
                             sessionIdentity={`${String(activeUser ?? 'none')}:${viewerProfile.profileId?.toString(10) ?? 'none'}:${viewerProfile.sessionToken ?? 'locked'}`}
+                            qualityOptions={streaming ? streamingQualityOptions : undefined}
+                            selectedQualityIndex={streaming ? mode : undefined}
+                            onQualityChange={streaming ? changeStreamingQuality : undefined}
                         >
                             <Box
                                 sx={{
