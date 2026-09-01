@@ -65,6 +65,7 @@ concurrentEncodeNum: 1
 #     root: /opt/amatsukaze
 #     ip: 127.0.0.1
 #     port: 32768
+#     restPort: 32769 # defaults to port + 1 when omitted
 #     priority: 3
 #     noMove: true
 #     outputDirMode: encode # encode: EPGStation output folder, source: source TS folder

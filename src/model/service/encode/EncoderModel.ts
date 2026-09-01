@@ -1,4 +1,5 @@
 import { ChildProcess } from 'child_process';
+import axios from 'axios';
 import * as events from 'events';
 import * as iconv from 'iconv-lite';
 import { inject, injectable } from 'inversify';
@@ -42,6 +43,23 @@ interface AmatsukazePushStatus {
     errorMessage: string | null;
     requiresOutputReconcile: boolean;
     updatedAt: number;
+}
+
+interface AmatsukazeRestQueueItem {
+    id: number;
+    srcPath: string;
+    state: string;
+    stateLabel: string;
+    stateDetailText: string;
+    progress: number;
+    consoleId: number;
+    encodeStart: string | null;
+    encodeFinish: string | null;
+}
+
+interface AmatsukazeRestQueueView {
+    items?: AmatsukazeRestQueueItem[];
+    Items?: AmatsukazeRestQueueItem[];
 }
 
 class AmatsukazePushConnection {
@@ -1093,28 +1111,26 @@ class EncoderModel implements IEncoderModel {
                 return;
             }
 
-            this.startAmatsukazePushClient(amatsukazeConfig, amatsukazeServerInputFilePath);
             this.progressInfo = {
                 percent: 0,
                 log: 'Amatsukazeの既存タスクを確認中',
             };
             this.encodeEvent.emitUpdateEncodeProgress();
-            void this.waitForAmatsukazeOutput(
-                { ...amatsukazeConfig, pendingTimeoutSec: 0 },
+            void this.recoverAmatsukazeTask(
+                amatsukazeConfig,
+                amatsukazeServerInputFilePath,
                 outputFilePath,
                 inputFilePath,
                 amatsukazeOutputDir,
                 amatsukazeStartedAt,
-            )
-                .then(() => this.childEndProcessing(0, null, outputFilePath))
-                .catch(async err => {
-                    if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
-                        await this.childEndProcessing(null, null, outputFilePath);
-                        return;
-                    }
-                    this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
-                    await this.childEndProcessing(1, null, outputFilePath);
-                });
+            ).catch(async err => {
+                if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
+                    await this.childEndProcessing(null, null, outputFilePath);
+                    return;
+                }
+                this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                await this.childEndProcessing(1, null, outputFilePath);
+            });
             return;
         }
 
@@ -1324,6 +1340,173 @@ class EncoderModel implements IEncoderModel {
         }
 
         return result;
+    }
+
+    private async recoverAmatsukazeTask(
+        amatsukaze: AmatsukazeEncodeConfig,
+        serverInputFilePath: string,
+        outputFilePath: string,
+        inputFilePath: string,
+        outputDirPath: string,
+        startedAt: number,
+    ): Promise<void> {
+        const queueItem = await this.waitForAmatsukazeRestQueueItem(amatsukaze, serverInputFilePath);
+        if (this.isCanceld === true) throw new Error('AmatsukazeEncodeCanceled');
+
+        const state = queueItem?.state.trim().toLowerCase() ?? '';
+        if (queueItem !== null && ['encoding', 'queue', 'logopending'].includes(state)) {
+            if (this.encodeOption === null) throw new Error('EncodeOptionIsNull');
+            this.encodeOption.amatsukazeTaskId = queueItem.id;
+            if (Number.isFinite(queueItem.consoleId) && queueItem.consoleId >= 0) {
+                this.encodeOption.amatsukazeConsoleId = queueItem.consoleId;
+            } else {
+                delete this.encodeOption.amatsukazeConsoleId;
+            }
+            this.onAmatsukazeTaskMatched?.(queueItem.id);
+            this.log.encode.info(
+                `resume Amatsukaze task from REST: id=${queueItem.id.toString(10)}, state=${queueItem.state}`,
+            );
+            this.startAmatsukazePushClient(amatsukaze, serverInputFilePath);
+            await this.waitForAmatsukazeOutput(
+                { ...amatsukaze, pendingTimeoutSec: 0 },
+                outputFilePath,
+                inputFilePath,
+                outputDirPath,
+                startedAt,
+            );
+            await this.childEndProcessing(0, null, outputFilePath);
+            return;
+        }
+
+        if (queueItem !== null && state === 'complete') {
+            this.log.encode.info(`Amatsukaze REST reports completed task: ${queueItem.id.toString(10)}`);
+            await this.waitForAmatsukazeOutput(
+                { ...amatsukaze, waitForOutput: true, pendingTimeoutSec: 0 },
+                outputFilePath,
+                inputFilePath,
+                outputDirPath,
+                startedAt,
+                true,
+            );
+            await this.childEndProcessing(0, null, outputFilePath);
+            return;
+        }
+
+        const reason =
+            queueItem === null
+                ? 'matching task was not found'
+                : `${queueItem.state}: ${queueItem.stateDetailText || queueItem.stateLabel}`;
+        this.log.encode.warn(`restart interrupted Amatsukaze task: ${reason}`);
+        await this.restartInterruptedAmatsukazeTask(outputFilePath);
+    }
+
+    private async restartInterruptedAmatsukazeTask(outputFilePath: string): Promise<void> {
+        if (this.encodeOption === null) throw new Error('EncodeOptionIsNull');
+        if (this.isCanceld === true) throw new Error('AmatsukazeEncodeCanceled');
+        delete this.encodeOption.resumeExistingAmatsukaze;
+        delete this.encodeOption.restartInterruptedAmatsukaze;
+        delete this.encodeOption.amatsukazeTaskId;
+        delete this.encodeOption.amatsukazeConsoleId;
+        delete this.encodeOption.recoveryStartedAt;
+        if (this.currentOutputFilePath === outputFilePath) {
+            this.fileManager.release(outputFilePath);
+            this.currentOutputFilePath = null;
+        }
+        await this.start();
+    }
+
+    private async waitForAmatsukazeRestQueueItem(
+        amatsukaze: AmatsukazeEncodeConfig,
+        serverInputFilePath: string,
+    ): Promise<AmatsukazeRestQueueItem | null> {
+        const host = amatsukaze.ip || '127.0.0.1';
+        const tcpPort = amatsukaze.port ?? 32768;
+        const restPort = amatsukaze.restPort ?? tcpPort + 1;
+        const hostForUrl = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+        const url = new URL(`http://${hostForUrl}:${restPort.toString(10)}/api/queue`);
+        url.searchParams.set('search', path.basename(serverInputFilePath));
+        url.searchParams.set('searchTargets', 'file');
+
+        let reconnectAttempts = 0;
+        let successfulMisses = 0;
+        while (this.isCanceld === false) {
+            try {
+                const response = await axios.get<AmatsukazeRestQueueView>(url.toString(), { timeout: 5000 });
+                const rawItems = response.data.items ?? response.data.Items ?? [];
+                const items = rawItems
+                    .map(item => this.normalizeAmatsukazeRestQueueItem(item))
+                    .filter(
+                        item =>
+                            Number.isFinite(item.id) && this.isSameAmatsukazePath(item.srcPath, serverInputFilePath),
+                    );
+                const matched = this.selectAmatsukazeRestQueueItem(items);
+                if (matched !== null) return matched;
+
+                successfulMisses += 1;
+                if (successfulMisses >= 3) return null;
+                await Util.sleep(1000);
+            } catch (err: any) {
+                successfulMisses = 0;
+                const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts, 5));
+                reconnectAttempts += 1;
+                const message = axios.isAxiosError(err) ? err.message : String(err);
+                this.log.encode.info(
+                    `wait for Amatsukaze REST API: ${host}:${restPort.toString(10)} (${message}), retry in ${delay.toString(10)}ms`,
+                );
+                this.progressInfo = {
+                    percent: 0,
+                    log: `Amatsukaze REST APIの起動を待機中 (${Math.round(delay / 1000).toString(10)}秒後に再試行)`,
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                await Util.sleep(delay);
+            }
+        }
+        throw new Error('AmatsukazeEncodeCanceled');
+    }
+
+    private normalizeAmatsukazeRestQueueItem(item: any): AmatsukazeRestQueueItem {
+        const read = (camel: string, pascal: string): any => item?.[camel] ?? item?.[pascal];
+        return {
+            id: Number(read('id', 'Id')),
+            srcPath: String(read('srcPath', 'SrcPath') ?? ''),
+            state: String(read('state', 'State') ?? ''),
+            stateLabel: String(read('stateLabel', 'StateLabel') ?? ''),
+            stateDetailText: String(read('stateDetailText', 'StateDetailText') ?? ''),
+            progress: Number(read('progress', 'Progress') ?? 0),
+            consoleId: Number(read('consoleId', 'ConsoleId') ?? -1),
+            encodeStart: read('encodeStart', 'EncodeStart') ?? null,
+            encodeFinish: read('encodeFinish', 'EncodeFinish') ?? null,
+        };
+    }
+
+    private selectAmatsukazeRestQueueItem(items: AmatsukazeRestQueueItem[]): AmatsukazeRestQueueItem | null {
+        const statePriority: Record<string, number> = {
+            encoding: 4,
+            queue: 3,
+            logopending: 3,
+            complete: 1,
+            failed: 1,
+            prefailed: 1,
+            canceled: 1,
+        };
+        return (
+            items.sort((left, right) => {
+                const stateDiff =
+                    (statePriority[right.state.trim().toLowerCase()] ?? 0) -
+                    (statePriority[left.state.trim().toLowerCase()] ?? 0);
+                return stateDiff !== 0 ? stateDiff : right.id - left.id;
+            })[0] ?? null
+        );
+    }
+
+    private isSameAmatsukazePath(left: string, right: string): boolean {
+        const normalize = (value: string): string =>
+            value
+                .normalize('NFC')
+                .replace(/[\\/]+/g, '/')
+                .replace(/\/$/, '')
+                .toLowerCase();
+        return normalize(left) === normalize(right);
     }
 
     private startAmatsukazePushClient(amatsukaze: AmatsukazeEncodeConfig, inputFilePath: string): void {
