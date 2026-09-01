@@ -1046,7 +1046,6 @@ class EncoderModel implements IEncoderModel {
                     throw new Error(`AmatsukazeTemporaryOutputAlreadyExists: ${candidatePath}`);
                 }
             }
-            this.startAmatsukazePushClient(amatsukazeConfig, amatsukazeServerInputFilePath);
         }
 
         if (
@@ -1056,9 +1055,45 @@ class EncoderModel implements IEncoderModel {
             amatsukazeOutputDir !== null
         ) {
             if ((await this.existsFile(outputFilePath)) === true) {
+                this.log.encode.info(`adopt restored Amatsukaze output: ${outputFilePath}`);
                 void this.childEndProcessing(0, null, outputFilePath);
                 return;
             }
+
+            const outputExtension = amatsukazeConfig.outputExtension || path.extname(outputFilePath);
+            const candidatePath = this.getAmatsukazeExactOutputCandidatePath(
+                inputFilePath,
+                amatsukazeOutputDir,
+                outputExtension,
+            );
+            if ((await this.existsFile(candidatePath)) === true) {
+                this.log.encode.info(`resume Amatsukaze output completion wait: ${candidatePath}`);
+                this.progressInfo = {
+                    percent: 0,
+                    log: 'Amatsukazeの完成済み出力を確認中',
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                void this.waitForAmatsukazeOutput(
+                    { ...amatsukazeConfig, waitForOutput: true, pendingTimeoutSec: 0 },
+                    outputFilePath,
+                    inputFilePath,
+                    amatsukazeOutputDir,
+                    amatsukazeStartedAt,
+                    true,
+                )
+                    .then(() => this.childEndProcessing(0, null, outputFilePath))
+                    .catch(async err => {
+                        if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
+                            await this.childEndProcessing(null, null, outputFilePath);
+                            return;
+                        }
+                        this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                        await this.childEndProcessing(1, null, outputFilePath);
+                    });
+                return;
+            }
+
+            this.startAmatsukazePushClient(amatsukazeConfig, amatsukazeServerInputFilePath);
             this.progressInfo = {
                 percent: 0,
                 log: 'Amatsukazeの既存タスクを確認中',
@@ -1081,6 +1116,10 @@ class EncoderModel implements IEncoderModel {
                     await this.childEndProcessing(1, null, outputFilePath);
                 });
             return;
+        }
+
+        if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
+            this.startAmatsukazePushClient(amatsukazeConfig, amatsukazeServerInputFilePath);
         }
 
         // プロセスの生成
@@ -1461,6 +1500,7 @@ class EncoderModel implements IEncoderModel {
         inputFilePath: string,
         outputDirPath: string,
         startedAt: number,
+        reconcileOutputImmediately: boolean = false,
     ): Promise<void> {
         if (amatsukaze.waitForOutput === false) {
             return;
@@ -1491,7 +1531,7 @@ class EncoderModel implements IEncoderModel {
 
         while (this.isCanceld === false) {
             const pushStatus = this.amatsukazePushSubscription?.getStatus();
-            const requiresOutputReconcile = pushStatus?.requiresOutputReconcile === true;
+            const requiresOutputReconcile = reconcileOutputImmediately || pushStatus?.requiresOutputReconcile === true;
             if (typeof pushStatus !== 'undefined') {
                 if (pushStatus.errorMessage !== null) {
                     const errorMessage = pushStatus.errorMessage.trim() || 'EncodeFailed';
