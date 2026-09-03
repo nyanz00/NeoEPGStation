@@ -2331,9 +2331,13 @@ components:
             type: object
             required:
                 - version
+                - branch
             properties:
                 version:
                     type: string
+                branch:
+                    type: string
+                    nullable: true
 
         SystemUpdateRemoteTarget:
             type: object

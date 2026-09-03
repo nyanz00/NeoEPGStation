@@ -162,6 +162,7 @@ export function DashboardPage(): ReactNode {
                     <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                         <Typography component="h1" variant="h6" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '1.25rem' } }}>
                             NeoEPGStation v{version.data?.version ?? '1.0.0-beta.2'}
+                            {version.data?.branch === 'develop' ? ' +dev' : ''}
                         </Typography>
                         {settings.isShowVersionUpdateNotification && updateInfo.data?.hasStableUpdate === true && (
                             <Chip

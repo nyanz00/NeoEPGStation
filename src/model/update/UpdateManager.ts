@@ -169,6 +169,15 @@ export default class UpdateManager {
         };
     }
 
+    public async getCurrentBranch(): Promise<string | null> {
+        try {
+            const branch = await this.gitRequiredText(['branch', '--show-current']);
+            return branch === '' ? null : branch;
+        } catch {
+            return null;
+        }
+    }
+
     public start(
         target: SystemUpdateTarget,
         requestedManager: SystemUpdatePackageManager,

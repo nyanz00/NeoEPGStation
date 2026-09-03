@@ -1502,6 +1502,7 @@ export interface StorageInfo {
  */
 export interface VersionInfo {
     version: string;
+    branch: string | null;
 }
 
 export type SystemUpdateTarget = 'stable' | 'develop';
