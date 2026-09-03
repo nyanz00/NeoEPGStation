@@ -582,6 +582,7 @@ export function RecordedDetailPage(): ReactNode {
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded-detail', recordedId] })}
                     onDeleted={goBack}
                     includeDownload
+                    detailActionOrder
                 />
             )}
             {recorded.isPending ? (

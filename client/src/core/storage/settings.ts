@@ -55,6 +55,7 @@ export interface AppSettings {
     annictMarkWatchedOnFinalEpisode: boolean;
     annictDisableRulesOnFinalEpisode: boolean;
     annictSupplementalChannelIds: number[];
+    annictExcludePaidChannels: boolean;
     guideMode: GuideViewMode;
     guideLength: number;
     isForceDisableDarkThemeForGuide: boolean;
@@ -134,6 +135,7 @@ export const defaultSettings: AppSettings = {
     annictMarkWatchedOnFinalEpisode: true,
     annictDisableRulesOnFinalEpisode: true,
     annictSupplementalChannelIds: [],
+    annictExcludePaidChannels: false,
     guideMode: isAppleMobile ? 'all' : 'sequential',
     guideLength: 24,
     isForceDisableDarkThemeForGuide: false,
@@ -221,6 +223,7 @@ function loadSettings(): AppSettings {
             isHighlightRecordedOnReturn: parsed.isHighlightRecordedOnReturn !== false,
             webkitPlaybackMode: parsed.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(parsed.annictSupplementalChannelIds),
+            annictExcludePaidChannels: parsed.annictExcludePaidChannels === true,
             annictAutoWatchMode,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
@@ -275,6 +278,7 @@ export const settingsStore = {
             isHighlightRecordedOnReturn: value.isHighlightRecordedOnReturn !== false,
             webkitPlaybackMode: value.webkitPlaybackMode === 'ios26' ? 'ios26' : 'standard',
             annictSupplementalChannelIds: normalizeChannelIds(value.annictSupplementalChannelIds),
+            annictExcludePaidChannels: value.annictExcludePaidChannels === true,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
             watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,

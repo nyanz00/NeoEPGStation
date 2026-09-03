@@ -46,6 +46,7 @@ import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { RuleEditorDialog } from '../components/RuleEditorDialog';
 import { api } from '../core/api/queries';
+import { isPaidBroadcastChannel } from '../core/channels';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { rememberAppScrollPosition } from '../core/scrollRestoration';
@@ -1076,14 +1077,25 @@ export function AnimeDetailPage(): ReactNode {
     if (isSeasonName(returnSeason)) backParams.set('season', returnSeason);
     const goBack = useAppBack(`/anime?${backParams.toString()}`);
     const receivable = useMemo(
-        () => work.data?.programs.filter(program => program.localChannels.length > 0 && Date.parse(program.startedAt) >= Date.now()) ?? [],
-        [work.data?.programs],
+        () =>
+            work.data?.programs.filter(
+                program =>
+                    program.localChannels.length > 0 &&
+                    Date.parse(program.startedAt) >= Date.now() &&
+                    (!settings.annictExcludePaidChannels || !isPaidBroadcastChannel({ name: program.channelName })),
+            ) ?? [],
+        [settings.annictExcludePaidChannels, work.data?.programs],
     );
     const supplementalChannels = useMemo(() => {
         if (config.data?.developerMode !== true) return [];
         const scheduledChannelIds = new Set(receivable.flatMap(program => program.localChannels.map(channel => channel.id)));
-        return (channels.data ?? []).filter(channel => settings.annictSupplementalChannelIds.includes(channel.id) && !scheduledChannelIds.has(channel.id));
-    }, [channels.data, config.data?.developerMode, receivable, settings.annictSupplementalChannelIds]);
+        return (channels.data ?? []).filter(
+            channel =>
+                settings.annictSupplementalChannelIds.includes(channel.id) &&
+                !scheduledChannelIds.has(channel.id) &&
+                (!settings.annictExcludePaidChannels || !isPaidBroadcastChannel(channel)),
+        );
+    }, [channels.data, config.data?.developerMode, receivable, settings.annictExcludePaidChannels, settings.annictSupplementalChannelIds]);
     const { firstPrograms, additionalPrograms } = useMemo(() => {
         const groups = new Map<string, AnnictProgram[]>();
         receivable.forEach(program => {

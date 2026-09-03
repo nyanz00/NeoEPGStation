@@ -1,5 +1,12 @@
 import type { ScheduleChannleItem } from '../../../api';
 
+const paidBroadcastChannelPattern =
+    /AT[\s-]*X|キッズステーション|アニマックス|ディズニー|WOWOW|スターチャンネル|J[\s:：-]*COM[\s-]*BS|J SPORTS|日本映画専門|時代劇専門|チャンネルNECO|ファミリー劇場|テレ朝チャンネル|TBSチャンネル|フジテレビ(?:ONE|TWO|NEXT)|日テレプラス|ホームドラマ|衛星劇場|東映チャンネル|カートゥーン|GAORA|スカイA/i;
+
+export function isPaidBroadcastChannel(channel: { name: string }): boolean {
+    return paidBroadcastChannelPattern.test(channel.name.normalize('NFKC'));
+}
+
 export function isAudioVideoChannel(channel: { type?: number | null }): boolean {
     switch (channel.type) {
         case 0x01:

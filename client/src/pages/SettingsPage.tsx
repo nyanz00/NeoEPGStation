@@ -2114,6 +2114,12 @@ export function SettingsPage(): ReactNode {
                         {activeSettingsTab === 'annict' && (
                             <SettingSection title="Annict連携">
                                 {annictStatus.isError && <QueryLoadError label="Annict連携状態" error={annictStatus.error} onRetry={() => void annictStatus.refetch()} />}
+                                <SettingRow
+                                    title="有料放送局を除外"
+                                    description="オンにすると、アニメ作品詳細の受信可能局とルール作成候補に有料放送局を含めません。"
+                                    control={<Switch checked={draft.annictExcludePaidChannels} onChange={event => patch('annictExcludePaidChannels', event.target.checked)} />}
+                                />
+                                <Divider />
                                 {config.data?.developerMode === true && (
                                     <>
                                         <SettingRow

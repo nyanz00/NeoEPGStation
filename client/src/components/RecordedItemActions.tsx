@@ -41,6 +41,7 @@ export function RecordedItemActions({
     onChanged,
     onDeleted,
     includeDownload = false,
+    detailActionOrder = false,
 }: {
     item: RecordedItem;
     anchorEl: HTMLElement | null;
@@ -52,6 +53,7 @@ export function RecordedItemActions({
     onChanged: () => void;
     onDeleted: () => void;
     includeDownload?: boolean;
+    detailActionOrder?: boolean;
 }): ReactNode {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -180,6 +182,12 @@ export function RecordedItemActions({
                         encode
                     </MenuItem>
                 )}
+                {detailActionOrder && config.data?.developerMode === true && onSubtitle !== undefined && (
+                    <MenuItem onClick={() => closeThen(onSubtitle)}>
+                        <SubtitlesOutlined fontSize="small" sx={{ mr: 1.5 }} />
+                        subtitle
+                    </MenuItem>
+                )}
                 {!item.isRecording && files.length > 0 && (
                     <MenuItem
                         onClick={() =>
@@ -203,7 +211,7 @@ export function RecordedItemActions({
                     {item.isProtected ? <LockOpenOutlined fontSize="small" sx={{ mr: 1.5 }} /> : <LockOutlined fontSize="small" sx={{ mr: 1.5 }} />}
                     {item.isProtected ? 'unprotect' : 'protect'}
                 </MenuItem>
-                {config.data?.developerMode === true && onSubtitle !== undefined && (
+                {!detailActionOrder && config.data?.developerMode === true && onSubtitle !== undefined && (
                     <MenuItem onClick={() => closeThen(onSubtitle)}>
                         <SubtitlesOutlined fontSize="small" sx={{ mr: 1.5 }} />
                         subtitle
