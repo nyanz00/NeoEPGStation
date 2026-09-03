@@ -994,7 +994,7 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="字幕の抽出が完了してからPLAY再生を開始する"
-                                        description="オンにすると、最初に表示する字幕と弾幕の抽出完了までPLAYの再生を待機します。"
+                                        description="オンにすると、最初に表示する字幕と弾幕を約3分先行抽出してからPLAYを開始します。残りは再生中に抽出します。"
                                         control={
                                             <Switch
                                                 checked={draft.watchWaitForPlaySubtitleExtraction}

@@ -260,7 +260,7 @@ function RecordedPlayer({
                 const restorePlayback = (): void => {
                     if (startPosition === null) return;
                     if (Number.isFinite(nextVideo.duration)) nextVideo.currentTime = Math.min(startPosition, nextVideo.duration);
-                    if (!resumePlaying) nextVideo.pause();
+                    if (!resumePlaying || playbackBlockedRef.current) nextVideo.pause();
                 };
                 if (nextVideo.readyState >= HTMLMediaElement.HAVE_METADATA) restorePlayback();
                 else nextVideo.addEventListener('loadedmetadata', restorePlayback, { once: true });
@@ -1028,7 +1028,7 @@ export function RecordedWatchPage(): ReactNode {
                 startAt: subtitlePreviewStartAt,
                 duration: PLAY_SUBTITLE_PREVIEW_DURATION,
             }),
-        enabled: normalSubtitleEnabled && !settings.watchWaitForPlaySubtitleExtraction && !normalSubtitleTextCached,
+        enabled: normalSubtitleEnabled && !normalSubtitleTextCached,
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
@@ -1049,7 +1049,7 @@ export function RecordedWatchPage(): ReactNode {
                 startAt: subtitlePreviewStartAt,
                 duration: PLAY_SUBTITLE_PREVIEW_DURATION,
             }),
-        enabled: danmakuSubtitleEnabled && !settings.watchWaitForPlaySubtitleExtraction && !danmakuSubtitleTextCached,
+        enabled: danmakuSubtitleEnabled && !danmakuSubtitleTextCached,
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
@@ -1064,25 +1064,20 @@ export function RecordedWatchPage(): ReactNode {
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
         // Do not let one track's full-file extraction compete with another
         // track that is still being prepared for initial playback.
-        enabled: normalSubtitleEnabled && (settings.watchWaitForPlaySubtitleExtraction || startupSubtitlePreviewsSettled),
+        enabled: normalSubtitleEnabled && startupSubtitlePreviewsSettled,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const danmakuSubtitleText = useQuery({
         queryKey: danmakuSubtitleTextQueryKey,
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
-        enabled: danmakuSubtitleEnabled && (settings.watchWaitForPlaySubtitleExtraction || startupSubtitlePreviewsSettled),
+        enabled: danmakuSubtitleEnabled && startupSubtitlePreviewsSettled,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const prioritySubtitleFullExtractionsSettled =
         (normalSubtitleEnabled || danmakuSubtitleEnabled) &&
         (!normalSubtitleEnabled || subtitleText.isSuccess || subtitleText.isError) &&
         (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError);
-    const startupSubtitleExtractionsSettled =
-        subtitles.isError ||
-        (subtitleSelectionReady &&
-            !subtitles.isPending &&
-            (!normalSubtitleEnabled || subtitleText.isSuccess || subtitleText.isError) &&
-            (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError));
+    const startupSubtitleExtractionsSettled = subtitles.isError || (subtitleSelectionReady && !subtitles.isPending && startupSubtitlePreviewsSettled);
     useEffect(() => {
         if (streaming || !settings.watchWaitForPlaySubtitleExtraction || !startupSubtitleExtractionsSettled) return;
         setSubtitleExtractionReadyIdentity(currentSubtitleSelectionSignature);
