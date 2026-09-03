@@ -8,12 +8,13 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import StopCircleOutlined from '@mui/icons-material/StopCircleOutlined';
 import SubtitlesOutlined from '@mui/icons-material/SubtitlesOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecordedItem, VideoFile } from '../../../api';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../core/api/queries';
+import { api, type VideoAnalysisInfo } from '../core/api/queries';
 import { markRecordedAnnictEpisodeWatchedKeepalive } from '../core/api/annictEpisode';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
@@ -61,9 +62,21 @@ export function RecordedItemActions({
     const [userOpen, setUserOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [downloadOpen, setDownloadOpen] = useState(false);
+    const [infoOpen, setInfoOpen] = useState(false);
+    const [infoVideoId, setInfoVideoId] = useState<number | null>(null);
     const [selectedUserId, setSelectedUserId] = useState<ActiveUserId>(item.userId ?? null);
     const [deleteIds, setDeleteIds] = useState<Set<number>>(new Set());
     const files = useMemo(() => item.videoFiles ?? [], [item.videoFiles]);
+    const info = useQuery({
+        queryKey: ['video-info', infoVideoId],
+        queryFn: () => api.getVideoInfo(infoVideoId!),
+        enabled: infoOpen && infoVideoId !== null,
+    });
+    const reanalyze = useMutation({
+        mutationFn: () => api.getVideoInfo(infoVideoId!, true),
+        onSuccess: data => queryClient.setQueryData(['video-info', infoVideoId], data),
+        onError: error => notify(`再解析に失敗しました: ${error.message}`, 'error'),
+    });
     const annictEpisodeKey = ['recorded-annict-episode', item.id, viewerProfile.profileId] as const;
     const annictEpisode = useQuery({
         queryKey: annictEpisodeKey,
@@ -167,6 +180,19 @@ export function RecordedItemActions({
                         encode
                     </MenuItem>
                 )}
+                {!item.isRecording && files.length > 0 && (
+                    <MenuItem
+                        onClick={() =>
+                            closeThen(() => {
+                                setInfoVideoId(files[0].id);
+                                setInfoOpen(true);
+                            })
+                        }
+                    >
+                        <InfoOutlined fontSize="small" sx={{ mr: 1.5 }} />
+                        Info
+                    </MenuItem>
+                )}
                 {item.isRecording && onStop !== undefined && (
                     <MenuItem onClick={() => closeThen(onStop)}>
                         <StopCircleOutlined fontSize="small" sx={{ mr: 1.5 }} />
@@ -263,6 +289,69 @@ export function RecordedItemActions({
                     <Button onClick={() => setDownloadOpen(false)}>閉じる</Button>
                 </DialogActions>
             </Dialog>
+
+            <Dialog open={infoOpen} onClose={() => setInfoOpen(false)} fullWidth maxWidth="md">
+                <DialogTitle>Info</DialogTitle>
+                <DialogContent>
+                    {files.length > 1 && (
+                        <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
+                            {files.map(file => (
+                                <Button key={file.id} variant={infoVideoId === file.id ? 'contained' : 'outlined'} onClick={() => setInfoVideoId(file.id)}>
+                                    {file.name}
+                                </Button>
+                            ))}
+                        </Stack>
+                    )}
+                    {info.isLoading ? (
+                        <Typography color="text.secondary">解析中...</Typography>
+                    ) : info.isError ? (
+                        <Typography color="error">解析情報を取得できません: {info.error.message}</Typography>
+                    ) : info.data !== undefined ? (
+                        <VideoInfoView info={info.data} />
+                    ) : null}
+                </DialogContent>
+                <DialogActions>
+                    <Button disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
+                        Reanalyze
+                    </Button>
+                    <Button onClick={() => setInfoOpen(false)}>閉じる</Button>
+                </DialogActions>
+            </Dialog>
         </>
+    );
+}
+
+function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
+    const audios = info.streams.filter(stream => stream.type === 'audio');
+    const subtitles = info.streams.filter(stream => stream.type === 'subtitle');
+    const ts = info.ts as Record<string, any> | null;
+    const rows: Array<[string, string]> = [
+        ['File', info.fileName],
+        ['Format', info.formatName ?? '-'],
+        ['Size', formatBytes(info.size)],
+        ['Duration', info.duration === null ? '-' : `${info.duration.toFixed(3)} sec`],
+        ['Video', [info.videoCodec, info.videoProfile].filter(Boolean).join(' / ') || '-'],
+        ['Resolution', info.width === null || info.height === null ? '-' : `${info.width} x ${info.height}`],
+        ['Frame rate', info.frameRate === null ? '-' : `${info.frameRate.toFixed(3)} fps`],
+        ['Pixel / HDR', [info.pixelFormat, info.bitDepth === null ? null : `${info.bitDepth} bit`, info.hdr].filter(Boolean).join(' / ') || '-'],
+        ['Audio', audios.map(stream => `${stream.index}: ${stream.codec ?? '-'} ${stream.language ?? ''} ${stream.channels ?? ''}ch`).join('\n') || '-'],
+        ['Subtitle', subtitles.map(stream => `${stream.index}: ${stream.codec ?? '-'} ${stream.language ?? ''} ${stream.title ?? ''}`).join('\n') || '-'],
+        ['TS IDs', ts === null ? '-' : `network=${ts.networkId ?? '-'} transport=${ts.transportStreamId ?? '-'} service=${ts.serviceId ?? '-'}`],
+        [
+            'TS PIDs',
+            ts === null ? '-' : `PMT=${ts.pmtPid ?? '-'} PCR=${ts.pcrPid ?? '-'} video=${ts.videoPid ?? '-'} audio=${ts.audioPid ?? '-'} subtitle=${ts.subtitlePid ?? '-'}`,
+        ],
+        ['Analyzed', info.analyzedAt === null ? '-' : new Date(info.analyzedAt).toLocaleString()],
+        ['Status', info.analysisError ?? 'OK'],
+    ];
+    return (
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
+            {rows.map(([label, value]) => (
+                <Box key={label} sx={{ display: 'contents' }}>
+                    <Typography color="text.secondary">{label}</Typography>
+                    <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                </Box>
+            ))}
+        </Box>
     );
 }

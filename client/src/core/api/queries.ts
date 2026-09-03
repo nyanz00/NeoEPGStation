@@ -91,6 +91,46 @@ import type {
 } from '../../../../api';
 import { apiClient } from './client';
 
+export interface VideoAnalysisStream {
+    index: number;
+    type: string;
+    codec?: string;
+    profile?: string;
+    language?: string;
+    title?: string;
+    channels?: number;
+    sampleRate?: number;
+    width?: number;
+    height?: number;
+    frameRate?: number;
+    pixelFormat?: string;
+    bitDepth?: number;
+    hdr?: string;
+    isDefault: boolean;
+    isForced: boolean;
+}
+export interface VideoAnalysisInfo {
+    videoFileId: number;
+    fileName: string;
+    formatName: string | null;
+    size: number;
+    duration: number | null;
+    startTime: number | null;
+    bitRate: number | null;
+    videoCodec: string | null;
+    videoProfile: string | null;
+    width: number | null;
+    height: number | null;
+    frameRate: number | null;
+    pixelFormat: string | null;
+    bitDepth: number | null;
+    hdr: string | null;
+    streams: VideoAnalysisStream[];
+    analyzedAt: number | null;
+    analysisError: string | null;
+    ts: Record<string, unknown> | null;
+}
+
 function playbackUserHeader(userId: number): Record<string, string> {
     return {
         'X-EPGStation-User-Id': String(userId),
@@ -379,6 +419,9 @@ export const api = {
     },
     async getVideoDuration(videoFileId: VideoFileId): Promise<number> {
         return (await apiClient.get<{ duration: number }>(`/videos/${videoFileId}/duration`)).data.duration;
+    },
+    async getVideoInfo(videoFileId: VideoFileId, force = false): Promise<VideoAnalysisInfo> {
+        return (await apiClient.request<VideoAnalysisInfo>({ method: force ? 'POST' : 'GET', url: `/videos/${videoFileId}/info` })).data;
     },
     async getVideoSubtitles(videoFileId: VideoFileId): Promise<VideoSubtitles> {
         return (await apiClient.get<VideoSubtitles>(`/videos/${videoFileId}/subtitles`)).data;
