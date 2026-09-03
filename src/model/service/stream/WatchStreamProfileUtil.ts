@@ -29,8 +29,15 @@ interface RecordedVodHlsSegmentCommandOption {
     isHevc?: boolean;
 }
 
+export interface RecordedTsInputInfo {
+    serviceId: number;
+    videoPid: number;
+    audioPid: number;
+}
+
 interface RecordedVodHlsContinuousCommandOption extends Omit<RecordedVodHlsSegmentCommandOption, 'duration'> {
     preroll: number;
+    tsInputInfo?: RecordedTsInputInfo;
 }
 
 interface EncodedVodHlsSegmentCommandOption extends RecordedVodHlsSegmentCommandOption {
@@ -395,13 +402,22 @@ namespace WatchStreamProfileUtil {
             `-maxrate ${quality.videoBitrateMax}`,
             ...getFFmpegVideoCodecOptions(encoder, quality, 'hls'),
         ].join(' ');
+        const tsInput = option.tsInputInfo;
+        const input =
+            tsInput === undefined
+                ? '-f mpegts -analyzeduration 10000000 -probesize 32000000 -i pipe:0'
+                : '-f mpegts -analyzeduration 700000 -probesize 1000000 -i pipe:0';
+        const map =
+            tsInput === undefined
+                ? '-map 0:v:0 -map 0:a:0? -map 0:a:1? -map 0:d?'
+                : `-map 0:i:0x${tsInput.videoPid.toString(16)} -map 0:i:0x${tsInput.audioPid.toString(16)}? -map 0:d?`;
 
         return [
             config.ffmpeg,
             '-dual_mono_mode main',
-            '-f mpegts -analyzeduration 10000000 -probesize 32000000 -i pipe:0',
+            input,
             option.preroll > 0 ? `-ss ${option.preroll.toFixed(3)}` : '',
-            '-map 0:v:0 -map 0:a:0? -map 0:a:1? -map 0:d? -ignore_unknown',
+            `${map} -ignore_unknown`,
             '-fflags nobuffer -flags low_delay -max_delay 0 -tune zerolatency -threads 0 -max_muxing_queue_size 1024',
             `-c:a aac -ar 48000 -b:a ${quality.audioBitrate} -ac 2`,
             '-c:d copy',
@@ -1046,7 +1062,9 @@ namespace WatchStreamProfileUtil {
     ): string => {
         const trimStartFrames = Math.max(0, Math.round(option.preroll * (30000 / 1001)));
         const options: string[] = [
-            '--input-format mpegts --input-probesize 32000K --input-analyze 10',
+            option.tsInputInfo === undefined
+                ? '--input-format mpegts --input-probesize 32000K --input-analyze 10'
+                : '--input-format mpegts --input-probesize 1000K --input-analyze 0.7',
             '--input -',
             encoder === 'VCEEncC' ? '--avsw' : '--avhw',
             '--audio-stream 1?:stereo --audio-stream 2?:stereo --data-copy timed_id3',
