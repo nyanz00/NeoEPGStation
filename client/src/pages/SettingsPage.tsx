@@ -993,6 +993,16 @@ export function SettingsPage(): ReactNode {
                                         }
                                     />
                                     <SettingRow
+                                        title="字幕の抽出が完了してからPLAY再生を開始する"
+                                        description="オンにすると、最初に表示する字幕と弾幕の抽出完了までPLAYの再生を待機します。"
+                                        control={
+                                            <Switch
+                                                checked={draft.watchWaitForPlaySubtitleExtraction}
+                                                onChange={event => patch('watchWaitForPlaySubtitleExtraction', event.target.checked)}
+                                            />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="STREAMING字幕サイズ"
                                         description="焼き込み字幕の文字サイズを元の字幕に対する割合で調整します。"
                                         control={

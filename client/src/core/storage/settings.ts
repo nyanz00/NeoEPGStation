@@ -35,6 +35,7 @@ export interface AppSettings {
     watchLowLatency: boolean;
     watchStreamingBufferedStart: boolean;
     watchSubtitlePreferredKeywords: string[];
+    watchWaitForPlaySubtitleExtraction: boolean;
     watchStreamingSubtitleSizePercent: number;
     watchStreamingSubtitleOpacityPercent: number;
     watchStreamingSubtitleOutlineSizePercent: number;
@@ -115,6 +116,7 @@ export const defaultSettings: AppSettings = {
     watchLowLatency: true,
     watchStreamingBufferedStart: false,
     watchSubtitlePreferredKeywords: ['', '', ''],
+    watchWaitForPlaySubtitleExtraction: false,
     watchStreamingSubtitleSizePercent: 100,
     watchStreamingSubtitleOpacityPercent: 100,
     watchStreamingSubtitleOutlineSizePercent: 100,
@@ -209,6 +211,7 @@ function loadSettings(): AppSettings {
                 parsed.watchSubtitlePreferredKeyword,
                 parsed.watchPlaySubtitlePreferredKeyword,
             ),
+            watchWaitForPlaySubtitleExtraction: parsed.watchWaitForPlaySubtitleExtraction === true,
             watchStreamingSubtitleSizePercent: normalizePercent(parsed.watchStreamingSubtitleSizePercent, 50, 250, 100),
             watchStreamingSubtitleOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOpacityPercent, 10, 300, 100),
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
@@ -264,6 +267,7 @@ export const settingsStore = {
             sideNavigationOrder: normalizeSideNavigationOrder(value.sideNavigationOrder),
             hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(value.hiddenSideNavigationItems),
             watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(value.watchSubtitlePreferredKeywords),
+            watchWaitForPlaySubtitleExtraction: value.watchWaitForPlaySubtitleExtraction === true,
             watchStreamingSubtitleSizePercent: normalizePercent(value.watchStreamingSubtitleSizePercent, 50, 250, 100),
             watchStreamingSubtitleOpacityPercent: normalizePercent(value.watchStreamingSubtitleOpacityPercent, 10, 300, 100),
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),

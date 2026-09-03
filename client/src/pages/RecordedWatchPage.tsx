@@ -134,6 +134,7 @@ function RecordedPlayer({
     qualityOptions,
     selectedQualityIndex,
     onQualityChange,
+    playbackBlocked,
     children,
 }: {
     source: PlayerSource;
@@ -161,6 +162,7 @@ function RecordedPlayer({
     qualityOptions?: Array<{ index: number; name: string }>;
     selectedQualityIndex?: number;
     onQualityChange?: (index: number) => void;
+    playbackBlocked: boolean;
     children: ReactNode;
 }): ReactNode {
     const theme = useTheme();
@@ -175,6 +177,8 @@ function RecordedPlayer({
     const [controlsPortal, setControlsPortal] = useState<HTMLElement | null>(null);
     const [paused, setPaused] = useState(true);
     const [state, setState] = useState<RecordedPlayerState>({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' });
+    const playbackBlockedRef = useRef(playbackBlocked);
+    playbackBlockedRef.current = playbackBlocked;
     const pointerInPersistentBottomControlsRef = useRef(false);
     const showPlayerControls = useCallback((): void => {
         setControlsVisible(true);
@@ -248,7 +252,7 @@ function RecordedPlayer({
             qualityOptions,
             selectedQualityIndex,
             onQualityChange,
-            autoplay: resumePlaying,
+            autoplay: resumePlaying && !playbackBlockedRef.current,
             onReady: nextVideo => {
                 setVideo(nextVideo);
                 setPaused(nextVideo.paused);
@@ -311,6 +315,17 @@ function RecordedPlayer({
         volumeBoostEnabled,
         volumeBoostMaxPercent,
     ]);
+
+    useEffect(() => {
+        if (video === null) return;
+        if (playbackBlocked) {
+            const keepPaused = (): void => video.pause();
+            video.pause();
+            video.addEventListener('play', keepPaused);
+            return () => video.removeEventListener('play', keepPaused);
+        }
+        if (resumePlaying) void video.play().catch(error => console.error('[RecordedWatch:play]', error));
+    }, [playbackBlocked, resumePlaying, video]);
 
     useEffect(() => {
         if (video === null) return;
@@ -498,7 +513,7 @@ function RecordedPlayer({
                 },
             }}
         >
-            {(state.isLoading || state.isBuffering) && (
+            {(state.isLoading || state.isBuffering || playbackBlocked) && (
                 <Box
                     sx={{
                         position: 'absolute',
@@ -515,7 +530,7 @@ function RecordedPlayer({
                 >
                     <CircularProgress size={46} thickness={4.5} sx={{ color: '#fff' }} />
                     <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {state.loadingText}
+                        {playbackBlocked ? '字幕を抽出中…' : state.loadingText}
                     </Typography>
                 </Box>
             )}
@@ -535,8 +550,8 @@ function RecordedPlayer({
                             zIndex: 6,
                             alignItems: 'center',
                             transform: 'translate(-50%, -50%)',
-                            opacity: !state.isLoading && !state.isBuffering && controlsVisible ? 1 : 0,
-                            pointerEvents: !state.isLoading && !state.isBuffering && controlsVisible ? 'auto' : 'none',
+                            opacity: !state.isLoading && !state.isBuffering && !playbackBlocked && controlsVisible ? 1 : 0,
+                            pointerEvents: !state.isLoading && !state.isBuffering && !playbackBlocked && controlsVisible ? 'auto' : 'none',
                             transition: 'opacity 120ms ease',
                             color: '#fff',
                             '& .MuiIconButton-root': {
@@ -561,7 +576,7 @@ function RecordedPlayer({
                             title={paused ? '再生' : '一時停止'}
                             aria-label={paused ? '再生' : '一時停止'}
                             onClick={togglePlay}
-                            disabled={state.isLoading || state.isBuffering}
+                            disabled={state.isLoading || state.isBuffering || playbackBlocked}
                             sx={{ width: { xs: 58, sm: 68 }, height: { xs: 58, sm: 68 }, mx: { xs: 0.75, sm: 2.5 } }}
                         >
                             {paused ? <PlayArrow sx={{ fontSize: { xs: 46, sm: 60 } }} /> : <Pause sx={{ fontSize: { xs: 46, sm: 60 } }} />}
@@ -908,6 +923,7 @@ export function RecordedWatchPage(): ReactNode {
     const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
     const [selectedDanmakuSubtitleIndex, setSelectedDanmakuSubtitleIndex] = useState<number | null>(null);
     const [subtitleSelectionSignature, setSubtitleSelectionSignature] = useState<string | null>(null);
+    const [subtitleExtractionReadyIdentity, setSubtitleExtractionReadyIdentity] = useState<string | null>(null);
     const [preparingSubtitleIndex, setPreparingSubtitleIndex] = useState<number | 'none' | null>(null);
     const [resumePosition, setResumePosition] = useState<number | null>(null);
     const [resumePlaying, setResumePlaying] = useState(true);
@@ -1012,7 +1028,7 @@ export function RecordedWatchPage(): ReactNode {
                 startAt: subtitlePreviewStartAt,
                 duration: PLAY_SUBTITLE_PREVIEW_DURATION,
             }),
-        enabled: normalSubtitleEnabled && !normalSubtitleTextCached,
+        enabled: normalSubtitleEnabled && !settings.watchWaitForPlaySubtitleExtraction && !normalSubtitleTextCached,
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
@@ -1033,7 +1049,7 @@ export function RecordedWatchPage(): ReactNode {
                 startAt: subtitlePreviewStartAt,
                 duration: PLAY_SUBTITLE_PREVIEW_DURATION,
             }),
-        enabled: danmakuSubtitleEnabled && !danmakuSubtitleTextCached,
+        enabled: danmakuSubtitleEnabled && !settings.watchWaitForPlaySubtitleExtraction && !danmakuSubtitleTextCached,
         retry: false,
         staleTime: Number.POSITIVE_INFINITY,
     });
@@ -1048,19 +1064,30 @@ export function RecordedWatchPage(): ReactNode {
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
         // Do not let one track's full-file extraction compete with another
         // track that is still being prepared for initial playback.
-        enabled: normalSubtitleEnabled && startupSubtitlePreviewsSettled,
+        enabled: normalSubtitleEnabled && (settings.watchWaitForPlaySubtitleExtraction || startupSubtitlePreviewsSettled),
         staleTime: Number.POSITIVE_INFINITY,
     });
     const danmakuSubtitleText = useQuery({
         queryKey: danmakuSubtitleTextQueryKey,
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
-        enabled: danmakuSubtitleEnabled && startupSubtitlePreviewsSettled,
+        enabled: danmakuSubtitleEnabled && (settings.watchWaitForPlaySubtitleExtraction || startupSubtitlePreviewsSettled),
         staleTime: Number.POSITIVE_INFINITY,
     });
     const prioritySubtitleFullExtractionsSettled =
         (normalSubtitleEnabled || danmakuSubtitleEnabled) &&
         (!normalSubtitleEnabled || subtitleText.isSuccess || subtitleText.isError) &&
         (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError);
+    const startupSubtitleExtractionsSettled =
+        subtitles.isError ||
+        (subtitleSelectionReady &&
+            !subtitles.isPending &&
+            (!normalSubtitleEnabled || subtitleText.isSuccess || subtitleText.isError) &&
+            (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError));
+    useEffect(() => {
+        if (streaming || !settings.watchWaitForPlaySubtitleExtraction || !startupSubtitleExtractionsSettled) return;
+        setSubtitleExtractionReadyIdentity(currentSubtitleSelectionSignature);
+    }, [currentSubtitleSelectionSignature, settings.watchWaitForPlaySubtitleExtraction, startupSubtitleExtractionsSettled, streaming]);
+    const playbackBlockedForSubtitleExtraction = !streaming && settings.watchWaitForPlaySubtitleExtraction && subtitleExtractionReadyIdentity !== currentSubtitleSelectionSignature;
     useEffect(() => {
         if (streaming || !subtitleSelectionReady || !prioritySubtitleFullExtractionsSettled) return;
 
@@ -1546,6 +1573,7 @@ export function RecordedWatchPage(): ReactNode {
                             qualityOptions={streaming ? streamingQualityOptions : undefined}
                             selectedQualityIndex={streaming ? mode : undefined}
                             onQualityChange={streaming ? changeStreamingQuality : undefined}
+                            playbackBlocked={playbackBlockedForSubtitleExtraction}
                         >
                             <Box
                                 sx={{
