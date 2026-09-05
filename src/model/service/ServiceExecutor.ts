@@ -6,6 +6,7 @@ import { install } from 'source-map-support';
 import ILoggerModel from '../ILoggerModel';
 import IConfiguration from '../IConfiguration';
 import IAnnictApiModel from '../api/annict/IAnnictApiModel';
+import IDBOperator from '../db/IDBOperator';
 import container from '../ModelContainer';
 import * as containerSetter from '../ModelContainerSetter';
 import IEncodeFinishModel from './encode/IEncodeFinishModel';
@@ -42,6 +43,32 @@ if (typeof process.send === 'function') {
     }, 5_000);
     heartbeat.unref();
 }
+
+let isUpdateShutdownStarted = false;
+process.on('message', message => {
+    if (
+        isUpdateShutdownStarted === true ||
+        typeof message !== 'object' ||
+        message === null ||
+        !('type' in message) ||
+        message.type !== 'update-shutdown-request'
+    ) {
+        return;
+    }
+    isUpdateShutdownStarted = true;
+    log.system.info('close service database connection for Web UI update');
+    void container
+        .get<IDBOperator>('IDBOperator')
+        .closeConnection()
+        .catch(err => log.system.warn(`failed to close service database connection: ${err}`))
+        .finally(() => {
+            if (typeof process.send === 'function') {
+                process.send({ type: 'update-shutdown-ready' } satisfies ServiceProcessMessage, () => process.exit(0));
+            } else {
+                process.exit(0);
+            }
+        });
+});
 
 const isProcessRunning = (pid: number): boolean => {
     try {

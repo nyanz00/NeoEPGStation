@@ -1,8 +1,8 @@
 import { ChildProcess } from 'child_process';
-import * as apid from '../../../api';
+import { AddEncodeOption } from '../service/encode/IEncoderModel';
 
 export default interface IIPCServer {
     register(child: ChildProcess): void;
     notifyClient(): void;
-    setEncode(addOption: apid.AddEncodeProgramOption): void;
+    setEncode(addOption: AddEncodeOption): void;
 }

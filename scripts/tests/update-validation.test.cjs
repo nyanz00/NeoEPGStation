@@ -1,0 +1,86 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const {
+    isExpectedUpdateRepository,
+    isStartSystemUpdateOption,
+    STABLE_UPDATE_TAG_PATTERN,
+} = require('../../dist/model/update/UpdateValidation.js');
+const {
+    createUpdateCommandInvocation,
+    createUpdatePackageEnvironment,
+    stripUpdateLogControlSequences,
+} = require('../../dist/model/update/UpdateCommand.js');
+const { shouldInstallUpdateDependencies } = require('../../dist/model/update/UpdateDependency.js');
+
+test('update API accepts only fixed target and package manager enums', () => {
+    assert.equal(
+        isStartSystemUpdateOption({ target: 'stable', packageManager: 'auto', preserveLocalChanges: false }),
+        true,
+    );
+    assert.equal(
+        isStartSystemUpdateOption({ target: 'develop', packageManager: 'pnpm', preserveLocalChanges: true }),
+        true,
+    );
+    for (const target of ['--upload-pack=evil', '../../etc/passwd', 'tag; rm -rf /', '-b', 'a'.repeat(101)]) {
+        assert.equal(isStartSystemUpdateOption({ target, packageManager: 'npm', preserveLocalChanges: false }), false);
+    }
+    assert.equal(
+        isStartSystemUpdateOption({ target: 'stable', packageManager: 'npm; calc', preserveLocalChanges: false }),
+        false,
+    );
+    assert.equal(isStartSystemUpdateOption({ target: 'stable', packageManager: 'npm' }), false);
+});
+
+test('only the NeoEPGStation origin is accepted', () => {
+    assert.equal(isExpectedUpdateRepository('https://github.com/nyanz00/NeoEPGStation.git'), true);
+    assert.equal(isExpectedUpdateRepository('git@github.com:nyanz00/NeoEPGStation.git'), true);
+    assert.equal(isExpectedUpdateRepository('https://example.com/nyanz00/NeoEPGStation.git'), false);
+    assert.equal(isExpectedUpdateRepository('https://github.com/attacker/NeoEPGStation.git'), false);
+});
+
+test('stable update tags exclude prereleases and option-like input', () => {
+    assert.equal(STABLE_UPDATE_TAG_PATTERN.test('v2.10.0'), true);
+    for (const tag of ['v2.10.0-beta3', 'v2.10.0-rc1', '--upload-pack=evil', 'v2.10.0;calc']) {
+        assert.equal(STABLE_UPDATE_TAG_PATTERN.test(tag), false);
+    }
+});
+
+test('Windows command shims are launched through cmd.exe', () => {
+    assert.deepEqual(
+        createUpdateCommandInvocation('C:\\node\\pnpm.cmd', ['install'], 'win32', 'C:\\Windows\\cmd.exe'),
+        {
+            command: 'C:\\Windows\\cmd.exe',
+            args: ['/d', '/s', '/c', 'C:\\node\\pnpm.cmd', 'install'],
+        },
+    );
+    assert.deepEqual(createUpdateCommandInvocation('git.exe', ['status'], 'win32', 'C:\\Windows\\cmd.exe'), {
+        command: 'git.exe',
+        args: ['status'],
+    });
+});
+
+test('package commands run non-interactively without discarding the service environment', () => {
+    assert.deepEqual(createUpdatePackageEnvironment({ PATH: 'C:\\node', CI: 'false' }), {
+        PATH: 'C:\\node',
+        CI: 'true',
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    });
+});
+
+test('first updater run skips install when dependency files are unchanged', () => {
+    const current = { packageManager: 'pnpm', nodeVersion: 'v24.18.0', dependencyHash: 'current' };
+    assert.equal(shouldInstallUpdateDependencies(false, current, {}), false);
+    assert.equal(shouldInstallUpdateDependencies(true, current, {}), true);
+});
+
+test('saved dependency environment changes still require install', () => {
+    const current = { packageManager: 'pnpm', nodeVersion: 'v24.18.0', dependencyHash: 'current' };
+    assert.equal(shouldInstallUpdateDependencies(false, current, current), false);
+    assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, packageManager: 'npm' }), true);
+    assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, nodeVersion: 'v22.22.0' }), true);
+    assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, dependencyHash: 'previous' }), true);
+});
+
+test('ANSI color sequences are removed from update logs', () => {
+    assert.equal(stripUpdateLogControlSequences('\u001b[32m[INFO]\u001b[39m backup'), '[INFO] backup');
+});
