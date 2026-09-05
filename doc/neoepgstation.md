@@ -2,7 +2,7 @@
 
 NeoEPGStationは、EPGStation v2.10.0とEPGStation-nyanzを基に、フロントエンドをVue2からReactへの完全移行、録画・再生・エンコード機能の拡張、視聴者プロフィール、Annict・SNS連携、サーバー監視などを追加したフォークです。
 
-現段階ではWindowsでしか動作確認を行っていませんが、LinuxおよびDockerでの動作確認もいずれ行います。
+Windowsに加え、Ubuntu 22.04のネイティブ環境とDebian／AlpineのDockerイメージでも動作確認を行っています。
 
 この文書は、epgstation-nyanzとNeoEPGStationで追加・変更した内容を一つにまとめたものです。
 
@@ -11,14 +11,12 @@ NeoEPGStationは、EPGStation v2.10.0とEPGStation-nyanzを基に、フロント
 
 - Node.js: `^20.19.0 || ^22.13.0 || >=24.11.0`
 - 動作確認済み: 20.20.2 / 22.23.0 / 24.18.0
-- windows10 / windows11
+- Windows 10 / Windows 11 / Ubuntu 22.04 / Docker（Debian・Alpine）
 - データベース: MariaDB/MySQL、better-sqlite3
-- WindowsでのFFmpeg、QSVEncC、NVEncC、Amatsukaze連携
+- Windows／LinuxでのFFmpeg、QSVEncC、NVEncC、Amatsukaze連携
 
-Node.js 20、22、24とwindows10/11ではビルド、起動、基本操作を確認済みです<br>
-linuxでも動く可能性はありますが、現状はテスト環境がすぐに用意出来ないため検証できていません<br>
-今後またlinuxでの動作を検証する予定です<br>
-また、windowsでは個人的な動作確認は行っていますが、完璧な動作を保証することはできません。データは必ずバックアップを取ってから使用するようにしてください
+Node.js 20、22、24とWindows 10／11ではビルド、起動、基本操作を確認済みです。Ubuntu 22.04では録画・ストリーミング・Amatsukaze連携を、Debian DockerではAmatsukaze連携を含む起動と基本動作を確認しています。Debian／AlpineのDockerイメージはいずれもビルド・起動を確認済みです。<br>
+すべての環境で完璧な動作を保証するものではありません。データは必ずバックアップを取ってから使用してください。
 
 ## インストールとビルド
 
@@ -204,7 +202,7 @@ Twitterはインストール済みChromeをサーバー側から利用するた�
 
 ### エンコードとAmatsukaze
 
-- `type: amatsukaze`を追加し、直接`AmatsukazeAddTask.exe`へ投入、サーバーと通信
+- `type: amatsukaze`を追加し、直接`AmatsukazeAddTask`へ投入、サーバーと通信
 - 共通Amatsukaze設定とプリセットごとのprofile設定
 - GUI TCP pushからpending、進捗、console、成功、失敗を取得
 - push切断後の再接続とAmatsukaze側状態の再照合
@@ -219,8 +217,12 @@ Twitterはインストール済みChromeをサーバー側から利用するた�
 - エンコード待機キューをDBへ保存し、service再起動後に復元
 - 待機中タスクは復元し、実行中だったAmatsukazeタスクはAmatsukaze側と照合
 - 内蔵エンコーダーの中断タスクは、旧プロセスが動いていないことを確認してから先頭から再実行
+- DockerなどでNeoEPGStationとAmatsukaze Serverから見えるパスが異なる場合の`pathMappings`に対応
 
-Amatsukazeの具体的な設定例は`config/config-win32.yml.template`を参照してください。
+Amatsukazeの具体的な設定例は、Linux／Dockerでは`config/config.yml.template`、Windowsでは
+`config/config-win32.yml.template`を参照してください。DockerではホストのAmatsukazeディレクトリをコンテナへ
+read-onlyでbind mountすると、Amatsukaze更新時にも同じAddTaskを利用できます。
+`pathMappings`の`to`側はAddTaskからも同じ絶対パスで見える必要があるため、録画領域をそのパスへもbind mountし、NeoEPGStationコンテナとAmatsukaze Serverの双方から読み書きできる権限を設定してください。
 
 ### Discord通知
 
