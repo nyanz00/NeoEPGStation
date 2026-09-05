@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../ApiOperation';
 import IEncodeApiModel from '../../api/encode/IEncodeApiModel';
 import container from '../../ModelContainer';
 import * as api from '../api';

@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../ApiOperation';
 import { GetRecordedOption } from '../../../../api';
 import IRecordedApiModel from '../../api/recorded/IRecordedApiModel';
 import container from '../../ModelContainer';

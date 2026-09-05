@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../../ApiOperation';
 import IViewerProfileApiModel from '../../../../api/viewerProfile/IViewerProfileApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';

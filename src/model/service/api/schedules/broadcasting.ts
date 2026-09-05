@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import * as apid from '../../../../../api';
 import IScheduleApiModel from '../../../api/schedule/IScheduleApiModel';
 import container from '../../../ModelContainer';

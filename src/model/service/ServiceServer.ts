@@ -1,4 +1,3 @@
-import * as bodyParser from 'body-parser';
 import cors from 'cors';
 import express, { NextFunction } from 'express';
 import * as openapi from 'express-openapi';
@@ -51,6 +50,18 @@ class ServiceServer implements IServiceServer {
      * 初期化処理
      */
     private init(): void {
+        // Keep one mutable query object for OpenAPI defaults, coercion and validation.
+        // Express 5 otherwise parses a new object every time req.query is read.
+        this.app.set('query parser', 'extended');
+        this.app.use((req, _res, next) => {
+            Object.defineProperty(req, 'query', {
+                value: req.query,
+                writable: true,
+                configurable: true,
+                enumerable: true,
+            });
+            next();
+        });
         this.setLog();
         const api = this.getApiDocument(ServiceServer.API_YML);
         if (this.config.isAllowAllCORS === true) {
@@ -59,7 +70,6 @@ class ServiceServer implements IServiceServer {
         this.setSwaggerUI();
         this.createUploadDir();
         this.apiInitialization = this.initOpenApi(api);
-        this.setMime();
         this.setStaticFiles();
     }
 
@@ -103,8 +113,8 @@ class ServiceServer implements IServiceServer {
             app: this.app,
             docsPath: '/docs',
             consumesMiddleware: {
-                'application/json': bodyParser.json() as any,
-                'text/text': bodyParser.text() as any,
+                'application/json': express.json(),
+                'text/text': express.text({ type: 'text/text' }),
                 'multipart/form-data': (req, res, next) => {
                     this.uploadFile(req as any, res as any, next);
                 },
@@ -155,26 +165,22 @@ class ServiceServer implements IServiceServer {
         return routes;
     }
 
-    /**
-     * mime 設定
-     */
-    private setMime(): void {
-        // static mime
-        express.static.mime.define({ 'text/css': ['css', 'min.css'] });
-        express.static.mime.define({ 'text/javascript': ['js', 'min.js'] });
-        express.static.mime.define({
-            'application/vnd.ms-fontobject': ['eot'],
+    /** Preserve media types used by the streaming and log endpoints. */
+    private staticFiles(directory: string): express.RequestHandler {
+        return express.static(directory, {
+            setHeaders: (res, filePath) => {
+                const types: Record<string, string> = {
+                    '.ts': 'video/mpeg',
+                    '.m4s': 'application/octet-stream',
+                    '.m3u8': 'application/vnd.apple.mpegurl',
+                    '.log': 'text/plain; charset=utf-8',
+                };
+                const type = types[path.extname(filePath).toLowerCase()];
+                if (typeof type !== 'undefined') {
+                    res.setHeader('Content-Type', type);
+                }
+            },
         });
-        express.static.mime.define({ 'application/font-ttf': ['ttf'] });
-        express.static.mime.define({ 'application/font-woff': ['woff'] });
-        express.static.mime.define({ 'application/font-woff2': ['woff2'] });
-        express.static.mime.define({ 'magnus-internal/imagemap': ['map'] });
-        express.static.mime.define({ 'image/png': ['png'] });
-        express.static.mime.define({ 'image/jpg': ['jpg'] });
-        express.static.mime.define({ 'video/mpeg': ['ts'] });
-        express.static.mime.define({ 'application/octet-stream': ['m4s'] });
-        express.static.mime.define({ 'video/MP2T': ['m3u8'] });
-        express.static.mime.define({ 'text/plain': ['log'] });
     }
 
     /**
@@ -182,16 +188,16 @@ class ServiceServer implements IServiceServer {
      */
     private setStaticFiles(): void {
         // static files
-        this.app.use(this.createUrl('/img'), express.static(path.join(__dirname, '..', '..', '..', 'img')));
+        this.app.use(this.createUrl('/img'), this.staticFiles(path.join(__dirname, '..', '..', '..', 'img')));
 
         // thumbnail
-        this.app.use(this.createUrl('/thumbnail'), express.static(this.config.thumbnail));
+        this.app.use(this.createUrl('/thumbnail'), this.staticFiles(this.config.thumbnail));
 
         // streamFile
-        this.app.use(this.createUrl('/streamfiles'), express.static(this.config.streamFilePath));
+        this.app.use(this.createUrl('/streamfiles'), this.staticFiles(this.config.streamFilePath));
 
         // client
-        this.app.use(this.createUrl('/'), express.static(ServiceServer.CLIENT_DIR));
+        this.app.use(this.createUrl('/'), this.staticFiles(ServiceServer.CLIENT_DIR));
     }
 
     /**
@@ -215,7 +221,7 @@ class ServiceServer implements IServiceServer {
         });
 
         // api doc
-        this.app.use(this.createUrl('/api-docs'), express.static(ServiceServer.SWAGGER_UI_DIST));
+        this.app.use(this.createUrl('/api-docs'), this.staticFiles(ServiceServer.SWAGGER_UI_DIST));
 
         // リダイレクト設定
         this.app.get(this.createUrl('/api/debug'), (_req, res) => {

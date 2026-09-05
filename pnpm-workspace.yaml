@@ -9,7 +9,7 @@ overrides:
   "eslint>minimatch": 3.1.5
   "flat-cache>flatted": 3.4.2
   "glob>minimatch": 3.1.5
-  body-parser: 1.20.6
+  "body-parser@1": 1.20.6
   braces: 3.0.3
   fast-uri: 3.1.5
   js-yaml: 5.2.3

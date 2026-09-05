@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import * as apid from '../../../../../api';
 import IDiscordNotificationModel from '../../../operator/discord/IDiscordNotificationModel';
 import container from '../../../ModelContainer';

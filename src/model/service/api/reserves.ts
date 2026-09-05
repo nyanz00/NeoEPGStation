@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../ApiOperation';
 import * as apid from '../../../../api';
 import IReserveApiModel from '../../api/reserve/IReserveApiModel';
 import container from '../../ModelContainer';

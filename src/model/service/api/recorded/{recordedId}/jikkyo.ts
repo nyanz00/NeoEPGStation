@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../../ApiOperation';
 import IJikkyoApiModel from '../../../../api/jikkyo/IJikkyoApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';

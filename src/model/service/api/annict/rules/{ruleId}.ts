@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../../ApiOperation';
 import IAnnictApiModel from '../../../../api/annict/IAnnictApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';

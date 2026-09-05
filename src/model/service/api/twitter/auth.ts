@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import ITwitterApiModel from '../../../api/twitter/ITwitterApiModel';
 import container from '../../../ModelContainer';
 import * as api from '../../api';
