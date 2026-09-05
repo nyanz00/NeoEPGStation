@@ -3,11 +3,19 @@ import Hls from 'hls.js';
 import Mpegts from 'mpegts.js';
 import { isAppleMobileWebKit } from '../platform/webkit';
 import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMuted } from '../storage/player';
-import type { WebKitPlaybackMode } from '../storage/settings';
-import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
+import type { WatchDanmakuFrameRateLimit, WebKitPlaybackMode } from '../storage/settings';
+import { configureDPlayerUi, type DPlayerQualityOption, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
+import {
+    downloadCompositeScreenshot,
+    downloadVideoScreenshot,
+    DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
+    DPLAYER_COMPOSITE_SCREENSHOT_ICON,
+    type CompositeScreenshotDanmaku,
+} from './PlayerCompositeScreenshot';
 import { RecordedJikkyoCommentCore } from './RecordedJikkyoCommentCore';
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
+import { getRecordedDanmakuDisplayTime } from './recordedDanmakuTiming';
 
 export type RecordedPlayerSourceType = 'normal' | 'hls' | 'mpegts';
 
@@ -27,6 +35,9 @@ interface DPlayerInstance {
         hide(): void;
         isShow(): boolean;
     };
+    setting: {
+        hide(): void;
+    };
     volume(percentage?: number | string, nostorage?: boolean, nonotice?: boolean): number;
     notice(text: string): void;
     muted(muted?: boolean): boolean;
@@ -34,7 +45,7 @@ interface DPlayerInstance {
     danmaku?: {
         draw(comment: DPlayerDanmakuItem | DPlayerDanmakuItem[]): void;
         clear(): void;
-    };
+    } & CompositeScreenshotDanmaku;
     on(name: string, callback: () => void): void;
     destroy(): void;
 }
@@ -58,16 +69,22 @@ export interface RecordedPlayerCoreOption {
     type: RecordedPlayerSourceType;
     enableAribSubtitle: boolean;
     enableDanmaku: boolean;
+    danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     forceSubtitleStroke: boolean;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
     themeColor: string;
     webkitPlaybackMode: WebKitPlaybackMode;
     commentsUrl?: string;
+    qualityOptions?: DPlayerQualityOption[];
+    selectedQualityIndex?: number;
+    onQualityChange?: (index: number) => void;
     onReady?: (video: HTMLVideoElement) => void;
     onStateChange?: (state: RecordedPlayerState) => void;
     onComment?: (comment: JikkyoComment) => void;
-    onCommentsReset?: () => void;
+    onCommentsChange?: (comments: JikkyoComment[]) => void;
+    onCommentPositionChange?: (nextCommentIndex: number) => void;
     onCommentStatus?: (detail: string) => void;
     onControlsVisibilityChange?: (visible: boolean) => void;
     onControlsPortalReady?: (container: HTMLElement | null) => void;
@@ -105,7 +122,8 @@ export class RecordedPlayerCore {
     private player: DPlayerInstance | null = null;
     private jikkyoCore: RecordedJikkyoCommentCore | null = null;
     private pendingComments: JikkyoComment[] = [];
-    private commentFrame: number | null = null;
+    private commentFlushQueued = false;
+    private commentFlushGeneration = 0;
     private destroyed = false;
     private restarting = false;
     private playbackErrorTimer: number | null = null;
@@ -113,6 +131,10 @@ export class RecordedPlayerCore {
     private tsHlsSourceStartPosition = 0;
     private lastStablePlaybackPosition = 0;
     private tsHlsSeekReloading = false;
+    private playbackFinished = false;
+    private hlsBufferedToEnd = false;
+    private hlsFinalFragmentBuffered = false;
+    private hlsEndFallbackTimer: number | null = null;
     private state: RecordedPlayerState = { isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' };
 
     constructor(option: RecordedPlayerCoreOption) {
@@ -149,9 +171,14 @@ export class RecordedPlayerCore {
         this.enqueueComment(comment);
     }
 
+    public getDanmakuDisplayTime(comment: JikkyoComment, originalTime: number): number {
+        if (this.player === null) return originalTime;
+        return getRecordedDanmakuDisplayTime(comment, originalTime, this.player.video, this.option.container);
+    }
+
     public clearDanmaku(): void {
-        if (this.commentFrame !== null) window.cancelAnimationFrame(this.commentFrame);
-        this.commentFrame = null;
+        this.commentFlushGeneration++;
+        this.commentFlushQueued = false;
         this.pendingComments = [];
         this.player?.danmaku?.clear();
     }
@@ -178,11 +205,25 @@ export class RecordedPlayerCore {
         this.tsHlsSourceStartPosition = this.getSourceStartPosition(this.option.src);
         this.lastStablePlaybackPosition = this.tsHlsSourceStartPosition;
         this.tsHlsSeekReloading = false;
+        this.playbackFinished = false;
+        this.hlsBufferedToEnd = false;
+        this.hlsFinalFragmentBuffered = false;
+        this.clearHlsEndFallbackTimer();
         window.Hls = Hls;
         window.mpegts = Mpegts;
-        const video: { url: string; type?: string } = { url: this.option.src };
+        const video: {
+            url: string;
+            type?: string;
+            quality?: Array<{ name: string; url: string; type?: string }>;
+            defaultQuality?: number;
+        } = { url: this.option.src };
         if (this.option.type === 'hls') video.type = 'hls';
         if (this.option.type === 'mpegts') video.type = 'mpegts';
+        if (this.option.qualityOptions !== undefined && this.option.qualityOptions.length > 0 && this.option.selectedQualityIndex !== undefined) {
+            video.quality = this.option.qualityOptions.map(option => ({ name: option.name, url: this.option.src, type: video.type }));
+            const selectedPosition = this.option.qualityOptions.findIndex(option => option.index === this.option.selectedQualityIndex);
+            video.defaultQuality = selectedPosition >= 0 ? selectedPosition : 0;
+        }
         const autoplay = this.option.autoplay && !(isAppleMobileWebKit() && this.option.webkitPlaybackMode === 'ios26');
         const options: any = {
             container: this.option.container,
@@ -208,6 +249,13 @@ export class RecordedPlayerCore {
                     icon: RecordedPlayerCore.RELOAD_ICON,
                     position: 'right',
                     click: () => this.restart(),
+                },
+                {
+                    name: DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
+                    ariaLabel: '字幕付きスクリーンショット',
+                    icon: DPLAYER_COMPOSITE_SCREENSHOT_ICON,
+                    position: 'right',
+                    click: () => void this.captureCompositeScreenshot(),
                 },
             ],
             lang: 'ja-jp',
@@ -249,6 +297,8 @@ export class RecordedPlayerCore {
                 user: 'EPGStation',
                 speedRate: 1,
                 fontSize: RecordedPlayerCore.DANMAKU_FONT_SIZE,
+                highRefreshRate: this.option.danmakuHighRefreshRate,
+                maxFrameRate: this.option.danmakuFrameRateLimit === 'auto' ? undefined : Number(this.option.danmakuFrameRateLimit),
             };
             options.apiBackend = {
                 read: (readOption: { success: (comments: never[]) => void }) => readOption.success([]),
@@ -257,7 +307,20 @@ export class RecordedPlayerCore {
         }
         const storedMuted = getStoredPlayerMuted();
         this.player = new DPlayer(options) as DPlayerInstance;
-        this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container));
+        this.option.onControlsPortalReady?.(
+            configureDPlayerUi(
+                this.option.container,
+                () => this.player?.setting.hide(),
+                () => void this.captureVideoScreenshot(),
+                this.option.qualityOptions !== undefined && this.option.selectedQualityIndex !== undefined && this.option.onQualityChange !== undefined
+                    ? {
+                          options: this.option.qualityOptions,
+                          selectedIndex: this.option.selectedQualityIndex,
+                          onChange: this.option.onQualityChange,
+                      }
+                    : undefined,
+            ),
+        );
         this.volumeController = new PlayerVolumeController({
             container: this.option.container,
             video: this.player.video,
@@ -276,28 +339,104 @@ export class RecordedPlayerCore {
         }
     }
 
+    private async captureCompositeScreenshot(): Promise<void> {
+        if (this.player === null) return;
+        try {
+            await downloadCompositeScreenshot({
+                container: this.option.container,
+                video: this.player.video,
+                danmaku: this.player.danmaku,
+            });
+        } catch (error) {
+            this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
+            this.option.onError?.(error);
+        }
+    }
+
+    private async captureVideoScreenshot(): Promise<void> {
+        if (this.player === null) return;
+        try {
+            await downloadVideoScreenshot(this.player.video);
+        } catch (error) {
+            this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
+            this.option.onError?.(error);
+        }
+    }
+
     private bindEvents(): void {
         const player = this.player;
         if (player === null) return;
-        player.on('waiting', () => this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' }));
+        player.on('waiting', () => {
+            if (this.playbackFinished || player.video.ended) {
+                this.finishPlayback();
+
+                return;
+            }
+            this.setState({ ...this.state, isBuffering: true, loadingText: 'バッファリング中...' });
+            this.scheduleHlsEndFallback(player);
+        });
         player.on('playing', () => {
+            this.playbackFinished = false;
+            this.clearHlsEndFallbackTimer();
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
+            // Safari can emit an initialization pause after DPlayer's play event,
+            // leaving the controls visible without an active auto-hide timer.
+            // Restart it only once media is actually advancing.
+            if (player.controller.isShow()) player.controller.setAutoHide(RecordedPlayerCore.CONTROLS_AUTO_HIDE_TIME);
         });
         player.on('canplay', () => {
+            this.clearHlsEndFallbackTimer();
             this.clearPlaybackErrorTimer();
             this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
         });
         player.on('pause', () => {
             player.controller.show();
+            if (player.video.ended) {
+                this.finishPlayback();
+
+                return;
+            }
             if (isAppleMobileWebKit() && this.option.autoplay && this.state.isLoading) {
                 this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
             }
         });
+        player.on('ended', () => this.finishPlayback());
+        const hls = player.plugins.hls as Hls | undefined;
+        hls?.on(Hls.Events.MANIFEST_LOADING, () => {
+            this.hlsBufferedToEnd = false;
+            this.hlsFinalFragmentBuffered = false;
+            this.clearHlsEndFallbackTimer();
+        });
+        hls?.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
+            const details = hls.latestLevelDetails;
+            if (details === null || details.live || data.frag.type !== 'main' || data.frag.sn !== details.endSN) return;
+            this.hlsFinalFragmentBuffered = true;
+            // The synthetic VOD playlist is published before all segments exist.
+            // After a seek, hls.js can append its final fragment without advancing
+            // its internal end-list tracker, leaving MediaSource open forever.
+            // Explicitly close the muxed A/V source once that final fragment is in
+            // the buffer so the browser can adjust duration to the actual media edge
+            // and emit its native ended event after playing the remaining frames.
+            if (!this.hlsBufferedToEnd) hls.trigger(Hls.Events.BUFFER_EOS, {});
+            if (this.state.isBuffering) this.scheduleHlsEndFallback(player);
+        });
+        hls?.on(Hls.Events.BUFFERED_TO_END, () => {
+            this.hlsBufferedToEnd = true;
+            if (this.state.isBuffering) this.scheduleHlsEndFallback(player);
+        });
+        hls?.on(Hls.Events.MEDIA_ENDED, (_event, data) => {
+            if (data.stalled) this.normalizeStalledHlsEnd(player);
+            else this.finishPlayback();
+        });
         player.on('timeupdate', () => {
             if (!player.video.seeking && !this.tsHlsSeekReloading) this.lastStablePlaybackPosition = player.video.currentTime;
         });
-        player.on('seeking', () => this.reloadTsHlsForLargeSeek(player));
+        player.on('seeking', () => {
+            this.clearHlsEndFallbackTimer();
+            this.playbackFinished = false;
+            this.reloadTsHlsForLargeSeek(player);
+        });
         player.on('volumechange', () => {
             updateDPlayerMobileVolumeControl(this.option.container, player.video.muted);
             setStoredPlayerMuted(player.video.muted);
@@ -332,15 +471,87 @@ export class RecordedPlayerCore {
         this.option.onControlsVisibilityChange?.(player.controller.isShow());
     }
 
+    private finishPlayback(): void {
+        this.playbackFinished = true;
+        this.clearHlsEndFallbackTimer();
+        this.clearPlaybackErrorTimer();
+        this.setState({ isLoading: false, isBuffering: false, loadingText: '' });
+        this.player?.controller.show();
+    }
+
+    private normalizeStalledHlsEnd(player: DPlayerInstance): void {
+        if (this.destroyed || this.player !== player || this.playbackFinished) return;
+        const video = player.video;
+        this.playbackFinished = true;
+        video.pause();
+        // hls.js emits MEDIA_ENDED when MediaSource reached EOS but the browser
+        // omitted its native ended event.  Re-emit it so DPlayer and playback
+        // tracking complete through the same path as an ordinary media end.
+        video.dispatchEvent(new Event('timeupdate'));
+        video.dispatchEvent(new Event('ended'));
+        this.finishPlayback();
+    }
+
+    private scheduleHlsEndFallback(player: DPlayerInstance): void {
+        const hasConfirmedHlsEnd = this.hlsBufferedToEnd || this.hlsFinalFragmentBuffered;
+        if ((!hasConfirmedHlsEnd && !this.isNearVodDuration(player)) || this.hlsEndFallbackTimer !== null || !this.isAtFinalBufferedRange(player)) return;
+        const waitingAt = player.video.currentTime;
+        this.hlsEndFallbackTimer = window.setTimeout(() => {
+            this.hlsEndFallbackTimer = null;
+            if (
+                this.destroyed ||
+                this.player !== player ||
+                this.playbackFinished ||
+                !this.state.isBuffering ||
+                player.video.seeking ||
+                Math.abs(player.video.currentTime - waitingAt) >= 0.05 ||
+                !this.isAtFinalBufferedRange(player)
+            ) {
+                return;
+            }
+            this.normalizeStalledHlsEnd(player);
+        }, 800);
+    }
+
+    private isNearVodDuration(player: DPlayerInstance): boolean {
+        if (this.option.type !== 'hls') return false;
+        const details = (player.plugins.hls as Hls | undefined)?.latestLevelDetails;
+        const video = player.video;
+        if (details?.live === true || !Number.isFinite(video.duration) || video.duration <= 0) return false;
+
+        return video.duration - video.currentTime <= 2;
+    }
+
+    private isAtFinalBufferedRange(player: DPlayerInstance): boolean {
+        if (this.option.type !== 'hls') return false;
+        const hls = player.plugins.hls as Hls | undefined;
+        const details = hls?.latestLevelDetails;
+        const video = player.video;
+        if (details?.live === true || video.buffered.length === 0) return false;
+        const finalRange = video.buffered.length - 1;
+        const start = video.buffered.start(finalRange);
+        const end = video.buffered.end(finalRange);
+
+        return video.currentTime >= start - 0.05 && video.currentTime <= end + 0.05 && end - video.currentTime <= 1;
+    }
+
+    private clearHlsEndFallbackTimer(): void {
+        if (this.hlsEndFallbackTimer === null) return;
+        window.clearTimeout(this.hlsEndFallbackTimer);
+        this.hlsEndFallbackTimer = null;
+    }
+
     private initJikkyoCore(): void {
         if (this.player === null || this.option.commentsUrl === undefined) return;
         this.jikkyoCore = new RecordedJikkyoCommentCore({
             commentsUrl: this.option.commentsUrl,
             video: this.player.video,
             onComment: comment => this.enqueueComment(comment),
+            onCommentsChange: comments => this.option.onCommentsChange?.(comments),
+            onPositionChange: index => this.option.onCommentPositionChange?.(index),
+            getDisplayTime: (comment, originalTime) => this.getDanmakuDisplayTime(comment, originalTime),
             onReset: () => {
                 this.player?.danmaku?.clear();
-                this.option.onCommentsReset?.();
             },
             onStatus: detail => this.option.onCommentStatus?.(detail),
             onError: error => this.option.onError?.(error),
@@ -401,9 +612,12 @@ export class RecordedPlayerCore {
     private enqueueComment(comment: JikkyoComment): void {
         this.pendingComments.push(comment);
         this.option.onComment?.(comment);
-        if (this.commentFrame !== null) return;
-        this.commentFrame = window.requestAnimationFrame(() => {
-            this.commentFrame = null;
+        if (this.commentFlushQueued) return;
+        this.commentFlushQueued = true;
+        const generation = this.commentFlushGeneration;
+        queueMicrotask(() => {
+            if (generation !== this.commentFlushGeneration) return;
+            this.commentFlushQueued = false;
             const comments = this.pendingComments.splice(0);
             if (this.player === null || comments.length === 0) return;
             this.player.danmaku?.draw(comments.map(item => ({ text: item.text, color: item.color, type: item.position, size: item.size })));
@@ -412,14 +626,17 @@ export class RecordedPlayerCore {
 
     private destroyPlayer(): void {
         this.tsHlsSeekReloading = false;
+        this.hlsBufferedToEnd = false;
+        this.hlsFinalFragmentBuffered = false;
+        this.clearHlsEndFallbackTimer();
         this.volumeController?.destroy();
         this.volumeController = null;
         this.option.onControlsPortalReady?.(null);
         this.clearPlaybackErrorTimer();
         this.jikkyoCore?.destroy();
         this.jikkyoCore = null;
-        if (this.commentFrame !== null) window.cancelAnimationFrame(this.commentFrame);
-        this.commentFrame = null;
+        this.commentFlushGeneration++;
+        this.commentFlushQueued = false;
         this.pendingComments = [];
         if (this.player !== null) {
             try {

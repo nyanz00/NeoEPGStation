@@ -1,4 +1,4 @@
-import { ChildProcess, execFile, spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import internal, { Readable } from 'stream';
@@ -7,6 +7,7 @@ import * as apid from '../../../../../api';
 import * as fst from '../../../../lib/TailStream';
 import ProcessUtil from '../../../../util/ProcessUtil';
 import IVideoUtil from '../../../api/video/IVideoUtil';
+import IVideoAnalysisModel from '../../../video/IVideoAnalysisModel';
 import IRecordedDB from '../../../db/IRecordedDB';
 import IVideoFileDB from '../../../db/IVideoFileDB';
 import IConfiguration from '../../../IConfiguration';
@@ -26,6 +27,7 @@ export default abstract class RecordedStreamBaseModel
     private videoFileDB: IVideoFileDB;
     private recordedDB: IRecordedDB;
     private videoUtil: IVideoUtil;
+    private videoAnalysis: IVideoAnalysisModel;
 
     private fileStream: Readable | null = null;
     private id3MetadataTransoform: ID3MetadataTransform | null = null;
@@ -45,12 +47,14 @@ export default abstract class RecordedStreamBaseModel
         @inject('IVideoFileDB') videoFileDB: IVideoFileDB,
         @inject('IRecordedDB') recordedDB: IRecordedDB,
         @inject('IVideoUtil') videoUtil: IVideoUtil,
+        @inject('IVideoAnalysisModel') videoAnalysis: IVideoAnalysisModel,
     ) {
         super(configure, logger, processManager, fileDeleter, socketIO);
 
         this.videoFileDB = videoFileDB;
         this.recordedDB = recordedDB;
         this.videoUtil = videoUtil;
+        this.videoAnalysis = videoAnalysis;
     }
 
     /**
@@ -199,33 +203,11 @@ export default abstract class RecordedStreamBaseModel
         }
 
         // videoFileInfo セット
-        this.videoFileInfo = await this.getVideoInfo(this.videoFilePath);
+        const analysis = await this.videoAnalysis.get(video.id);
+        if (analysis.duration === null || analysis.bitRate === null) throw new Error('VideoAnalysisIsIncomplete');
+        this.videoFileInfo = { duration: analysis.duration, size: analysis.size, bitRate: analysis.bitRate };
 
         this.videoFileType = video.type as apid.VideoFileType;
-    }
-
-    /**
-     * 指定されたファイルパスのビデオ情報を取得する
-     * @param filePath: string
-     * @return Promise<VideoFileInfo>
-     */
-    private getVideoInfo(filePath: string): Promise<VideoFileInfo> {
-        return new Promise<VideoFileInfo>((resolve, reject) => {
-            execFile(this.config.ffprobe, ['-v', '0', '-show_format', '-of', 'json', filePath], (err, std) => {
-                if (err) {
-                    reject(err);
-
-                    return;
-                }
-                const result = <any>JSON.parse(std);
-
-                resolve({
-                    duration: parseFloat(result.format.duration),
-                    size: parseInt(result.format.size, 10),
-                    bitRate: parseFloat(result.format.bit_rate),
-                });
-            });
-        });
     }
 
     /**

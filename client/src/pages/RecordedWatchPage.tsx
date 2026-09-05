@@ -12,6 +12,7 @@ import {
     BottomNavigation,
     BottomNavigationAction,
     Box,
+    Button,
     CircularProgress,
     Divider,
     FormControl,
@@ -27,13 +28,20 @@ import {
 } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, RecordedItem, Rule, VideoSubtitle } from '../../../api';
-import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppLayout } from '../components/AppLayout';
 import { TwitterPanel } from '../components/TwitterPanel';
 import { api } from '../core/api/queries';
-import { createRecordedRelatedSearchOption, getRecordedStreamURL, getRecordedVideoPlayURL, type RecordedStreamType } from '../core/media/recorded';
+import {
+    createRecordedRelatedSearchOption,
+    getRecordedStreamOptions,
+    getRecordedStreamURL,
+    getRecordedVideoPlayURL,
+    saveRecordedSelectStreamSettings,
+    type RecordedStreamType,
+} from '../core/media/recorded';
 import { isDanmakuSubtitle, preferredSubtitleIndex } from '../core/media/subtitles';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
@@ -46,12 +54,14 @@ import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/pl
 import type { JikkyoComment } from '../core/player/jikkyoComment';
 import { formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
-import { useSettings, type WebKitPlaybackMode } from '../core/storage/settings';
+import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 
 type PanelTab = 'program' | 'rules' | 'comments' | 'twitter';
 
 const RECORDED_PLAYER_PANEL_OPEN_STORAGE_KEY = 'neoepgstation-recorded-player-panel-open';
+const PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND = 30;
+const PLAY_SUBTITLE_PREVIEW_DURATION = 3 * 60 + PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND;
 
 function loadRecordedPlayerPanelOpen(): boolean {
     try {
@@ -105,12 +115,15 @@ function RecordedPlayer({
     danmakuSubtitleText,
     subtitleDanmaku,
     forceSubtitleStroke,
+    danmakuHighRefreshRate,
+    danmakuFrameRateLimit,
     webkitPlaybackMode,
     persistentBottomControls,
     showVolumePercent,
     volumeBoostEnabled,
     volumeBoostMaxPercent,
-    onComment,
+    onCommentsChange,
+    onCommentPositionChange,
     onCommentsReset,
     onCommentStatus,
     onControlsVisibilityChange,
@@ -118,6 +131,10 @@ function RecordedPlayer({
     startPosition,
     resumePlaying,
     sessionIdentity,
+    qualityOptions,
+    selectedQualityIndex,
+    onQualityChange,
+    playbackBlocked,
     children,
 }: {
     source: PlayerSource;
@@ -126,12 +143,15 @@ function RecordedPlayer({
     danmakuSubtitleText: string | null;
     subtitleDanmaku: boolean;
     forceSubtitleStroke: boolean;
+    danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
-    onComment: (comment: JikkyoComment) => void;
+    onCommentsChange: (comments: JikkyoComment[]) => void;
+    onCommentPositionChange: (nextCommentIndex: number) => void;
     onCommentsReset: () => void;
     onCommentStatus: (detail: string) => void;
     onControlsVisibilityChange: (visible: boolean) => void;
@@ -139,6 +159,10 @@ function RecordedPlayer({
     startPosition: number | null;
     resumePlaying: boolean;
     sessionIdentity: string;
+    qualityOptions?: Array<{ index: number; name: string }>;
+    selectedQualityIndex?: number;
+    onQualityChange?: (index: number) => void;
+    playbackBlocked: boolean;
     children: ReactNode;
 }): ReactNode {
     const theme = useTheme();
@@ -146,11 +170,16 @@ function RecordedPlayer({
     const coreRef = useRef<RecordedPlayerCore | null>(null);
     const rendererRef = useRef(new JassubSubtitleRenderer());
     const assCommentRef = useRef<AssCommentCore | null>(null);
+    const assCommentModeRef = useRef<'danmaku' | 'subtitle' | null>(null);
+    const assCommentVideoRef = useRef<HTMLVideoElement | null>(null);
     const [video, setVideo] = useState<HTMLVideoElement | null>(null);
     const [controlsVisible, setControlsVisible] = useState(true);
     const [controlsPortal, setControlsPortal] = useState<HTMLElement | null>(null);
     const [paused, setPaused] = useState(true);
     const [state, setState] = useState<RecordedPlayerState>({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' });
+    const playbackBlockedRef = useRef(playbackBlocked);
+    playbackBlockedRef.current = playbackBlocked;
+    const pointerInPersistentBottomControlsRef = useRef(false);
     const showPlayerControls = useCallback((): void => {
         setControlsVisible(true);
         coreRef.current?.showControls();
@@ -161,6 +190,26 @@ function RecordedPlayer({
     }, []);
     const activatePlayerAudio = useCallback((): void => coreRef.current?.activateAudio(), []);
     const touchControls = useTouchPlayerControls(controlsVisible, showPlayerControls, hidePlayerControls, activatePlayerAudio);
+    const handlePointerMove = useCallback(
+        (event: ReactPointerEvent<HTMLElement>): void => {
+            if (event.pointerType === 'mouse' && persistentBottomControls) {
+                const playerRect = event.currentTarget.getBoundingClientRect();
+                const isInBottomControls = event.clientY >= playerRect.bottom - 56;
+                if (isInBottomControls) {
+                    if (!pointerInPersistentBottomControlsRef.current) {
+                        pointerInPersistentBottomControlsRef.current = true;
+                        setControlsVisible(false);
+                        onControlsVisibilityChange(false);
+                    }
+                    return;
+                }
+            }
+
+            pointerInPersistentBottomControlsRef.current = false;
+            showPlayerControls();
+        },
+        [onControlsVisibilityChange, persistentBottomControls, showPlayerControls],
+    );
 
     useLayoutEffect(() => {
         if (container.current === null) return;
@@ -184,6 +233,8 @@ function RecordedPlayer({
         rendererRef.current.clear();
         assCommentRef.current?.destroy();
         assCommentRef.current = null;
+        assCommentModeRef.current = null;
+        assCommentVideoRef.current = null;
         const core = new RecordedPlayerCore({
             container: container.current,
             src: source.src,
@@ -191,12 +242,17 @@ function RecordedPlayer({
             enableAribSubtitle: source.enableAribSubtitle,
             enableDanmaku: subtitleDanmaku,
             forceSubtitleStroke,
+            danmakuHighRefreshRate,
+            danmakuFrameRateLimit,
             volumeBoostEnabled,
             volumeBoostMaxPercent,
             webkitPlaybackMode,
             themeColor: theme.palette.primary.main,
             commentsUrl: source.commentsUrl,
-            autoplay: resumePlaying,
+            qualityOptions,
+            selectedQualityIndex,
+            onQualityChange,
+            autoplay: resumePlaying && !playbackBlockedRef.current,
             onReady: nextVideo => {
                 setVideo(nextVideo);
                 setPaused(nextVideo.paused);
@@ -204,16 +260,17 @@ function RecordedPlayer({
                 const restorePlayback = (): void => {
                     if (startPosition === null) return;
                     if (Number.isFinite(nextVideo.duration)) nextVideo.currentTime = Math.min(startPosition, nextVideo.duration);
-                    if (!resumePlaying) nextVideo.pause();
+                    if (!resumePlaying || playbackBlockedRef.current) nextVideo.pause();
                 };
                 if (nextVideo.readyState >= HTMLMediaElement.HAVE_METADATA) restorePlayback();
                 else nextVideo.addEventListener('loadedmetadata', restorePlayback, { once: true });
             },
             onStateChange: setState,
-            onComment,
-            onCommentsReset,
+            onCommentsChange,
+            onCommentPositionChange,
             onCommentStatus,
             onControlsVisibilityChange: visible => {
+                if (visible && pointerInPersistentBottomControlsRef.current) return;
                 setControlsVisible(visible);
                 onControlsVisibilityChange(visible);
             },
@@ -228,6 +285,8 @@ function RecordedPlayer({
             rendererRef.current.clear();
             assCommentRef.current?.destroy();
             assCommentRef.current = null;
+            assCommentModeRef.current = null;
+            assCommentVideoRef.current = null;
             core.destroy();
             if (keepTimer !== null) window.clearInterval(keepTimer);
             window.removeEventListener('pagehide', handlePageHide);
@@ -235,13 +294,19 @@ function RecordedPlayer({
         };
     }, [
         forceSubtitleStroke,
+        danmakuHighRefreshRate,
+        danmakuFrameRateLimit,
         webkitPlaybackMode,
-        onComment,
+        onCommentsChange,
+        onCommentPositionChange,
         onCommentStatus,
         onCommentsReset,
         onControlsVisibilityChange,
         onVideoReady,
+        onQualityChange,
+        qualityOptions,
         resumePlaying,
+        selectedQualityIndex,
         sessionIdentity,
         source,
         startPosition,
@@ -250,6 +315,17 @@ function RecordedPlayer({
         volumeBoostEnabled,
         volumeBoostMaxPercent,
     ]);
+
+    useEffect(() => {
+        if (video === null) return;
+        if (playbackBlocked) {
+            const keepPaused = (): void => video.pause();
+            video.pause();
+            video.addEventListener('play', keepPaused);
+            return () => video.removeEventListener('play', keepPaused);
+        }
+        if (resumePlaying) void video.play().catch(error => console.error('[RecordedWatch:play]', error));
+    }, [playbackBlocked, resumePlaying, video]);
 
     useEffect(() => {
         if (video === null) return;
@@ -265,55 +341,60 @@ function RecordedPlayer({
     }, [video]);
 
     useEffect(() => {
-        // Subtitle rendering and ASS-to-danmaku playback share the same player
-        // lifecycle.  Keep their setup in one effect so that changing either
-        // selection cannot let a cleanup from the other effect destroy the
-        // newly selected renderer/comment stream.
-        rendererRef.current.clear();
-        assCommentRef.current?.destroy();
-        assCommentRef.current = null;
-        coreRef.current?.clearDanmaku();
-        onCommentsReset();
-        if (video === null) return;
+        if (video === null || subtitleText === null) {
+            rendererRef.current.clear();
+
+            return;
+        }
 
         // In danmaku mode the ordinary subtitle selector must still render
         // through libass/JASSUB.  The danmaku selector is an additional track,
         // not a replacement for the ordinary subtitle track.
-        if (subtitleText !== null) {
-            void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
-        }
+        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
+    }, [subtitleIsNicoJk, subtitleText, video]);
 
-        let comments: AssCommentCore | null = null;
-        if (subtitleDanmaku && danmakuSubtitleText !== null) {
-            comments = new AssCommentCore({
-                ass: danmakuSubtitleText,
-                video,
-                onComment: comment => coreRef.current?.drawDanmaku(comment),
-                onReset: () => {
-                    coreRef.current?.clearDanmaku();
-                    onCommentsReset();
-                },
-            });
-        } else if (!subtitleDanmaku && subtitleText !== null && subtitleIsNicoJk) {
-            comments = new AssCommentCore({
-                ass: subtitleText,
-                video,
-                onComment,
-                onReset: onCommentsReset,
-            });
-        }
-        if (comments !== null) {
-            assCommentRef.current = comments;
-            comments.start();
-        }
-
-        return () => {
-            rendererRef.current.clear();
-            comments?.destroy();
-            if (assCommentRef.current === comments) assCommentRef.current = null;
+    useEffect(() => {
+        const mode = subtitleDanmaku ? 'danmaku' : subtitleIsNicoJk ? 'subtitle' : null;
+        const ass = mode === 'danmaku' ? danmakuSubtitleText : mode === 'subtitle' ? subtitleText : null;
+        if (video === null || mode === null || ass === null) {
+            assCommentRef.current?.destroy();
+            assCommentRef.current = null;
+            assCommentModeRef.current = null;
+            assCommentVideoRef.current = null;
             coreRef.current?.clearDanmaku();
-        };
-    }, [danmakuSubtitleText, onComment, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
+            onCommentsReset();
+
+            return;
+        }
+
+        if (assCommentRef.current !== null && assCommentModeRef.current === mode && assCommentVideoRef.current === video) {
+            assCommentRef.current.updateAss(ass);
+
+            return;
+        }
+
+        assCommentRef.current?.destroy();
+        coreRef.current?.clearDanmaku();
+        onCommentsReset();
+        const comments = new AssCommentCore({
+            ass,
+            video,
+            onComment: mode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : () => {},
+            onCommentsChange,
+            onPositionChange: onCommentPositionChange,
+            getDisplayTime: mode === 'danmaku' ? (comment, originalTime) => coreRef.current?.getDanmakuDisplayTime(comment, originalTime) ?? originalTime : undefined,
+            onReset:
+                mode === 'danmaku'
+                    ? () => {
+                          coreRef.current?.clearDanmaku();
+                      }
+                    : undefined,
+        });
+        assCommentRef.current = comments;
+        assCommentModeRef.current = mode;
+        assCommentVideoRef.current = video;
+        comments.start();
+    }, [danmakuSubtitleText, onCommentPositionChange, onCommentsChange, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
 
     const seekBy = (seconds: number): void => {
         if (video === null) return;
@@ -331,7 +412,10 @@ function RecordedPlayer({
     return (
         <Box
             {...touchControls}
-            onPointerMove={showPlayerControls}
+            onPointerMove={handlePointerMove}
+            onPointerLeave={() => {
+                pointerInPersistentBottomControlsRef.current = false;
+            }}
             sx={{
                 position: 'relative',
                 width: '100%',
@@ -344,14 +428,16 @@ function RecordedPlayer({
                 '& .recorded-dplayer.dplayer': { width: '100%', height: '100%', bgcolor: 'transparent' },
                 '& .recorded-dplayer .dplayer-video-wrap': { bgcolor: '#000 !important' },
                 '& .recorded-dplayer .dplayer-video-wrap-aspect, & .recorded-dplayer video': { width: '100%', height: '100%' },
-                '& .recorded-dplayer video': { objectFit: 'contain' },
+                '& .recorded-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
                 // DPlayer's WebGL danmaku renderer composites the video into
                 // its own canvas and makes the native video transparent.  A
                 // JASSUB canvas inserted immediately after the video would
                 // otherwise remain behind that opaque composite canvas, so
-                // keep the ASS/SRT layer above danmaku while leaving controls
-                // above both layers.
+                // keep subtitle layers above danmaku while leaving controls
+                // above them. The native video remains visible underneath as a
+                // fallback while the WebGL canvas is resized.
                 '& .recorded-dplayer .dplayer-danmaku': { zIndex: 2 },
+                '& .recorded-dplayer .neo-player-arib-canvas': { zIndex: 3 },
                 '& .recorded-dplayer .JASSUB': {
                     position: 'absolute !important',
                     inset: '0 !important',
@@ -360,7 +446,7 @@ function RecordedPlayer({
                     zIndex: 3,
                     pointerEvents: 'none',
                 },
-                '& .recorded-dplayer .dplayer-controller-mask, & .recorded-dplayer .dplayer-controller, & .recorded-dplayer .dplayer-bezel, & .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box':
+                '& .recorded-dplayer .dplayer-controller-mask, & .recorded-dplayer .dplayer-controller, & .recorded-dplayer .dplayer-bezel, & .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box, & .recorded-dplayer .dplayer-notice':
                     {
                         zIndex: 4,
                     },
@@ -381,8 +467,11 @@ function RecordedPlayer({
                 },
                 ...(persistentBottomControls
                     ? {
-                          '& .recorded-dplayer .dplayer-video-wrap, & .recorded-dplayer .dplayer-video-wrap-aspect': {
+                          '& .recorded-dplayer .dplayer-video-wrap': {
                               height: 'calc(100% - 56px) !important',
+                          },
+                          '& .recorded-dplayer .dplayer-video-wrap-aspect': {
+                              height: '100% !important',
                           },
                           '& .recorded-dplayer .dplayer-controller-mask': {
                               height: '56px !important',
@@ -424,7 +513,7 @@ function RecordedPlayer({
                 },
             }}
         >
-            {(state.isLoading || state.isBuffering) && (
+            {(state.isLoading || state.isBuffering || playbackBlocked) && (
                 <Box
                     sx={{
                         position: 'absolute',
@@ -441,7 +530,7 @@ function RecordedPlayer({
                 >
                     <CircularProgress size={46} thickness={4.5} sx={{ color: '#fff' }} />
                     <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-                        {state.loadingText}
+                        {playbackBlocked ? '字幕を抽出中…' : state.loadingText}
                     </Typography>
                 </Box>
             )}
@@ -461,8 +550,8 @@ function RecordedPlayer({
                             zIndex: 6,
                             alignItems: 'center',
                             transform: 'translate(-50%, -50%)',
-                            opacity: !state.isLoading && !state.isBuffering && controlsVisible ? 1 : 0,
-                            pointerEvents: !state.isLoading && !state.isBuffering && controlsVisible ? 'auto' : 'none',
+                            opacity: !state.isLoading && !state.isBuffering && !playbackBlocked && controlsVisible ? 1 : 0,
+                            pointerEvents: !state.isLoading && !state.isBuffering && !playbackBlocked && controlsVisible ? 'auto' : 'none',
                             transition: 'opacity 120ms ease',
                             color: '#fff',
                             '& .MuiIconButton-root': {
@@ -487,7 +576,7 @@ function RecordedPlayer({
                             title={paused ? '再生' : '一時停止'}
                             aria-label={paused ? '再生' : '一時停止'}
                             onClick={togglePlay}
-                            disabled={state.isLoading || state.isBuffering}
+                            disabled={state.isLoading || state.isBuffering || playbackBlocked}
                             sx={{ width: { xs: 58, sm: 68 }, height: { xs: 58, sm: 68 }, mx: { xs: 0.75, sm: 2.5 } }}
                         >
                             {paused ? <PlayArrow sx={{ fontSize: { xs: 46, sm: 60 } }} /> : <Pause sx={{ fontSize: { xs: 46, sm: 60 } }} />}
@@ -652,15 +741,34 @@ function commentTime(comment: JikkyoComment): string {
     return `${minutes.toString(10).padStart(2, '0')}:${(seconds % 60).toString(10).padStart(2, '0')}`;
 }
 
-function CommentPanel({ comments, status, listRef }: { comments: JikkyoComment[]; status: string; listRef: RefObject<HTMLDivElement | null> }): ReactNode {
+function CommentPanel({
+    comments,
+    status,
+    listRef,
+    autoFollow,
+    onScroll,
+    onReturnToCurrent,
+}: {
+    comments: JikkyoComment[];
+    status: string;
+    listRef: RefObject<HTMLDivElement | null>;
+    autoFollow: boolean;
+    onScroll: (list: HTMLDivElement) => void;
+    onReturnToCurrent: () => void;
+}): ReactNode {
     return (
-        <Box ref={listRef} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
+        <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
             <Stack direction="row" spacing={1} sx={{ mb: 1.5, alignItems: 'center' }}>
                 <ChatBubbleOutlineOutlined />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>
                     コメント
                 </Typography>
             </Stack>
+            {!autoFollow && comments.length > 0 && (
+                <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
+                    現在位置に戻る
+                </Button>
+            )}
             {comments.length === 0 ? (
                 <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
                     {status}
@@ -670,9 +778,14 @@ function CommentPanel({ comments, status, listRef }: { comments: JikkyoComment[]
                     {comments.map((comment, index) => (
                         <Stack
                             key={`${comment.id.toString(10)}-${comment.postedAt.toString(10)}-${index.toString(10)}`}
+                            data-comment-index={index}
                             direction="row"
                             spacing={1}
-                            sx={{ alignItems: 'flex-start' }}
+                            sx={{
+                                alignItems: 'flex-start',
+                                contentVisibility: 'auto',
+                                containIntrinsicSize: '28px',
+                            }}
                         >
                             <Typography sx={{ minWidth: 0, flex: 1, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{comment.text}</Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ pt: 0.2, flex: '0 0 auto' }}>
@@ -804,10 +917,13 @@ export function RecordedWatchPage(): ReactNode {
     const validIds = Number.isSafeInteger(videoFileId) && videoFileId >= 0 && Number.isSafeInteger(recordedId) && recordedId >= 0;
     const valid = validIds && (!streaming || (Number.isSafeInteger(mode) && mode >= 0 && quality.length > 0));
     const [panelOpen, setPanelOpen] = useState(loadRecordedPlayerPanelOpen);
+    const [panelMounted, setPanelMounted] = useState(panelOpen);
     const [panelTab, setPanelTab] = useState<PanelTab>('program');
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState<number | null>(null);
     const [selectedDanmakuSubtitleIndex, setSelectedDanmakuSubtitleIndex] = useState<number | null>(null);
+    const [subtitleSelectionSignature, setSubtitleSelectionSignature] = useState<string | null>(null);
+    const [subtitleExtractionReadyIdentity, setSubtitleExtractionReadyIdentity] = useState<string | null>(null);
     const [preparingSubtitleIndex, setPreparingSubtitleIndex] = useState<number | 'none' | null>(null);
     const [resumePosition, setResumePosition] = useState<number | null>(null);
     const [resumePlaying, setResumePlaying] = useState(true);
@@ -819,6 +935,16 @@ export function RecordedWatchPage(): ReactNode {
             // Playback remains available even when browser storage is unavailable.
         }
     }, [panelOpen]);
+
+    useEffect(() => {
+        if (panelOpen) {
+            setPanelMounted(true);
+            return;
+        }
+
+        const timer = window.setTimeout(() => setPanelMounted(false), 180);
+        return () => window.clearTimeout(timer);
+    }, [panelOpen]);
     const playerVideo = useRef<HTMLVideoElement | null>(null);
     const [progressVideo, setProgressVideo] = useState<HTMLVideoElement | null>(null);
     const autoWatchLastAttemptAt = useRef(0);
@@ -828,11 +954,11 @@ export function RecordedWatchPage(): ReactNode {
     const attemptAutoWatchRef = useRef<() => Promise<void>>(async () => {});
     const playbackStarted = useRef(false);
     const [comments, setComments] = useState<JikkyoComment[]>([]);
+    const [nextCommentIndex, setNextCommentIndex] = useState<number | null>(null);
     const [commentStatus, setCommentStatus] = useState(streaming ? '実況過去ログを取得しています…' : 'ASS実況字幕を選択すると、再生中のコメントをここにも表示します。');
+    const [commentAutoFollow, setCommentAutoFollow] = useState(true);
     const commentList = useRef<HTMLDivElement | null>(null);
-    const commentBuffer = useRef<JikkyoComment[]>([]);
-    const commentsVisible = useRef(false);
-    const commentFlushTimer = useRef<number | null>(null);
+    const expectedCommentScrollTop = useRef<number | null>(null);
     const recorded = useQuery({
         queryKey: ['recorded-detail', recordedId, settings.isHalfWidthDisplayed],
         queryFn: () => api.getRecordedItem(recordedId, settings.isHalfWidthDisplayed),
@@ -846,6 +972,14 @@ export function RecordedWatchPage(): ReactNode {
         enabled: validIds && playbackUserId !== null,
         retry: false,
     });
+    const storedResumePosition =
+        playbackUserId !== null &&
+        settings.watchResumePlayback &&
+        playback.data !== undefined &&
+        playback.data.position >= 5 &&
+        (playback.data.duration <= 0 || playback.data.position < playback.data.duration - 10)
+            ? playback.data.position
+            : null;
     const annictEpisodeKey = ['recorded-annict-episode', recordedId, viewerProfile.profileId] as const;
     const annictEpisode = useQuery({
         queryKey: annictEpisodeKey,
@@ -860,6 +994,7 @@ export function RecordedWatchPage(): ReactNode {
     annictEpisodeRef.current = annictEpisode.data;
     settingsRef.current = settings;
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000, enabled: validIds });
+    const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig, staleTime: Number.POSITIVE_INFINITY, enabled: streaming });
     const subtitles = useQuery({
         queryKey: ['video-subtitles', videoFileId],
         queryFn: () => api.getVideoSubtitles(videoFileId),
@@ -873,21 +1008,124 @@ export function RecordedWatchPage(): ReactNode {
         [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
     );
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
+    const selectedDanmakuSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedDanmakuSubtitleIndex);
+    const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${settings.watchPlaySubtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
+    const subtitleSelectionReady = subtitleSelectionSignature === currentSubtitleSelectionSignature;
+    const subtitlePreviewStartAt = Math.max(0, (resumePosition ?? storedResumePosition ?? 0) - PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND);
+    const normalSubtitleEnabled =
+        validIds &&
+        !streaming &&
+        subtitleSelectionReady &&
+        selectedSubtitleIndex !== null &&
+        selectedSubtitle !== undefined &&
+        (!settings.watchPlaySubtitleDanmaku || !isDanmakuSubtitle(selectedSubtitle));
+    const normalSubtitleTextQueryKey = ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex] as const;
+    const normalSubtitleTextCached = queryClient.getQueryData(normalSubtitleTextQueryKey) !== undefined;
+    const subtitleTextPreview = useQuery({
+        queryKey: ['video-subtitle-text-preview', videoFileId, 'normal', selectedSubtitleIndex, subtitlePreviewStartAt],
+        queryFn: () =>
+            api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!, {
+                startAt: subtitlePreviewStartAt,
+                duration: PLAY_SUBTITLE_PREVIEW_DURATION,
+            }),
+        enabled: normalSubtitleEnabled && !normalSubtitleTextCached,
+        retry: false,
+        staleTime: Number.POSITIVE_INFINITY,
+    });
+    const danmakuSubtitleEnabled =
+        validIds &&
+        !streaming &&
+        subtitleSelectionReady &&
+        settings.watchPlaySubtitleDanmaku &&
+        selectedDanmakuSubtitleIndex !== null &&
+        selectedDanmakuSubtitle !== undefined &&
+        isDanmakuSubtitle(selectedDanmakuSubtitle);
+    const danmakuSubtitleTextQueryKey = ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex] as const;
+    const danmakuSubtitleTextCached = queryClient.getQueryData(danmakuSubtitleTextQueryKey) !== undefined;
+    const danmakuSubtitleTextPreview = useQuery({
+        queryKey: ['video-subtitle-text-preview', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex, subtitlePreviewStartAt],
+        queryFn: () =>
+            api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!, {
+                startAt: subtitlePreviewStartAt,
+                duration: PLAY_SUBTITLE_PREVIEW_DURATION,
+            }),
+        enabled: danmakuSubtitleEnabled && !danmakuSubtitleTextCached,
+        retry: false,
+        staleTime: Number.POSITIVE_INFINITY,
+    });
+    const startupSubtitlePreviewsSettled =
+        (!normalSubtitleEnabled || normalSubtitleTextCached || subtitleTextPreview.isSuccess || subtitleTextPreview.isError) &&
+        (!danmakuSubtitleEnabled || danmakuSubtitleTextCached || danmakuSubtitleTextPreview.isSuccess || danmakuSubtitleTextPreview.isError);
     const subtitleText = useQuery({
         // Keep the ordinary and danmaku tracks in separate query namespaces.
         // Their numeric subtitleIndex values come from the same file and can
         // otherwise share a cache entry while the two selectors are changing.
-        queryKey: ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex],
+        queryKey: normalSubtitleTextQueryKey,
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedSubtitleIndex!),
-        enabled: validIds && !streaming && selectedSubtitleIndex !== null,
+        // Do not let one track's full-file extraction compete with another
+        // track that is still being prepared for initial playback.
+        enabled: normalSubtitleEnabled && startupSubtitlePreviewsSettled,
         staleTime: Number.POSITIVE_INFINITY,
     });
     const danmakuSubtitleText = useQuery({
-        queryKey: ['video-subtitle-text', videoFileId, 'danmaku', selectedDanmakuSubtitleIndex],
+        queryKey: danmakuSubtitleTextQueryKey,
         queryFn: () => api.getVideoSubtitleText(videoFileId, selectedDanmakuSubtitleIndex!),
-        enabled: validIds && !streaming && settings.watchPlaySubtitleDanmaku && selectedDanmakuSubtitleIndex !== null,
+        enabled: danmakuSubtitleEnabled && startupSubtitlePreviewsSettled,
         staleTime: Number.POSITIVE_INFINITY,
     });
+    const prioritySubtitleFullExtractionsSettled =
+        (normalSubtitleEnabled || danmakuSubtitleEnabled) &&
+        (!normalSubtitleEnabled || subtitleText.isSuccess || subtitleText.isError) &&
+        (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError);
+    const startupSubtitleExtractionsSettled = subtitles.isError || (subtitleSelectionReady && !subtitles.isPending && startupSubtitlePreviewsSettled);
+    useEffect(() => {
+        if (streaming || !settings.watchWaitForPlaySubtitleExtraction || !startupSubtitleExtractionsSettled) return;
+        setSubtitleExtractionReadyIdentity(currentSubtitleSelectionSignature);
+    }, [currentSubtitleSelectionSignature, settings.watchWaitForPlaySubtitleExtraction, startupSubtitleExtractionsSettled, streaming]);
+    const playbackBlockedForSubtitleExtraction = !streaming && settings.watchWaitForPlaySubtitleExtraction && subtitleExtractionReadyIdentity !== currentSubtitleSelectionSignature;
+    useEffect(() => {
+        if (streaming || !subtitleSelectionReady || !prioritySubtitleFullExtractionsSettled) return;
+
+        const prioritySubtitleIndexes = new Set<number>();
+        if (normalSubtitleEnabled && selectedSubtitleIndex !== null) prioritySubtitleIndexes.add(selectedSubtitleIndex);
+        if (danmakuSubtitleEnabled && selectedDanmakuSubtitleIndex !== null) prioritySubtitleIndexes.add(selectedDanmakuSubtitleIndex);
+        const remainingSubtitles = subtitleItems.filter(subtitle => !prioritySubtitleIndexes.has(subtitle.subtitleIndex));
+        let disposed = false;
+
+        const prefetchRemainingSubtitles = async (): Promise<void> => {
+            for (const subtitle of remainingSubtitles) {
+                if (disposed) return;
+                const role = settings.watchPlaySubtitleDanmaku && isDanmakuSubtitle(subtitle) ? 'danmaku' : 'normal';
+                try {
+                    await queryClient.prefetchQuery({
+                        queryKey: ['video-subtitle-text', videoFileId, role, subtitle.subtitleIndex],
+                        queryFn: () => api.getVideoSubtitleText(videoFileId, subtitle.subtitleIndex),
+                        retry: false,
+                        staleTime: Number.POSITIVE_INFINITY,
+                    });
+                } catch {
+                    // Background preparation must not interrupt playback or
+                    // prevent the remaining subtitle tracks from being tried.
+                }
+            }
+        };
+        void prefetchRemainingSubtitles();
+        return () => {
+            disposed = true;
+        };
+    }, [
+        danmakuSubtitleEnabled,
+        normalSubtitleEnabled,
+        prioritySubtitleFullExtractionsSettled,
+        queryClient,
+        selectedDanmakuSubtitleIndex,
+        selectedSubtitleIndex,
+        settings.watchPlaySubtitleDanmaku,
+        streaming,
+        subtitleItems,
+        subtitleSelectionReady,
+        videoFileId,
+    ]);
     const ruleId = recorded.data?.ruleId;
     const relatedSearch = recorded.data === undefined ? undefined : createRecordedRelatedSearchOption(recorded.data);
     const rule = useQuery({ queryKey: ['rule', ruleId], queryFn: () => api.getRule(ruleId!), enabled: ruleId !== undefined });
@@ -898,21 +1136,18 @@ export function RecordedWatchPage(): ReactNode {
     });
     const item = recorded.data;
     const selectedVideo = item?.videoFiles?.find(video => video.id === videoFileId);
+    const streamingOptions = useMemo(() => getRecordedStreamOptions(selectedVideo ?? null, config.data), [config.data, selectedVideo]);
+    const selectedStreamingOption = streamingOptions.find(option => option.type === streamType);
+    const streamingQualityOptions = useMemo(() => (selectedStreamingOption?.qualities ?? []).map((name, index) => ({ index, name })), [selectedStreamingOption?.qualities]);
     const streamingUsesJikkyo = streaming && selectedVideo?.type === 'ts';
 
-    const receiveComment = useCallback((comment: JikkyoComment): void => {
-        commentBuffer.current = [...commentBuffer.current.slice(-499), comment];
-        if (!commentsVisible.current || commentFlushTimer.current !== null) return;
-        commentFlushTimer.current = window.setTimeout(() => {
-            commentFlushTimer.current = null;
-            setComments([...commentBuffer.current]);
-        }, 100);
-    }, []);
+    const replaceComments = useCallback((nextComments: JikkyoComment[]): void => setComments(nextComments), []);
+    const updateCommentPosition = useCallback((index: number): void => setNextCommentIndex(index), []);
     const resetComments = useCallback((): void => {
-        commentBuffer.current = [];
-        if (commentFlushTimer.current !== null) window.clearTimeout(commentFlushTimer.current);
-        commentFlushTimer.current = null;
         setComments([]);
+        setNextCommentIndex(null);
+        setCommentAutoFollow(true);
+        expectedCommentScrollTop.current = null;
     }, []);
     const updateCommentStatus = useCallback((detail: string): void => setCommentStatus(detail), []);
     const updateControlsVisibility = useCallback((visible: boolean): void => setOverlayVisible(visible), []);
@@ -1071,6 +1306,7 @@ export function RecordedWatchPage(): ReactNode {
     useEffect(() => {
         setSelectedSubtitleIndex(null);
         setSelectedDanmakuSubtitleIndex(null);
+        setSubtitleSelectionSignature(null);
     }, [videoFileId]);
     useEffect(() => {
         setResumePosition(null);
@@ -1081,6 +1317,7 @@ export function RecordedWatchPage(): ReactNode {
         if (!settings.watchPlaySubtitleDanmaku) {
             setSelectedSubtitleIndex(preferredSubtitleIndex(subtitles.data.items, settings.watchSubtitlePreferredKeywords));
             setSelectedDanmakuSubtitleIndex(null);
+            setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
             return;
         }
 
@@ -1092,7 +1329,8 @@ export function RecordedWatchPage(): ReactNode {
         // When the priority keyword only matches the danmaku track, do not
         // accidentally reuse that track as an ordinary subtitle.
         setSelectedSubtitleIndex(preferredNormal);
-    }, [settings.watchPlaySubtitleDanmaku, settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
+        setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
+    }, [currentSubtitleSelectionSignature, settings.watchPlaySubtitleDanmaku, settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
     useEffect(() => {
         resetComments();
         setCommentStatus(
@@ -1123,28 +1361,59 @@ export function RecordedWatchPage(): ReactNode {
             );
         }
     }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, settings.watchPlaySubtitleDanmaku, streaming]);
-    useEffect(() => {
-        commentsVisible.current = panelTab === 'comments';
-        if (commentsVisible.current) setComments([...commentBuffer.current]);
-    }, [panelTab]);
-    useEffect(
-        () => () => {
-            if (commentFlushTimer.current !== null) window.clearTimeout(commentFlushTimer.current);
+    const scrollCommentsToCurrent = useCallback((): number | null => {
+        const list = commentList.current;
+        if (panelTab !== 'comments' || list === null || nextCommentIndex === null || comments.length === 0) return null;
+        return window.requestAnimationFrame(() => {
+            if (commentList.current !== list) return;
+            const index = Math.max(0, Math.min(nextCommentIndex - 1, comments.length - 1));
+            const item = list.querySelector<HTMLElement>(`[data-comment-index="${index.toString(10)}"]`);
+            if (item === null) return;
+            const listRect = list.getBoundingClientRect();
+            const itemRect = item.getBoundingClientRect();
+            const desiredScrollTop = Math.max(0, Math.min(list.scrollHeight - list.clientHeight, list.scrollTop + itemRect.top - listRect.top - list.clientHeight * 0.65));
+            expectedCommentScrollTop.current = desiredScrollTop;
+            list.scrollTop = desiredScrollTop;
+        });
+    }, [comments, nextCommentIndex, panelTab]);
+    const handleCommentScroll = useCallback(
+        (list: HTMLDivElement): void => {
+            const expected = expectedCommentScrollTop.current;
+            if (commentAutoFollow && expected !== null && Math.abs(list.scrollTop - expected) > 4) setCommentAutoFollow(false);
         },
-        [],
+        [commentAutoFollow],
     );
+    const returnCommentsToCurrent = useCallback((): void => {
+        setCommentAutoFollow(true);
+        scrollCommentsToCurrent();
+    }, [scrollCommentsToCurrent]);
     useEffect(() => {
-        if (panelTab === 'comments' && commentList.current !== null) commentList.current.scrollTop = commentList.current.scrollHeight;
-    }, [comments, panelTab]);
+        if (!commentAutoFollow) return;
+        const frame = scrollCommentsToCurrent();
+        return () => {
+            if (frame !== null) window.cancelAnimationFrame(frame);
+        };
+    }, [commentAutoFollow, scrollCommentsToCurrent]);
     const channel = channels.data?.find(value => value.id === item?.channelId);
-    const storedResumePosition =
-        playbackUserId !== null &&
-        settings.watchResumePlayback &&
-        playback.data !== undefined &&
-        playback.data.position >= 5 &&
-        (playback.data.duration <= 0 || playback.data.position < playback.data.duration - 10)
-            ? playback.data.position
-            : null;
+    const changeStreamingQuality = useCallback(
+        (nextMode: number): void => {
+            if (!streaming || selectedStreamingOption === undefined || nextMode === mode) return;
+            const nextQuality = selectedStreamingOption.qualities[nextMode];
+            if (nextQuality === undefined) return;
+
+            const video = playerVideo.current;
+            const nextPosition = video?.currentTime ?? 0;
+            const shouldResume = video !== null && !video.paused;
+            const next = new URLSearchParams(params);
+            next.set('mode', nextMode.toString(10));
+            next.set('quality', nextQuality);
+            setResumePosition(nextPosition);
+            setResumePlaying(shouldResume);
+            saveRecordedSelectStreamSettings({ type: streamType, mode: nextMode, subtitleIndex: streamSubtitleIndex });
+            setParams(next, { replace: true });
+        },
+        [mode, params, selectedStreamingOption, setParams, streamSubtitleIndex, streamType, streaming],
+    );
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;
         if (!streaming) return { src: getRecordedVideoPlayURL(videoFileId), type: 'normal', enableAribSubtitle: false };
@@ -1229,7 +1498,14 @@ export function RecordedWatchPage(): ReactNode {
                     onSelect={index => void changeStreamingSubtitle(index)}
                 />
             ) : (
-                <CommentPanel comments={comments} status={commentStatus} listRef={commentList} />
+                <CommentPanel
+                    comments={comments}
+                    status={commentStatus}
+                    listRef={commentList}
+                    autoFollow={commentAutoFollow}
+                    onScroll={handleCommentScroll}
+                    onReturnToCurrent={returnCommentsToCurrent}
+                />
             );
         }
         return <TwitterPanel programTitle={item.name} channelName={channel?.name} videoSelector=".recorded-dplayer video" />;
@@ -1260,7 +1536,7 @@ export function RecordedWatchPage(): ReactNode {
                         minHeight: '100dvh',
                         height: { lg: '100dvh' },
                         display: 'grid',
-                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr)' },
+                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen || panelMounted ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
                         gridTemplateRows: { xs: 'auto auto', lg: 'minmax(0, 1fr)' },
                         overflow: { lg: 'hidden' },
                     }}
@@ -1268,17 +1544,20 @@ export function RecordedWatchPage(): ReactNode {
                     <Box component="section" sx={{ minWidth: 0, minHeight: 0, height: { lg: '100dvh' }, overflow: 'hidden', bgcolor: 'background.default' }}>
                         <RecordedPlayer
                             source={source}
-                            subtitleText={!streaming && subtitleText.data !== undefined ? subtitleText.data.subtitleText : null}
+                            subtitleText={!streaming ? (subtitleText.data?.subtitleText ?? subtitleTextPreview.data?.subtitleText ?? null) : null}
                             subtitleIsNicoJk={!streaming && !settings.watchPlaySubtitleDanmaku && isNicoJkSubtitle(selectedSubtitle)}
-                            danmakuSubtitleText={!streaming && danmakuSubtitleText.data !== undefined ? danmakuSubtitleText.data.subtitleText : null}
+                            danmakuSubtitleText={!streaming ? (danmakuSubtitleText.data?.subtitleText ?? danmakuSubtitleTextPreview.data?.subtitleText ?? null) : null}
                             subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
+                            danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
+                            danmakuFrameRateLimit={settings.watchDanmakuFrameRateLimit}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}
                             volumeBoostMaxPercent={settings.watchVolumeBoostMaxPercent}
-                            onComment={receiveComment}
+                            onCommentsChange={replaceComments}
+                            onCommentPositionChange={updateCommentPosition}
                             onCommentsReset={resetComments}
                             onCommentStatus={updateCommentStatus}
                             onControlsVisibilityChange={updateControlsVisibility}
@@ -1286,6 +1565,10 @@ export function RecordedWatchPage(): ReactNode {
                             startPosition={resumePosition ?? storedResumePosition}
                             resumePlaying={resumePlaying}
                             sessionIdentity={`${String(activeUser ?? 'none')}:${viewerProfile.profileId?.toString(10) ?? 'none'}:${viewerProfile.sessionToken ?? 'locked'}`}
+                            qualityOptions={streaming ? streamingQualityOptions : undefined}
+                            selectedQualityIndex={streaming ? mode : undefined}
+                            onQualityChange={streaming ? changeStreamingQuality : undefined}
+                            playbackBlocked={playbackBlockedForSubtitleExtraction}
                         >
                             <Box
                                 sx={{
@@ -1386,39 +1669,53 @@ export function RecordedWatchPage(): ReactNode {
                             </Box>
                         </RecordedPlayer>
                     </Box>
-                    {panelOpen && (
-                        <Box
-                            component="aside"
-                            sx={{
-                                minHeight: 0,
-                                height: { xs: '72dvh', lg: '100dvh' },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                color: 'text.primary',
-                                bgcolor: 'background.paper',
-                                borderLeft: { lg: 1 },
-                                borderTop: { xs: 1, lg: 0 },
-                                borderColor: 'divider',
-                            }}
-                        >
-                            <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
-                            <BottomNavigation
-                                showLabels
-                                value={panelTab}
-                                onChange={(_event, value: PanelTab) => setPanelTab(value)}
-                                sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
-                            >
-                                <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
-                                <BottomNavigationAction value="rules" label="ルール" icon={<RuleOutlined />} />
-                                <BottomNavigationAction
-                                    value="comments"
-                                    label={streaming && !streamingUsesJikkyo ? '字幕' : 'コメント'}
-                                    icon={streaming && !streamingUsesJikkyo ? <SubtitlesOutlined /> : <ChatBubbleOutlineOutlined />}
-                                />
-                                <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
-                            </BottomNavigation>
-                        </Box>
-                    )}
+                    <Box
+                        component="aside"
+                        aria-hidden={!panelOpen}
+                        sx={{
+                            minHeight: 0,
+                            minWidth: 0,
+                            height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            color: 'text.primary',
+                            bgcolor: 'background.paper',
+                            borderLeft: { lg: panelOpen || panelMounted ? 1 : 0 },
+                            borderTop: { xs: panelOpen || panelMounted ? 1 : 0, lg: 0 },
+                            borderColor: 'divider',
+                            overflow: 'hidden',
+                            opacity: panelOpen ? 1 : 0,
+                            transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
+                            pointerEvents: panelOpen ? 'auto' : 'none',
+                            transition: theme =>
+                                theme.transitions.create(['height', 'opacity', 'transform'], {
+                                    duration: 160,
+                                    easing: theme.transitions.easing.easeInOut,
+                                }),
+                            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                        }}
+                    >
+                        {(panelOpen || panelMounted) && (
+                            <>
+                                <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
+                                <BottomNavigation
+                                    showLabels
+                                    value={panelTab}
+                                    onChange={(_event, value: PanelTab) => setPanelTab(value)}
+                                    sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
+                                >
+                                    <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
+                                    <BottomNavigationAction value="rules" label="ルール" icon={<RuleOutlined />} />
+                                    <BottomNavigationAction
+                                        value="comments"
+                                        label={streaming && !streamingUsesJikkyo ? '字幕' : 'コメント'}
+                                        icon={streaming && !streamingUsesJikkyo ? <SubtitlesOutlined /> : <ChatBubbleOutlineOutlined />}
+                                    />
+                                    <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
+                                </BottomNavigation>
+                            </>
+                        )}
+                    </Box>
                 </Box>
             )}
         </Box>

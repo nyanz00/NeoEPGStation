@@ -10,6 +10,17 @@ interface WebkitFullscreenElement extends HTMLElement {
     webkitRequestFullscreen?: () => Promise<void> | void;
 }
 
+export interface DPlayerQualityOption {
+    index: number;
+    name: string;
+}
+
+interface DPlayerQualityControl {
+    options: DPlayerQualityOption[];
+    selectedIndex: number;
+    onChange: (index: number) => void;
+}
+
 function configurePictureInPicture(container: HTMLElement): void {
     const video = container.querySelector<HTMLVideoElement>('video');
     const buttons = container.querySelectorAll<HTMLElement>('.dplayer-pip-icon');
@@ -53,7 +64,9 @@ function isIPad(): boolean {
     return /iPad/i.test(navigator.userAgent) || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 }
 
-export function configureDPlayerUi(container: HTMLElement): HTMLElement {
+export function configureDPlayerUi(container: HTMLElement, closeSetting: () => void, captureVideoScreenshot: () => void, qualityControl?: DPlayerQualityControl): HTMLElement {
+    container.querySelectorAll<HTMLCanvasElement>('.dplayer-video-wrap-aspect > canvas').forEach(canvas => canvas.classList.add('neo-player-arib-canvas'));
+
     const versionLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('.dplayer-menu-item a')).find(link => link.textContent?.trim().startsWith('DPlayer v'));
     if (versionLink !== undefined) {
         versionLink.href = DPLAYER_REPOSITORY_URL;
@@ -69,6 +82,49 @@ export function configureDPlayerUi(container: HTMLElement): HTMLElement {
     }
 
     configurePictureInPicture(container);
+
+    if (qualityControl !== undefined) {
+        container.querySelectorAll<HTMLElement>('.dplayer-setting-quality-item').forEach((item, position) => {
+            item.addEventListener(
+                'click',
+                event => {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                    const option = qualityControl.options[position];
+                    if (option === undefined || option.index === qualityControl.selectedIndex) {
+                        closeSetting();
+                        return;
+                    }
+                    qualityControl.onChange(option.index);
+                },
+                { capture: true },
+            );
+        });
+    }
+
+    const cameraButton = container.querySelector<HTMLElement>('.dplayer-camera-icon');
+    cameraButton?.addEventListener(
+        'click',
+        event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            captureVideoScreenshot();
+        },
+        { capture: true },
+    );
+
+    const settingButton = container.querySelector<HTMLElement>('.dplayer-setting-icon');
+    const settingBox = container.querySelector<HTMLElement>('.dplayer-setting-box');
+    settingButton?.addEventListener(
+        'click',
+        event => {
+            if (settingBox?.classList.contains('dplayer-setting-box-open') !== true) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closeSetting();
+        },
+        { capture: true },
+    );
 
     const volume = container.querySelector<HTMLElement>('.dplayer-volume');
     if (volume !== null && container.querySelector('.neo-player-volume-percent') === null) {

@@ -29,6 +29,17 @@ interface RecordedVodHlsSegmentCommandOption {
     isHevc?: boolean;
 }
 
+export interface RecordedTsInputInfo {
+    serviceId: number;
+    videoPid: number;
+    audioPid: number;
+}
+
+interface RecordedVodHlsContinuousCommandOption extends Omit<RecordedVodHlsSegmentCommandOption, 'duration'> {
+    preroll: number;
+    tsInputInfo?: RecordedTsInputInfo;
+}
+
 interface EncodedVodHlsSegmentCommandOption extends RecordedVodHlsSegmentCommandOption {
     input: string;
     subtitleIndex?: number;
@@ -363,7 +374,7 @@ namespace WatchStreamProfileUtil {
 
     export const buildRecordedVodHlsContinuousCommand = (
         config: IConfigFile,
-        option: Omit<RecordedVodHlsSegmentCommandOption, 'duration'>,
+        option: RecordedVodHlsContinuousCommandOption,
     ): string => {
         const qualityName = option.qualityName ?? getRecordedDisplayQualityNames(config)[0];
         if (typeof qualityName === 'undefined') {
@@ -378,7 +389,7 @@ namespace WatchStreamProfileUtil {
                 encoder,
                 quality,
                 config.watch,
-                option.start,
+                option,
             );
         }
 
@@ -391,12 +402,22 @@ namespace WatchStreamProfileUtil {
             `-maxrate ${quality.videoBitrateMax}`,
             ...getFFmpegVideoCodecOptions(encoder, quality, 'hls'),
         ].join(' ');
+        const tsInput = option.tsInputInfo;
+        const input =
+            tsInput === undefined
+                ? '-f mpegts -analyzeduration 10000000 -probesize 32000000 -i pipe:0'
+                : '-f mpegts -analyzeduration 700000 -probesize 1000000 -i pipe:0';
+        const map =
+            tsInput === undefined
+                ? '-map 0:v:0 -map 0:a:0? -map 0:a:1? -map 0:d?'
+                : `-map 0:i:0x${tsInput.videoPid.toString(16)} -map 0:i:0x${tsInput.audioPid.toString(16)}? -map 0:d?`;
 
         return [
             config.ffmpeg,
             '-dual_mono_mode main',
-            '-f mpegts -analyzeduration 500000 -i pipe:0',
-            '-map 0:v:0 -map 0:a:0? -map 0:a:1? -map 0:d? -ignore_unknown',
+            input,
+            option.preroll > 0 ? `-ss ${option.preroll.toFixed(3)}` : '',
+            `${map} -ignore_unknown`,
             '-fflags nobuffer -flags low_delay -max_delay 0 -tune zerolatency -threads 0 -max_muxing_queue_size 1024',
             `-c:a aac -ar 48000 -b:a ${quality.audioBitrate} -ac 2`,
             '-c:d copy',
@@ -1037,10 +1058,13 @@ namespace WatchStreamProfileUtil {
         encoder: Exclude<WatchStreamEncoder, 'FFmpeg'>,
         quality: WatchQuality,
         watch: WatchStreamConfig | undefined,
-        start: number,
+        option: RecordedVodHlsContinuousCommandOption,
     ): string => {
+        const trimStartFrames = Math.max(0, Math.round(option.preroll * (30000 / 1001)));
         const options: string[] = [
-            '--input-format mpegts --input-probesize 1000K --input-analyze 0.7',
+            option.tsInputInfo === undefined
+                ? '--input-format mpegts --input-probesize 32000K --input-analyze 10'
+                : '--input-format mpegts --input-probesize 1000K --input-analyze 0.7',
             '--input -',
             encoder === 'VCEEncC' ? '--avsw' : '--avhw',
             '--audio-stream 1?:stereo --audio-stream 2?:stereo --data-copy timed_id3',
@@ -1066,8 +1090,9 @@ namespace WatchStreamProfileUtil {
             `--output-res ${quality.width}x${quality.height}`,
             `--audio-codec aac:aac_coder=twoloop --audio-bitrate ${quality.audioBitrate}`,
             '--audio-samplerate 48000 --audio-filter volume=2.0 --audio-ignore-decode-error 30',
-            `-m output_ts_offset:${Math.max(0, start).toFixed(3)}`,
+            `-m output_ts_offset:${Math.max(0, option.start).toFixed(3)}`,
             '--offset-video-dts-advance',
+            trimStartFrames > 0 ? `--trim ${trimStartFrames.toString(10)}:0` : '',
             '--output-format mpegts',
             '--output -',
         ].filter(item => item.length > 0);

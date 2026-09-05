@@ -20,7 +20,8 @@ import {
     RecordedStreamModelProvider,
 } from '../../service/stream/base/IRecordedStreamBaseModel';
 import IStreamManageModel from '../../service/stream/manager/IStreamManageModel';
-import WatchStreamProfileUtil from '../../service/stream/WatchStreamProfileUtil';
+import WatchStreamProfileUtil, { RecordedTsInputInfo } from '../../service/stream/WatchStreamProfileUtil';
+import IVideoAnalysisModel from '../../video/IVideoAnalysisModel';
 import IApiUtil from '../IApiUtil';
 import IPlayList from '../IPlayList';
 import IVideoUtil from '../video/IVideoUtil';
@@ -61,6 +62,7 @@ interface RecordedVODHLSVideoInfo {
     size: number;
     videoCodecName?: string;
     videoPixelFormat?: string;
+    tsInputInfo?: RecordedTsInputInfo;
 }
 
 interface SubtitleBurnInStyle {
@@ -207,6 +209,7 @@ interface RecordedVODHLSVideoInfoCacheEntry {
 }
 
 const VOD_HLS_SEEK_REBASE_MAX_GAP = 2;
+const RECORDED_VOD_HLS_TS_PREROLL_SEGMENTS = 1;
 
 export const shouldRebaseRecordedVodHlsSession = (
     startSequence: number,
@@ -233,6 +236,7 @@ interface RecordedVodHlsMuxSessionOption {
     startSequence: number;
     preprocessor: ProcessUtil.Cmds;
     command: string;
+    fallbackCommand?: string;
     log: ILogger;
     temporaryDir: string;
 }
@@ -243,14 +247,19 @@ class RecordedVodHlsMuxSession {
     public readonly startSequence: number;
 
     private static readonly SEGMENT_WAIT_TIMEOUT = 60 * 1000;
+    private static readonly FAST_INPUT_FALLBACK_TIMEOUT = 15 * 1000;
 
     private readonly option: RecordedVodHlsMuxSessionOption;
     private readonly directoryPromise: Promise<string>;
     private readonly processes: ChildProcess[] = [];
     private fileStream: fs.ReadStream | null = null;
     private isCompleted: boolean = false;
+    private isStopping: boolean = false;
     private startPromise: Promise<void> | null = null;
     private highestReadySequence: number;
+    private fallbackPromise: Promise<boolean> | null = null;
+    private fallbackStarted: boolean = false;
+    private processGeneration: number = 0;
 
     constructor(option: RecordedVodHlsMuxSessionOption) {
         this.option = option;
@@ -308,6 +317,7 @@ class RecordedVodHlsMuxSession {
     }
 
     public async cleanup(): Promise<void> {
+        this.isStopping = true;
         this.fileStream?.destroy();
 
         await Promise.all(this.processes.map(process => ProcessUtil.kill(process).catch(() => {})));
@@ -327,12 +337,13 @@ class RecordedVodHlsMuxSession {
             return this.startPromise;
         }
 
-        this.startPromise = this.startMuxer();
+        this.startPromise = this.startMuxer(this.option.command);
 
         return this.startPromise;
     }
 
-    private async startMuxer(): Promise<void> {
+    private async startMuxer(command: string): Promise<void> {
+        const generation = ++this.processGeneration;
         const dir = await this.directoryPromise;
         const segmentPath = path.join(dir, 'segment-%d.ts');
         const playlistPath = path.join(dir, 'playlist.m3u8');
@@ -343,7 +354,7 @@ class RecordedVodHlsMuxSession {
         const preProcessProcess = spawn(preprocessor.bin, preprocessor.args, {
             windowsHide: true,
         });
-        const encodeProcess = spawn(this.option.command, {
+        const encodeProcess = spawn(command, {
             shell: true,
             windowsHide: true,
         });
@@ -389,7 +400,7 @@ class RecordedVodHlsMuxSession {
         this.option.log.stream.debug(
             `create recorded VOD HLS TS continuous preprocessor: ${preprocessor.bin} ${preprocessor.args.join(' ')}`,
         );
-        this.option.log.stream.debug(`create recorded VOD HLS TS continuous process: ${this.option.command}`);
+        this.option.log.stream.debug(`create recorded VOD HLS TS continuous process: ${command}`);
         this.option.log.stream.debug(`create recorded VOD HLS TS muxer: ${config.ffmpeg}`);
 
         const captureProcess = (name: string, process: ChildProcess): void => {
@@ -402,7 +413,9 @@ class RecordedVodHlsMuxSession {
             process.on('exit', (code, signal) => {
                 const detail = stderr.trim();
                 const message = `recorded VOD HLS TS ${name} exited: code=${String(code)}, signal=${String(signal)}`;
-                if (code === 0 || (code === null && signal === null)) {
+                if (this.isStopping) {
+                    this.option.log.stream.debug(message);
+                } else if (code === 0 || (code === null && signal === null)) {
                     this.option.log.stream.info(message);
                 } else {
                     this.option.log.stream.warn(message + (detail.length === 0 ? '' : `\n${detail}`));
@@ -444,18 +457,30 @@ class RecordedVodHlsMuxSession {
         encodeProcess.stdout.pipe(hlsMuxProcess.stdin);
 
         hlsMuxProcess.on('exit', () => {
-            this.isCompleted = true;
+            if (generation === this.processGeneration) this.isCompleted = true;
         });
     }
 
     private async waitSegmentFile(sequence: number): Promise<string> {
         const dir = await this.directoryPromise;
         const segmentPath = path.join(dir, `segment-${sequence.toString(10)}.ts`);
-        const startedAt = Date.now();
+        let startedAt = Date.now();
 
         while (Date.now() - startedAt < RecordedVodHlsMuxSession.SEGMENT_WAIT_TIMEOUT) {
             if (fs.existsSync(segmentPath) === true && (await this.isFileStable(segmentPath)) === true) {
                 return segmentPath;
+            }
+
+            if (
+                fs.existsSync(segmentPath) === false &&
+                (this.isCompleted === true ||
+                    (this.option.fallbackCommand !== undefined &&
+                        this.fallbackStarted === false &&
+                        Date.now() - startedAt >= RecordedVodHlsMuxSession.FAST_INPUT_FALLBACK_TIMEOUT)) &&
+                (await this.startFallback())
+            ) {
+                startedAt = Date.now();
+                continue;
             }
 
             if (this.isCompleted === true && fs.existsSync(segmentPath) === false) {
@@ -466,6 +491,33 @@ class RecordedVodHlsMuxSession {
         }
 
         throw new Error('SegmentWaitTimeout');
+    }
+
+    private async startFallback(): Promise<boolean> {
+        if (this.fallbackPromise !== null) return this.fallbackPromise;
+        if (this.fallbackStarted || this.option.fallbackCommand === undefined || this.isStopping) return false;
+
+        this.fallbackPromise = (async () => {
+            this.fallbackStarted = true;
+            this.option.log.stream.warn('recorded VOD HLS fast TS input failed; retry with legacy analysis');
+            this.processGeneration += 1;
+            this.fileStream?.destroy();
+            const processes = this.processes.splice(0);
+            await Promise.all(processes.map(process => ProcessUtil.kill(process).catch(() => {})));
+            const dir = await this.directoryPromise;
+            const files = await fs.promises.readdir(dir).catch(() => []);
+            await Promise.all(files.map(file => fs.promises.rm(path.join(dir, file), { force: true }).catch(() => {})));
+            if (this.isStopping) return false;
+            this.isCompleted = false;
+            await this.startMuxer(this.option.fallbackCommand!);
+            return true;
+        })();
+
+        try {
+            return await this.fallbackPromise;
+        } finally {
+            this.fallbackPromise = null;
+        }
     }
 
     private async isFileStable(filePath: string): Promise<boolean> {
@@ -844,6 +896,7 @@ export default class StreamApiModel implements IStreamApiModel {
     private channelDB: IChannelDB;
     private apiUtil: IApiUtil;
     private videoUtil: IVideoUtil;
+    private videoAnalysis: IVideoAnalysisModel;
     private log: ILogger;
     private recordedVodHlsSessions: Map<string, RecordedVodHlsMuxSession> = new Map();
     private encodedVodHlsSessions: Map<string, EncodedVodHlsMuxSession> = new Map();
@@ -870,6 +923,7 @@ export default class StreamApiModel implements IStreamApiModel {
         @inject('IChannelDB') channelDB: IChannelDB,
         @inject('IApiUtil') apiUtil: IApiUtil,
         @inject('IVideoUtil') videoUtil: IVideoUtil,
+        @inject('IVideoAnalysisModel') videoAnalysis: IVideoAnalysisModel,
         @inject('ILoggerModel') logger: ILoggerModel,
     ) {
         this.configure = configure;
@@ -884,6 +938,7 @@ export default class StreamApiModel implements IStreamApiModel {
         this.channelDB = channelDB;
         this.apiUtil = apiUtil;
         this.videoUtil = videoUtil;
+        this.videoAnalysis = videoAnalysis;
         this.log = logger.getLogger();
         const cleanupTimer = setInterval(() => this.cleanupVodHlsSessions(), StreamApiModel.VOD_HLS_CLEANUP_INTERVAL);
         cleanupTimer.unref();
@@ -1597,30 +1652,48 @@ export default class StreamApiModel implements IStreamApiModel {
         }
 
         const config = this.configure.getConfig();
-        const preprocessor = await this.buildRecordedTsPreprocessor(option.videoFileId);
+        const preprocessor = await this.buildRecordedTsPreprocessor(option.videoFileId, videoInfo.tsInputInfo);
         if (typeof preprocessor === 'undefined') {
             throw new Error('RecordedVODHLSPreprocessorIsUndefined');
         }
         const segmentCount = Math.max(1, Math.ceil(videoInfo.duration / segmentDuration));
-        const startSequence = Math.min(
+        const requestedStartSequence = Math.min(
             Math.floor(
                 Math.min(Math.max(option.playPosition, 0), Math.max(videoInfo.duration - 0.001, 0)) / segmentDuration,
             ),
             segmentCount - 1,
         );
-        const startPosition = startSequence * segmentDuration;
-        const command = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config, {
+        // A PCR points at an accurate transport-stream time, but not necessarily at an
+        // MPEG-2 sequence header from which a hardware decoder can initialize. Feed one
+        // complete HLS segment as preroll, then let the encoder discard it. The output
+        // sequence, timestamp, and timed metadata therefore remain at the requested time.
+        const sourceStartSequence = Math.max(0, requestedStartSequence - RECORDED_VOD_HLS_TS_PREROLL_SEGMENTS);
+        const startPosition = requestedStartSequence * segmentDuration;
+        const sourceStartPosition = sourceStartSequence * segmentDuration;
+        const preroll = startPosition - sourceStartPosition;
+        const tsInputInfo = videoInfo.tsInputInfo;
+        const commandOption = {
             qualityName: option.quality,
             encoder: option.encoder,
             isHevc: option.isHevc,
             start: startPosition,
+            preroll: preroll,
+        };
+        const command = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config, {
+            ...commandOption,
+            tsInputInfo,
         });
+        const fallbackCommand =
+            tsInputInfo === undefined
+                ? undefined
+                : WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config, commandOption);
 
-        const pcrStartByte = await findMpegTsByteOffset(videoInfo.filePath, startPosition);
-        const estimatedByte = Math.floor((videoInfo.size * startPosition) / videoInfo.duration);
+        const pcrStartByte = await findMpegTsByteOffset(videoInfo.filePath, sourceStartPosition);
+        const estimatedByte = Math.floor((videoInfo.size * sourceStartPosition) / videoInfo.duration);
         const startByte = pcrStartByte ?? Math.max(0, estimatedByte - (estimatedByte % 188));
         this.log.stream.info(
-            `recorded VOD HLS TS seek: position=${startPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
+            `recorded VOD HLS TS seek: position=${startPosition.toFixed(3)}, ` +
+                `sourcePosition=${sourceStartPosition.toFixed(3)}, byte=${startByte.toString(10)}, ` +
                 `source=${pcrStartByte === null ? 'estimated' : 'pcr'}`,
         );
         const session = new RecordedVodHlsMuxSession({
@@ -1631,15 +1704,16 @@ export default class StreamApiModel implements IStreamApiModel {
             segmentCount: segmentCount,
             startByte: startByte,
             startPosition: startPosition,
-            startSequence: startSequence,
+            startSequence: requestedStartSequence,
             preprocessor: preprocessor,
             command: command,
+            fallbackCommand: fallbackCommand,
             log: this.log,
             temporaryDir: config.temporaryDir ?? os.tmpdir(),
         });
 
         this.recordedVodHlsSessions.set(sessionKey, session);
-        session.prefetch(startSequence);
+        session.prefetch(requestedStartSequence);
 
         return session;
     }
@@ -1873,17 +1947,18 @@ export default class StreamApiModel implements IStreamApiModel {
             throw new Error('GetVideoFilePathError');
         }
 
-        const videoInfo = await this.videoUtil.getInfo(filePath);
-        if (Number.isFinite(videoInfo.duration) === false || videoInfo.duration <= 0) {
+        const analysis = await this.videoAnalysis.get(videoFileId);
+        if (analysis.duration === null || Number.isFinite(analysis.duration) === false || analysis.duration <= 0) {
             throw new Error('VideoDurationIsInvalid');
         }
 
         return {
-            duration: videoInfo.duration,
+            duration: analysis.duration,
             filePath: filePath,
-            size: (await fs.promises.stat(filePath)).size,
-            videoCodecName: videoInfo.videoCodecName,
-            videoPixelFormat: videoInfo.videoPixelFormat,
+            size: analysis.size,
+            videoCodecName: analysis.videoCodec ?? undefined,
+            videoPixelFormat: analysis.pixelFormat ?? undefined,
+            tsInputInfo: this.toRecordedTsInputInfo(analysis.ts),
         };
     }
 
@@ -1933,7 +2008,10 @@ export default class StreamApiModel implements IStreamApiModel {
         return params.toString();
     }
 
-    private async buildRecordedTsPreprocessor(videoFileId: apid.VideoFileId): Promise<ProcessUtil.Cmds | undefined> {
+    private async buildRecordedTsPreprocessor(
+        videoFileId: apid.VideoFileId,
+        cachedTsInputInfo?: RecordedTsInputInfo,
+    ): Promise<ProcessUtil.Cmds | undefined> {
         const config = this.configure.getConfig();
         const video = await this.videoFileDB.findId(videoFileId);
         if (video === null) {
@@ -1952,7 +2030,10 @@ export default class StreamApiModel implements IStreamApiModel {
 
         const filePath = this.videoUtil.getFullFilePathFromVideoFile(video);
         let serviceId = channel.serviceId;
-        if (filePath !== null) {
+        const tsInputInfo = cachedTsInputInfo ?? (await this.getRecordedTsInputInfo(videoFileId));
+        if (tsInputInfo !== undefined) {
+            serviceId = tsInputInfo.serviceId;
+        } else if (filePath !== null) {
             try {
                 const detectedServiceId = await this.videoUtil.getMpegTsServiceId(filePath);
                 if (detectedServiceId !== null) {
@@ -1969,6 +2050,33 @@ export default class StreamApiModel implements IStreamApiModel {
         );
 
         return WatchStreamProfileUtil.buildTsreadexLiveCommand(config, serviceId);
+    }
+
+    private async getRecordedTsInputInfo(videoFileId: apid.VideoFileId): Promise<RecordedTsInputInfo | undefined> {
+        try {
+            const analysis = await this.videoAnalysis.get(videoFileId);
+            const result = this.toRecordedTsInputInfo(analysis.ts);
+            if (result === undefined) return undefined;
+            this.log.stream.debug(
+                `use recorded TS analysis: videoFileId=${videoFileId.toString(10)}, serviceId=${result.serviceId.toString(10)}, ` +
+                    `videoPid=0x${result.videoPid.toString(16)}, audioPid=0x${result.audioPid.toString(16)}`,
+            );
+            return result;
+        } catch (err: any) {
+            this.log.stream.warn(`recorded TS analysis lookup failed: ${err.message}`);
+            return undefined;
+        }
+    }
+
+    private toRecordedTsInputInfo(
+        ts: Awaited<ReturnType<IVideoAnalysisModel['get']>>['ts'],
+    ): RecordedTsInputInfo | undefined {
+        if (ts === null || ts.serviceId === null || ts.videoPid === null || ts.audioPid === null) return undefined;
+        return {
+            serviceId: ts.serviceId,
+            videoPid: ts.videoPid,
+            audioPid: ts.audioPid,
+        };
     }
 
     /**
