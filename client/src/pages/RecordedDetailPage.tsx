@@ -22,8 +22,8 @@ import {
     FormControlLabel,
     IconButton,
     InputLabel,
-    Menu,
     MenuItem,
+    Popover,
     Select,
     Stack,
     TextField,
@@ -65,22 +65,35 @@ function VideoActionButton({
     const [anchor, setAnchor] = useState<HTMLElement | null>(null);
     return (
         <>
-            <Button variant="contained" color={color} startIcon={icon} onClick={event => (files.length === 1 ? onSelect(files[0]) : setAnchor(event.currentTarget))}>
+            <Button variant="contained" color={color} startIcon={icon} onClick={event => setAnchor(event.currentTarget)}>
                 {label}
             </Button>
-            <Menu anchorEl={anchor} open={anchor !== null} onClose={() => setAnchor(null)}>
-                {files.map(file => (
-                    <MenuItem
-                        key={file.id}
-                        onClick={() => {
-                            setAnchor(null);
-                            onSelect(file);
-                        }}
-                    >
-                        {file.name}
-                    </MenuItem>
-                ))}
-            </Menu>
+            <Popover
+                anchorEl={anchor}
+                open={anchor !== null}
+                onClose={() => setAnchor(null)}
+                disableScrollLock
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                slotProps={{ paper: { sx: { maxWidth: 220, p: 1 } } }}
+            >
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                    {files.map(file => (
+                        <Button
+                            key={file.id}
+                            variant="contained"
+                            color="success"
+                            size="small"
+                            onClick={() => {
+                                setAnchor(null);
+                                onSelect(file);
+                            }}
+                        >
+                            {file.name}
+                        </Button>
+                    ))}
+                </Box>
+            </Popover>
         </>
     );
 }
@@ -569,6 +582,7 @@ export function RecordedDetailPage(): ReactNode {
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded-detail', recordedId] })}
                     onDeleted={goBack}
                     includeDownload
+                    detailActionOrder
                 />
             )}
             {recorded.isPending ? (
@@ -680,7 +694,7 @@ export function RecordedDetailPage(): ReactNode {
                 </Box>
             )}
 
-            <Dialog open={thumbnailOpen} onClose={() => setThumbnailOpen(false)} fullWidth maxWidth="xs">
+            <Dialog open={thumbnailOpen} onClose={() => setThumbnailOpen(false)} fullWidth maxWidth="xs" disableScrollLock>
                 <DialogTitle>サムネイル再生成</DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" sx={{ mb: 2 }}>
@@ -788,7 +802,7 @@ export function RecordedDetailPage(): ReactNode {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={encodeOpen} onClose={closeEncodeDialog} fullWidth maxWidth="sm">
+            <Dialog open={encodeOpen} onClose={closeEncodeDialog} fullWidth maxWidth="sm" disableScrollLock>
                 <DialogTitle>エンコード追加</DialogTitle>
                 <DialogContent>
                     <Stack spacing={2} sx={{ pt: 1 }}>

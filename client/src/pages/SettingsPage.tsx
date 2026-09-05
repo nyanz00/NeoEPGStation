@@ -993,6 +993,16 @@ export function SettingsPage(): ReactNode {
                                         }
                                     />
                                     <SettingRow
+                                        title="字幕の抽出が完了してからPLAY再生を開始する"
+                                        description="オンにすると、最初に表示する字幕と弾幕を約3分先行抽出してからPLAYを開始します。残りは再生中に抽出します。"
+                                        control={
+                                            <Switch
+                                                checked={draft.watchWaitForPlaySubtitleExtraction}
+                                                onChange={event => patch('watchWaitForPlaySubtitleExtraction', event.target.checked)}
+                                            />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="STREAMING字幕サイズ"
                                         description="焼き込み字幕の文字サイズを元の字幕に対する割合で調整します。"
                                         control={
@@ -1050,6 +1060,33 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchPlaySubtitleDanmaku} onChange={event => patch('watchPlaySubtitleDanmaku', event.target.checked)} />}
                                     />
                                     <SettingRow
+                                        title="danmakuを高リフレッシュレートで描画（実験的機能）"
+                                        description="WebGL2でコメント画像をまとめて描画し、ブラウザが通知する更新頻度で動かします。WebGL2を利用できない環境では従来の描画方式へ自動的に戻ります。"
+                                        control={
+                                            <Switch checked={draft.watchDanmakuHighRefreshRate} onChange={event => patch('watchDanmakuHighRefreshRate', event.target.checked)} />
+                                        }
+                                    />
+                                    <SettingRow
+                                        title="danmaku描画フレームレート上限"
+                                        description="Chromiumが異なるリフレッシュレートのモニターを正しく判別できない場合に、コメント描画の上限を指定します。自動ではブラウザの測定値を使用します。"
+                                        control={
+                                            <FormControl size="small" sx={{ minWidth: 220 }}>
+                                                <InputLabel>描画上限</InputLabel>
+                                                <Select
+                                                    label="描画上限"
+                                                    value={draft.watchDanmakuFrameRateLimit}
+                                                    onChange={event => patch('watchDanmakuFrameRateLimit', event.target.value as AppSettings['watchDanmakuFrameRateLimit'])}
+                                                >
+                                                    <MenuItem value="auto">自動</MenuItem>
+                                                    <MenuItem value="60">60 fps</MenuItem>
+                                                    <MenuItem value="72">72 fps</MenuItem>
+                                                    <MenuItem value="120">120 fps</MenuItem>
+                                                    <MenuItem value="144">144 fps</MenuItem>
+                                                </Select>
+                                            </FormControl>
+                                        }
+                                    />
+                                    <SettingRow
                                         title="下部再生UIを常時表示"
                                         description="映像の下に再生操作を常時表示します。上部・中央UIは従来どおり必要なときだけ表示します。"
                                         control={
@@ -1088,20 +1125,6 @@ export function SettingsPage(): ReactNode {
                                         title="リジューム再生"
                                         description="PLAY／STREAMINGの再生位置を現在のEPGStationユーザーごとに保存し、次回同じ位置から再開します"
                                         control={<Switch checked={draft.watchResumePlayback} onChange={event => patch('watchResumePlayback', event.target.checked)} />}
-                                    />
-                                    <SettingRow
-                                        title="視聴履歴の保存件数"
-                                        description="EPGStationユーザーごとに保持する録画番組の視聴履歴件数"
-                                        control={
-                                            <TextField
-                                                type="number"
-                                                size="small"
-                                                value={draft.watchHistoryLength}
-                                                onChange={event => patch('watchHistoryLength', Number(event.target.value))}
-                                                slotProps={{ htmlInput: { min: 1, max: 200, step: 1 } }}
-                                                sx={{ width: 120 }}
-                                            />
-                                        }
                                     />
                                     <SettingRow
                                         title="字幕の縁取り"
@@ -1184,6 +1207,16 @@ export function SettingsPage(): ReactNode {
 
                         {activeSettingsTab === 'display' && (
                             <SettingSection title="表示設定">
+                                <SettingRow
+                                    title="バージョン更新通知"
+                                    description="ダッシュボードに新しい安定版があることを表示する"
+                                    control={
+                                        <Switch
+                                            checked={draft.isShowVersionUpdateNotification}
+                                            onChange={event => patch('isShowVersionUpdateNotification', event.target.checked)}
+                                        />
+                                    }
+                                />
                                 <SettingRow
                                     title="放映中を放送波ごとのタブで表示"
                                     description="放映中を一つの一覧ではなく、地デジ・BS・CSなどのタブへ分ける"
@@ -1278,6 +1311,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.recordedLength}
                                             onChange={event => patch('recordedLength', Number(event.target.value))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1290,6 +1324,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.reservesLength}
                                             onChange={event => patch('reservesLength', Math.max(1, Number(event.target.value)))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1302,6 +1337,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.recordingLength}
                                             onChange={event => patch('recordingLength', Math.max(1, Number(event.target.value)))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1314,6 +1350,7 @@ export function SettingsPage(): ReactNode {
                                             value={draft.rulesLength}
                                             onChange={event => patch('rulesLength', Math.max(1, Number(event.target.value)))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -1326,6 +1363,21 @@ export function SettingsPage(): ReactNode {
                                             value={draft.searchLength}
                                             onChange={event => patch('searchLength', Number(event.target.value))}
                                             slotProps={{ htmlInput: { min: 1 } }}
+                                            sx={{ width: 120 }}
+                                        />
+                                    }
+                                />
+                                <SettingRow
+                                    title="視聴履歴の保存件数"
+                                    description="EPGStationユーザーごとに保持する録画番組の視聴履歴件数"
+                                    control={
+                                        <TextField
+                                            type="number"
+                                            size="small"
+                                            value={draft.watchHistoryLength}
+                                            onChange={event => patch('watchHistoryLength', Number(event.target.value))}
+                                            slotProps={{ htmlInput: { min: 1, max: 200, step: 1 } }}
+                                            sx={{ width: 120 }}
                                         />
                                     }
                                 />
@@ -2236,6 +2288,11 @@ export function SettingsPage(): ReactNode {
                                             onChange={event => patch('annictDisableRulesOnFinalEpisode', event.target.checked)}
                                         />
                                     }
+                                />
+                                <SettingRow
+                                    title="有料放送局を除外"
+                                    description="オンにすると、アニメ作品詳細の受信可能局とルール作成候補に有料放送局を含めません。"
+                                    control={<Switch checked={draft.annictExcludePaidChannels} onChange={event => patch('annictExcludePaidChannels', event.target.checked)} />}
                                 />
                             </SettingSection>
                         )}

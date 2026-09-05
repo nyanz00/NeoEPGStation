@@ -18,8 +18,8 @@ export const appIconSets: readonly AppIconSet[] = [
         id: 'neo',
         label: 'NeoEPGStation',
         favicon: 'favicon-neo.png',
-        icon192: 'icon-192-neo-center80.png',
-        icon512: 'icon-512-neo-center80.png',
+        icon192: 'icon-192-neo-max.png',
+        icon512: 'icon-512-neo-max.png',
         ios: 'ios-neo.png',
         original: 'neo.png',
         manifest: 'manifest.json',
@@ -28,8 +28,8 @@ export const appIconSets: readonly AppIconSet[] = [
         id: 'nyanz-tv',
         label: 'nyanzTV',
         favicon: 'favicon-nyanzTV.png',
-        icon192: 'icon-192-nyanzTV-center80.png',
-        icon512: 'icon-512-nyanzTV-center80.png',
+        icon192: 'icon-192-nyanzTV-max.png',
+        icon512: 'icon-512-nyanzTV-max.png',
         ios: 'ios-nyanzTV.png',
         original: 'nyanzTV.png',
         manifest: 'manifest-nyanzTV.json',
@@ -63,7 +63,7 @@ export function applyAppIconSet(value: unknown): void {
     const favicon = document.querySelector<HTMLLinkElement>('#app-favicon, link[rel="icon"]');
     const appleTouchIcon = document.querySelector<HTMLLinkElement>('#app-apple-touch-icon, link[rel="apple-touch-icon"]');
     const manifest = document.querySelector<HTMLLinkElement>('#app-manifest, link[rel="manifest"]');
-    if (favicon !== null) favicon.href = `${appIconAssetUrl(iconSet.favicon)}?v=2`;
-    if (appleTouchIcon !== null) appleTouchIcon.href = `${appIconAssetUrl(iconSet.ios)}?v=2`;
-    if (manifest !== null) manifest.href = `${withBasePath(`/${iconSet.manifest}`)}?icon-set=${iconSet.id}&v=2`;
+    if (favicon !== null) favicon.href = `${appIconAssetUrl(iconSet.favicon)}?v=3`;
+    if (appleTouchIcon !== null) appleTouchIcon.href = `${appIconAssetUrl(iconSet.ios)}?v=3`;
+    if (manifest !== null) manifest.href = `${withBasePath(`/${iconSet.manifest}`)}?icon-set=${iconSet.id}&v=3`;
 }

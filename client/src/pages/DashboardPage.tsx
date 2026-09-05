@@ -21,8 +21,20 @@ function formatDate(value: number): string {
     }).format(new Date(value));
 }
 
-function ProgramCard({ item, channel, thumbnailId, onClick }: { item: RecordedItem | ReserveItem; channel?: ChannelItem; thumbnailId?: number; onClick?: () => void }): ReactNode {
-    const showThumbnail = thumbnailId !== undefined || channel !== undefined;
+function ProgramCard({
+    item,
+    channel,
+    thumbnailId,
+    onClick,
+    showVisual = true,
+}: {
+    item: RecordedItem | ReserveItem;
+    channel?: ChannelItem;
+    thumbnailId?: number;
+    onClick?: () => void;
+    showVisual?: boolean;
+}): ReactNode {
+    const showThumbnail = showVisual && (thumbnailId !== undefined || channel !== undefined);
     return (
         <Card variant="outlined" sx={{ overflow: 'hidden' }}>
             <CardActionArea
@@ -107,6 +119,12 @@ export function DashboardPage(): ReactNode {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const version = useQuery({ queryKey: ['version'], queryFn: api.getVersion, staleTime: 60_000 });
+    const updateInfo = useQuery({
+        queryKey: ['system-update'],
+        queryFn: () => api.getSystemUpdateInfo(false),
+        staleTime: 10 * 60_000,
+        enabled: settings.isShowVersionUpdateNotification,
+    });
     const userId = typeof activeUser === 'number' ? activeUser : undefined;
     const [recording, recorded, reserves, reserveCounts, channels] = useQueries({
         queries: [
@@ -144,7 +162,18 @@ export function DashboardPage(): ReactNode {
                     <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                         <Typography component="h1" variant="h6" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '1.25rem' } }}>
                             NeoEPGStation v{version.data?.version ?? '1.0.0-beta.2'}
+                            {version.data?.branch === 'develop' ? ' +dev' : ''}
                         </Typography>
+                        {settings.isShowVersionUpdateNotification && updateInfo.data?.hasStableUpdate === true && (
+                            <Chip
+                                size="small"
+                                color="primary"
+                                label="更新あり"
+                                onClick={() => void navigate('/system')}
+                                aria-label={`${updateInfo.data.targets.stable?.label ?? '新しい安定版'}へ更新できます`}
+                                sx={{ cursor: 'pointer', flex: '0 0 auto' }}
+                            />
+                        )}
                         {!settings.isAppLogoHidden && <Box component="img" src={appIconAssetUrl(logoIcon)} alt="" sx={{ height: 25, width: 'auto', flex: '0 0 auto' }} />}
                     </Box>
                 }
@@ -197,7 +226,7 @@ export function DashboardPage(): ReactNode {
                     </DashboardColumn>
                     <DashboardColumn title="予約" total={reserves.data?.total} morePath="/reserves?type=normal" badge={reserveCounts.data?.conflicts}>
                         {reserves.data?.reserves.map(item => (
-                            <ProgramCard key={item.id} item={item} />
+                            <ProgramCard key={item.id} item={item} channel={channelMap.get(item.channelId)} showVisual={false} />
                         ))}
                         {reserves.data?.reserves.length === 0 && <Typography color="text.secondary">予約はありません</Typography>}
                     </DashboardColumn>

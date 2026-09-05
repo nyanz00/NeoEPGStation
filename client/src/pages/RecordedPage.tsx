@@ -109,6 +109,17 @@ function formatElapsedTime(totalSeconds: number): string {
     return [hours, minutes, seconds].map(value => String(value).padStart(2, '0')).join(':');
 }
 
+function formatFileSize(size: number): string {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    let unitIndex = 0;
+    let value = Math.max(0, size);
+    while (value >= 1000 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex++;
+    }
+    return `${value.toFixed(1)}${units[unitIndex]}`;
+}
+
 interface RecordedReturnPosition {
     url: string;
     recordedId: number;
@@ -840,6 +851,7 @@ export function RecordedPage(): ReactNode {
     );
     const totalPages = Math.max(1, Math.ceil((records.data?.total ?? 0) / settings.recordedLength));
     const selectedRecords = records.data?.records.filter(item => selected.has(item.id)) ?? [];
+    const selectedSize = selectedRecords.reduce((total, item) => total + (item.videoFiles?.reduce((subtotal, videoFile) => subtotal + videoFile.size, 0) ?? 0), 0);
     const hasEncodingSelection = selectedRecords.some(item => item.isEncoding);
     useEffect(() => {
         if (records.isSuccess && page > totalPages) changePage(totalPages, true);
@@ -893,7 +905,7 @@ export function RecordedPage(): ReactNode {
     return (
         <>
             <PageHeader
-                title={editMode ? `${selected.size} 件選択` : '録画済み'}
+                title={editMode ? `${selected.size} 件選択 (${formatFileSize(selectedSize)})` : '録画済み'}
                 actions={
                     editMode ? (
                         <Stack direction="row" spacing={0.5}>
