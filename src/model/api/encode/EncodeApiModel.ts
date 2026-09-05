@@ -34,10 +34,11 @@ export default class EncodeApiModel implements IEncodeApiModel {
      */
     public async getAll(isHalfWidth: boolean): Promise<apid.EncodeInfo> {
         const info = this.encodeManage.getEncodeInfo();
-        if (info.runningQueue.length === 0 && info.waitQueue.length === 0) {
+        if (info.runningQueue.length === 0 && info.waitQueue.length === 0 && info.scheduledQueue.length === 0) {
             return {
                 runningItems: [],
                 waitItems: [],
+                scheduledItems: [],
             };
         }
 
@@ -47,6 +48,9 @@ export default class EncodeApiModel implements IEncodeApiModel {
             recordedIds.push(i.recordedId);
         }
         for (const i of info.waitQueue) {
+            recordedIds.push(i.recordedId);
+        }
+        for (const i of info.scheduledQueue) {
             recordedIds.push(i.recordedId);
         }
         // 重複削除
@@ -63,6 +67,7 @@ export default class EncodeApiModel implements IEncodeApiModel {
         const result: apid.EncodeInfo = {
             runningItems: [],
             waitItems: [],
+            scheduledItems: [],
         };
 
         // エンコード中
@@ -95,6 +100,21 @@ export default class EncodeApiModel implements IEncodeApiModel {
                 id: i.id,
                 mode: i.mode,
                 recorded: this.recordedItemUtil.convertRecordedToRecordedItem(recordedItem, isHalfWidth, {}),
+            });
+        }
+
+        // エンコード開始予約
+        for (const i of info.scheduledQueue) {
+            const recordedItem = recordedIndex[i.recordedId];
+            if (typeof recordedItem === 'undefined' || typeof i.scheduledAt === 'undefined') {
+                continue;
+            }
+
+            result.scheduledItems.push({
+                id: i.id,
+                mode: i.mode,
+                recorded: this.recordedItemUtil.convertRecordedToRecordedItem(recordedItem, isHalfWidth, {}),
+                scheduledAt: i.scheduledAt,
             });
         }
 

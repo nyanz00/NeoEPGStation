@@ -1,6 +1,6 @@
 import { ChildProcess } from 'child_process';
+import axios from 'axios';
 import * as events from 'events';
-import * as fs from 'fs';
 import * as iconv from 'iconv-lite';
 import { inject, injectable } from 'inversify';
 import * as net from 'net';
@@ -45,12 +45,21 @@ interface AmatsukazePushStatus {
     updatedAt: number;
 }
 
-interface AmatsukazeUnfinishedTaskCancellation {
-    requestedTaskIds: Set<number> | null;
-    resolve: (count: number) => void;
-    reject: (err: Error) => void;
-    timeoutId: NodeJS.Timeout;
-    onLog: (message: string) => void;
+interface AmatsukazeRestQueueItem {
+    id: number;
+    srcPath: string;
+    state: string;
+    stateLabel: string;
+    stateDetailText: string;
+    progress: number;
+    consoleId: number;
+    encodeStart: string | null;
+    encodeFinish: string | null;
+}
+
+interface AmatsukazeRestQueueView {
+    items?: AmatsukazeRestQueueItem[];
+    Items?: AmatsukazeRestQueueItem[];
 }
 
 class AmatsukazePushConnection {
@@ -62,15 +71,13 @@ class AmatsukazePushConnection {
     private static readonly RECONNECT_MIN_DELAY_MS = 1000;
     private static readonly RECONNECT_MAX_DELAY_MS = 30 * 1000;
     private static readonly connections: Map<string, AmatsukazePushConnection> = new Map();
-    // Keep a successful promise for the process lifetime so later restored jobs do not
-    // cancel jobs that were freshly submitted after the recovery snapshot.
-    private static readonly restartRecoveryPromises: Map<string, Promise<number>> = new Map();
 
     public static subscribe(
         host: string,
         port: number,
         inputFilePath: string,
         initialTaskId: number | null,
+        initialConsoleId: number | null,
         allowRecoveryFallback: boolean,
         onUpdate: (status: AmatsukazePushStatus) => void,
         onTaskMatched: (taskId: number) => void,
@@ -86,6 +93,7 @@ class AmatsukazePushConnection {
         return connection.subscribe(
             inputFilePath,
             initialTaskId,
+            initialConsoleId,
             allowRecoveryFallback,
             onUpdate,
             onTaskMatched,
@@ -113,26 +121,6 @@ class AmatsukazePushConnection {
         }
     }
 
-    public static cancelUnfinishedTasks(host: string, port: number, onLog: (message: string) => void): Promise<number> {
-        const key = `${host}:${port}`;
-        const existingPromise = AmatsukazePushConnection.restartRecoveryPromises.get(key);
-        if (typeof existingPromise !== 'undefined') return existingPromise;
-
-        let connection = AmatsukazePushConnection.connections.get(key);
-        if (typeof connection === 'undefined') {
-            connection = new AmatsukazePushConnection(key, host, port);
-            AmatsukazePushConnection.connections.set(key, connection);
-        }
-        const recoveryPromise = connection.cancelUnfinishedTasks(onLog).catch(err => {
-            if (AmatsukazePushConnection.restartRecoveryPromises.get(key) === recoveryPromise) {
-                AmatsukazePushConnection.restartRecoveryPromises.delete(key);
-            }
-            throw err;
-        });
-        AmatsukazePushConnection.restartRecoveryPromises.set(key, recoveryPromise);
-        return recoveryPromise;
-    }
-
     private static decodeXml(value: string): string {
         return value
             .replace(/&lt;/g, '<')
@@ -149,7 +137,6 @@ class AmatsukazePushConnection {
     private idleCloseTimerId: NodeJS.Timeout | null = null;
     private reconnectTimerId: NodeJS.Timeout | null = null;
     private reconnectAttempts: number = 0;
-    private unfinishedTaskCancellation: AmatsukazeUnfinishedTaskCancellation | null = null;
     private readonly decoder: TextDecoder = new TextDecoder('shift_jis');
 
     private constructor(
@@ -161,6 +148,7 @@ class AmatsukazePushConnection {
     private subscribe(
         inputFilePath: string,
         initialTaskId: number | null,
+        initialConsoleId: number | null,
         allowRecoveryFallback: boolean,
         onUpdate: (status: AmatsukazePushStatus) => void,
         onTaskMatched: (taskId: number) => void,
@@ -176,6 +164,7 @@ class AmatsukazePushConnection {
             this,
             inputFilePath,
             initialTaskId,
+            initialConsoleId,
             allowRecoveryFallback,
             onUpdate,
             onTaskMatched,
@@ -189,13 +178,13 @@ class AmatsukazePushConnection {
 
     public unsubscribe(subscriptionId: number): void {
         this.subscriptions.delete(subscriptionId);
-        if (this.hasWork() || this.idleCloseTimerId !== null) {
+        if (this.subscriptions.size > 0 || this.idleCloseTimerId !== null) {
             return;
         }
 
         this.idleCloseTimerId = setTimeout(() => {
             this.idleCloseTimerId = null;
-            if (this.hasWork() === false) {
+            if (this.subscriptions.size === 0) {
                 this.stop();
             }
         }, AmatsukazePushConnection.IDLE_CLOSE_DELAY_MS);
@@ -266,35 +255,8 @@ class AmatsukazePushConnection {
         return frame;
     }
 
-    private cancelUnfinishedTasks(onLog: (message: string) => void): Promise<number> {
-        if (this.unfinishedTaskCancellation !== null) {
-            return Promise.reject(new Error('Amatsukaze unfinished task cancellation is already running'));
-        }
-
-        if (this.idleCloseTimerId !== null) {
-            clearTimeout(this.idleCloseTimerId);
-            this.idleCloseTimerId = null;
-        }
-        return new Promise<number>((resolve, reject) => {
-            const timeoutId = setTimeout(() => {
-                if (this.unfinishedTaskCancellation?.timeoutId !== timeoutId) return;
-                this.unfinishedTaskCancellation = null;
-                reject(new Error('Amatsukaze unfinished task cancellation timed out'));
-                this.scheduleIdleStop();
-            }, 15_000);
-            this.unfinishedTaskCancellation = {
-                requestedTaskIds: null,
-                resolve,
-                reject,
-                timeoutId,
-                onLog,
-            };
-            this.start();
-        });
-    }
-
     private start(): void {
-        if (this.socket !== null || this.reconnectTimerId !== null || this.hasWork() === false) {
+        if (this.socket !== null || this.reconnectTimerId !== null || this.subscriptions.size === 0) {
             return;
         }
 
@@ -324,7 +286,7 @@ class AmatsukazePushConnection {
     }
 
     private scheduleReconnect(): void {
-        if (this.hasWork() === false || this.reconnectTimerId !== null) return;
+        if (this.subscriptions.size === 0 || this.reconnectTimerId !== null) return;
         const delay = Math.min(
             AmatsukazePushConnection.RECONNECT_MAX_DELAY_MS,
             AmatsukazePushConnection.RECONNECT_MIN_DELAY_MS * 2 ** Math.min(this.reconnectAttempts, 5),
@@ -350,18 +312,6 @@ class AmatsukazePushConnection {
         this.recvBuffer = Buffer.alloc(0);
         this.reconnectAttempts = 0;
         AmatsukazePushConnection.connections.delete(this.key);
-    }
-
-    private hasWork(): boolean {
-        return this.subscriptions.size > 0 || this.unfinishedTaskCancellation !== null;
-    }
-
-    private scheduleIdleStop(): void {
-        if (this.hasWork() || this.idleCloseTimerId !== null) return;
-        this.idleCloseTimerId = setTimeout(() => {
-            this.idleCloseTimerId = null;
-            if (this.hasWork() === false) this.stop();
-        }, 1_000);
     }
 
     private onData(chunk: Buffer): void {
@@ -418,62 +368,9 @@ class AmatsukazePushConnection {
     }
 
     private handleUIData(xml: string): void {
-        this.handleUnfinishedTaskCancellation(xml);
         for (const subscription of this.subscriptions.values()) {
             subscription.handleUIData(xml);
         }
-    }
-
-    private handleUnfinishedTaskCancellation(xml: string): void {
-        const request = this.unfinishedTaskCancellation;
-        if (request === null) return;
-        const queueUpdate = AmatsukazePushConnection.readTag(xml, 'QueueUpdate');
-        if (typeof queueUpdate === 'undefined') return;
-
-        const activeTaskIds = new Set(
-            AmatsukazePushConnection.readTags(queueUpdate, 'Item')
-                .map(item => ({
-                    id: Number(AmatsukazePushConnection.readTag(item, 'Id')),
-                    state: (AmatsukazePushConnection.readTag(item, 'State') ?? '').trim().toLowerCase(),
-                }))
-                .filter(item => {
-                    return (
-                        Number.isNaN(item.id) === false &&
-                        item.state.length > 0 &&
-                        !['complete', 'failed', 'prefailed', 'canceled'].includes(item.state)
-                    );
-                })
-                .map(item => item.id),
-        );
-
-        if (request.requestedTaskIds === null) {
-            request.requestedTaskIds = activeTaskIds;
-            if (activeTaskIds.size === 0) {
-                request.onLog('amatsukaze restart recovery found no unfinished tasks');
-                this.finishUnfinishedTaskCancellation(0);
-                return;
-            }
-            request.onLog(
-                `amatsukaze restart recovery canceling ${activeTaskIds.size.toString(10)} unfinished task(s)`,
-            );
-            for (const taskId of activeTaskIds) {
-                this.sendFrame(this.createChangeItemFrame(taskId));
-            }
-            return;
-        }
-
-        const remaining = [...request.requestedTaskIds].filter(taskId => activeTaskIds.has(taskId));
-        if (remaining.length === 0) this.finishUnfinishedTaskCancellation(request.requestedTaskIds.size);
-    }
-
-    private finishUnfinishedTaskCancellation(count: number): void {
-        const request = this.unfinishedTaskCancellation;
-        if (request === null) return;
-        clearTimeout(request.timeoutId);
-        this.unfinishedTaskCancellation = null;
-        request.onLog(`amatsukaze restart recovery canceled ${count.toString(10)} unfinished task(s)`);
-        request.resolve(count);
-        this.scheduleIdleStop();
     }
 
     private notifyConnected(isConnected: boolean): void {
@@ -521,7 +418,7 @@ class AmatsukazePushSubscription {
     };
     private taskId: number | null;
     private consoleTail: string = '';
-    private consoleMatchSource: 'none' | 'fallback' | 'queue' = 'none';
+    private consoleMatchSource: 'none' | 'persisted' | 'fallback' | 'queue' = 'none';
     private hasConnectedOnce: boolean = false;
 
     constructor(
@@ -529,12 +426,22 @@ class AmatsukazePushSubscription {
         private readonly connection: AmatsukazePushConnection,
         private readonly inputFilePath: string,
         initialTaskId: number | null,
+        initialConsoleId: number | null,
         private readonly allowRecoveryFallback: boolean,
         private readonly onUpdate: (status: AmatsukazePushStatus) => void,
         private readonly onTaskMatched: (taskId: number) => void,
         private readonly onLog: (message: string) => void,
     ) {
         this.taskId = initialTaskId;
+        if (initialConsoleId !== null && initialConsoleId >= 0) {
+            this.consoleMatchSource = 'persisted';
+            this.status = {
+                ...this.status,
+                isMatched: initialTaskId !== null,
+                consoleId: initialConsoleId,
+                updatedAt: Date.now(),
+            };
+        }
     }
 
     public stop(): void {
@@ -654,7 +561,7 @@ class AmatsukazePushSubscription {
         } else if (stateChangeEvent === 'EncodeFailed' || stateChangeEvent === 'EncodeCanceled') {
             this.status = {
                 ...this.status,
-                errorMessage: stateChangeEvent,
+                errorMessage: this.status.errorMessage || stateChangeEvent,
                 updatedAt: Date.now(),
             };
             this.onUpdate(this.getStatus());
@@ -662,17 +569,23 @@ class AmatsukazePushSubscription {
     }
 
     private handleQueueUpdate(xml: string): boolean {
+        const queueData = this.readTag(xml, 'QueueData');
         const queueUpdate = this.readTag(xml, 'QueueUpdate');
-        if (typeof queueUpdate === 'undefined') {
+        if (typeof queueData === 'undefined' && typeof queueUpdate === 'undefined') {
             return false;
         }
 
-        const queueItems = AmatsukazePushConnection.readTags(queueUpdate, 'Item').map(item => ({
+        const serializedItems =
+            typeof queueData !== 'undefined'
+                ? AmatsukazePushConnection.readTags(this.readTag(queueData, 'Items') ?? queueData, 'QueueItem')
+                : AmatsukazePushConnection.readTags(queueUpdate ?? '', 'Item');
+        const queueItems = serializedItems.map(item => ({
             consoleId: Number(this.readTag(item, 'ConsoleId')),
             id: Number(this.readTag(item, 'Id')),
             srcPath: this.readTag(item, 'SrcPath'),
             state: this.readTag(item, 'State') ?? '',
             stateLabel: this.readTag(item, 'StateLabel') ?? '',
+            failReason: this.readTag(item, 'FailReason') ?? '',
         }));
         const availableItems = queueItems.filter(
             item => Number.isNaN(item.id) === false && this.connection.canClaimTask(this.id, item.id),
@@ -686,13 +599,19 @@ class AmatsukazePushSubscription {
                       item => typeof item.srcPath === 'string' && this.isMatchingQueueBasename(item.srcPath),
                   )
                 : [];
-        const usedRecoveryFallback =
-            this.taskId === null && exactPathMatches.length === 0 && basenameMatches.length === 1;
-        const matchedItem =
-            this.taskId === null
+        const taskIdMatch = this.taskId === null ? undefined : queueItems.find(item => item.id === this.taskId);
+        const recoveryPathMatch =
+            this.allowRecoveryFallback === true
                 ? (exactPathMatches.sort((a, b) => b.id - a.id)[0] ??
                   (basenameMatches.length === 1 ? basenameMatches[0] : undefined))
-                : queueItems.find(item => item.id === this.taskId);
+                : undefined;
+        const usedRecoveryFallback = typeof taskIdMatch === 'undefined' && typeof recoveryPathMatch !== 'undefined';
+        const matchedItem =
+            taskIdMatch ??
+            (this.taskId === null
+                ? (exactPathMatches.sort((a, b) => b.id - a.id)[0] ??
+                  (basenameMatches.length === 1 ? basenameMatches[0] : undefined))
+                : recoveryPathMatch);
         if (typeof matchedItem === 'undefined') {
             return false;
         }
@@ -736,12 +655,14 @@ class AmatsukazePushSubscription {
                 updatedAt: Date.now(),
             };
         } else if (['failed', 'prefailed', 'canceled'].includes(normalizedState)) {
+            const failureMessage =
+                matchedItem.failReason.trim() || matchedItem.stateLabel.trim() || matchedItem.state.trim();
             this.status = {
                 ...this.status,
                 isMatched: true,
                 isPending: false,
                 pendingMessage: null,
-                errorMessage: matchedItem.state,
+                errorMessage: failureMessage,
                 requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
@@ -937,6 +858,7 @@ class EncoderModel implements IEncoderModel {
         stderr: '',
     };
     private lastEncoderMessage: string = '';
+    private amatsukazeErrorMessage: string = '';
     private onAmatsukazeTaskMatched: ((taskId: number) => void) | null = null;
 
     constructor(
@@ -1008,6 +930,7 @@ class EncoderModel implements IEncoderModel {
             this.log.encode.error('encodeOption is null');
             throw new Error('EncodeOptionIsNull');
         }
+        this.amatsukazeErrorMessage = '';
 
         // エンコード元ファイルの情報を取得
         const video = await this.videoFileDB.findId(this.encodeOption.sourceVideoFileId);
@@ -1108,6 +1031,14 @@ class EncoderModel implements IEncoderModel {
             outputFilePath !== null && typeof amatsukazeConfig !== 'undefined'
                 ? this.getAmatsukazeOutputDir(amatsukazeConfig, inputFilePath, outputFilePath)
                 : null;
+        const amatsukazeServerInputFilePath =
+            typeof amatsukazeConfig === 'undefined'
+                ? inputFilePath
+                : this.mapAmatsukazeServerPath(amatsukazeConfig, inputFilePath);
+        const amatsukazeServerOutputDir =
+            amatsukazeOutputDir === null || typeof amatsukazeConfig === 'undefined'
+                ? null
+                : this.mapAmatsukazeServerPath(amatsukazeConfig, amatsukazeOutputDir);
         const amatsukazeStartedAt = this.encodeOption.recoveryStartedAt ?? Date.now();
         if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
             try {
@@ -1115,21 +1046,6 @@ class EncoderModel implements IEncoderModel {
             } catch (e: any) {
                 this.log.encode.info(`mkdirp amatsukaze output: ${amatsukazeOutputDir}`);
                 await FileUtil.mkdir(amatsukazeOutputDir);
-            }
-            if (this.encodeOption.restartInterruptedAmatsukaze === true && outputFilePath !== null) {
-                this.progressInfo = {
-                    percent: 0,
-                    log: 'Amatsukazeの再起動前タスクをキャンセル中',
-                };
-                this.encodeEvent.emitUpdateEncodeProgress();
-                void this.restartInterruptedAmatsukaze(
-                    amatsukazeConfig,
-                    inputFilePath,
-                    outputFilePath,
-                    amatsukazeOutputDir,
-                    amatsukazeStartedAt,
-                );
-                return;
             }
             if (
                 this.encodeOption.resumeExistingAmatsukaze !== true &&
@@ -1148,7 +1064,6 @@ class EncoderModel implements IEncoderModel {
                     throw new Error(`AmatsukazeTemporaryOutputAlreadyExists: ${candidatePath}`);
                 }
             }
-            this.startAmatsukazePushClient(amatsukazeConfig, inputFilePath);
         }
 
         if (
@@ -1158,37 +1073,78 @@ class EncoderModel implements IEncoderModel {
             amatsukazeOutputDir !== null
         ) {
             if ((await this.existsFile(outputFilePath)) === true) {
+                this.log.encode.info(`adopt restored Amatsukaze output: ${outputFilePath}`);
                 void this.childEndProcessing(0, null, outputFilePath);
                 return;
             }
+
+            const outputExtension = amatsukazeConfig.outputExtension || path.extname(outputFilePath);
+            const candidatePath = this.getAmatsukazeExactOutputCandidatePath(
+                inputFilePath,
+                amatsukazeOutputDir,
+                outputExtension,
+            );
+            if ((await this.existsFile(candidatePath)) === true) {
+                this.log.encode.info(`resume Amatsukaze output completion wait: ${candidatePath}`);
+                this.progressInfo = {
+                    percent: 0,
+                    log: 'Amatsukazeの完成済み出力を確認中',
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                void this.waitForAmatsukazeOutput(
+                    { ...amatsukazeConfig, waitForOutput: true, pendingTimeoutSec: 0 },
+                    outputFilePath,
+                    inputFilePath,
+                    amatsukazeOutputDir,
+                    amatsukazeStartedAt,
+                    true,
+                )
+                    .then(() => this.childEndProcessing(0, null, outputFilePath))
+                    .catch(async err => {
+                        if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
+                            await this.childEndProcessing(null, null, outputFilePath);
+                            return;
+                        }
+                        this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                        await this.childEndProcessing(1, null, outputFilePath);
+                    });
+                return;
+            }
+
             this.progressInfo = {
                 percent: 0,
                 log: 'Amatsukazeの既存タスクを確認中',
             };
             this.encodeEvent.emitUpdateEncodeProgress();
-            void this.waitForAmatsukazeOutput(
-                { ...amatsukazeConfig, pendingTimeoutSec: 0 },
+            void this.recoverAmatsukazeTask(
+                amatsukazeConfig,
+                amatsukazeServerInputFilePath,
                 outputFilePath,
                 inputFilePath,
                 amatsukazeOutputDir,
                 amatsukazeStartedAt,
-            )
-                .then(() => this.childEndProcessing(0, null, outputFilePath))
-                .catch(async err => {
-                    if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
-                        await this.childEndProcessing(null, null, outputFilePath);
-                        return;
-                    }
-                    this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
-                    await this.childEndProcessing(1, null, outputFilePath);
-                });
+            ).catch(async err => {
+                if (this.isCanceld === true || err?.message === 'AmatsukazeEncodeCanceled') {
+                    await this.childEndProcessing(null, null, outputFilePath);
+                    return;
+                }
+                this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
+                await this.childEndProcessing(1, null, outputFilePath);
+            });
             return;
+        }
+
+        if (typeof amatsukazeConfig !== 'undefined' && amatsukazeOutputDir !== null) {
+            this.startAmatsukazePushClient(amatsukazeConfig, amatsukazeServerInputFilePath);
         }
 
         // プロセスの生成
         this.childProcess = await this.processManager.create({
-            input: inputFilePath,
-            output: outputFilePath,
+            input: typeof amatsukazeConfig === 'undefined' ? inputFilePath : amatsukazeServerInputFilePath,
+            output:
+                outputFilePath === null || typeof amatsukazeConfig === 'undefined'
+                    ? outputFilePath
+                    : this.mapAmatsukazeServerPath(amatsukazeConfig, outputFilePath),
             cmd: this.createEncodeCommand(encodeCmd.cmd, amatsukazeConfig),
             replace:
                 amatsukazeOutputDir === null || typeof amatsukazeConfig === 'undefined'
@@ -1198,7 +1154,7 @@ class EncoderModel implements IEncoderModel {
                           AMATSUKAZE_ROOT: amatsukazeConfig.root || '',
                           AMATSUKAZE_IP: amatsukazeConfig.ip || '127.0.0.1',
                           AMATSUKAZE_PORT: (amatsukazeConfig.port ?? 32768).toString(10),
-                          AMATSUKAZE_OUTPUT_DIR: amatsukazeOutputDir,
+                          AMATSUKAZE_OUTPUT_DIR: amatsukazeServerOutputDir,
                           AMATSUKAZE_PROFILE: amatsukazeConfig.profile || '',
                           AMATSUKAZE_PRIORITY: (amatsukazeConfig.priority ?? 3).toString(10),
                           AMATSUKAZE_PROC_MODE: amatsukazeConfig.procMode || 'auto',
@@ -1386,6 +1342,173 @@ class EncoderModel implements IEncoderModel {
         return result;
     }
 
+    private async recoverAmatsukazeTask(
+        amatsukaze: AmatsukazeEncodeConfig,
+        serverInputFilePath: string,
+        outputFilePath: string,
+        inputFilePath: string,
+        outputDirPath: string,
+        startedAt: number,
+    ): Promise<void> {
+        const queueItem = await this.waitForAmatsukazeRestQueueItem(amatsukaze, serverInputFilePath);
+        if (this.isCanceld === true) throw new Error('AmatsukazeEncodeCanceled');
+
+        const state = queueItem?.state.trim().toLowerCase() ?? '';
+        if (queueItem !== null && ['encoding', 'queue', 'logopending'].includes(state)) {
+            if (this.encodeOption === null) throw new Error('EncodeOptionIsNull');
+            this.encodeOption.amatsukazeTaskId = queueItem.id;
+            if (Number.isFinite(queueItem.consoleId) && queueItem.consoleId >= 0) {
+                this.encodeOption.amatsukazeConsoleId = queueItem.consoleId;
+            } else {
+                delete this.encodeOption.amatsukazeConsoleId;
+            }
+            this.onAmatsukazeTaskMatched?.(queueItem.id);
+            this.log.encode.info(
+                `resume Amatsukaze task from REST: id=${queueItem.id.toString(10)}, state=${queueItem.state}`,
+            );
+            this.startAmatsukazePushClient(amatsukaze, serverInputFilePath);
+            await this.waitForAmatsukazeOutput(
+                { ...amatsukaze, pendingTimeoutSec: 0 },
+                outputFilePath,
+                inputFilePath,
+                outputDirPath,
+                startedAt,
+            );
+            await this.childEndProcessing(0, null, outputFilePath);
+            return;
+        }
+
+        if (queueItem !== null && state === 'complete') {
+            this.log.encode.info(`Amatsukaze REST reports completed task: ${queueItem.id.toString(10)}`);
+            await this.waitForAmatsukazeOutput(
+                { ...amatsukaze, waitForOutput: true, pendingTimeoutSec: 0 },
+                outputFilePath,
+                inputFilePath,
+                outputDirPath,
+                startedAt,
+                true,
+            );
+            await this.childEndProcessing(0, null, outputFilePath);
+            return;
+        }
+
+        const reason =
+            queueItem === null
+                ? 'matching task was not found'
+                : `${queueItem.state}: ${queueItem.stateDetailText || queueItem.stateLabel}`;
+        this.log.encode.warn(`restart interrupted Amatsukaze task: ${reason}`);
+        await this.restartInterruptedAmatsukazeTask(outputFilePath);
+    }
+
+    private async restartInterruptedAmatsukazeTask(outputFilePath: string): Promise<void> {
+        if (this.encodeOption === null) throw new Error('EncodeOptionIsNull');
+        if (this.isCanceld === true) throw new Error('AmatsukazeEncodeCanceled');
+        delete this.encodeOption.resumeExistingAmatsukaze;
+        delete this.encodeOption.restartInterruptedAmatsukaze;
+        delete this.encodeOption.amatsukazeTaskId;
+        delete this.encodeOption.amatsukazeConsoleId;
+        delete this.encodeOption.recoveryStartedAt;
+        if (this.currentOutputFilePath === outputFilePath) {
+            this.fileManager.release(outputFilePath);
+            this.currentOutputFilePath = null;
+        }
+        await this.start();
+    }
+
+    private async waitForAmatsukazeRestQueueItem(
+        amatsukaze: AmatsukazeEncodeConfig,
+        serverInputFilePath: string,
+    ): Promise<AmatsukazeRestQueueItem | null> {
+        const host = amatsukaze.ip || '127.0.0.1';
+        const tcpPort = amatsukaze.port ?? 32768;
+        const restPort = amatsukaze.restPort ?? tcpPort + 1;
+        const hostForUrl = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+        const url = new URL(`http://${hostForUrl}:${restPort.toString(10)}/api/queue`);
+        url.searchParams.set('search', path.basename(serverInputFilePath));
+        url.searchParams.set('searchTargets', 'file');
+
+        let reconnectAttempts = 0;
+        let successfulMisses = 0;
+        while (this.isCanceld === false) {
+            try {
+                const response = await axios.get<AmatsukazeRestQueueView>(url.toString(), { timeout: 5000 });
+                const rawItems = response.data.items ?? response.data.Items ?? [];
+                const items = rawItems
+                    .map(item => this.normalizeAmatsukazeRestQueueItem(item))
+                    .filter(
+                        item =>
+                            Number.isFinite(item.id) && this.isSameAmatsukazePath(item.srcPath, serverInputFilePath),
+                    );
+                const matched = this.selectAmatsukazeRestQueueItem(items);
+                if (matched !== null) return matched;
+
+                successfulMisses += 1;
+                if (successfulMisses >= 3) return null;
+                await Util.sleep(1000);
+            } catch (err: any) {
+                successfulMisses = 0;
+                const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts, 5));
+                reconnectAttempts += 1;
+                const message = axios.isAxiosError(err) ? err.message : String(err);
+                this.log.encode.info(
+                    `wait for Amatsukaze REST API: ${host}:${restPort.toString(10)} (${message}), retry in ${delay.toString(10)}ms`,
+                );
+                this.progressInfo = {
+                    percent: 0,
+                    log: `Amatsukaze REST APIの起動を待機中 (${Math.round(delay / 1000).toString(10)}秒後に再試行)`,
+                };
+                this.encodeEvent.emitUpdateEncodeProgress();
+                await Util.sleep(delay);
+            }
+        }
+        throw new Error('AmatsukazeEncodeCanceled');
+    }
+
+    private normalizeAmatsukazeRestQueueItem(item: any): AmatsukazeRestQueueItem {
+        const read = (camel: string, pascal: string): any => item?.[camel] ?? item?.[pascal];
+        return {
+            id: Number(read('id', 'Id')),
+            srcPath: String(read('srcPath', 'SrcPath') ?? ''),
+            state: String(read('state', 'State') ?? ''),
+            stateLabel: String(read('stateLabel', 'StateLabel') ?? ''),
+            stateDetailText: String(read('stateDetailText', 'StateDetailText') ?? ''),
+            progress: Number(read('progress', 'Progress') ?? 0),
+            consoleId: Number(read('consoleId', 'ConsoleId') ?? -1),
+            encodeStart: read('encodeStart', 'EncodeStart') ?? null,
+            encodeFinish: read('encodeFinish', 'EncodeFinish') ?? null,
+        };
+    }
+
+    private selectAmatsukazeRestQueueItem(items: AmatsukazeRestQueueItem[]): AmatsukazeRestQueueItem | null {
+        const statePriority: Record<string, number> = {
+            encoding: 4,
+            queue: 3,
+            logopending: 3,
+            complete: 1,
+            failed: 1,
+            prefailed: 1,
+            canceled: 1,
+        };
+        return (
+            items.sort((left, right) => {
+                const stateDiff =
+                    (statePriority[right.state.trim().toLowerCase()] ?? 0) -
+                    (statePriority[left.state.trim().toLowerCase()] ?? 0);
+                return stateDiff !== 0 ? stateDiff : right.id - left.id;
+            })[0] ?? null
+        );
+    }
+
+    private isSameAmatsukazePath(left: string, right: string): boolean {
+        const normalize = (value: string): string =>
+            value
+                .normalize('NFC')
+                .replace(/[\\/]+/g, '/')
+                .replace(/\/$/, '')
+                .toLowerCase();
+        return normalize(left) === normalize(right);
+    }
+
     private startAmatsukazePushClient(amatsukaze: AmatsukazeEncodeConfig, inputFilePath: string): void {
         this.stopAmatsukazePushClient();
         const host = amatsukaze.ip || '127.0.0.1';
@@ -1395,6 +1518,7 @@ class EncoderModel implements IEncoderModel {
             port,
             inputFilePath,
             this.encodeOption?.amatsukazeTaskId ?? null,
+            this.encodeOption?.amatsukazeConsoleId ?? null,
             this.encodeOption?.resumeExistingAmatsukaze === true,
             status => this.updateAmatsukazePushProgress(status),
             taskId => {
@@ -1403,108 +1527,6 @@ class EncoderModel implements IEncoderModel {
             },
             message => this.log.encode.info(message),
         );
-    }
-
-    private async restartInterruptedAmatsukaze(
-        amatsukaze: AmatsukazeEncodeConfig,
-        inputFilePath: string,
-        outputFilePath: string,
-        amatsukazeOutputDir: string,
-        startedAt: number,
-    ): Promise<void> {
-        const host = amatsukaze.ip || '127.0.0.1';
-        const port = amatsukaze.port ?? 32768;
-        while (this.isCanceld === false) {
-            try {
-                await AmatsukazePushConnection.cancelUnfinishedTasks(host, port, message =>
-                    this.log.encode.info(message),
-                );
-                if (this.isCanceld) return;
-                await this.deleteInterruptedAmatsukazeOutput(
-                    amatsukaze,
-                    inputFilePath,
-                    outputFilePath,
-                    amatsukazeOutputDir,
-                    startedAt,
-                );
-                break;
-            } catch (err: any) {
-                this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
-                if (this.lastEncoderMessage.startsWith('UnsafeAmatsukazeOutputDeletion:')) {
-                    this.log.encode.error(this.lastEncoderMessage);
-                    await this.childEndProcessing(1, null, outputFilePath);
-                    return;
-                }
-                this.progressInfo = {
-                    percent: 0,
-                    log: 'Amatsukazeの再起動復旧を再試行中',
-                };
-                this.encodeEvent.emitUpdateEncodeProgress();
-                this.log.encode.warn(`amatsukaze restart recovery retry: ${this.lastEncoderMessage}`);
-                await new Promise(resolve => setTimeout(resolve, 5_000));
-            }
-        }
-        if (this.isCanceld || this.encodeOption === null) return;
-
-        delete this.encodeOption.restartInterruptedAmatsukaze;
-        delete this.encodeOption.resumeExistingAmatsukaze;
-        delete this.encodeOption.amatsukazeTaskId;
-        this.encodeOption.recoveryStartedAt = Date.now();
-        this.log.encode.info(`re-submit interrupted Amatsukaze task: ${this.encodeOption.encodeId}`);
-
-        try {
-            await this.start();
-        } catch (err: any) {
-            this.lastEncoderMessage = err instanceof Error ? err.message : String(err);
-            this.log.encode.error(`re-submit interrupted Amatsukaze task failed: ${this.encodeOption.encodeId}`);
-            this.log.encode.error(err);
-            await this.childEndProcessing(1, null, this.currentOutputFilePath);
-        }
-    }
-
-    private async deleteInterruptedAmatsukazeOutput(
-        amatsukaze: AmatsukazeEncodeConfig,
-        inputFilePath: string,
-        outputFilePath: string,
-        outputDirPath: string,
-        startedAt: number,
-    ): Promise<void> {
-        const outputExtension = (amatsukaze.outputExtension || path.extname(outputFilePath)).toLowerCase();
-        const candidate = await this.findAmatsukazeOutputCandidate(
-            inputFilePath,
-            outputFilePath,
-            outputDirPath,
-            outputExtension,
-            amatsukaze.outputNameMatch || 'exact',
-            startedAt,
-            false,
-            false,
-        );
-        if (candidate === null) return;
-        if (await this.isSameFile(candidate.path, inputFilePath)) {
-            throw new Error(`UnsafeAmatsukazeOutputDeletion: source file ${candidate.path}`);
-        }
-        if (['.ts', '.m2ts', '.mts'].includes(path.extname(candidate.path).toLowerCase())) {
-            throw new Error(`UnsafeAmatsukazeOutputDeletion: transport stream ${candidate.path}`);
-        }
-
-        this.log.encode.warn(`delete interrupted Amatsukaze output: ${candidate.path}`);
-        await FileUtil.unlink(candidate.path);
-    }
-
-    private async isSameFile(firstPath: string, secondPath: string): Promise<boolean> {
-        const normalize = (value: string): string => path.resolve(value).normalize('NFC').toLowerCase();
-        if (normalize(firstPath) === normalize(secondPath)) return true;
-
-        try {
-            const [firstRealPath, secondRealPath] = await Promise.all([
-                fs.promises.realpath(firstPath),
-                fs.promises.realpath(secondPath),
-            ]);
-            return normalize(firstRealPath) === normalize(secondRealPath);
-        } catch (err: any) {
-            return false;
-        }
     }
 
     private stopAmatsukazePushClient(): void {
@@ -1517,10 +1539,24 @@ class EncoderModel implements IEncoderModel {
     }
 
     private updateAmatsukazePushProgress(status: AmatsukazePushStatus): void {
-        if (status.log === null && status.percent === null) {
+        if (
+            status.consoleId !== null &&
+            this.encodeOption !== null &&
+            this.encodeOption.amatsukazeConsoleId !== status.consoleId
+        ) {
+            this.encodeOption.amatsukazeConsoleId = status.consoleId;
+            if (typeof this.encodeOption.amatsukazeTaskId === 'number') {
+                this.onAmatsukazeTaskMatched?.(this.encodeOption.amatsukazeTaskId);
+            }
+        }
+        const errorMessage = status.errorMessage?.trim() || null;
+        if (status.log === null && status.percent === null && errorMessage === null) {
             return;
         }
-        if (status.log !== null && status.log.trim().length > 0) {
+        if (errorMessage !== null) {
+            this.amatsukazeErrorMessage = errorMessage;
+            this.lastEncoderMessage = errorMessage;
+        } else if (status.log !== null && status.log.trim().length > 0) {
             this.lastEncoderMessage = status.log.trim();
         }
 
@@ -1529,7 +1565,12 @@ class EncoderModel implements IEncoderModel {
                 status.percent !== null && Number.isNaN(status.percent) === false
                     ? Math.max(0, Math.min(1, status.percent))
                     : (this.progressInfo?.percent ?? 0),
-            log: status.log !== null ? `Amatsukaze: ${status.log}` : (this.progressInfo?.log ?? 'Amatsukaze'),
+            log:
+                errorMessage !== null
+                    ? `Amatsukaze: ${errorMessage}`
+                    : status.log !== null
+                      ? `Amatsukaze: ${status.log}`
+                      : (this.progressInfo?.log ?? 'Amatsukaze'),
         };
         this.encodeEvent.emitUpdateEncodeProgress();
     }
@@ -1555,6 +1596,45 @@ class EncoderModel implements IEncoderModel {
 
     private replaceAmatsukazeOutputDirVariables(value: string, sourceDir: string, outputDir: string): string {
         return value.replace(/%SOURCE_DIR%/g, sourceDir).replace(/%OUTPUT_DIR%/g, outputDir);
+    }
+
+    private mapAmatsukazeServerPath(amatsukaze: AmatsukazeEncodeConfig, localPath: string): string {
+        const mappings = amatsukaze.pathMappings ?? [];
+        const resolvedLocalPath = path.resolve(localPath);
+        let matched: { from: string; to: string; relative: string } | null = null;
+
+        for (const mapping of mappings) {
+            if (
+                typeof mapping.from !== 'string' ||
+                mapping.from.length === 0 ||
+                typeof mapping.to !== 'string' ||
+                mapping.to.length === 0
+            ) {
+                continue;
+            }
+
+            const resolvedFrom = path.resolve(mapping.from);
+            const relative = path.relative(resolvedFrom, resolvedLocalPath);
+            const isInside =
+                relative.length === 0 ||
+                (relative !== '..' &&
+                    relative.startsWith(`..${path.sep}`) === false &&
+                    path.isAbsolute(relative) === false);
+            if (isInside === false || (matched !== null && resolvedFrom.length <= matched.from.length)) continue;
+
+            matched = {
+                from: resolvedFrom,
+                to: mapping.to,
+                relative,
+            };
+        }
+
+        if (matched === null) return localPath;
+        if (matched.relative.length === 0) return matched.to;
+
+        const isWindowsTarget = /^[a-zA-Z]:[\\/]/.test(matched.to) || /^\\\\/.test(matched.to);
+        const targetPath = isWindowsTarget ? path.win32 : path.posix;
+        return targetPath.join(matched.to, ...matched.relative.split(path.sep));
     }
 
     private createEncodeCommand(cmd: string | undefined, amatsukaze: AmatsukazeEncodeConfig | undefined): string {
@@ -1603,6 +1683,7 @@ class EncoderModel implements IEncoderModel {
         inputFilePath: string,
         outputDirPath: string,
         startedAt: number,
+        reconcileOutputImmediately: boolean = false,
     ): Promise<void> {
         if (amatsukaze.waitForOutput === false) {
             return;
@@ -1633,10 +1714,12 @@ class EncoderModel implements IEncoderModel {
 
         while (this.isCanceld === false) {
             const pushStatus = this.amatsukazePushSubscription?.getStatus();
-            const requiresOutputReconcile = pushStatus?.requiresOutputReconcile === true;
+            const requiresOutputReconcile = reconcileOutputImmediately || pushStatus?.requiresOutputReconcile === true;
             if (typeof pushStatus !== 'undefined') {
                 if (pushStatus.errorMessage !== null) {
-                    throw new Error(`Amatsukaze encode failed: ${pushStatus.errorMessage}`);
+                    const errorMessage = pushStatus.errorMessage.trim() || 'EncodeFailed';
+                    this.amatsukazeErrorMessage = errorMessage;
+                    throw new Error(`Amatsukaze encode failed: ${errorMessage}`);
                 }
                 isReadyForOutputScan = isReadyForOutputScan || pushStatus.isReadyForOutputScan;
                 if (pushStatus.isPending === true) {
@@ -2075,7 +2158,7 @@ class EncoderModel implements IEncoderModel {
             isError,
             outputFilePath,
             this.isCanceld,
-            this.lastEncoderMessage,
+            this.amatsukazeErrorMessage || this.lastEncoderMessage,
         );
         this.listener.removeAllListeners();
     }

@@ -1,4 +1,5 @@
 import * as apid from '../../../../api';
+import { AddEncodeOption } from './IEncoderModel';
 
 export interface EncodeRecordedIdIndex {
     [recordedId: number]: {
@@ -10,6 +11,7 @@ export interface EncodeRecordedIdIndex {
 export interface EncodeQueueInfo {
     runningQueue: EncodeInfoItem[];
     waitQueue: EncodeInfoItem[];
+    scheduledQueue: EncodeInfoItem[];
 }
 
 export interface EncodeInfoItem {
@@ -18,10 +20,11 @@ export interface EncodeInfoItem {
     recordedId: apid.RecordedId;
     percent?: number;
     log?: string;
+    scheduledAt?: number;
 }
 
 export default interface IEncodeManageModel {
-    push(addOption: apid.AddEncodeProgramOption): Promise<apid.EncodeId>;
+    push(addOption: AddEncodeOption): Promise<apid.EncodeId>;
     cancel(encodeId: apid.EncodeId): Promise<void>;
     reorderWaitQueue(encodeIds: apid.EncodeId[], expectedEncodeIds: apid.EncodeId[]): Promise<void>;
     getRecordedIndex(): EncodeRecordedIdIndex;

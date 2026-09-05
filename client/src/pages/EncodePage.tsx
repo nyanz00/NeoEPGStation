@@ -38,14 +38,15 @@ function EncodeCard({
     waiting,
     editing,
     reordering,
-    position,
     selected,
+    dragged,
     channel,
     onSelect,
     onCancel,
     onMoveUp,
     onMoveDown,
     onDragStart,
+    onDragEnd,
     onDragOver,
     onDrop,
 }: {
@@ -53,32 +54,40 @@ function EncodeCard({
     waiting: boolean;
     editing: boolean;
     reordering: boolean;
-    position?: number;
     selected: boolean;
+    dragged: boolean;
     channel?: ChannelItem;
     onSelect: () => void;
     onCancel: () => void;
     onMoveUp?: () => void;
     onMoveDown?: () => void;
     onDragStart?: (event: DragEvent<HTMLElement>) => void;
+    onDragEnd?: () => void;
     onDragOver?: (event: DragEvent<HTMLElement>) => void;
     onDrop?: (event: DragEvent<HTMLElement>) => void;
 }): ReactNode {
     const percent = Math.min(100, Math.max(0, (item.percent ?? 0) * 100));
+    const scheduled = item.scheduledAt !== undefined;
+    const reorderable = waiting && !scheduled;
     return (
         <Card
             variant="outlined"
             onDragOver={onDragOver}
             onDrop={onDrop}
-            sx={{ borderColor: selected ? 'primary.main' : 'divider', bgcolor: selected ? 'action.selected' : undefined }}
+            sx={{
+                borderColor: selected || dragged ? 'primary.main' : 'divider',
+                bgcolor: selected || dragged ? 'action.selected' : undefined,
+                opacity: dragged ? 0.72 : 1,
+            }}
         >
             <CardContent sx={{ display: 'flex', gap: 1.5, p: 1.5, '&:last-child': { pb: 1.5 } }} onClick={editing ? onSelect : undefined}>
                 {editing && <Checkbox checked={selected} onChange={onSelect} onClick={event => event.stopPropagation()} />}
-                {reordering && waiting && (
+                {reordering && reorderable && (
                     <Box
                         draggable
                         aria-label={`${item.recorded.name}をドラッグして並べ替え`}
                         onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
                         sx={{
                             display: { xs: 'none', sm: 'grid' },
                             alignSelf: 'stretch',
@@ -101,7 +110,11 @@ function EncodeCard({
                         <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
                             {item.recorded.name}
                         </Typography>
-                        <Chip size="small" color={waiting ? 'default' : 'primary'} label={waiting ? (position === undefined ? '待機中' : `待機 ${position}`) : item.mode} />
+                        <Chip
+                            size="small"
+                            color={waiting ? 'default' : 'primary'}
+                            label={scheduled ? `${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' }).format(new Date(item.scheduledAt!))}に解放` : item.mode}
+                        />
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                         {channel?.name ?? item.recorded.channelId}
@@ -124,7 +137,7 @@ function EncodeCard({
                         </Box>
                     )}
                 </Box>
-                {reordering && waiting ? (
+                {reordering && reorderable ? (
                     <Stack spacing={0.25} sx={{ alignSelf: 'center' }}>
                         <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
                             <ArrowUpwardOutlined />
@@ -152,6 +165,70 @@ function EncodeCard({
     );
 }
 
+function useDragScroll(active: boolean): void {
+    useEffect(() => {
+        if (!active) return;
+
+        let pointerY: number | null = null;
+        let animationFrame = 0;
+        let previousTime = performance.now();
+        const edgeSize = Math.min(140, Math.max(72, window.innerHeight * 0.12));
+        const maximumSpeed = 1_000;
+        const handleWheel = (event: WheelEvent): void => {
+            if (event.deltaX === 0 && event.deltaY === 0) return;
+            event.preventDefault();
+            window.scrollBy({ left: event.deltaX, top: event.deltaY, behavior: 'auto' });
+        };
+        const handleDragOver = (event: globalThis.DragEvent): void => {
+            pointerY = event.clientY;
+        };
+        const scrollAtEdge = (time: number): void => {
+            const elapsedSeconds = Math.min(0.05, (time - previousTime) / 1_000);
+            previousTime = time;
+            let speed = 0;
+            if (pointerY !== null && pointerY < edgeSize) {
+                speed = -maximumSpeed * (1 - Math.max(0, pointerY) / edgeSize);
+            } else if (pointerY !== null && pointerY > window.innerHeight - edgeSize) {
+                speed = maximumSpeed * (1 - Math.max(0, window.innerHeight - pointerY) / edgeSize);
+            }
+            if (speed !== 0) window.scrollBy(0, speed * elapsedSeconds);
+            animationFrame = window.requestAnimationFrame(scrollAtEdge);
+        };
+
+        window.addEventListener('wheel', handleWheel, { capture: true, passive: false });
+        document.addEventListener('dragover', handleDragOver, true);
+        animationFrame = window.requestAnimationFrame(scrollAtEdge);
+        return () => {
+            window.removeEventListener('wheel', handleWheel, true);
+            document.removeEventListener('dragover', handleDragOver, true);
+            window.cancelAnimationFrame(animationFrame);
+        };
+    }, [active]);
+}
+
+function setCompactDragImage(event: DragEvent<HTMLElement>): void {
+    const image = document.createElement('div');
+    image.textContent = '↕';
+    Object.assign(image.style, {
+        position: 'fixed',
+        top: '-100px',
+        left: '-100px',
+        width: '36px',
+        height: '36px',
+        display: 'grid',
+        placeItems: 'center',
+        borderRadius: '18px',
+        color: '#fff',
+        background: 'rgba(45, 49, 54, 0.92)',
+        fontSize: '22px',
+        boxShadow: '0 3px 10px rgba(0, 0, 0, 0.35)',
+        pointerEvents: 'none',
+    });
+    document.body.append(image);
+    event.dataTransfer.setDragImage(image, 18, 18);
+    window.setTimeout(() => image.remove(), 0);
+}
+
 export function EncodePage(): ReactNode {
     const settings = useSettings();
     const [editing, setEditing] = useState(false);
@@ -165,7 +242,8 @@ export function EncodePage(): ReactNode {
     const { notify } = useNotifications();
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const encodes = useQuery({ queryKey: ['encode', settings.isHalfWidthDisplayed], queryFn: () => api.getEncodes(settings.isHalfWidthDisplayed) });
-    const allItems = [...(encodes.data?.runningItems ?? []), ...(encodes.data?.waitItems ?? [])];
+    const allItems = [...(encodes.data?.runningItems ?? []), ...(encodes.data?.waitItems ?? []), ...(encodes.data?.scheduledItems ?? [])];
+    useDragScroll(draggedId !== null);
 
     useEffect(() => {
         if (!reordering && encodes.data !== undefined) {
@@ -263,8 +341,8 @@ export function EncodePage(): ReactNode {
                     waiting={waiting}
                     editing={editing}
                     reordering={reordering}
-                    position={reordering && waiting ? index + 1 : undefined}
                     selected={selected.has(item.id)}
+                    dragged={draggedId === item.id}
                     channel={channels.data?.find(channel => channel.id === item.recorded.channelId)}
                     onSelect={() => toggle(item.id)}
                     onCancel={() => setTargets([item.id])}
@@ -276,9 +354,11 @@ export function EncodePage(): ReactNode {
                                   setDraggedId(item.id);
                                   event.dataTransfer.effectAllowed = 'move';
                                   event.dataTransfer.setData('text/plain', item.id.toString(10));
+                                  setCompactDragImage(event);
                               }
                             : undefined
                     }
+                    onDragEnd={reordering && waiting ? () => setDraggedId(null) : undefined}
                     onDragOver={
                         reordering && waiting
                             ? event => {
@@ -365,7 +445,7 @@ export function EncodePage(): ReactNode {
                     <Typography color="error">エンコード情報を取得できませんでした</Typography>
                 ) : allItems.length === 0 ? (
                     <Typography color="text.secondary" sx={{ py: 7, textAlign: 'center' }}>
-                        実行中または待機中のエンコードはありません
+                        実行中、待機中、または開始予約中のエンコードはありません
                     </Typography>
                 ) : (
                     <Stack spacing={3}>
@@ -384,6 +464,14 @@ export function EncodePage(): ReactNode {
                                     待機中
                                 </Typography>
                                 {renderItems(reordering ? orderedWaitItems : encodes.data.waitItems, true)}
+                            </Box>
+                        )}
+                        {encodes.data.scheduledItems.length > 0 && (
+                            <Box>
+                                <Typography variant="h6" sx={{ mb: 1 }}>
+                                    エンコード予約
+                                </Typography>
+                                {renderItems(encodes.data.scheduledItems, true)}
                             </Box>
                         )}
                     </Stack>

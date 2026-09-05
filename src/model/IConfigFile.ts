@@ -83,6 +83,8 @@ export interface AmatsukazeEncodeConfig {
     profile?: string;
     ip?: string;
     port?: number;
+    /** Amatsukaze REST API port. Defaults to port + 1. */
+    restPort?: number;
     priority?: number;
     outputDirMode?: 'encode' | 'source';
     outputDir?: string;
@@ -96,6 +98,10 @@ export interface AmatsukazeEncodeConfig {
     outputExtension?: string;
     outputNameMatch?: 'exact' | 'prefix';
     pendingTimeoutSec?: number;
+    pathMappings?: Array<{
+        from: string;
+        to: string;
+    }>;
 }
 
 /**

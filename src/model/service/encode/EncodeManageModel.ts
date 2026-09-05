@@ -13,7 +13,12 @@ import IExecutionManagementModel from '../../IExecutionManagementModel';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
 import IEncodeManageModel, { EncodeInfoItem, EncodeQueueInfo, EncodeRecordedIdIndex } from './IEncodeManageModel';
-import { EncodeOption, EncoderModelProvider, IEncoderModel } from './IEncoderModel';
+import { AddEncodeOption, EncodeOption, EncoderModelProvider, IEncoderModel } from './IEncoderModel';
+
+interface ScheduledEncodeItem {
+    option: EncodeOption;
+    scheduledAt: number;
+}
 
 @injectable()
 class EncodeManageModel implements IEncodeManageModel {
@@ -25,6 +30,8 @@ class EncodeManageModel implements IEncodeManageModel {
     private concurrentEncodeNum: number;
     private waitQueue: IEncoderModel[] = [];
     private runningQueue: IEncoderModel[] = [];
+    private scheduledQueue: ScheduledEncodeItem[] = [];
+    private scheduledTimer: NodeJS.Timeout | null = null;
     private idCnt: number = 1;
     private readonly ownerFingerprint = createHash('sha256')
         .update(`${os.hostname()}\0${path.resolve(process.cwd())}`)
@@ -57,25 +64,59 @@ class EncodeManageModel implements IEncodeManageModel {
      * @param addOption: apid.AddEncodeProgramOption
      * @return apid.EncodeId
      */
-    public async push(addOption: apid.AddEncodeProgramOption): Promise<apid.EncodeId> {
+    public async push(addOption: AddEncodeOption): Promise<apid.EncodeId> {
         await this.restorePromise;
         if (this.concurrentEncodeNum <= 0) {
             throw new Error('CncurrentEncodeNumIsZero');
         }
 
-        // ロック中に provider の生成処理を待たないよう、encoder は先に準備する
-        const encoder = await this.encoderModelProvider();
         const option = this.createEncodeOption(addOption);
-        encoder.setOption(option);
+        const scheduledAt =
+            typeof option.scheduledAt === 'number' &&
+            Number.isFinite(option.scheduledAt) &&
+            option.scheduledAt > Date.now()
+                ? option.scheduledAt
+                : null;
+        let encoder: IEncoderModel | null = null;
+        if (scheduledAt === null) {
+            delete option.scheduledAt;
+            // ロック中に provider の生成処理を待たないよう、encoder は先に準備する
+            encoder = await this.encoderModelProvider();
+            encoder.setOption(option);
+        }
 
         // 実行権取得
         const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.ADD_ENCODE_PRIPORITY);
 
         try {
-            // queue に積む
-            this.waitQueue.push(encoder);
-            await this.saveTask(option, 'waiting', this.waitQueue.length - 1, 0);
-            this.log.encode.info(`add new encode: ${option.encodeId}`);
+            if (scheduledAt === null) {
+                if (encoder === null) throw new Error('EncoderIsNull');
+                this.waitQueue.push(encoder);
+                try {
+                    await this.saveTask(option, 'waiting', this.waitQueue.length - 1, 0);
+                } catch (err: any) {
+                    this.waitQueue = this.waitQueue.filter(item => item !== encoder);
+                    throw err;
+                }
+                this.log.encode.info(`add new encode: ${option.encodeId}`);
+            } else {
+                this.scheduledQueue.push({ option, scheduledAt });
+                this.sortScheduledQueue();
+                try {
+                    await this.saveScheduledQueuePositions();
+                } catch (err: any) {
+                    this.scheduledQueue = this.scheduledQueue.filter(item => item.option.encodeId !== option.encodeId);
+                    try {
+                        await this.deleteTask(option.encodeId);
+                        await this.saveScheduledQueuePositions();
+                    } catch (rollbackError: any) {
+                        this.log.encode.error(`rollback scheduled encode failed: ${option.encodeId}`);
+                        this.log.encode.error(rollbackError);
+                    }
+                    throw err;
+                }
+                this.log.encode.info(`schedule encode: ${option.encodeId} at ${new Date(scheduledAt).toISOString()}`);
+            }
         } finally {
             // 追加処理で例外が発生しても、以降の queue 操作を止めない
             this.executeManagementModel.unLockExecution(exeId);
@@ -85,9 +126,13 @@ class EncodeManageModel implements IEncodeManageModel {
         this.encodeEvent.emitAddEncode(option.encodeId);
 
         // 追加用ロックを解放してから、別ターンで実行可能な queue を開始する
-        process.nextTick(() => {
-            this.emitNeedsCheckQueue();
-        });
+        if (scheduledAt === null) {
+            process.nextTick(() => {
+                this.emitNeedsCheckQueue();
+            });
+        } else {
+            this.refreshScheduledTimer();
+        }
 
         return option.encodeId;
     }
@@ -97,7 +142,7 @@ class EncodeManageModel implements IEncodeManageModel {
      * @param baseOption: apid.AddEncodeProgramOption
      * @returns EncodeOption
      */
-    private createEncodeOption(baseOption: apid.AddEncodeProgramOption): EncodeOption {
+    private createEncodeOption(baseOption: AddEncodeOption): EncodeOption {
         // encoder のオプションを生成
         const encodeOption: EncodeOption = cloneDeep(baseOption) as any;
         const encodeId = this.idCnt;
@@ -119,6 +164,86 @@ class EncodeManageModel implements IEncodeManageModel {
         this.listener.emit(EncodeManageModel.NEEDS_CHECK_QUEUE_EVENT);
     }
 
+    private sortScheduledQueue(): void {
+        this.scheduledQueue.sort((left, right) => {
+            if (left.scheduledAt !== right.scheduledAt) return left.scheduledAt - right.scheduledAt;
+            return left.option.encodeId - right.option.encodeId;
+        });
+    }
+
+    private refreshScheduledTimer(minimumDelay = 0): void {
+        if (this.scheduledTimer !== null) {
+            clearTimeout(this.scheduledTimer);
+            this.scheduledTimer = null;
+        }
+        const next = this.scheduledQueue[0];
+        if (next === undefined) return;
+
+        const delay = Math.min(
+            Math.max(minimumDelay, next.scheduledAt - Date.now()),
+            EncodeManageModel.MAX_TIMER_DELAY,
+        );
+        this.scheduledTimer = setTimeout(() => {
+            this.scheduledTimer = null;
+            void this.releaseScheduledEncodes().catch((err: any) => {
+                this.log.encode.error('release scheduled encode queue failed');
+                this.log.encode.error(err);
+                this.refreshScheduledTimer(EncodeManageModel.RELEASE_RETRY_DELAY);
+            });
+        }, delay);
+        this.scheduledTimer.unref();
+    }
+
+    private async releaseScheduledEncodes(): Promise<void> {
+        await this.restorePromise;
+        const exeId = await this.executeManagementModel.getExecution(
+            EncodeManageModel.RELEASE_SCHEDULED_ENCODE_PRIORITY,
+        );
+        let released = false;
+        let releaseFailed = false;
+        try {
+            const now = Date.now();
+            const due = this.scheduledQueue.filter(item => item.scheduledAt <= now);
+            if (due.length === 0) return;
+
+            const releasedIds = new Set<apid.EncodeId>();
+            for (const item of due) {
+                const scheduledAt = item.scheduledAt;
+                try {
+                    const encoder = await this.encoderModelProvider();
+                    delete item.option.scheduledAt;
+                    encoder.setOption(item.option);
+                    await this.saveTask(item.option, 'waiting', this.waitQueue.length, 0);
+                    this.waitQueue.push(encoder);
+                    releasedIds.add(item.option.encodeId);
+                    released = true;
+                    this.log.encode.info(`release scheduled encode: ${item.option.encodeId}`);
+                } catch (err: any) {
+                    item.option.scheduledAt = scheduledAt;
+                    releaseFailed = true;
+                    this.log.encode.error(`release scheduled encode failed: ${item.option.encodeId}`);
+                    this.log.encode.error(err);
+                }
+            }
+            this.scheduledQueue = this.scheduledQueue.filter(item => !releasedIds.has(item.option.encodeId));
+            try {
+                await this.saveScheduledQueuePositions();
+            } catch (err: any) {
+                releaseFailed = true;
+                this.log.encode.error('save scheduled encode queue positions failed');
+                this.log.encode.error(err);
+            }
+        } finally {
+            this.executeManagementModel.unLockExecution(exeId);
+            this.refreshScheduledTimer(releaseFailed ? EncodeManageModel.RELEASE_RETRY_DELAY : 0);
+        }
+
+        if (released) {
+            this.encodeEvent.emitUpdateEncodeProgress();
+            process.nextTick(() => this.emitNeedsCheckQueue());
+        }
+    }
+
     /**
      * queue をチェックする
      * @return Promise<void>
@@ -130,45 +255,45 @@ class EncodeManageModel implements IEncodeManageModel {
             EncodeManageModel.CREATE_ENCODING_PROCESS_PRIPORITY,
         );
         try {
-            if (this.runningQueue.length >= this.concurrentEncodeNum || this.waitQueue.length === 0) return;
+            while (this.runningQueue.length < this.concurrentEncodeNum && this.waitQueue.length > 0) {
+                const encoder = this.waitQueue.shift();
+                if (typeof encoder === 'undefined') break;
 
-            const encoder = this.waitQueue.shift();
-            if (typeof encoder === 'undefined') return;
+                const encodeOption = encoder.getEncodeOption();
+                if (encodeOption === null) {
+                    this.log.encode.warn('encodeOption is null');
+                    continue;
+                }
 
-            const encodeOption = encoder.getEncodeOption();
-            if (encodeOption === null) {
-                this.log.encode.warn('encodeOption is null');
-                return;
-            }
-
-            this.runningQueue.push(encoder);
-            await this.saveTask(encodeOption, 'running', this.runningQueue.length - 1, Date.now());
-            encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
-                this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
-            });
-            encoder.setOnAmatsukazeTaskMatched(taskId => {
-                encodeOption.amatsukazeTaskId = taskId;
-                void this.saveAmatsukazeTaskId(encodeOption).catch(err => {
-                    this.log.encode.warn(
-                        `save Amatsukaze task id failed: ${encodeOption.encodeId} -> ${taskId.toString(10)}`,
-                    );
-                    this.log.encode.warn(err);
+                this.runningQueue.push(encoder);
+                await this.saveTask(encodeOption, 'running', this.runningQueue.length - 1, Date.now());
+                encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
+                    this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
                 });
-            });
-
-            try {
-                await encoder.start();
-                await this.saveOutputFilePath(encodeOption.encodeId, encoder.getOutputFilePath());
-            } catch (err: any) {
-                this.log.encode.error(`create encode process error: ${encoder.getEncodeId()}`);
-                this.log.encode.error(err);
-                this.encodeEvent.emitErrorEncode({
-                    recordedId: encodeOption.recordedId,
-                    videoFileId: encodeOption.sourceVideoFileId,
-                    mode: encodeOption.mode,
-                    encoderMessage: err instanceof Error ? err.message : String(err),
+                encoder.setOnAmatsukazeTaskMatched(taskId => {
+                    encodeOption.amatsukazeTaskId = taskId;
+                    void this.saveAmatsukazeTaskId(encodeOption).catch(err => {
+                        this.log.encode.warn(
+                            `save Amatsukaze task id failed: ${encodeOption.encodeId} -> ${taskId.toString(10)}`,
+                        );
+                        this.log.encode.warn(err);
+                    });
                 });
-                process.nextTick(() => void this.finalize(encodeOption.encodeId));
+
+                try {
+                    await encoder.start();
+                    await this.saveOutputFilePath(encodeOption.encodeId, encoder.getOutputFilePath());
+                } catch (err: any) {
+                    this.log.encode.error(`create encode process error: ${encoder.getEncodeId()}`);
+                    this.log.encode.error(err);
+                    this.encodeEvent.emitErrorEncode({
+                        recordedId: encodeOption.recordedId,
+                        videoFileId: encodeOption.sourceVideoFileId,
+                        mode: encodeOption.mode,
+                        encoderMessage: err instanceof Error ? err.message : String(err),
+                    });
+                    process.nextTick(() => void this.finalize(encodeOption.encodeId));
+                }
             }
         } finally {
             this.executeManagementModel.unLockExecution(exeId);
@@ -276,6 +401,13 @@ class EncodeManageModel implements IEncodeManageModel {
             return true;
         }
 
+        const scheduledItem = this.scheduledQueue.find(item => {
+            return item.option.sourceVideoFileId === videoFileId && item.option.encodeId !== excludeEncodeId;
+        });
+        if (typeof scheduledItem !== 'undefined') {
+            return true;
+        }
+
         return false;
     }
 
@@ -321,6 +453,8 @@ class EncodeManageModel implements IEncodeManageModel {
                 this.waitQueue = this.waitQueue.filter(q => {
                     return q.getEncodeId() !== encodeId;
                 });
+                this.scheduledQueue = this.scheduledQueue.filter(item => item.option.encodeId !== encodeId);
+                this.refreshScheduledTimer();
 
                 process.nextTick(() => {
                     this.emitNeedsCheckQueue();
@@ -422,6 +556,17 @@ class EncodeManageModel implements IEncodeManageModel {
             });
         }
 
+        for (const item of this.scheduledQueue) {
+            const itemOption = item.option;
+            if (typeof index[itemOption.recordedId] === 'undefined') {
+                index[itemOption.recordedId] = [];
+            }
+            index[itemOption.recordedId].push({
+                encodeId: itemOption.encodeId,
+                name: itemOption.mode,
+            });
+        }
+
         return index;
     }
 
@@ -459,6 +604,13 @@ class EncodeManageModel implements IEncodeManageModel {
             }
         }
 
+        // scheduled queue
+        for (const item of this.scheduledQueue) {
+            if (item.option.recordedId === recordedId) {
+                encodeIds.push(item.option.encodeId);
+            }
+        }
+
         // 取り出した encodedId を元にキャンセル指示を出す
         let isError = false;
         for (const encodeId of encodeIds) {
@@ -483,6 +635,7 @@ class EncodeManageModel implements IEncodeManageModel {
         const queueInfo: EncodeQueueInfo = {
             runningQueue: [],
             waitQueue: [],
+            scheduledQueue: [],
         };
 
         // running queue
@@ -521,14 +674,39 @@ class EncodeManageModel implements IEncodeManageModel {
             });
         }
 
+        // scheduled queue
+        for (const item of this.scheduledQueue) {
+            queueInfo.scheduledQueue.push({
+                id: item.option.encodeId,
+                mode: item.option.mode,
+                recordedId: item.option.recordedId,
+                scheduledAt: item.scheduledAt,
+            });
+        }
+
         return queueInfo;
     }
 
     private async restorePersistedQueue(): Promise<void> {
         try {
             const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
-            const tasks = await repository.find({ order: { position: 'ASC', encodeId: 'ASC' } });
+            const tasks = await repository.find();
+            const restoreStatusOrder: Record<string, number> = {
+                running: 0,
+                waiting: 1,
+                scheduled: 2,
+            };
+            tasks.sort((left, right) => {
+                const statusOrder =
+                    (restoreStatusOrder[left.status] ?? Number.MAX_SAFE_INTEGER) -
+                    (restoreStatusOrder[right.status] ?? Number.MAX_SAFE_INTEGER);
+                if (statusOrder !== 0) return statusOrder;
+                if (left.position !== right.position) return left.position - right.position;
+
+                return left.encodeId - right.encodeId;
+            });
             let maxEncodeId = 0;
+            const overdueScheduledOptions: EncodeOption[] = [];
 
             for (const task of tasks) {
                 maxEncodeId = Math.max(maxEncodeId, task.encodeId);
@@ -543,7 +721,7 @@ class EncodeManageModel implements IEncodeManageModel {
                     );
                     continue;
                 }
-                if (task.status !== 'waiting' && task.status !== 'running') continue;
+                if (task.status !== 'waiting' && task.status !== 'running' && task.status !== 'scheduled') continue;
 
                 let option: EncodeOption;
                 try {
@@ -566,21 +744,38 @@ class EncodeManageModel implements IEncodeManageModel {
                     continue;
                 }
 
-                const shouldRestartInterruptedAmatsukaze =
+                if (task.status === 'scheduled') {
+                    if (typeof option.scheduledAt !== 'number' || Number.isFinite(option.scheduledAt) === false) {
+                        task.status = 'needs_attention';
+                        task.updatedAt = Date.now();
+                        await repository.save(task);
+                        this.log.encode.warn(`scheduled encode time is invalid: ${task.encodeId}`);
+                        continue;
+                    }
+                    if (option.scheduledAt > Date.now()) {
+                        this.scheduledQueue.push({ option, scheduledAt: option.scheduledAt });
+                        this.log.encode.info(`restore scheduled encode: ${task.encodeId}`);
+                    } else {
+                        overdueScheduledOptions.push(option);
+                        this.log.encode.info(`release overdue scheduled encode on restore: ${task.encodeId}`);
+                    }
+                    continue;
+                }
+
+                const shouldResumeInterruptedAmatsukaze =
                     encodeConfig.type === 'amatsukaze' &&
                     (task.status === 'running' ||
                         option.resumeExistingAmatsukaze === true ||
                         option.restartInterruptedAmatsukaze === true);
-                if (shouldRestartInterruptedAmatsukaze) {
-                    // Amatsukaze task/console IDs can no longer be trusted after this process restarts.
-                    // The first restored task cancels the server-side unfinished snapshot, then every
-                    // persisted NeoEPGStation task is submitted again through the normal add flow.
-                    delete option.resumeExistingAmatsukaze;
-                    delete option.amatsukazeTaskId;
-                    option.restartInterruptedAmatsukaze = true;
+                if (shouldResumeInterruptedAmatsukaze) {
+                    // Amatsukaze keeps its server-side queue alive when only NeoEPGStation restarts.
+                    // Reconnect by the persisted task ID first, then fall back to the source path if
+                    // the ID changed. Canceling the entire Amatsukaze queue can affect unrelated jobs.
+                    option.resumeExistingAmatsukaze = true;
+                    delete option.restartInterruptedAmatsukaze;
                     option.recoveryStartedAt = Number(task.startedAt) || Number(task.updatedAt);
                     if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
-                    this.log.encode.warn(`restart interrupted Amatsukaze task from beginning: ${task.encodeId}`);
+                    this.log.encode.info(`resume Amatsukaze task monitoring: ${task.encodeId}`);
                 } else if (task.status === 'running') {
                     if (task.outputFilePath !== null) option.recoveryOutputFilePath = task.outputFilePath;
                     this.log.encode.warn(`restart interrupted internal encode from beginning: ${task.encodeId}`);
@@ -593,8 +788,18 @@ class EncodeManageModel implements IEncodeManageModel {
                 this.waitQueue.push(encoder);
             }
 
+            for (const option of overdueScheduledOptions) {
+                delete option.scheduledAt;
+                const encoder = await this.encoderModelProvider();
+                encoder.setOption(option);
+                this.waitQueue.push(encoder);
+            }
+
             this.idCnt = Math.max(this.idCnt, maxEncodeId + 1);
+            this.sortScheduledQueue();
             await this.saveWaitQueuePositions();
+            await this.saveScheduledQueuePositions();
+            this.refreshScheduledTimer();
             if (this.waitQueue.length > 0) {
                 process.nextTick(() => this.emitNeedsCheckQueue());
             }
@@ -607,7 +812,7 @@ class EncodeManageModel implements IEncodeManageModel {
 
     private async saveTask(
         option: EncodeOption,
-        status: 'waiting' | 'running',
+        status: 'scheduled' | 'waiting' | 'running',
         position: number,
         startedAt: number,
     ): Promise<void> {
@@ -656,6 +861,13 @@ class EncodeManageModel implements IEncodeManageModel {
             if (option !== null) await this.saveTask(option, 'waiting', position, 0);
         }
     }
+
+    private async saveScheduledQueuePositions(): Promise<void> {
+        for (let position = 0; position < this.scheduledQueue.length; position++) {
+            const item = this.scheduledQueue[position];
+            await this.saveTask(item.option, 'scheduled', position, 0);
+        }
+    }
 }
 
 namespace EncodeManageModel {
@@ -664,11 +876,14 @@ namespace EncodeManageModel {
     export const CANCEL_ENCODE_PRIPORITY = 1;
     export const ADD_ENCODE_PRIPORITY = 2;
     export const CREATE_ENCODING_PROCESS_PRIPORITY = 2;
+    export const RELEASE_SCHEDULED_ENCODE_PRIORITY = 2;
     export const REORDER_ENCODE_PRIORITY = 3;
     export const CLEAR_QUEUE_PRIPORITY = 3;
     export const NEEDS_CHECK_QUEUE_EVENT = 'needsCheckQueue';
     export const ENCODE_PRIPORITY = 10;
     export const DEFAULT_TIMEOUT_RATE = 4.0;
+    export const MAX_TIMER_DELAY = 2_147_483_647;
+    export const RELEASE_RETRY_DELAY = 30_000;
 }
 
 export default EncodeManageModel;
