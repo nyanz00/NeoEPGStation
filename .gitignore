@@ -6,7 +6,12 @@
 .devcontainer/.vscode-server/*
 recorded/*
 thumbnail/*.jpg
+channel-logo/*
+!channel-logo/.gitkeep
 data/streamfiles/*
+data/cleanup/*
+!data/cleanup/.gitkeep
+debug_dump_nal.bin
 .DS_Store
 config/*
 !config/*.template
@@ -22,6 +27,7 @@ data/key/*
 data/annict/
 data/viewer-profiles/
 data/tls/
+data/update/
 thirdparty/**
 !thirdparty/.gitkeep
 !thirdparty/tsreadex/

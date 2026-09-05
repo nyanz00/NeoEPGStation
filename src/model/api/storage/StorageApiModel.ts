@@ -22,6 +22,12 @@ interface StorageBreakdownSummary {
     thumbnailSize: number;
 }
 
+interface LinuxGpuDescriptor {
+    name: string;
+    devicePath: string;
+    vendorId: string;
+}
+
 @injectable()
 export default class StorageApiModel implements IStorageApiModel {
     private config: IConfigFile;
@@ -44,12 +50,14 @@ export default class StorageApiModel implements IStorageApiModel {
         hostname: string;
         platform: string;
         arch: string;
+        containerRuntime?: 'docker';
         cpuModel: string;
         logicalCores: number;
         totalMemory: number;
         pid: number;
     };
     private gpuDescriptors: Pick<apid.SystemGpuInfo, 'name' | 'memoryTotal'>[] | null = null;
+    private linuxGpuDescriptors: LinuxGpuDescriptor[] | null = null;
     private storageVolumeDescriptors:
         Pick<apid.SystemStorageVolume, 'id' | 'name' | 'path' | 'type' | 'total'>[] | null = null;
 
@@ -64,6 +72,7 @@ export default class StorageApiModel implements IStorageApiModel {
             hostname: os.hostname(),
             platform: `${os.type()} ${os.release()}`,
             arch: os.arch(),
+            containerRuntime: this.detectContainerRuntime(),
             cpuModel: cpus[0]?.model.trim() ?? 'Unknown CPU',
             logicalCores: cpus.length,
             totalMemory: os.totalmem(),
@@ -296,6 +305,7 @@ export default class StorageApiModel implements IStorageApiModel {
             hostname: this.systemDescriptor.hostname,
             platform: this.systemDescriptor.platform,
             arch: this.systemDescriptor.arch,
+            containerRuntime: this.systemDescriptor.containerRuntime,
             uptime: os.uptime(),
             sampledAt: Date.now(),
             cpu,
@@ -313,6 +323,13 @@ export default class StorageApiModel implements IStorageApiModel {
         };
         this.systemInfoCache = { expiresAt: Date.now() + 5_000, info };
         return info;
+    }
+
+    private detectContainerRuntime(): 'docker' | undefined {
+        if (process.env.NEOEPGSTATION_CONTAINER_RUNTIME === 'docker') return 'docker';
+        if (process.platform === 'linux' && fs.existsSync('/run/.containerenv')) return undefined;
+        if (process.platform === 'linux' && fs.existsSync('/.dockerenv')) return 'docker';
+        return undefined;
     }
 
     private async getCpuInfo(): Promise<apid.SystemCpuInfo> {
@@ -372,11 +389,18 @@ export default class StorageApiModel implements IStorageApiModel {
     }
 
     private async loadGpuItems(now: number): Promise<apid.SystemGpuInfo[]> {
-        const [nvidiaItems, windowsItems] = await Promise.all([
-            this.getNvidiaGpuInfo(),
-            process.platform === 'win32' ? this.getWindowsGpuInfo() : Promise.resolve([]),
-        ]);
-        const sampledItems = this.mergeGpuInfo(nvidiaItems, windowsItems);
+        let nvidiaItems: apid.SystemGpuInfo[];
+        let platformItems: apid.SystemGpuInfo[];
+        if (process.platform === 'linux') {
+            nvidiaItems = await this.getNvidiaGpuInfo();
+            platformItems = await this.getLinuxGpuInfo(nvidiaItems.length > 0);
+        } else {
+            [nvidiaItems, platformItems] = await Promise.all([
+                this.getNvidiaGpuInfo(),
+                process.platform === 'win32' ? this.getWindowsGpuInfo() : Promise.resolve([]),
+            ]);
+        }
+        const sampledItems = this.mergeGpuInfo(nvidiaItems, platformItems);
         if (sampledItems.length > 0) {
             if (this.gpuDescriptors === null) this.gpuDescriptors = [];
             const sampledNameCounts = new Map<string, number>();
@@ -496,19 +520,19 @@ export default class StorageApiModel implements IStorageApiModel {
         });
     }
 
-    private mergeGpuInfo(nvidiaItems: apid.SystemGpuInfo[], windowsItems: apid.SystemGpuInfo[]): apid.SystemGpuInfo[] {
+    private mergeGpuInfo(nvidiaItems: apid.SystemGpuInfo[], platformItems: apid.SystemGpuInfo[]): apid.SystemGpuInfo[] {
         const remainingNvidia = nvidiaItems.filter(item => !this.isSoftwareGpuAdapter(item.name));
-        const merged = windowsItems
+        const merged = platformItems
             .filter(item => !this.isSoftwareGpuAdapter(item.name))
-            .map(windowsItem => {
-                const normalizedWindowsName = this.normalizeGpuName(windowsItem.name);
+            .map(platformItem => {
+                const normalizedPlatformName = this.normalizeGpuName(platformItem.name);
                 const nvidiaIndex = remainingNvidia.findIndex(
-                    item => this.normalizeGpuName(item.name) === normalizedWindowsName,
+                    item => this.normalizeGpuName(item.name) === normalizedPlatformName,
                 );
-                if (nvidiaIndex === -1) return windowsItem;
+                if (nvidiaIndex === -1) return platformItem;
                 const [nvidiaItem] = remainingNvidia.splice(nvidiaIndex, 1);
                 return {
-                    ...windowsItem,
+                    ...platformItem,
                     ...nvidiaItem,
                 };
             });
@@ -569,6 +593,115 @@ export default class StorageApiModel implements IStorageApiModel {
         } catch (_err: any) {
             return [];
         }
+    }
+
+    private async getLinuxGpuInfo(excludeNvidia: boolean): Promise<apid.SystemGpuInfo[]> {
+        const descriptors = this.linuxGpuDescriptors ?? (await this.getLinuxGpuDescriptors());
+        this.linuxGpuDescriptors = descriptors;
+        return Promise.all(
+            descriptors
+                .filter(descriptor => !excludeNvidia || descriptor.vendorId !== '10de')
+                .map(async descriptor => {
+                    const [usage, memoryTotal, memoryUsed] = await Promise.all([
+                        this.readLinuxSysfsValue(path.join(descriptor.devicePath, 'gpu_busy_percent')),
+                        this.readLinuxSysfsValue(path.join(descriptor.devicePath, 'mem_info_vram_total')),
+                        this.readLinuxSysfsValue(path.join(descriptor.devicePath, 'mem_info_vram_used')),
+                    ]);
+                    return {
+                        name: descriptor.name,
+                        usagePercent: this.toOptionalNumber(usage),
+                        memoryTotal: this.toOptionalByteSize(memoryTotal),
+                        memoryUsed: this.toOptionalNonNegativeByteSize(memoryUsed),
+                    };
+                }),
+        );
+    }
+
+    private async getLinuxGpuDescriptors(): Promise<LinuxGpuDescriptor[]> {
+        const drmPath = '/sys/class/drm';
+        try {
+            const [entries, pciNames] = await Promise.all([
+                fs.promises.readdir(drmPath, { withFileTypes: true }),
+                this.getLinuxPciGpuNames(),
+            ]);
+            const descriptors = await Promise.all(
+                entries
+                    .filter(entry => /^card\d+$/.test(entry.name))
+                    .map(async (entry): Promise<LinuxGpuDescriptor | undefined> => {
+                        const devicePath = path.join(drmPath, entry.name, 'device');
+                        const realDevicePath = await fs.promises.realpath(devicePath).catch(() => devicePath);
+                        const [vendorId, deviceId, deviceClass] = await Promise.all([
+                            this.readLinuxSysfsValue(path.join(devicePath, 'vendor')),
+                            this.readLinuxSysfsValue(path.join(devicePath, 'device')),
+                            this.readLinuxSysfsValue(path.join(devicePath, 'class')),
+                        ]);
+                        const normalizedVendorId = vendorId?.replace(/^0x/i, '').toLowerCase();
+                        const normalizedDeviceId = deviceId?.replace(/^0x/i, '').toLowerCase();
+                        if (
+                            normalizedVendorId === undefined ||
+                            normalizedDeviceId === undefined ||
+                            (deviceClass !== undefined && !/^0x03/i.test(deviceClass))
+                        ) {
+                            return undefined;
+                        }
+
+                        const pciAddress = path.basename(realDevicePath);
+                        return {
+                            name: this.getLinuxGpuDisplayName(
+                                pciNames.get(pciAddress),
+                                normalizedVendorId,
+                                normalizedDeviceId,
+                            ),
+                            devicePath,
+                            vendorId: normalizedVendorId,
+                        };
+                    }),
+            );
+            return descriptors.filter((item): item is LinuxGpuDescriptor => item !== undefined);
+        } catch (_err: any) {
+            return [];
+        }
+    }
+
+    private async getLinuxPciGpuNames(): Promise<Map<string, string>> {
+        const names = new Map<string, string>();
+        try {
+            const output = await this.runCommand('lspci', ['-Dmm', '-nn']);
+            for (const line of output.split(/\r?\n/)) {
+                const match = line.match(/^(\S+)\s+"([^"]+)"\s+"([^"]+)"\s+"([^"]+)"/);
+                if (match === null || !/\[(?:0300|0302|0380)\]/i.test(match[2])) continue;
+                const vendor = match[3].replace(/\s+\[[0-9a-f]{4}\]$/i, '').trim();
+                const device = match[4].replace(/\s+\[[0-9a-f]{4}\]$/i, '').trim();
+                names.set(match[1], `${vendor} ${device}`.trim());
+            }
+        } catch (_err: any) {
+            // pciutils is optional. The DRM sysfs identifiers still provide a stable fallback.
+        }
+        return names;
+    }
+
+    private async readLinuxSysfsValue(filePath: string): Promise<string | undefined> {
+        try {
+            return (await fs.promises.readFile(filePath, 'utf8')).trim();
+        } catch (_err: any) {
+            return undefined;
+        }
+    }
+
+    private getLinuxFallbackGpuName(vendorId: string, deviceId: string): string {
+        const vendorNames: Record<string, string> = {
+            '1002': 'AMD',
+            '10de': 'NVIDIA',
+            '8086': 'Intel',
+        };
+        return `${vendorNames[vendorId] ?? 'GPU'} [${vendorId}:${deviceId}]`;
+    }
+
+    private getLinuxGpuDisplayName(pciName: string | undefined, vendorId: string, deviceId: string): string {
+        const marketingNames: Record<string, string> = {
+            '8086:0412': 'Intel HD Graphics 4600',
+        };
+        return marketingNames[`${vendorId}:${deviceId}`] ?? pciName ?? this.getLinuxFallbackGpuName(vendorId, deviceId);
     }
 
     private async getWindowsGpuInfo(): Promise<apid.SystemGpuInfo[]> {
