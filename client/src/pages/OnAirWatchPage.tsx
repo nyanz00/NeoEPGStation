@@ -31,7 +31,7 @@ import {
 } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import type { ChannelJikkyoStatus, ChannelType, Schedule, ScheduleChannleItem, ScheduleProgramItem } from '../../../api';
-import { type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useAppLayout } from '../components/AppLayout';
@@ -46,7 +46,7 @@ import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
 import { channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, isLikelyBroadcastPauseTime, programDuration } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
-import { useSettings, type WebKitPlaybackMode } from '../core/storage/settings';
+import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 import { GuideProgramDialog, reserveIndex } from './GuidePage';
 
@@ -76,6 +76,8 @@ function LivePlayer({
     isHevc,
     webkitPlaybackMode,
     forceSubtitleStroke,
+    danmakuHighRefreshRate,
+    danmakuFrameRateLimit,
     persistentBottomControls,
     showVolumePercent,
     volumeBoostEnabled,
@@ -93,6 +95,8 @@ function LivePlayer({
     isHevc: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
+    danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
     volumeBoostEnabled: boolean;
@@ -112,6 +116,7 @@ function LivePlayer({
     const [controlsPortal, setControlsPortal] = useState<HTMLElement | null>(null);
     const [paused, setPaused] = useState(true);
     const [state, setState] = useState<LiveMpegTsPlayerState>({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' });
+    const pointerInPersistentBottomControlsRef = useRef(false);
     const showPlayerControls = useCallback((): void => {
         setControlsVisible(true);
         coreRef.current?.showControls();
@@ -122,6 +127,26 @@ function LivePlayer({
     }, []);
     const activatePlayerAudio = useCallback((): void => coreRef.current?.activateAudio(), []);
     const touchControls = useTouchPlayerControls(controlsVisible, showPlayerControls, hidePlayerControls, activatePlayerAudio);
+    const handlePointerMove = useCallback(
+        (event: ReactPointerEvent<HTMLElement>): void => {
+            if (event.pointerType === 'mouse' && persistentBottomControls) {
+                const playerRect = event.currentTarget.getBoundingClientRect();
+                const isInBottomControls = event.clientY >= playerRect.bottom - 56;
+                if (isInBottomControls) {
+                    if (!pointerInPersistentBottomControlsRef.current) {
+                        pointerInPersistentBottomControlsRef.current = true;
+                        setControlsVisible(false);
+                        onControlsVisibilityChange(false);
+                    }
+                    return;
+                }
+            }
+
+            pointerInPersistentBottomControlsRef.current = false;
+            showPlayerControls();
+        },
+        [onControlsVisibilityChange, persistentBottomControls, showPlayerControls],
+    );
 
     useLayoutEffect(() => {
         if (container.current === null) return;
@@ -133,6 +158,8 @@ function LivePlayer({
             isHevc,
             webkitPlaybackMode,
             forceSubtitleStroke,
+            danmakuHighRefreshRate,
+            danmakuFrameRateLimit,
             volumeBoostEnabled,
             volumeBoostMaxPercent,
             themeColor: theme.palette.primary.main,
@@ -141,6 +168,7 @@ function LivePlayer({
             onComment,
             onCommentPostAvailabilityChange,
             onControlsVisibilityChange: visible => {
+                if (visible && pointerInPersistentBottomControlsRef.current) return;
                 setControlsVisible(visible);
                 onControlsVisibilityChange(visible);
             },
@@ -159,6 +187,8 @@ function LivePlayer({
     }, [
         channelId,
         forceSubtitleStroke,
+        danmakuHighRefreshRate,
+        danmakuFrameRateLimit,
         isHevc,
         webkitPlaybackMode,
         lowLatency,
@@ -197,7 +227,10 @@ function LivePlayer({
         <Box
             data-testid="onair-player"
             {...touchControls}
-            onPointerMove={showPlayerControls}
+            onPointerMove={handlePointerMove}
+            onPointerLeave={() => {
+                pointerInPersistentBottomControlsRef.current = false;
+            }}
             sx={{
                 position: 'relative',
                 width: '100%',
@@ -211,7 +244,13 @@ function LivePlayer({
                 '& .onair-dplayer.dplayer': { width: '100%', height: '100%', bgcolor: 'transparent' },
                 '& .onair-dplayer .dplayer-video-wrap': { bgcolor: '#000 !important' },
                 '& .onair-dplayer .dplayer-video-wrap-aspect, & .onair-dplayer video': { width: '100%', height: '100%' },
-                '& .onair-dplayer video': { objectFit: 'contain' },
+                '& .onair-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
+                '& .onair-dplayer .dplayer-danmaku': { zIndex: 2 },
+                '& .onair-dplayer .neo-player-arib-canvas': { zIndex: 3 },
+                '& .onair-dplayer .dplayer-controller-mask, & .onair-dplayer .dplayer-controller, & .onair-dplayer .dplayer-bezel, & .onair-dplayer .dplayer-setting-box, & .onair-dplayer .dplayer-comment-setting-box, & .onair-dplayer .dplayer-notice':
+                    {
+                        zIndex: 4,
+                    },
                 '& .onair-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
                     background: 'linear-gradient(to top, rgba(0,0,0,.86), transparent) !important',
@@ -233,8 +272,11 @@ function LivePlayer({
                 },
                 ...(persistentBottomControls
                     ? {
-                          '& .onair-dplayer .dplayer-video-wrap, & .onair-dplayer .dplayer-video-wrap-aspect': {
+                          '& .onair-dplayer .dplayer-video-wrap': {
                               height: 'calc(100% - 56px) !important',
+                          },
+                          '& .onair-dplayer .dplayer-video-wrap-aspect': {
+                              height: '100% !important',
                           },
                           '& .onair-dplayer .dplayer-controller-mask': {
                               height: '56px !important',
@@ -555,6 +597,9 @@ function ChannelPanel({
 function CommentPanel({
     comments,
     listRef,
+    autoFollow,
+    onScroll,
+    onReturnToCurrent,
     canPost,
     isPremium,
     postingTarget,
@@ -562,6 +607,9 @@ function CommentPanel({
 }: {
     comments: JikkyoComment[];
     listRef: RefObject<HTMLDivElement | null>;
+    autoFollow: boolean;
+    onScroll: (list: HTMLDivElement) => void;
+    onReturnToCurrent: () => void;
     canPost: boolean;
     isPremium: boolean;
     postingTarget: 'nicolive' | 'nx-jikkyo' | null;
@@ -587,13 +635,18 @@ function CommentPanel({
     };
     return (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Box ref={listRef} sx={{ minHeight: 0, flex: 1, overflowY: 'auto', p: 1.5 }}>
+            <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ minHeight: 0, flex: 1, overflowY: 'auto', p: 1.5 }}>
                 <Stack direction="row" spacing={1} sx={{ mb: 1.5, alignItems: 'center' }}>
                     <ChatBubbleOutlineOutlined />
                     <Typography variant="h6" sx={{ fontWeight: 800 }}>
                         コメント
                     </Typography>
                 </Stack>
+                {!autoFollow && comments.length > 0 && (
+                    <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
+                        現在位置に戻る
+                    </Button>
+                )}
                 {comments.length === 0 ? (
                     <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center' }}>
                         実況コメントを待っています…
@@ -690,10 +743,12 @@ export function OnAirWatchPage(): ReactNode {
     const { toggleDrawer } = useAppLayout();
     const [playerKey, setPlayerKey] = useState(0);
     const [panelOpen, setPanelOpen] = useState(true);
+    const [panelMounted, setPanelMounted] = useState(true);
     const [panelTab, setPanelTab] = useState<PanelTab>('program');
     const [overlayVisible, setOverlayVisible] = useState(true);
     const [reserveDialogOpen, setReserveDialogOpen] = useState(false);
     const [comments, setComments] = useState<JikkyoComment[]>([]);
+    const [commentAutoFollow, setCommentAutoFollow] = useState(true);
     const commentBuffer = useRef<JikkyoComment[]>([]);
     const commentsVisible = useRef(false);
     const commentFlushTimer = useRef<number | null>(null);
@@ -792,6 +847,7 @@ export function OnAirWatchPage(): ReactNode {
     useEffect(() => {
         commentBuffer.current = [];
         setComments([]);
+        setCommentAutoFollow(true);
     }, [channelId]);
     useEffect(() => {
         commentsVisible.current = panelTab === 'comments';
@@ -803,10 +859,32 @@ export function OnAirWatchPage(): ReactNode {
         },
         [],
     );
-    useEffect(() => {
+    const scrollCommentsToCurrent = useCallback((): void => {
         if (panelTab !== 'comments' || commentList.current === null) return;
         commentList.current.scrollTop = commentList.current.scrollHeight;
-    }, [comments, panelTab]);
+    }, [panelTab]);
+    const handleCommentScroll = useCallback(
+        (list: HTMLDivElement): void => {
+            if (commentAutoFollow && list.scrollHeight - list.clientHeight - list.scrollTop > 8) setCommentAutoFollow(false);
+        },
+        [commentAutoFollow],
+    );
+    const returnCommentsToCurrent = useCallback((): void => {
+        setCommentAutoFollow(true);
+        scrollCommentsToCurrent();
+    }, [scrollCommentsToCurrent]);
+    useEffect(() => {
+        if (commentAutoFollow) scrollCommentsToCurrent();
+    }, [comments, commentAutoFollow, scrollCommentsToCurrent]);
+    useEffect(() => {
+        if (panelOpen) {
+            setPanelMounted(true);
+            return;
+        }
+
+        const timer = window.setTimeout(() => setPanelMounted(false), 180);
+        return () => window.clearTimeout(timer);
+    }, [panelOpen]);
 
     const switchChannel = (channel: ScheduleChannleItem): void => {
         const next = new URLSearchParams(searchParams);
@@ -849,6 +927,9 @@ export function OnAirWatchPage(): ReactNode {
                 <CommentPanel
                     comments={comments}
                     listRef={commentList}
+                    autoFollow={commentAutoFollow}
+                    onScroll={handleCommentScroll}
+                    onReturnToCurrent={returnCommentsToCurrent}
                     canPost={canPostComment}
                     isPremium={niconicoStatus.data?.account?.isPremium === true}
                     postingTarget={commentPostingTarget}
@@ -874,7 +955,7 @@ export function OnAirWatchPage(): ReactNode {
                         minHeight: '100dvh',
                         height: { lg: '100dvh' },
                         display: 'grid',
-                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr)' },
+                        gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: panelOpen || panelMounted ? 'minmax(0, 1fr) 380px' : 'minmax(0, 1fr) 0px' },
                         gridTemplateRows: { xs: 'auto auto', lg: 'minmax(0, 1fr)' },
                         overflow: { lg: 'hidden' },
                     }}
@@ -897,6 +978,8 @@ export function OnAirWatchPage(): ReactNode {
                             isHevc={settings.watchUseHevc}
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
+                            danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
+                            danmakuFrameRateLimit={settings.watchDanmakuFrameRateLimit}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}
@@ -954,36 +1037,50 @@ export function OnAirWatchPage(): ReactNode {
                         </LivePlayer>
                     </Box>
 
-                    {panelOpen && (
-                        <Box
-                            component="aside"
-                            data-testid="onair-program-panel"
-                            sx={{
-                                minHeight: 0,
-                                height: { xs: '72dvh', lg: '100dvh' },
-                                display: 'flex',
-                                flexDirection: 'column',
-                                color: 'text.primary',
-                                bgcolor: 'background.paper',
-                                borderLeft: { lg: 1 },
-                                borderTop: { xs: 1, lg: 0 },
-                                borderColor: 'divider',
-                            }}
-                        >
-                            <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
-                            <BottomNavigation
-                                showLabels
-                                value={panelTab}
-                                onChange={(_event, value: PanelTab) => setPanelTab(value)}
-                                sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
-                            >
-                                <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
-                                <BottomNavigationAction value="channels" label="チャンネル" icon={<SensorsOutlined />} />
-                                <BottomNavigationAction value="comments" label="コメント" icon={<ChatBubbleOutlineOutlined />} />
-                                <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
-                            </BottomNavigation>
-                        </Box>
-                    )}
+                    <Box
+                        component="aside"
+                        data-testid="onair-program-panel"
+                        aria-hidden={!panelOpen}
+                        sx={{
+                            minHeight: 0,
+                            minWidth: 0,
+                            height: { xs: panelOpen ? '72dvh' : 0, lg: '100dvh' },
+                            display: 'flex',
+                            flexDirection: 'column',
+                            color: 'text.primary',
+                            bgcolor: 'background.paper',
+                            borderLeft: { lg: panelOpen || panelMounted ? 1 : 0 },
+                            borderTop: { xs: panelOpen || panelMounted ? 1 : 0, lg: 0 },
+                            borderColor: 'divider',
+                            overflow: 'hidden',
+                            opacity: panelOpen ? 1 : 0,
+                            transform: { xs: panelOpen ? 'translateY(0)' : 'translateY(-6px)', lg: panelOpen ? 'translateX(0)' : 'translateX(8px)' },
+                            pointerEvents: panelOpen ? 'auto' : 'none',
+                            transition: theme =>
+                                theme.transitions.create(['height', 'opacity', 'transform'], {
+                                    duration: 160,
+                                    easing: theme.transitions.easing.easeInOut,
+                                }),
+                            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                        }}
+                    >
+                        {(panelOpen || panelMounted) && (
+                            <>
+                                <Box sx={{ minHeight: 0, flex: 1, overflowY: panelTab === 'comments' ? 'hidden' : 'auto' }}>{panelContent()}</Box>
+                                <BottomNavigation
+                                    showLabels
+                                    value={panelTab}
+                                    onChange={(_event, value: PanelTab) => setPanelTab(value)}
+                                    sx={{ flex: '0 0 auto', height: 72, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}
+                                >
+                                    <BottomNavigationAction value="program" label="番組情報" icon={<InfoOutlined />} />
+                                    <BottomNavigationAction value="channels" label="チャンネル" icon={<SensorsOutlined />} />
+                                    <BottomNavigationAction value="comments" label="コメント" icon={<ChatBubbleOutlineOutlined />} />
+                                    <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
+                                </BottomNavigation>
+                            </>
+                        )}
+                    </Box>
                 </Box>
             )}
             <GuideProgramDialog

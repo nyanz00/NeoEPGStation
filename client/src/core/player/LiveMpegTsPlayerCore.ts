@@ -3,9 +3,16 @@ import Hls from 'hls.js';
 import Mpegts from 'mpegts.js';
 import { isAppleMobileWebKit } from '../platform/webkit';
 import { getStoredPlayerMuted, getStoredPlayerVolumePercent, setStoredPlayerMuted } from '../storage/player';
-import type { WebKitPlaybackMode } from '../storage/settings';
+import type { WatchDanmakuFrameRateLimit, WebKitPlaybackMode } from '../storage/settings';
 import { configureDPlayerUi, DPLAYER_MOBILE_VOLUME_CONTROL_NAME, DPLAYER_VOLUME_ON_ICON, updateDPlayerMobileVolumeControl } from './DPlayerUi';
 import { LiveJikkyoCommentCore } from './LiveJikkyoCommentCore';
+import {
+    downloadCompositeScreenshot,
+    downloadVideoScreenshot,
+    DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
+    DPLAYER_COMPOSITE_SCREENSHOT_ICON,
+    type CompositeScreenshotDanmaku,
+} from './PlayerCompositeScreenshot';
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 
@@ -36,6 +43,9 @@ interface DPlayerInstance {
         hide(): void;
         isShow(): boolean;
     };
+    setting: {
+        hide(): void;
+    };
     volume(percentage?: number | string, nostorage?: boolean, nonotice?: boolean): number;
     notice(text: string): void;
     muted(muted?: boolean): boolean;
@@ -43,7 +53,7 @@ interface DPlayerInstance {
     danmaku?: {
         draw(comment: DPlayerDanmakuItem | DPlayerDanmakuItem[]): void;
         resize?: () => void;
-    };
+    } & CompositeScreenshotDanmaku;
     on(name: string, callback: () => void): void;
     destroy(): void;
 }
@@ -69,6 +79,8 @@ export interface LiveMpegTsPlayerCoreOption {
     isHevc: boolean;
     webkitPlaybackMode: WebKitPlaybackMode;
     forceSubtitleStroke: boolean;
+    danmakuHighRefreshRate: boolean;
+    danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
     themeColor: string;
@@ -127,7 +139,8 @@ export class LiveMpegTsPlayerCore {
     private volumeController: PlayerVolumeController | null = null;
     private generation = 0;
     private pendingDanmaku: JikkyoComment[] = [];
-    private danmakuFrame: number | null = null;
+    private danmakuFlushQueued = false;
+    private danmakuFlushGeneration = 0;
     private state: LiveMpegTsPlayerState = {
         isLoading: true,
         isBuffering: false,
@@ -228,6 +241,13 @@ export class LiveMpegTsPlayerCore {
                     position: 'right',
                     click: () => this.restart(),
                 },
+                {
+                    name: DPLAYER_COMPOSITE_SCREENSHOT_CONTROL_NAME,
+                    ariaLabel: '字幕付きスクリーンショット',
+                    icon: DPLAYER_COMPOSITE_SCREENSHOT_ICON,
+                    position: 'right',
+                    click: () => void this.captureCompositeScreenshot(),
+                },
             ],
             lang: 'ja-jp',
             live: true,
@@ -267,6 +287,8 @@ export class LiveMpegTsPlayerCore {
                 user: 'EPGStation',
                 speedRate: 1,
                 fontSize: LiveMpegTsPlayerCore.DANMAKU_FONT_SIZE,
+                highRefreshRate: this.option.danmakuHighRefreshRate,
+                maxFrameRate: this.option.danmakuFrameRateLimit === 'auto' ? undefined : Number(this.option.danmakuFrameRateLimit),
             },
             apiBackend: {
                 read: (readOption: { success: (comments: never[]) => void }) => readOption.success([]),
@@ -280,7 +302,13 @@ export class LiveMpegTsPlayerCore {
         };
         const storedMuted = getStoredPlayerMuted();
         this.player = new DPlayer(options) as DPlayerInstance;
-        this.option.onControlsPortalReady?.(configureDPlayerUi(this.option.container));
+        this.option.onControlsPortalReady?.(
+            configureDPlayerUi(
+                this.option.container,
+                () => this.player?.setting.hide(),
+                () => void this.captureVideoScreenshot(),
+            ),
+        );
         this.volumeController = new PlayerVolumeController({
             container: this.option.container,
             video: this.player.video,
@@ -303,6 +331,30 @@ export class LiveMpegTsPlayerCore {
         this.startAppleAutoplay(storedMuted);
     }
 
+    private async captureCompositeScreenshot(): Promise<void> {
+        if (this.player === null) return;
+        try {
+            await downloadCompositeScreenshot({
+                container: this.option.container,
+                video: this.player.video,
+                danmaku: this.player.danmaku,
+            });
+        } catch (error) {
+            this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
+            this.option.onWarn?.(error);
+        }
+    }
+
+    private async captureVideoScreenshot(): Promise<void> {
+        if (this.player === null) return;
+        try {
+            await downloadVideoScreenshot(this.player.video);
+        } catch (error) {
+            this.player?.notice(error instanceof Error ? error.message : 'スクリーンショットの撮影に失敗しました。');
+            this.option.onWarn?.(error);
+        }
+    }
+
     private bindPlayerEvents(): void {
         if (this.player === null) return;
         this.player.on('waiting', () => {
@@ -313,6 +365,10 @@ export class LiveMpegTsPlayerCore {
             });
         });
         this.player.on('playing', () => {
+            // Safari's startup event order can leave the controller visible after
+            // its initial pause. `playing` confirms playback before restarting
+            // auto-hide and does not alter the touch/audio activation path.
+            if (this.player?.controller.isShow()) this.player.controller.setAutoHide(LiveMpegTsPlayerCore.CONTROLS_AUTO_HIDE_TIME);
             if (this.isIos26HevcCompatibilityPlayback() && this.state.isLoading) {
                 // `playing` is more reliable than Safari's canplay/readyState
                 // bookkeeping: a decoded HEVC frame is actually advancing.
@@ -566,13 +622,16 @@ export class LiveMpegTsPlayerCore {
     private enqueueDanmaku(comment: JikkyoComment): void {
         this.pendingDanmaku.push(comment);
         this.option.onComment?.(comment);
-        if (this.danmakuFrame !== null) return;
+        if (this.danmakuFlushQueued) return;
 
-        // NX-Jikkyo may deliver multiple comments between two paints. Drawing each
-        // message immediately repeats DOM insertion and text measurement work and can
-        // stall animations already in flight. Flush one fragment per animation frame.
-        this.danmakuFrame = window.requestAnimationFrame(() => {
-            this.danmakuFrame = null;
+        // NX-Jikkyo may deliver several comments in one task. A microtask still
+        // batches them, but unlike a pending rAF it cannot remain stranded when a
+        // long browser suspension ends.
+        this.danmakuFlushQueued = true;
+        const generation = this.danmakuFlushGeneration;
+        queueMicrotask(() => {
+            if (generation !== this.danmakuFlushGeneration) return;
+            this.danmakuFlushQueued = false;
             const comments = this.pendingDanmaku.splice(0);
             if (this.destroyed || this.player === null || comments.length === 0) return;
             this.player.danmaku?.draw(comments.map(item => ({ text: item.text, color: item.color, type: item.position, size: item.size })));
@@ -589,8 +648,8 @@ export class LiveMpegTsPlayerCore {
         this.jikkyoCommentCore = null;
         this.option.container.classList.remove('onair-comment-post-enabled');
         this.option.onControlsPortalReady?.(null);
-        if (this.danmakuFrame !== null) window.cancelAnimationFrame(this.danmakuFrame);
-        this.danmakuFrame = null;
+        this.danmakuFlushGeneration++;
+        this.danmakuFlushQueued = false;
         this.pendingDanmaku = [];
         this.option.onReady?.(null);
         if (this.player === null) return;

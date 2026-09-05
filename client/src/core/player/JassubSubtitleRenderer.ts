@@ -30,16 +30,24 @@ async function loadFontData(): Promise<JassubFontData> {
 
 export class JassubSubtitleRenderer {
     private instance: JASSUBInstance | null = null;
+    private video: HTMLVideoElement | null = null;
+    private isNicoJk = false;
     private generation = 0;
 
     public async setSubtitle(video: HTMLVideoElement, subtitleText: string, isNicoJk: boolean): Promise<void> {
         const generation = ++this.generation;
+        const processedSubtitle = preprocessAssSubtitle(subtitleText, { isNicoJk });
+        if (this.instance !== null && this.video === video && this.isNicoJk === isNicoJk) {
+            this.instance.setTrack(processedSubtitle);
+
+            return;
+        }
         this.destroyInstance();
         const [JASSUB, fontData] = await Promise.all([import('jassub').then(module => module.default), loadFontData()]);
         if (generation !== this.generation) return;
         this.instance = new JASSUB({
             video,
-            subContent: preprocessAssSubtitle(subtitleText, { isNicoJk }),
+            subContent: processedSubtitle,
             workerUrl,
             wasmUrl,
             legacyWasmUrl,
@@ -60,9 +68,14 @@ export class JassubSubtitleRenderer {
             } as any,
             fallbackFont: 'noto sans jp',
             useLocalFonts: false,
+            // Keep the visible subtitle canvas readable so the player can
+            // composite ASS/SRT subtitles into overlay screenshots.
+            offscreenRender: false,
             onDemandRender: !isNicoJk,
             targetFps: isNicoJk ? 60 : 24,
         } as any);
+        this.video = video;
+        this.isNicoJk = isNicoJk;
     }
 
     public clear(): void {
@@ -77,5 +90,6 @@ export class JassubSubtitleRenderer {
     private destroyInstance(): void {
         this.instance?.destroy();
         this.instance = null;
+        this.video = null;
     }
 }

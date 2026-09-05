@@ -128,6 +128,10 @@ export default abstract class LiveStreamBaseModel
 
             // パイプ処理
             if (this.streamProcess.stdin !== null) {
+                this.streamProcess.stdin.on('error', err => {
+                    this.handlePipeError('stream process input', err);
+                });
+
                 // HLS 配信の場合は arib-subtitle-timedmetadater を通す
                 if (this.getStreamType() === 'LiveHLS') {
                     this.log.stream.info('use arib-subtitle-timedmetadater');
@@ -200,9 +204,23 @@ export default abstract class LiveStreamBaseModel
             throw new Error('StreamPreprocessorPipeIsNull');
         }
 
+        this.preProcessProcess.stdin.on('error', err => {
+            this.handlePipeError('preprocessor input', err);
+        });
+        this.preProcessProcess.stdout.on('error', err => {
+            this.handlePipeError('preprocessor output', err);
+        });
         this.stream.pipe(this.preProcessProcess.stdin);
 
         return this.preProcessProcess.stdout;
+    }
+
+    private handlePipeError(label: string, err: NodeJS.ErrnoException): void {
+        if (err.code === 'EPIPE' || err.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+            return;
+        }
+
+        this.log.stream.warn(`live stream ${label} error: ${err.message}`);
     }
 
     /**
