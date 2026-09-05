@@ -5,14 +5,22 @@ export interface RecordedJikkyoCommentCoreOption {
     commentsUrl: string;
     video: HTMLVideoElement;
     onComment: (comment: JikkyoComment) => void;
+    onCommentsChange?: (comments: JikkyoComment[]) => void;
+    onPositionChange?: (nextCommentIndex: number) => void;
+    getDisplayTime?: (comment: JikkyoComment, originalTime: number) => number;
     onReset?: () => void;
     onStatus?: (detail: string) => void;
     onError?: (error: unknown) => void;
 }
 
+interface ScheduledComment {
+    comment: RecordedJikkyoComment;
+    displayTime: number;
+}
+
 export class RecordedJikkyoCommentCore {
     private readonly option: RecordedJikkyoCommentCoreOption;
-    private comments: RecordedJikkyoComment[] = [];
+    private comments: ScheduledComment[] = [];
     private nextCommentIndex = 0;
     private animationFrameId: number | null = null;
     private abortController: AbortController | null = null;
@@ -32,11 +40,21 @@ export class RecordedJikkyoCommentCore {
             const result = (await response.json()) as RecordedJikkyoComments;
             if (this.destroyed) return;
             this.option.onStatus?.(result.detail);
-            this.comments = result.isSuccess ? result.comments.filter(comment => Number.isFinite(comment.time)).sort((left, right) => left.time - right.time) : [];
+            this.comments = result.isSuccess
+                ? result.comments
+                      .filter(comment => Number.isFinite(comment.time))
+                      .map(comment => ({
+                          comment,
+                          displayTime: this.option.getDisplayTime?.({ ...comment, vpos: Math.round(comment.time * 100) }, comment.time) ?? comment.time,
+                      }))
+                      .sort((left, right) => left.displayTime - right.displayTime || left.comment.time - right.comment.time)
+                : [];
+            this.notifyCommentsChanged();
             this.resetPosition(this.option.video.currentTime, false);
             this.option.video.addEventListener('seeking', this.handleSeeking);
             this.option.video.addEventListener('seeked', this.handleSeeked);
             this.option.video.addEventListener('play', this.handlePlay);
+            this.option.video.addEventListener('durationchange', this.handleDurationChange);
             this.animationFrameId = window.requestAnimationFrame(this.tick);
         } catch (error) {
             const aborted = error instanceof DOMException && error.name === 'AbortError';
@@ -53,6 +71,7 @@ export class RecordedJikkyoCommentCore {
         this.option.video.removeEventListener('seeking', this.handleSeeking);
         this.option.video.removeEventListener('seeked', this.handleSeeked);
         this.option.video.removeEventListener('play', this.handlePlay);
+        this.option.video.removeEventListener('durationchange', this.handleDurationChange);
         this.comments = [];
         this.nextCommentIndex = 0;
     }
@@ -63,13 +82,15 @@ export class RecordedJikkyoCommentCore {
         if (!video.paused && !video.seeking) {
             const currentTime = video.currentTime;
             if (currentTime + 0.5 < this.lastCurrentTime || currentTime - this.lastCurrentTime > 2) this.resetPosition(currentTime, true);
-            while (this.nextCommentIndex < this.comments.length && this.comments[this.nextCommentIndex].time <= currentTime + 0.05) {
-                const comment = this.comments[this.nextCommentIndex];
-                if (comment.time >= this.lastCurrentTime - 0.1) {
-                    this.option.onComment({ ...comment, vpos: Math.round(comment.time * 100) });
+            const previousIndex = this.nextCommentIndex;
+            while (this.nextCommentIndex < this.comments.length && this.comments[this.nextCommentIndex].displayTime <= currentTime + 0.05) {
+                const item = this.comments[this.nextCommentIndex];
+                if (item.displayTime >= this.lastCurrentTime - 0.1) {
+                    this.option.onComment({ ...item.comment, vpos: Math.round(item.comment.time * 100) });
                 }
                 this.nextCommentIndex++;
             }
+            if (this.nextCommentIndex !== previousIndex) this.option.onPositionChange?.(this.nextCommentIndex);
             this.lastCurrentTime = currentTime;
         }
         this.animationFrameId = window.requestAnimationFrame(this.tick);
@@ -80,17 +101,29 @@ export class RecordedJikkyoCommentCore {
     private readonly handlePlay = (): void => {
         if (Math.abs(this.option.video.currentTime - this.lastCurrentTime) > 0.5) this.resetPosition(this.option.video.currentTime, true);
     };
+    private readonly handleDurationChange = (): void => {
+        for (const item of this.comments) {
+            item.displayTime = this.option.getDisplayTime?.({ ...item.comment, vpos: Math.round(item.comment.time * 100) }, item.comment.time) ?? item.comment.time;
+        }
+        this.comments.sort((left, right) => left.displayTime - right.displayTime || left.comment.time - right.comment.time);
+        this.resetPosition(this.option.video.currentTime, false);
+    };
 
     private resetPosition(time: number, reset: boolean): void {
         let low = 0;
         let high = this.comments.length;
         while (low < high) {
             const middle = Math.floor((low + high) / 2);
-            if (this.comments[middle].time < time) low = middle + 1;
+            if (this.comments[middle].displayTime < time) low = middle + 1;
             else high = middle;
         }
         this.nextCommentIndex = low;
         this.lastCurrentTime = time;
+        this.option.onPositionChange?.(this.nextCommentIndex);
         if (reset) this.option.onReset?.();
+    }
+
+    private notifyCommentsChanged(): void {
+        this.option.onCommentsChange?.(this.comments.map(item => ({ ...item.comment, vpos: Math.round(item.comment.time * 100) })));
     }
 }

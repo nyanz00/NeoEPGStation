@@ -234,8 +234,8 @@ importers:
         specifier: 1.19.0
         version: 1.19.0
       dplayer:
-        specifier: https://github.com/nyanz00/DPlayer/archive/b708653fed80f3ecda1727424b55af9c841f6652.tar.gz
-        version: https://github.com/nyanz00/DPlayer/archive/b708653fed80f3ecda1727424b55af9c841f6652.tar.gz
+        specifier: https://github.com/nyanz00/DPlayer/archive/e15270db379a885890e41d06eca215bdfe1aa785.tar.gz
+        version: https://github.com/nyanz00/DPlayer/archive/e15270db379a885890e41d06eca215bdfe1aa785.tar.gz
       hls.js:
         specifier: 1.6.17
         version: 1.6.17
@@ -1414,8 +1414,8 @@ packages:
     resolution: {integrity: sha512-IrPdXQsk2BbzvCBGBOTmmSH5SodmqZNt4ERAZDmW4CT+tL8VtvinqywuANaFu4bOMWki16nqf0e4oC0QIaDr/g==}
     engines: {node: '>=10'}
 
-  dplayer@https://github.com/nyanz00/DPlayer/archive/b708653fed80f3ecda1727424b55af9c841f6652.tar.gz:
-    resolution: {integrity: sha512-g9JGD3kn88DAdxPDfS+sFdjSuZxDjZlSw4m9QTBBX+fGL86rQGAkpoGpXky5TNWNhVQQI7/AnWXL0+B2Kx4vWA==, tarball: https://github.com/nyanz00/DPlayer/archive/b708653fed80f3ecda1727424b55af9c841f6652.tar.gz}
+  dplayer@https://github.com/nyanz00/DPlayer/archive/e15270db379a885890e41d06eca215bdfe1aa785.tar.gz:
+    resolution: {integrity: sha512-Yrvk2g0Hd/HNL0X/K3Ktimehlcw6JmT6pO2s4dJFUpdzXKlaoPdRyuP7vLdTWs+DIegs33BeoWYTtj3mrVJknQ==, tarball: https://github.com/nyanz00/DPlayer/archive/e15270db379a885890e41d06eca215bdfe1aa785.tar.gz}
     version: 1.32.8-epgstation.1
 
   dunder-proto@1.0.1:
@@ -4091,7 +4091,7 @@ snapshots:
 
   dotenv@8.6.0: {}
 
-  dplayer@https://github.com/nyanz00/DPlayer/archive/b708653fed80f3ecda1727424b55af9c841f6652.tar.gz:
+  dplayer@https://github.com/nyanz00/DPlayer/archive/e15270db379a885890e41d06eca215bdfe1aa785.tar.gz:
     dependencies:
       aribb24.js: 1.11.5
       axios: 1.19.0
