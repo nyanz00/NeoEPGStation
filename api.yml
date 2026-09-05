@@ -2303,7 +2303,6 @@ components:
             description: ビデオファイルをアップロード
             type: object
             required:
-                - recordedId
                 - parentDirectoryName
                 - viewName
                 - fileType
@@ -2311,6 +2310,25 @@ components:
             properties:
                 recordedId:
                     $ref: '#/components/schemas/RecordedId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
+                channelId:
+                    $ref: '#/components/schemas/ChannelId'
+                startAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+                duration:
+                    description: 録画時間（ミリ秒）
+                    type: integer
+                    minimum: 1
+                name:
+                    description: 番組名
+                    type: string
+                description:
+                    description: 番組詳細
+                    type: string
+                extended:
+                    description: 番組拡張
+                    type: string
                 parentDirectoryName:
                     description: 親保存ディレクトリ
                     type: string

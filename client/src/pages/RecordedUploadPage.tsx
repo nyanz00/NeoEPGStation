@@ -49,6 +49,7 @@ export function RecordedUploadPage(): ReactNode {
         () => (channels.data ?? []).map(channel => ({ id: channel.id, label: channel.name, searchText: `${channel.name} ${channel.halfWidthName}` })),
         [channels.data],
     );
+    const primaryIsM2ts = files[0]?.file.name.toLowerCase().endsWith('.m2ts') === true;
 
     const addFiles = (event: ChangeEvent<HTMLInputElement>): void => {
         const selected = Array.from(event.target.files ?? []);
@@ -79,37 +80,61 @@ export function RecordedUploadPage(): ReactNode {
     const updateFile = (key: number, update: Partial<UploadFileState>): void => {
         setFiles(current => current.map(item => (item.key === key ? { ...item, ...update } : item)));
     };
+    const hasCompleteStartAt = date.length > 0 && time.length > 0;
+    const hasPartialStartAt = (date.length > 0 || time.length > 0) && !hasCompleteStartAt;
+    const hasValidDuration = duration.length === 0 || Number(duration) > 0;
+    const hasManualProgramInfo = typeof channelId === 'number' && hasCompleteStartAt && Number(duration) > 0 && name.trim().length > 0;
     const canUpload =
         typeof userId === 'number' &&
-        typeof channelId === 'number' &&
-        date.length > 0 &&
-        time.length > 0 &&
-        Number(duration) > 0 &&
-        name.trim().length > 0 &&
+        (primaryIsM2ts ? !hasPartialStartAt && hasValidDuration : hasManualProgramInfo) &&
         files.length > 0 &&
         files.every(file => file.viewName.trim().length > 0 && file.parentDirectoryName.length > 0);
 
     const upload = async (): Promise<void> => {
-        if (!canUpload || typeof userId !== 'number' || typeof channelId !== 'number') return;
-        const startAt = new Date(`${date}T${time}:00`).getTime();
-        if (!Number.isFinite(startAt)) {
+        if (!canUpload || typeof userId !== 'number') return;
+        const startAt = hasCompleteStartAt ? new Date(`${date}T${time}:00`).getTime() : undefined;
+        if (startAt !== undefined && !Number.isFinite(startAt)) {
             notify('日付または時刻が不正です。', 'error');
             return;
         }
-        const option: CreateNewRecordedOption = {
-            userId,
-            channelId,
-            startAt,
-            endAt: startAt + Number(duration) * 60_000,
-            name: name.trim(),
-        };
-        if (description.trim().length > 0) option.description = description.trim();
-        if (extended.trim().length > 0) option.extended = extended.trim();
         setUploading(true);
         let recordedId: number | undefined;
         try {
-            recordedId = await api.createRecorded(option);
-            for (const item of files) {
+            let filesToAttach = files;
+            if (primaryIsM2ts) {
+                const primary = files[0];
+                if (primary === undefined) return;
+                const remaining = files.slice(1);
+                const uploadOption: UploadVideoFileOption = {
+                    userId,
+                    parentDirectoryName: primary.parentDirectoryName,
+                    viewName: primary.viewName.trim(),
+                    fileType: primary.fileType,
+                    file: primary.file,
+                };
+                if (typeof channelId === 'number') uploadOption.channelId = channelId;
+                if (startAt !== undefined) uploadOption.startAt = startAt;
+                if (Number(duration) > 0) uploadOption.duration = Number(duration) * 60_000;
+                if (name.trim().length > 0) uploadOption.name = name.trim();
+                if (description.trim().length > 0) uploadOption.description = description.trim();
+                if (extended.trim().length > 0) uploadOption.extended = extended.trim();
+                if (primary.subDirectory.trim().length > 0) uploadOption.subDirectory = primary.subDirectory.trim();
+                recordedId = await api.uploadVideo(uploadOption);
+                filesToAttach = remaining;
+            } else {
+                if (typeof channelId !== 'number' || startAt === undefined) return;
+                const option: CreateNewRecordedOption = {
+                    userId,
+                    channelId,
+                    startAt,
+                    endAt: startAt + Number(duration) * 60_000,
+                    name: name.trim(),
+                };
+                if (description.trim().length > 0) option.description = description.trim();
+                if (extended.trim().length > 0) option.extended = extended.trim();
+                recordedId = await api.createRecorded(option);
+            }
+            for (const item of filesToAttach) {
                 const uploadOption: UploadVideoFileOption = {
                     recordedId,
                     parentDirectoryName: item.parentDirectoryName,
@@ -148,10 +173,15 @@ export function RecordedUploadPage(): ReactNode {
                             <Typography variant="h6" sx={{ mb: 2 }}>
                                 番組情報
                             </Typography>
+                            {primaryIsM2ts && (
+                                <Typography color="text.secondary" sx={{ mb: 2 }}>
+                                    M2TSでは、空欄の放送局・開始日時・長さ・番組名・概要・詳細をファイル内のEITから取得します。
+                                </Typography>
+                            )}
                             <Stack spacing={2}>
                                 <UserSelector value={userId} onChange={onUserChange} includeMaster={false} />
                                 <ChannelSelector
-                                    required
+                                    required={!primaryIsM2ts}
                                     options={channelOptions}
                                     value={channelId}
                                     loading={channels.isLoading}
@@ -170,7 +200,7 @@ export function RecordedUploadPage(): ReactNode {
                                         slotProps={{ htmlInput: { min: 1 } }}
                                     />
                                 </Stack>
-                                <TextField required label="番組名" value={name} onChange={event => setName(event.target.value)} />
+                                <TextField required={!primaryIsM2ts} label="番組名" value={name} onChange={event => setName(event.target.value)} />
                                 <TextField label="概要" value={description} onChange={event => setDescription(event.target.value)} multiline minRows={2} />
                                 <TextField label="詳細" value={extended} onChange={event => setExtended(event.target.value)} multiline minRows={3} />
                             </Stack>

@@ -402,9 +402,16 @@ export const api = {
     async executeRecordedCleanupPlan(planPath: string): Promise<RecordedCleanupExecuteResult> {
         return (await apiClient.post<RecordedCleanupExecuteResult>('/recorded/cleanupExecute', { planPath }, { timeout: 0 })).data;
     },
-    async uploadVideo(option: UploadVideoFileOption): Promise<void> {
+    async uploadVideo(option: UploadVideoFileOption): Promise<RecordedId> {
         const form = new FormData();
-        form.append('recordedId', String(option.recordedId));
+        if (option.recordedId !== undefined) form.append('recordedId', String(option.recordedId));
+        if (option.userId !== undefined) form.append('userId', String(option.userId));
+        if (option.channelId !== undefined) form.append('channelId', String(option.channelId));
+        if (option.startAt !== undefined) form.append('startAt', String(option.startAt));
+        if (option.duration !== undefined) form.append('duration', String(option.duration));
+        if (option.name !== undefined) form.append('name', option.name);
+        if (option.description !== undefined) form.append('description', option.description);
+        if (option.extended !== undefined) form.append('extended', option.extended);
         form.append('parentDirectoryName', option.parentDirectoryName);
         form.append('viewName', option.viewName);
         form.append('fileType', option.fileType);
@@ -412,7 +419,7 @@ export const api = {
         if (option.subDirectory !== undefined) {
             form.append('subDirectory', option.subDirectory);
         }
-        await apiClient.post('/videos/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
+        return (await apiClient.post<{ recordedId: RecordedId }>('/videos/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 })).data.recordedId;
     },
     async deleteVideo(videoFileId: VideoFileId): Promise<void> {
         await apiClient.delete(`/videos/${videoFileId}`);

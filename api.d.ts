@@ -1296,7 +1296,14 @@ export interface VideoFileStreamInfoItem extends LiveStreamInfoItem {
  * アップロードするビデオ情報
  */
 export interface UploadVideoFileOption {
-    recordedId: RecordedId; // 紐付ける recorded id
+    recordedId?: RecordedId; // 紐付ける recorded id。未指定のM2TSはEITから録画情報を作成
+    userId?: UserId;
+    channelId?: ChannelId;
+    startAt?: UnixtimeMS;
+    duration?: number; // 録画時間（ミリ秒）
+    name?: string;
+    description?: string;
+    extended?: string;
     parentDirectoryName: string; // 保存先ディレクトリ名
     subDirectory?: string; // 保存先サブディレクトリ
     viewName: string; // UI 上での表示名
