@@ -22,6 +22,7 @@ import IRecordingEvent from './IRecordingEvent';
 import IReserveEvent from './IReserveEvent';
 import IRuleEvent from './IRuleEvent';
 import IThumbnailEvent from './IThumbnailEvent';
+import IVideoAnalysisModel from '../video/IVideoAnalysisModel';
 
 @injectable()
 export default class EventSetter implements IEventSetter {
@@ -44,6 +45,7 @@ export default class EventSetter implements IEventSetter {
     private annictApiModel: IAnnictApiModel;
     private ipc: IIPCServer;
     private config: IConfigFile;
+    private videoAnalysis: IVideoAnalysisModel;
 
     private isFirstreserveationUpdate: boolean = true;
 
@@ -68,6 +70,7 @@ export default class EventSetter implements IEventSetter {
         @inject('IAnnictApiModel') annictApiModel: IAnnictApiModel,
         @inject('IIPCServer') ipc: IIPCServer,
         @inject('IConfiguration') configure: IConfiguration,
+        @inject('IVideoAnalysisModel') videoAnalysis: IVideoAnalysisModel,
     ) {
         this.log = logger.getLogger();
         this.epgUpdateEvent = epgUpdateEvent;
@@ -88,6 +91,7 @@ export default class EventSetter implements IEventSetter {
         this.annictApiModel = annictApiModel;
         this.ipc = ipc;
         this.config = configure.getConfig();
+        this.videoAnalysis = videoAnalysis;
     }
 
     /**
@@ -211,6 +215,10 @@ export default class EventSetter implements IEventSetter {
 
         // 録画完了
         this.recordingEvent.setFinishRecording(async (reserve, recorded, isNeedDeleteReservation, result) => {
+            const scheduledAt =
+                reserve.encodeStartDelayMinutes > 0
+                    ? Date.now() + reserve.encodeStartDelayMinutes * 60 * 1000
+                    : undefined;
             if (isNeedDeleteReservation === true) {
                 if (reserve.ruleId === null || (reserve.ruleId !== null && reserve.isEventRelay == true)) {
                     // 手動予約 or ルール予約によるイベントリレー予約を削除
@@ -224,6 +232,7 @@ export default class EventSetter implements IEventSetter {
             if (typeof recorded.videoFiles !== 'undefined' && recorded.videoFiles.length > 0) {
                 for (const videoFile of recorded.videoFiles) {
                     this.thumbnailManage.stopDuringRecording(videoFile.id);
+                    this.videoAnalysis.enqueue(videoFile.id);
                 }
                 // サムネイル作成
                 this.thumbnailManage.add(recorded.videoFiles[0].id);
@@ -241,6 +250,7 @@ export default class EventSetter implements IEventSetter {
                         mode: reserve.encodeMode1,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
                         updateThumbnail: reserve.updateThumbnail,
+                        scheduledAt,
                     });
                 }
 
@@ -257,6 +267,7 @@ export default class EventSetter implements IEventSetter {
                         mode: reserve.encodeMode2,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
                         updateThumbnail: reserve.updateThumbnail,
+                        scheduledAt,
                     });
                 }
 
@@ -273,6 +284,7 @@ export default class EventSetter implements IEventSetter {
                         mode: reserve.encodeMode3,
                         removeOriginal: reserve.isDeleteOriginalAfterEncode,
                         updateThumbnail: reserve.updateThumbnail,
+                        scheduledAt,
                     });
                 }
             }
@@ -342,8 +354,9 @@ export default class EventSetter implements IEventSetter {
         });
 
         // video file 追加
-        this.recordedEvent.setAddVideoFile(() => {
+        this.recordedEvent.setAddVideoFile(videoFileId => {
             this.ipc.notifyClient();
+            this.videoAnalysis.enqueue(videoFileId);
         });
 
         // 録画済み番組新規追加
@@ -354,6 +367,7 @@ export default class EventSetter implements IEventSetter {
         // upload video file
         this.recordedEvent.setAddUploadedVideoFile((videoFileId, needsCreateThumbnail) => {
             this.ipc.notifyClient();
+            this.videoAnalysis.enqueue(videoFileId, true);
             // サムネイル作成
             if (needsCreateThumbnail === true) {
                 this.thumbnailManage.add(videoFileId);

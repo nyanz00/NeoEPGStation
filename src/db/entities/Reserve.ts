@@ -162,6 +162,12 @@ export default class Reserve extends BaseEntity {
     })
     public updateThumbnail: boolean = false;
 
+    @Column({
+        type: 'integer',
+        default: 0,
+    })
+    public encodeStartDelayMinutes: number = 0;
+
     /**
      * 番組情報
      */

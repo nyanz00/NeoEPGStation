@@ -402,6 +402,7 @@ class ReservationManageModel implements IReservationManageModel {
         newReserve.encodeDirectory3 = parentReserve.encodeDirectory3;
         newReserve.isDeleteOriginalAfterEncode = parentReserve.isDeleteOriginalAfterEncode;
         newReserve.updateThumbnail = parentReserve.updateThumbnail;
+        newReserve.encodeStartDelayMinutes = parentReserve.encodeStartDelayMinutes;
 
         return newReserve;
     }
@@ -543,6 +544,7 @@ class ReservationManageModel implements IReservationManageModel {
             reserve.encodeDirectory3 = null;
             reserve.isDeleteOriginalAfterEncode = false;
             reserve.updateThumbnail = false;
+            reserve.encodeStartDelayMinutes = 0;
 
             return;
         }
@@ -595,6 +597,10 @@ class ReservationManageModel implements IReservationManageModel {
         reserve.updateThumbnail =
             (reserve.encodeMode1 !== null || reserve.encodeMode2 !== null || reserve.encodeMode3 !== null) &&
             encodeOption.updateThumbnail === true;
+        reserve.encodeStartDelayMinutes =
+            reserve.encodeMode1 !== null || reserve.encodeMode2 !== null || reserve.encodeMode3 !== null
+                ? (encodeOption.startDelayMinutes ?? 0)
+                : 0;
     }
 
     private isEncodeChannelMatched(

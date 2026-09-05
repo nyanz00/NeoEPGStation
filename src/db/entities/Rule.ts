@@ -327,4 +327,10 @@ export default class Rule extends BaseEntity {
         default: false,
     })
     public updateThumbnail: boolean = false;
+
+    @Column({
+        type: 'integer',
+        default: 0,
+    })
+    public encodeStartDelayMinutes: number = 0;
 }
