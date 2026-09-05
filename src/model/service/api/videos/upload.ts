@@ -28,6 +28,8 @@ const decodeUploadFileName = (fileName: string): string => {
 };
 
 const optionalNumber = (value: unknown): number | undefined => {
+    // Multipart middleware may already have converted numeric fields.
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
     if (typeof value !== 'string' || value.trim().length === 0) return undefined;
     const result = Number(value);
     return Number.isFinite(result) ? result : undefined;
