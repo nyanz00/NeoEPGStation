@@ -7,8 +7,9 @@ export const get: Operation = async (req, res) => {
     const videoApiModel = container.get<IVideoApiModel>('IVideoApiModel');
 
     try {
-        const startAt = typeof req.query.startAt === 'string' ? Number(req.query.startAt) : undefined;
-        const duration = typeof req.query.duration === 'string' ? Number(req.query.duration) : undefined;
+        // OpenAPI has already coerced supplied numeric query parameters.
+        const startAt = req.query.startAt === undefined ? undefined : Number(req.query.startAt);
+        const duration = req.query.duration === undefined ? undefined : Number(req.query.duration);
         const result = await videoApiModel.getSubtitleText(
             parseInt(req.params.videoFileId, 10),
             parseInt(req.params.subtitleIndex, 10),
