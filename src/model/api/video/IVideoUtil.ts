@@ -24,6 +24,11 @@ export interface PreparedSubtitleInfo {
     filePath: string;
 }
 
+export interface SubtitleTextRange {
+    startAt: number;
+    duration: number;
+}
+
 export interface VideoRecordingTimeInfo {
     startAt: number;
     endAt: number;
@@ -38,7 +43,7 @@ export default interface IVideoUtil {
     getMpegTsRecordingTime(filePath: string): Promise<VideoRecordingTimeInfo | null>;
     getMpegTsServiceId(filePath: string): Promise<number | null>;
     getSubtitles(filePath: string): Promise<VideoSubtitleInfo[]>;
-    getSubtitleText(filePath: string, subtitleIndex: number): Promise<string>;
+    getSubtitleText(filePath: string, subtitleIndex: number, range?: SubtitleTextRange): Promise<string>;
     prepareSubtitle(filePath: string, subtitleIndex: number): Promise<PreparedSubtitleInfo>;
     getPreparedSubtitlePath(key: string): string | undefined;
 }

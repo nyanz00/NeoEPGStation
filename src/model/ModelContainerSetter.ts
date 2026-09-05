@@ -56,6 +56,10 @@ import IVideoApiModel from './api/video/IVideoApiModel';
 import IVideoUtil from './api/video/IVideoUtil';
 import VideoApiModel from './api/video/VideoApiModel';
 import VideoUtil from './api/video/VideoUtil';
+import ITsInfoAnalyzer from './recorded/ts/ITsInfoAnalyzer';
+import TsInfoAnalyzer from './recorded/ts/TsInfoAnalyzer';
+import IVideoAnalysisModel from './video/IVideoAnalysisModel';
+import VideoAnalysisModel from './video/VideoAnalysisModel';
 import Configuration from './Configuration';
 import ConnectionCheckModel from './ConnectionCheckModel';
 import AnnictEpisodeDB from './db/AnnictEpisodeDB';
@@ -372,6 +376,10 @@ export const set = (container: Container): void => {
     container.bind<IDropLogApiModel>('IDropLogApiModel').to(DropLogApiModel).inSingletonScope();
 
     container.bind<IVideoUtil>('IVideoUtil').to(VideoUtil).inSingletonScope();
+
+    container.bind<ITsInfoAnalyzer>('ITsInfoAnalyzer').to(TsInfoAnalyzer);
+
+    container.bind<IVideoAnalysisModel>('IVideoAnalysisModel').to(VideoAnalysisModel).inSingletonScope();
 
     container.bind<IVideoApiModel>('IVideoApiModel').to(VideoApiModel).inSingletonScope();
 

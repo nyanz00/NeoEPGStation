@@ -741,6 +741,7 @@ export interface ReserveEncodedOption {
     directory3?: string;
     isDeleteOriginalAfterEncode: boolean;
     updateThumbnail?: boolean;
+    startDelayMinutes?: number; // 録画完了後に自動エンコードを開始可能にするまでの待機時間（分）
 }
 
 /**
@@ -1199,6 +1200,7 @@ export interface ScheduleSearchOption {
 export interface EncodeInfo {
     runningItems: EncodeProgramItem[]; // エンコード中
     waitItems: EncodeProgramItem[]; // エンコード待ち
+    scheduledItems: EncodeProgramItem[]; // 開始時刻待ち
 }
 
 export interface EncodeQueueOrderOption {
@@ -1212,6 +1214,7 @@ export interface EncodeProgramItem {
     recorded: RecordedItem;
     percent?: number;
     log?: string;
+    scheduledAt?: UnixtimeMS;
 }
 
 /**
@@ -1380,6 +1383,7 @@ export interface SystemResourceInfo {
     hostname: string;
     platform: string;
     arch: string;
+    containerRuntime?: 'docker'; // コンテナ実行環境
     uptime: number;
     sampledAt: number;
     cpu: SystemCpuInfo;
@@ -1498,4 +1502,66 @@ export interface StorageInfo {
  */
 export interface VersionInfo {
     version: string;
+    branch: string | null;
+}
+
+export type SystemUpdateTarget = 'stable' | 'develop';
+export type SystemUpdatePackageManager = 'auto' | 'npm' | 'pnpm';
+export type SystemUpdateJobStatus = 'running' | 'success' | 'failed' | 'rolled-back' | 'rollback-failed';
+export type SystemUpdateRelation = 'ahead' | 'same' | 'behind' | 'diverged' | 'unknown';
+
+export interface SystemUpdateRemoteTarget {
+    label: string;
+    version: string | null;
+    tag: string | null;
+    commit: string;
+    relation: SystemUpdateRelation;
+    canApply: boolean;
+    blockedReason: string | null;
+}
+
+export interface SystemUpdateJob {
+    id: string;
+    target: SystemUpdateTarget;
+    packageManager: SystemUpdatePackageManager;
+    status: SystemUpdateJobStatus;
+    stage: string;
+    startedAt: number;
+    finishedAt: number | null;
+    installRan: boolean;
+    restartRequired: boolean;
+    rollback: 'none' | 'running' | 'success' | 'failed';
+    logs: string[];
+    error: string | null;
+    command: string | null;
+    exitCode: number | null;
+    timedOut: boolean;
+    stashCommit: string | null;
+}
+
+export interface SystemUpdateInfo {
+    version: string;
+    commit: string | null;
+    branch: string | null;
+    currentTag: string | null;
+    isGitRepository: boolean;
+    isClean: boolean;
+    gitError: string | null;
+    dirtyFiles: string[];
+    packageManager: Exclude<SystemUpdatePackageManager, 'auto'>;
+    rememberedPackageManager: Exclude<SystemUpdatePackageManager, 'auto'> | null;
+    targets: {
+        stable: SystemUpdateRemoteTarget | null;
+        develop: SystemUpdateRemoteTarget | null;
+        checkedAt: number;
+        error: string | null;
+    };
+    hasStableUpdate: boolean;
+    job: SystemUpdateJob | null;
+}
+
+export interface StartSystemUpdateOption {
+    target: SystemUpdateTarget;
+    packageManager: SystemUpdatePackageManager;
+    preserveLocalChanges: boolean;
 }

@@ -16,7 +16,8 @@ import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
 import IApiUtil from '../IApiUtil';
 import IPlayList from '../IPlayList';
 import IVideoApiModel, { VideoFilePathInfo } from './IVideoApiModel';
-import IVideoUtil, { VideoRecordingTimeInfo } from './IVideoUtil';
+import IVideoUtil, { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil';
+import IVideoAnalysisModel from '../../video/IVideoAnalysisModel';
 
 @injectable()
 export default class VideoApiModel implements IVideoApiModel {
@@ -33,6 +34,7 @@ export default class VideoApiModel implements IVideoApiModel {
     private ipc: IIPCClient;
     private encodeManage: IEncodeManageModel;
     private log: ILogger;
+    private videoAnalysis: IVideoAnalysisModel;
     private webPlaybackPrepareTasks: Map<apid.VideoFileId, Promise<VideoFilePathInfo | null>> = new Map();
     private subtitleTransferTasks: Map<string, apid.SubtitleTransferTask> = new Map();
     private subtitleTransferLocks: Set<apid.VideoFileId> = new Set();
@@ -49,6 +51,7 @@ export default class VideoApiModel implements IVideoApiModel {
         @inject('IIPCClient') ipc: IIPCClient,
         @inject('IEncodeManageModel') encodeManage: IEncodeManageModel,
         @inject('ILoggerModel') logger: ILoggerModel,
+        @inject('IVideoAnalysisModel') videoAnalysis: IVideoAnalysisModel,
     ) {
         this.configuration = configuration;
         this.webPlaybackCacheDir = path.join(
@@ -62,6 +65,7 @@ export default class VideoApiModel implements IVideoApiModel {
         this.ipc = ipc;
         this.encodeManage = encodeManage;
         this.log = logger.getLogger();
+        this.videoAnalysis = videoAnalysis;
         if (this.configuration.getConfig().developerMode === true) {
             this.subtitleTransferRecovery = this.recoverAllSubtitleTransferFiles().catch(err => {
                 this.log.system.error(`subtitle transfer startup recovery failed: ${String(err)}`);
@@ -131,7 +135,7 @@ export default class VideoApiModel implements IVideoApiModel {
         }
 
         const videoCodec = await this.getPrimaryVideoCodec(source.path);
-        if (videoCodec !== 'hevc' && videoCodec !== 'h264') {
+        if (videoCodec !== 'hevc' && videoCodec !== 'h264' && videoCodec !== 'av1') {
             throw new Error(`WebPlaybackRemuxUnsupportedVideoCodec: ${videoCodec}`);
         }
 
@@ -164,6 +168,8 @@ export default class VideoApiModel implements IVideoApiModel {
         ];
         if (videoCodec === 'hevc') {
             args.push('-tag:v', 'hvc1');
+        } else if (videoCodec === 'av1') {
+            args.push('-tag:v', 'av01');
         }
         args.push('-movflags', '+faststart', '-write_tmcd', '0', temporaryPath);
 
@@ -371,14 +377,9 @@ export default class VideoApiModel implements IVideoApiModel {
      * @return Promise<number> 秒
      */
     public async getDuration(videoFileId: apid.VideoFileId): Promise<number> {
-        const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
-        if (filePath === null) {
-            throw new Error('VideoFileIsUndefined');
-        }
-
-        const videoInfo = await this.videoUtil.getInfo(filePath);
-
-        return videoInfo.duration;
+        const info = await this.videoAnalysis.get(videoFileId);
+        if (info.duration === null) throw new Error('VideoDurationIsUndefined');
+        return info.duration;
     }
 
     public async getMpegTsRecordingTime(videoFileId: apid.VideoFileId): Promise<VideoRecordingTimeInfo | null> {
@@ -391,19 +392,28 @@ export default class VideoApiModel implements IVideoApiModel {
     }
 
     public async getSubtitles(videoFileId: apid.VideoFileId): Promise<apid.VideoSubtitles> {
-        const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
-        if (filePath === null) {
-            throw new Error('VideoFileIsUndefined');
-        }
-
+        const analysis = await this.videoAnalysis.get(videoFileId);
+        const subtitles = analysis.streams.filter(stream => stream.type === 'subtitle');
         return {
-            items: await this.videoUtil.getSubtitles(filePath),
+            items: subtitles.map((stream, subtitleIndex) => ({
+                subtitleIndex,
+                streamIndex: stream.index,
+                codecName: stream.codec,
+                language: stream.language,
+                title: stream.title,
+                isDefault: stream.isDefault,
+                isForced: stream.isForced,
+                displayName: [`字幕 ${subtitleIndex + 1}`, stream.title, stream.language, stream.codec]
+                    .filter((item): item is string => typeof item === 'string' && item.length > 0)
+                    .join(' / '),
+            })),
         };
     }
 
     public async getSubtitleText(
         videoFileId: apid.VideoFileId,
         subtitleIndex: number,
+        range?: SubtitleTextRange,
     ): Promise<apid.VideoSubtitleText> {
         const filePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
         if (filePath === null) {
@@ -411,7 +421,7 @@ export default class VideoApiModel implements IVideoApiModel {
         }
 
         return {
-            subtitleText: await this.videoUtil.getSubtitleText(filePath, subtitleIndex),
+            subtitleText: await this.videoUtil.getSubtitleText(filePath, subtitleIndex, range),
         };
     }
 
