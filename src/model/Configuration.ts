@@ -17,6 +17,7 @@ class Configuration implements IConfiguration {
     private templateConfig: IConfigFile | null = null;
     private config!: IConfigFile;
     private log: ILogger;
+    private updateCallbacks: (() => Promise<void>)[] = [];
 
     constructor(@inject('ILoggerModel') logger: ILoggerModel) {
         this.log = logger.getLogger();
@@ -38,8 +39,16 @@ class Configuration implements IConfiguration {
             } catch (err: any) {
                 this.log.system.error('read config error');
                 this.log.system.error(err);
+                return;
+            }
+            for (const callback of this.updateCallbacks) {
+                await callback().catch(err => this.log.system.error(err));
             }
         });
+    }
+
+    public onUpdated(callback: () => Promise<void>): void {
+        this.updateCallbacks.push(callback);
     }
 
     /**

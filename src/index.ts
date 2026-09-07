@@ -15,6 +15,7 @@ import * as containerSetter from './model/ModelContainerSetter';
 import IRecordingManageModel from './model/operator/recording/IRecordingManageModel';
 import IReservationManageModel from './model/operator/reservation/IReservationManageModel';
 import IStorageManageModel from './model/operator/storage/IStorageManageModel';
+import IRuleManageModel from './model/operator/rule/IRuleManageModel';
 import { SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './model/service/ServiceProcess';
 import ProcessUtil from './util/ProcessUtil';
 install();
@@ -91,6 +92,11 @@ const runOperator = async () => {
     const tuners = await client.getTuners();
     reservationManageModel.setTuners(tuners);
     recordingManager.setTuner(tuners);
+
+    const ruleManage = container.get<IRuleManageModel>('IRuleManageModel');
+    const configure = container.get<IConfiguration>('IConfiguration');
+    configure.onUpdated(() => ruleManage.removeMissingEncodePresets());
+    await ruleManage.removeMissingEncodePresets();
 
     const storageManageModel = container.get<IStorageManageModel>('IStorageManageModel');
     storageManageModel.start();
