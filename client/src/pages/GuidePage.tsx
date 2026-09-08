@@ -313,6 +313,14 @@ export function GuideProgramDialog({
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
     const initialDialogSettings = useMemo(() => loadGuideProgramDialogSettings(), []);
+    const reservation = useQuery({
+        queryKey: ['guide-reservation-user', reserve?.item.reserveId],
+        queryFn: () => api.getReserve(reserve!.item.reserveId, false),
+        enabled: program !== null && reserve !== undefined,
+    });
+    const reservationUsers = useQuery({ queryKey: ['users'], queryFn: api.getUsers, enabled: program !== null && reserve !== undefined });
+    const reservationUserId = reservation.data?.userId;
+    const reservationUserName = reservationUsers.data?.users.find(user => user.id === reservationUserId)?.name;
     const [userId, setUserId] = useState<ActiveUserId>(typeof activeUser === 'number' ? activeUser : null);
     const [encodeMode, setEncodeMode] = useState(initialDialogSettings.encode === 'TS' ? '' : initialDialogSettings.encode);
     const [deleteOriginal, setDeleteOriginal] = useState(initialDialogSettings.isDeleteOriginalAfterEncode);
@@ -525,13 +533,28 @@ export function GuideProgramDialog({
                                     </Stack>
                                 </Stack>
                             ) : (
-                                <Chip color={reserve.kind === 'conflict' ? 'error' : 'primary'} label={reserveLabel(reserve.kind)} />
+                                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                                    <Chip color={reserve.kind === 'conflict' ? 'error' : 'primary'} label={reserveLabel(reserve.kind)} />
+                                    <Chip
+                                        variant="outlined"
+                                        label={
+                                            reservation.isError || reservationUsers.isError
+                                                ? '予約ユーザー取得失敗'
+                                                : reservation.isPending || reservationUsers.isPending
+                                                  ? 'ユーザー読込中…'
+                                                  : (reservationUserName ?? (reservationUserId === undefined ? 'ユーザー未指定' : `ユーザーID: ${reservationUserId}`))
+                                        }
+                                    />
+                                </Stack>
                             )}
                         </Box>
                     </DialogContent>
                     <DialogActions>
                         <Button sx={{ mr: 'auto' }} startIcon={<SearchOutlined />} onClick={openRelatedSearch}>
                             関連番組を検索
+                        </Button>
+                        <Button color="inherit" onClick={() => onClose(program.id)}>
+                            閉じる
                         </Button>
                         <Button
                             color="inherit"

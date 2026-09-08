@@ -1208,6 +1208,13 @@ export function SettingsPage(): ReactNode {
                         {activeSettingsTab === 'display' && (
                             <SettingSection title="表示設定">
                                 <SettingRow
+                                    title="録画詳細のTHUMBボタンを非表示"
+                                    description="サムネイル再生成は録画詳細のメニューから実行できます"
+                                    control={
+                                        <Switch checked={draft.isHideRecordedThumbnailButton} onChange={event => patch('isHideRecordedThumbnailButton', event.target.checked)} />
+                                    }
+                                />
+                                <SettingRow
                                     title="バージョン更新通知"
                                     description="ダッシュボードに新しい安定版があることを表示する"
                                     control={

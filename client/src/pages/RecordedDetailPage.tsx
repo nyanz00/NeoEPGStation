@@ -9,7 +9,7 @@ import PlayArrowOutlined from '@mui/icons-material/PlayArrowOutlined';
 import PlayCircleOutlineOutlined from '@mui/icons-material/PlayCircleOutlineOutlined';
 import ReplayOutlined from '@mui/icons-material/ReplayOutlined';
 import StopOutlined from '@mui/icons-material/StopOutlined';
-import SyncOutlined from '@mui/icons-material/SyncOutlined';
+import ControlPoint from '@mui/icons-material/ControlPoint';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import {
     Box,
@@ -580,6 +580,7 @@ export function RecordedDetailPage(): ReactNode {
                         void navigate(`/recorded?${query}`);
                     }}
                     onEncode={() => setEncodeOpen(true)}
+                    onThumbnail={settings.isHideRecordedThumbnailButton && files.length > 0 ? () => setThumbnailOpen(true) : undefined}
                     onSubtitle={() => void navigate(`/recorded/subtitle/${recordedId.toString(10)}`)}
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded-detail', recordedId] })}
                     onDeleted={goBack}
@@ -649,13 +650,13 @@ export function RecordedDetailPage(): ReactNode {
                                 {streamingFiles.length > 0 && (
                                     <VideoActionButton label="STREAMING" icon={<PlayCircleOutlineOutlined />} color="primary" files={streamingFiles} onSelect={streaming} />
                                 )}
-                                {files.length > 0 && (
+                                {files.length > 0 && !settings.isHideRecordedThumbnailButton && (
                                     <Button variant="contained" color="success" startIcon={<ImageOutlined />} onClick={() => setThumbnailOpen(true)}>
                                         THUMB
                                     </Button>
                                 )}
                                 {files.length > 0 && (
-                                    <Button variant="contained" color="success" startIcon={<SyncOutlined />} onClick={() => setEncodeOpen(true)}>
+                                    <Button variant="contained" color="success" startIcon={<ControlPoint />} onClick={() => setEncodeOpen(true)}>
                                         ENCODE
                                     </Button>
                                 )}

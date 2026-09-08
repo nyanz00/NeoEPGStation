@@ -22,6 +22,7 @@ export interface AppSettings {
     customCss: string;
     isEmphasizeLightThemeEdges: boolean;
     isHalfWidthDisplayed: boolean;
+    isHideRecordedThumbnailButton: boolean;
     isShowVersionUpdateNotification: boolean;
     sideNavigationOrder: SideNavigationItemId[];
     hiddenSideNavigationItems: SideNavigationItemId[];
@@ -103,6 +104,7 @@ export const defaultSettings: AppSettings = {
     customCss: '',
     isEmphasizeLightThemeEdges: true,
     isHalfWidthDisplayed: true,
+    isHideRecordedThumbnailButton: false,
     isShowVersionUpdateNotification: true,
     sideNavigationOrder: [...defaultSideNavigationOrder],
     hiddenSideNavigationItems: [],
@@ -198,6 +200,7 @@ function loadSettings(): AppSettings {
             appIconSet: isAppIconSetId(parsed.appIconSet) ? parsed.appIconSet : defaultSettings.appIconSet,
             isAppLogoLinkedToIcon: parsed.isAppLogoLinkedToIcon === true,
             isAppLogoHidden: parsed.isAppLogoHidden === true,
+            isHideRecordedThumbnailButton: parsed.isHideRecordedThumbnailButton === true,
             themeColorPreset: isAppThemePresetId(parsed.themeColorPreset) ? parsed.themeColorPreset : defaultSettings.themeColorPreset,
             customThemeColor: normalizeCustomThemeColor(parsed.customThemeColor),
             isCustomCssEnabled: parsed.isCustomCssEnabled === true,

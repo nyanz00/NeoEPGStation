@@ -9,6 +9,7 @@ import StopCircleOutlined from '@mui/icons-material/StopCircleOutlined';
 import SubtitlesOutlined from '@mui/icons-material/SubtitlesOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
+import ImageOutlined from '@mui/icons-material/ImageOutlined';
 import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecordedItem, VideoFile } from '../../../api';
@@ -36,6 +37,7 @@ export function RecordedItemActions({
     onClose,
     onSearch,
     onEncode,
+    onThumbnail,
     onStop,
     onSubtitle,
     onChanged,
@@ -48,6 +50,7 @@ export function RecordedItemActions({
     onClose: () => void;
     onSearch: () => void;
     onEncode: () => void;
+    onThumbnail?: () => void;
     onStop?: () => void;
     onSubtitle?: () => void;
     onChanged: () => void;
@@ -180,6 +183,12 @@ export function RecordedItemActions({
                     <MenuItem onClick={() => closeThen(onEncode)}>
                         <SyncOutlined fontSize="small" sx={{ mr: 1.5 }} />
                         encode
+                    </MenuItem>
+                )}
+                {detailActionOrder && onThumbnail !== undefined && (
+                    <MenuItem onClick={() => closeThen(onThumbnail)}>
+                        <ImageOutlined fontSize="small" sx={{ mr: 1.5 }} />
+                        thumbnail
                     </MenuItem>
                 )}
                 {detailActionOrder && config.data?.developerMode === true && onSubtitle !== undefined && (
