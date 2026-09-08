@@ -406,7 +406,16 @@ export function GuideProgramDialog({
             fullWidth
             maxWidth="md"
             aria-labelledby="guide-program-title"
-            slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), maxWidth: 640, maxHeight: 'min(90dvh, 760px)' }) } }}
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...programDialogPaper(theme),
+                        maxWidth: 640,
+                        maxHeight: 'min(90dvh, 760px)',
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                    }),
+                },
+            }}
         >
             {program !== null && (
                 <>
@@ -422,28 +431,40 @@ export function GuideProgramDialog({
                             flexDirection: 'column',
                             minHeight: 0,
                             overflow: 'hidden',
-                            '@media (max-height: 600px)': { display: 'block', overflowY: 'auto' },
                         }}
                     >
                         <Stack
-                            spacing={2}
-                            sx={{ p: { xs: 2, sm: 3 }, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowWrap: 'anywhere', '& .MuiTypography-root': { lineHeight: 1.8 } }}
+                            direction="row"
+                            spacing={1.5}
+                            useFlexGap
+                            sx={{ alignItems: 'center', flexWrap: 'wrap', px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
                         >
-                            <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-                                {channel?.hasLogoData && (
-                                    <Box component="img" src={withBasePath(`/api/channels/${channel.id}/logo`)} alt="" sx={{ width: 48, height: 32, objectFit: 'contain' }} />
-                                )}
-                                <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
-                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                    <AccessTimeOutlined fontSize="small" color="action" />
-                                    <Typography variant="body2">
-                                        {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}
-                                    </Typography>
-                                </Stack>
-                                <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
-                                {program.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
-                                {program.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
+                            {channel?.hasLogoData && (
+                                <Box component="img" src={withBasePath(`/api/channels/${channel.id}/logo`)} alt="" sx={{ width: 48, height: 32, objectFit: 'contain' }} />
+                            )}
+                            <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <AccessTimeOutlined fontSize="small" color="action" />
+                                <Typography variant="body2">
+                                    {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}
+                                </Typography>
                             </Stack>
+                            <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
+                            {program.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
+                            {program.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
+                        </Stack>
+                        <Stack
+                            spacing={2}
+                            sx={{
+                                px: { xs: 2, sm: 3 },
+                                py: 1.5,
+                                flex: '1 1 auto',
+                                minHeight: 0,
+                                overflowY: 'auto',
+                                overflowWrap: 'anywhere',
+                                '& .MuiTypography-root': { lineHeight: 1.8 },
+                            }}
+                        >
                             {program.description !== undefined && <Typography>{program.description}</Typography>}
                             {program.extended !== undefined && (
                                 <Box sx={{ whiteSpace: 'pre-wrap' }}>
@@ -457,15 +478,11 @@ export function GuideProgramDialog({
                         </Stack>
                         <Box
                             sx={{
-                                mx: { xs: 2, sm: 3 },
-                                mt: 0,
-                                mb: 1.5,
-                                px: 1.5,
+                                px: { xs: 2, sm: 3 },
                                 py: 1,
                                 flex: '0 0 auto',
-                                border: 1,
+                                borderTop: 1,
                                 borderColor: 'divider',
-                                borderRadius: '9px',
                                 bgcolor: 'action.hover',
                             }}
                         >
