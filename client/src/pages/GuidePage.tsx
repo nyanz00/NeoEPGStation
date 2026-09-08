@@ -455,10 +455,25 @@ export function GuideProgramDialog({
                                 </Box>
                             )}
                         </Stack>
-                        <Box sx={{ m: { xs: 2, sm: 3 }, mt: 0, p: 2, flex: '0 0 auto', border: 1, borderColor: 'divider', borderRadius: '9px', bgcolor: 'action.hover' }}>
+                        <Box
+                            sx={{
+                                mx: { xs: 2, sm: 3 },
+                                mt: 0,
+                                mb: 1.5,
+                                px: 1.5,
+                                py: 1,
+                                flex: '0 0 auto',
+                                border: 1,
+                                borderColor: 'divider',
+                                borderRadius: '9px',
+                                bgcolor: 'action.hover',
+                            }}
+                        >
                             {reserve === undefined ? (
-                                <Stack spacing={1.5}>
-                                    <Typography sx={{ fontWeight: 600 }}>録画設定</Typography>
+                                <Stack spacing={0.5} sx={{ '& .MuiCheckbox-root': { py: 0.5 }, '& .MuiInputLabel-root': { mb: 0.5 } }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                        録画設定
+                                    </Typography>
                                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
                                         <FormControl size="small" fullWidth>
                                             <InputLabel>録画タイプ</InputLabel>

@@ -811,14 +811,23 @@ export function RecordedDetailPage(): ReactNode {
                 maxWidth="sm"
                 disableScrollLock
                 aria-labelledby="encode-program-title"
-                slotProps={{ paper: { sx: programDialogPaper } }}
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                            '& .MuiCheckbox-root': { py: 0.5 },
+                        }),
+                    },
+                }}
             >
                 <DialogTitle id="encode-program-title">{item?.name ?? '録画'}</DialogTitle>
                 <IconButton aria-label="閉じる" onClick={closeEncodeDialog} sx={programDialogClose}>
                     <CloseOutlined />
                 </IconButton>
-                <DialogContent dividers sx={{ p: { xs: 2, sm: 3 } }}>
-                    <Stack spacing={2}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5 }}>
+                    <Stack spacing={1}>
                         <Box sx={programDialogFields}>
                             <FormControl fullWidth size="small">
                                 <InputLabel>元ファイル</InputLabel>
