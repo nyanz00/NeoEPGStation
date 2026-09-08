@@ -406,7 +406,7 @@ export function GuideProgramDialog({
             fullWidth
             maxWidth="md"
             aria-labelledby="guide-program-title"
-            slotProps={{ paper: { sx: programDialogPaper } }}
+            slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), maxWidth: 640, maxHeight: 'min(90dvh, 760px)' }) } }}
         >
             {program !== null && (
                 <>

@@ -808,7 +808,7 @@ export function RecordedDetailPage(): ReactNode {
                 open={encodeOpen}
                 onClose={closeEncodeDialog}
                 fullWidth
-                maxWidth="md"
+                maxWidth="sm"
                 disableScrollLock
                 aria-labelledby="encode-program-title"
                 slotProps={{ paper: { sx: programDialogPaper } }}
