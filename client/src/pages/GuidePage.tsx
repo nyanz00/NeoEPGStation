@@ -1,3 +1,6 @@
+import EventAvailableOutlined from '@mui/icons-material/EventAvailableOutlined';
+import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
+import { programDialogPaper, programDialogClose } from '../components/programDialogStyles';
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import BookmarkOutlined from '@mui/icons-material/BookmarkOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
@@ -397,26 +400,69 @@ export function GuideProgramDialog({
     };
 
     return (
-        <Dialog open={program !== null} onClose={() => onClose(program?.id)} fullWidth maxWidth="sm" slotProps={{ paper: { sx: { maxHeight: 'min(90vh, 760px)' } } }}>
+        <Dialog
+            open={program !== null}
+            onClose={() => onClose(program?.id)}
+            fullWidth
+            maxWidth="md"
+            aria-labelledby="guide-program-title"
+            slotProps={{ paper: { sx: programDialogPaper } }}
+        >
             {program !== null && (
                 <>
-                    <DialogTitle>{program.name}</DialogTitle>
-                    <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-                        <Stack spacing={1.5} sx={{ p: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
-                            <Typography color="text.secondary">{channel?.name ?? program.channelId}</Typography>
-                            <Typography>
-                                {formatProgramDate(program.startAt)} - {formatProgramTime(program.endAt)}（{programDuration(program)}分）
-                            </Typography>
+                    <DialogTitle id="guide-program-title">{program.name}</DialogTitle>
+                    <IconButton aria-label="閉じる" onClick={() => onClose(program.id)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                    <DialogContent
+                        dividers
+                        sx={{
+                            p: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            minHeight: 0,
+                            overflow: 'hidden',
+                            '@media (max-height: 600px)': { display: 'block', overflowY: 'auto' },
+                        }}
+                    >
+                        <Stack
+                            spacing={2}
+                            sx={{ p: { xs: 2, sm: 3 }, flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowWrap: 'anywhere', '& .MuiTypography-root': { lineHeight: 1.8 } }}
+                        >
+                            <Stack direction="row" spacing={1.5} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                                {channel?.hasLogoData && (
+                                    <Box component="img" src={withBasePath(`/api/channels/${channel.id}/logo`)} alt="" sx={{ width: 48, height: 32, objectFit: 'contain' }} />
+                                )}
+                                <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
+                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                    <AccessTimeOutlined fontSize="small" color="action" />
+                                    <Typography variant="body2">
+                                        {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}
+                                    </Typography>
+                                </Stack>
+                                <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
+                                {program.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
+                                {program.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
+                            </Stack>
                             {program.description !== undefined && <Typography>{program.description}</Typography>}
-                            {program.extended !== undefined && <Typography sx={{ whiteSpace: 'pre-wrap' }}>{program.extended}</Typography>}
+                            {program.extended !== undefined && (
+                                <Box sx={{ whiteSpace: 'pre-wrap' }}>
+                                    {program.extended.split(/(^[◇◆].+$)/m).map((part, index) => (
+                                        <Typography key={index} sx={{ fontWeight: /^[◇◆]/.test(part) ? 600 : 400, mt: /^[◇◆]/.test(part) ? 1 : 0 }}>
+                                            {part.trim()}
+                                        </Typography>
+                                    ))}
+                                </Box>
+                            )}
                         </Stack>
-                        <Box sx={{ p: 2, flex: '0 0 auto', borderTop: 1, borderColor: 'divider' }}>
+                        <Box sx={{ m: { xs: 2, sm: 3 }, mt: 0, p: 2, flex: '0 0 auto', border: 1, borderColor: 'divider', borderRadius: '9px', bgcolor: 'action.hover' }}>
                             {reserve === undefined ? (
                                 <Stack spacing={1.5}>
-                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                                    <Typography sx={{ fontWeight: 600 }}>録画設定</Typography>
+                                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
                                         <FormControl size="small" fullWidth>
                                             <InputLabel>録画タイプ</InputLabel>
-                                            <Select label="録画タイプ" value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
+                                            <Select displayEmpty label="録画タイプ" value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
                                                 <MenuItem value="">TS</MenuItem>
                                                 {encodeModes.map(mode => (
                                                     <MenuItem key={mode} value={mode}>
@@ -425,8 +471,8 @@ export function GuideProgramDialog({
                                                 ))}
                                             </Select>
                                         </FormControl>
-                                        <UserSelector value={userId} onChange={setUserId} includeMaster={false} minWidth={200} />
-                                    </Stack>
+                                        <UserSelector value={userId} onChange={setUserId} includeMaster={false} minWidth={0} />
+                                    </Box>
                                     <Stack direction={{ xs: 'column', sm: 'row' }}>
                                         <FormControlLabel
                                             control={
@@ -452,11 +498,12 @@ export function GuideProgramDialog({
                         </Box>
                     </DialogContent>
                     <DialogActions>
-                        <Button startIcon={<SearchOutlined />} onClick={openRelatedSearch}>
-                            検索
+                        <Button sx={{ mr: 'auto' }} startIcon={<SearchOutlined />} onClick={openRelatedSearch}>
+                            関連番組を検索
                         </Button>
-                        <Button onClick={() => onClose(program.id)}>閉じる</Button>
                         <Button
+                            color="inherit"
+                            startIcon={<DescriptionOutlined />}
                             onClick={() => {
                                 onClose(program.id);
                                 void navigate(reserve === undefined ? `/reserves/manual?programId=${program.id}` : `/reserves/manual?reserveId=${reserve.item.reserveId}`);
@@ -465,7 +512,7 @@ export function GuideProgramDialog({
                             詳細
                         </Button>
                         {reserve === undefined ? (
-                            <Button variant="contained" disabled={add.isPending || typeof userId !== 'number'} onClick={() => add.mutate()}>
+                            <Button variant="contained" startIcon={<EventAvailableOutlined />} disabled={add.isPending || typeof userId !== 'number'} onClick={() => add.mutate()}>
                                 予約
                             </Button>
                         ) : reserve.kind !== 'conflict' ? (

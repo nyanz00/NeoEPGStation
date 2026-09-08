@@ -1,3 +1,5 @@
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import { programDialogPaper, programDialogClose, programDialogFields } from '../components/programDialogStyles';
 import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
 import CastConnectedOutlined from '@mui/icons-material/CastConnectedOutlined';
 import CheckCircleOutlineOutlined from '@mui/icons-material/CheckCircleOutlineOutlined';
@@ -802,55 +804,74 @@ export function RecordedDetailPage(): ReactNode {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={encodeOpen} onClose={closeEncodeDialog} fullWidth maxWidth="sm" disableScrollLock>
-                <DialogTitle>エンコード追加</DialogTitle>
-                <DialogContent>
-                    <Stack spacing={2} sx={{ pt: 1 }}>
-                        <FormControl fullWidth>
-                            <InputLabel>元ファイル</InputLabel>
-                            <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
-                                {files.map(video => (
-                                    <MenuItem key={video.id} value={video.id}>
-                                        {video.name}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        <FormControl fullWidth>
-                            <InputLabel>エンコードプリセット</InputLabel>
-                            <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
-                                {config.data?.encode.map(value => (
-                                    <MenuItem key={value} value={value}>
-                                        {value}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        <FormControlLabel
-                            control={<Checkbox checked={sameDirectory} onChange={event => setSameDirectory(event.target.checked)} />}
-                            label="元ファイルと同じ場所に保存"
-                        />
-                        {!sameDirectory && (
-                            <>
-                                <FormControl fullWidth>
-                                    <InputLabel>保存先</InputLabel>
-                                    <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
-                                        {config.data?.recorded.map(value => (
-                                            <MenuItem key={value} value={value}>
-                                                {value}
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                <TextField label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
-                            </>
-                        )}
-                        <FormControlLabel control={<Checkbox checked={removeOriginal} onChange={event => setRemoveOriginal(event.target.checked)} />} label="元ファイル削除" />
-                        <FormControlLabel control={<Checkbox checked={updateThumbnail} onChange={event => setUpdateThumbnail(event.target.checked)} />} label="サムネイル再生成" />
+            <Dialog
+                open={encodeOpen}
+                onClose={closeEncodeDialog}
+                fullWidth
+                maxWidth="md"
+                disableScrollLock
+                aria-labelledby="encode-program-title"
+                slotProps={{ paper: { sx: programDialogPaper } }}
+            >
+                <DialogTitle id="encode-program-title">{item?.name ?? '録画'}</DialogTitle>
+                <IconButton aria-label="閉じる" onClick={closeEncodeDialog} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
+                <DialogContent dividers sx={{ p: { xs: 2, sm: 3 } }}>
+                    <Stack spacing={2}>
+                        <Box sx={programDialogFields}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>元ファイル</InputLabel>
+                                <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
+                                    {files.map(video => (
+                                        <MenuItem key={video.id} value={video.id}>
+                                            {video.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>エンコードプリセット</InputLabel>
+                                <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
+                                    {config.data?.encode.map(value => (
+                                        <MenuItem key={value} value={value}>
+                                            {value}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Box>
+                        <Box sx={programDialogFields}>
+                            <FormControl fullWidth size="small" disabled={sameDirectory}>
+                                <InputLabel>保存先</InputLabel>
+                                <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
+                                    {config.data?.recorded.map(value => (
+                                        <MenuItem key={value} value={value}>
+                                            {value}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <TextField disabled={sameDirectory} size="small" label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
+                        </Box>
+                        <Stack spacing={0}>
+                            <FormControlLabel
+                                control={<Checkbox checked={sameDirectory} onChange={event => setSameDirectory(event.target.checked)} />}
+                                label="元ファイルと同じ場所に保存"
+                            />
+
+                            <FormControlLabel control={<Checkbox checked={removeOriginal} onChange={event => setRemoveOriginal(event.target.checked)} />} label="元ファイル削除" />
+                            <FormControlLabel
+                                control={<Checkbox checked={updateThumbnail} onChange={event => setUpdateThumbnail(event.target.checked)} />}
+                                label="サムネイル再生成"
+                            />
+                        </Stack>
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={closeEncodeDialog}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" onClick={closeEncodeDialog}>
+                        キャンセル
+                    </Button>
                     <Button
                         variant="contained"
                         disabled={!canEncode || addEncode.isPending}
