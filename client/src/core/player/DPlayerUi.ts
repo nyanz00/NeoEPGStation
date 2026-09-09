@@ -21,6 +21,51 @@ interface DPlayerQualityControl {
     onChange: (index: number) => void;
 }
 
+export interface DPlayerTrackSetting {
+    id: string;
+    label: string;
+    value: string;
+    options: Array<{ value: string; label: string }>;
+    onChange: (value: string) => void;
+}
+
+export function updateDPlayerTrackSettings(container: HTMLElement, controls: DPlayerTrackSetting[]): void {
+    const originPanel = container.querySelector<HTMLElement>('.dplayer-setting-origin-panel');
+    if (originPanel === null) return;
+
+    originPanel.querySelector('.neo-player-track-settings')?.remove();
+    if (controls.length === 0) return;
+
+    const host = document.createElement('div');
+    host.className = 'neo-player-track-settings';
+    controls.forEach(control => {
+        const label = document.createElement('label');
+        label.className = 'neo-player-track-setting';
+        label.htmlFor = `neo-player-track-setting-${control.id}`;
+
+        const title = document.createElement('span');
+        title.className = 'neo-player-track-setting-label';
+        title.textContent = control.label;
+
+        const select = document.createElement('select');
+        select.id = `neo-player-track-setting-${control.id}`;
+        select.className = 'neo-player-track-setting-select';
+        select.setAttribute('aria-label', control.label);
+        control.options.forEach(option => {
+            const item = document.createElement('option');
+            item.value = option.value;
+            item.textContent = option.label;
+            select.append(item);
+        });
+        select.value = control.value;
+        select.addEventListener('change', () => control.onChange(select.value));
+
+        label.append(title, select);
+        host.append(label);
+    });
+    originPanel.prepend(host);
+}
+
 function configurePictureInPicture(container: HTMLElement): void {
     const video = container.querySelector<HTMLVideoElement>('video');
     const buttons = container.querySelectorAll<HTMLElement>('.dplayer-pip-icon');

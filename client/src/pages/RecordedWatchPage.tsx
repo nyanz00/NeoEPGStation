@@ -47,6 +47,7 @@ import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { AssCommentCore } from '../core/player/AssCommentCore';
+import { type DPlayerTrackSetting, updateDPlayerTrackSettings } from '../core/player/DPlayerUi';
 import { JassubSubtitleRenderer } from '../core/player/JassubSubtitleRenderer';
 import { RecordedPlayerCore, type RecordedPlayerSourceType, type RecordedPlayerState } from '../core/player/RecordedPlayerCore';
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
@@ -120,6 +121,7 @@ function RecordedPlayer({
     webkitPlaybackMode,
     persistentBottomControls,
     showVolumePercent,
+    trackSettings,
     volumeBoostEnabled,
     volumeBoostMaxPercent,
     onCommentsChange,
@@ -148,6 +150,7 @@ function RecordedPlayer({
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
+    trackSettings: DPlayerTrackSetting[];
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
     onCommentsChange: (comments: JikkyoComment[]) => void;
@@ -317,6 +320,11 @@ function RecordedPlayer({
     ]);
 
     useEffect(() => {
+        if (container.current === null || controlsPortal === null) return;
+        updateDPlayerTrackSettings(container.current, trackSettings);
+    }, [controlsPortal, trackSettings]);
+
+    useEffect(() => {
         if (video === null) return;
         if (playbackBlocked) {
             const keepPaused = (): void => video.pause();
@@ -452,6 +460,38 @@ function RecordedPlayer({
                     },
                 '& .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box': {
                     zIndex: 8,
+                },
+                '& .recorded-dplayer .neo-player-track-settings': {
+                    borderBottom: '1px solid rgba(255,255,255,.15)',
+                    pb: 0.5,
+                    mb: 0.5,
+                },
+                '& .recorded-dplayer .neo-player-track-setting': {
+                    display: 'block',
+                    px: 1.25,
+                    py: 0.5,
+                    color: '#eee',
+                },
+                '& .recorded-dplayer .neo-player-track-setting-label': {
+                    display: 'block',
+                    mb: 0.35,
+                    fontSize: 12,
+                    lineHeight: 1.2,
+                },
+                '& .recorded-dplayer .neo-player-track-setting-select': {
+                    width: '100%',
+                    height: 32,
+                    px: 0.75,
+                    border: '1px solid rgba(255,255,255,.35)',
+                    borderRadius: 0.75,
+                    color: '#eee',
+                    bgcolor: 'rgba(0,0,0,.38)',
+                    font: 'inherit',
+                    fontSize: 12,
+                },
+                '& .recorded-dplayer .neo-player-track-setting-select option': {
+                    color: '#fff',
+                    bgcolor: '#1c1c1c',
                 },
                 '& .recorded-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
@@ -1038,6 +1078,48 @@ export function RecordedWatchPage(): ReactNode {
         () => (settings.watchPlaySubtitleDanmaku && !streaming ? subtitleItems.filter(subtitle => !isDanmakuSubtitle(subtitle)) : subtitleItems),
         [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
     );
+    const playerTrackSettings = useMemo<DPlayerTrackSetting[]>(() => {
+        if (!settings.watchSelectSubtitleInPlayerSettings || streaming) return [];
+
+        const controls: DPlayerTrackSetting[] = [];
+        if (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0) {
+            controls.push({
+                id: 'danmaku',
+                label: '弾幕',
+                value: selectedDanmakuSubtitleIndex?.toString(10) ?? 'none',
+                options: [
+                    { value: 'none', label: '弾幕なし' },
+                    ...danmakuSubtitleItems.map(subtitle => ({ value: subtitle.subtitleIndex.toString(10), label: subtitle.displayName })),
+                ],
+                onChange: value => setSelectedDanmakuSubtitleIndex(value === 'none' ? null : Number(value)),
+            });
+        }
+        if (selectableSubtitleItems.length > 0) {
+            controls.push({
+                id: 'subtitle',
+                label: '字幕',
+                value: selectedSubtitleIndex?.toString(10) ?? 'none',
+                options: [
+                    { value: 'none', label: '字幕なし' },
+                    ...selectableSubtitleItems.map(subtitle => ({ value: subtitle.subtitleIndex.toString(10), label: subtitle.displayName })),
+                ],
+                onChange: value => setSelectedSubtitleIndex(value === 'none' ? null : Number(value)),
+            });
+        }
+        return controls;
+    }, [
+        danmakuSubtitleItems,
+        selectableSubtitleItems,
+        selectedDanmakuSubtitleIndex,
+        selectedSubtitleIndex,
+        settings.watchPlaySubtitleDanmaku,
+        settings.watchSelectSubtitleInPlayerSettings,
+        streaming,
+    ]);
+    const showOverlayTrackSettings =
+        !streaming &&
+        !settings.watchSelectSubtitleInPlayerSettings &&
+        (selectableSubtitleItems.length > 0 || (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0));
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
     const selectedDanmakuSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedDanmakuSubtitleIndex);
     const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${settings.watchPlaySubtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
@@ -1585,6 +1667,7 @@ export function RecordedWatchPage(): ReactNode {
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
+                            trackSettings={playerTrackSettings}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}
                             volumeBoostMaxPercent={settings.watchVolumeBoostMaxPercent}
                             onCommentsChange={replaceComments}
@@ -1645,7 +1728,7 @@ export function RecordedWatchPage(): ReactNode {
                                         {item?.name ?? '録画情報を取得中...'}
                                     </Typography>
                                 </Box>
-                                {!streaming && (selectableSubtitleItems.length > 0 || (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0)) && (
+                                {showOverlayTrackSettings && (
                                     <Stack direction="column" spacing={0.15} sx={{ width: { xs: 112, sm: 170 }, flex: '0 0 auto' }}>
                                         {settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0 && (
                                             <FormControl variant="filled" size="small" sx={{ bgcolor: 'rgba(0,0,0,.38)', borderRadius: 1 }}>

@@ -1060,6 +1060,16 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchPlaySubtitleDanmaku} onChange={event => patch('watchPlaySubtitleDanmaku', event.target.checked)} />}
                                     />
                                     <SettingRow
+                                        title="弾幕と字幕をプレイヤー設定欄から選択する"
+                                        description="PLAY再生の選択欄を映像上部から歯車の設定パネルへ移動します。danmaku表示が有効な場合は、弾幕と字幕を個別に選択できます。"
+                                        control={
+                                            <Switch
+                                                checked={draft.watchSelectSubtitleInPlayerSettings}
+                                                onChange={event => patch('watchSelectSubtitleInPlayerSettings', event.target.checked)}
+                                            />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="danmakuを高リフレッシュレートで描画（実験的機能）"
                                         description="WebGL2でコメント画像をまとめて描画し、ブラウザが通知する更新頻度で動かします。WebGL2を利用できない環境では従来の描画方式へ自動的に戻ります。"
                                         control={
