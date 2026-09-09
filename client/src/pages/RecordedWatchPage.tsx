@@ -511,6 +511,29 @@ function RecordedPlayer({
                 '& .recorded-dplayer .dplayer-volume': {
                     marginLeft: showVolumePercent ? '-13px' : 0,
                 },
+                '@media (max-width: 600px) and (orientation: portrait)': {
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-controller': {
+                        paddingLeft: '6px !important',
+                        paddingRight: '6px !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-icons-right': {
+                        right: '4px !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-icons-left .dplayer-icon, & .recorded-dplayer.dplayer-mobile .dplayer-icons-right .dplayer-icon': {
+                        width: 'clamp(29px, 8.6vw, 34px) !important',
+                        padding: 'clamp(4px, 1.5vw, 6px) !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-time': {
+                        fontSize: 'clamp(10px, 3vw, 12px)',
+                        whiteSpace: 'nowrap',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .neo-player-volume-percent': {
+                        display: 'none !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-volume': {
+                        marginLeft: '0 !important',
+                    },
+                },
             }}
         >
             {(state.isLoading || state.isBuffering || playbackBlocked) && (

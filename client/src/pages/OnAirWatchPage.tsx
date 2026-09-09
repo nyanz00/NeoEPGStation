@@ -316,6 +316,29 @@ function LivePlayer({
                 '& .onair-dplayer .dplayer-volume': {
                     marginLeft: showVolumePercent ? '-13px' : 0,
                 },
+                '@media (max-width: 600px) and (orientation: portrait)': {
+                    '& .onair-dplayer.dplayer-mobile .dplayer-controller': {
+                        paddingLeft: '6px !important',
+                        paddingRight: '6px !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-icons-right': {
+                        right: '4px !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-icons-left .dplayer-icon, & .onair-dplayer.dplayer-mobile .dplayer-icons-right .dplayer-icon': {
+                        width: 'clamp(29px, 8.6vw, 34px) !important',
+                        padding: 'clamp(4px, 1.5vw, 6px) !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-time': {
+                        fontSize: 'clamp(10px, 3vw, 12px)',
+                        whiteSpace: 'nowrap',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .neo-player-volume-percent': {
+                        display: 'none !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-volume': {
+                        marginLeft: '0 !important',
+                    },
+                },
             }}
         >
             {(state.isLoading || state.isBuffering) && (
