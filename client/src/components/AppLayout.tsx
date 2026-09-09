@@ -11,7 +11,7 @@ import ScheduleOutlined from '@mui/icons-material/ScheduleOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
-import Dvr from '@mui/icons-material/Dvr';
+import { TelevisionGuideIcon } from './icons/TelevisionGuideIcon';
 import { Box, CircularProgress, Divider, Drawer, Fade, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import type { ChannelType } from '../../../api';
@@ -87,9 +87,9 @@ export function AppLayout(): ReactNode {
                       .map(([type]) => ({
                           label: `番組表${channelTypeLabel(type as ChannelType)}`,
                           path: `/guide?type=${encodeURIComponent(type)}`,
-                          icon: <Dvr />,
+                          icon: <TelevisionGuideIcon />,
                       }))
-                : [{ label: '番組表', path: '/guide', icon: <Dvr /> }];
+                : [{ label: '番組表', path: '/guide', icon: <TelevisionGuideIcon /> }];
         if (conflictCount > 0) reserveNavigation.push({ label: '競合', path: '/reserves?type=conflict', icon: <PendingActionsOutlined />, count: conflictCount });
         if (overlapCount > 0) reserveNavigation.push({ label: '重複', path: '/reserves?type=overlap', icon: <PendingActionsOutlined />, count: overlapCount });
 
