@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import diskusage from 'diskusage-ng';
+import { getDiskUsage } from '../../../util/DiskUsage';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
@@ -894,18 +894,6 @@ export default class StorageApiModel implements IStorageApiModel {
      * @param dirPath ディスクディレクトリ
      */
     private getDiskInfo(dirPath: string): Promise<apid.DiskUsage> {
-        return new Promise<apid.DiskUsage>((resolve, reject) => {
-            diskusage(dirPath, (err, usage) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve({
-                        available: usage.available,
-                        used: usage.used,
-                        total: usage.total,
-                    });
-                }
-            });
-        });
+        return getDiskUsage(dirPath);
     }
 }
