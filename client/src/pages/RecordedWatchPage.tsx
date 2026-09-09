@@ -450,6 +450,9 @@ function RecordedPlayer({
                     {
                         zIndex: 4,
                     },
+                '& .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box': {
+                    zIndex: 8,
+                },
                 '& .recorded-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
                     background: 'linear-gradient(to top, rgba(0,0,0,.86), transparent) !important',
@@ -518,6 +521,11 @@ function RecordedPlayer({
                     },
                     '& .recorded-dplayer.dplayer-mobile .dplayer-icons-right': {
                         right: '4px !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-bar-wrap': {
+                        left: '6px !important',
+                        right: '6px !important',
+                        width: 'auto !important',
                     },
                     '& .recorded-dplayer.dplayer-mobile .dplayer-icons-left .dplayer-icon, & .recorded-dplayer.dplayer-mobile .dplayer-icons-right .dplayer-icon': {
                         width: 'clamp(29px, 8.6vw, 34px) !important',
@@ -1716,6 +1724,9 @@ export function RecordedWatchPage(): ReactNode {
                                     easing: theme.transitions.easing.easeInOut,
                                 }),
                             '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                            '@media (max-width: 600px) and (orientation: portrait)': {
+                                height: panelOpen ? (settings.watchPersistentBottomControls ? 'calc(100dvh - 56.25vw - 56px)' : 'calc(100dvh - 56.25vw)') : 0,
+                            },
                         }}
                     >
                         {(panelOpen || panelMounted) && (
