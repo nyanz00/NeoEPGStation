@@ -1218,13 +1218,6 @@ export function SettingsPage(): ReactNode {
                         {activeSettingsTab === 'display' && (
                             <SettingSection title="表示設定">
                                 <SettingRow
-                                    title="THUMBボタンを表示しない"
-                                    description="サムネイル再生成は録画詳細のメニューから実行できます"
-                                    control={
-                                        <Switch checked={draft.isHideRecordedThumbnailButton} onChange={event => patch('isHideRecordedThumbnailButton', event.target.checked)} />
-                                    }
-                                />
-                                <SettingRow
                                     title="バージョン更新通知"
                                     description="ダッシュボードに新しい安定版があることを表示する"
                                     control={
@@ -1318,6 +1311,13 @@ export function SettingsPage(): ReactNode {
                                     title="録画済みへ戻った番組を強調表示"
                                     description="録画詳細から一覧へ戻った際、元の録画を約1秒間ハイライトします。"
                                     control={<Switch checked={draft.isHighlightRecordedOnReturn} onChange={event => patch('isHighlightRecordedOnReturn', event.target.checked)} />}
+                                />
+                                <SettingRow
+                                    title="THUMBボタンを表示しない"
+                                    description="サムネイル再生成は録画詳細のメニューから実行できます"
+                                    control={
+                                        <Switch checked={draft.isHideRecordedThumbnailButton} onChange={event => patch('isHideRecordedThumbnailButton', event.target.checked)} />
+                                    }
                                 />
                                 <SettingRow
                                     title="録画済み表示件数"
