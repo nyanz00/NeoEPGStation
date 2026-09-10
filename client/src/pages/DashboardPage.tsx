@@ -234,7 +234,18 @@ function DashboardColumn({ title, displayed, total, children, morePath, badge, e
     const navigate = useNavigate();
     const hasMore = displayed !== undefined && total !== undefined && total > displayed;
     return (
-        <Card variant="outlined" sx={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Card
+            variant="outlined"
+            sx={{
+                minWidth: 0,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                alignSelf: 'start',
+                [dashboardDesktopMedia]: { maxHeight: '100%' },
+            }}
+        >
             <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider', flex: '0 0 auto' }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                     {title}
@@ -570,7 +581,7 @@ export function DashboardPage(): ReactNode {
                     display: 'grid',
                     gridTemplateColumns: 'minmax(0, 1fr)',
                     gap: 2,
-                    alignItems: 'stretch',
+                    alignItems: 'start',
                     boxSizing: 'border-box',
                     height: 'auto',
                     overflow: 'visible',
