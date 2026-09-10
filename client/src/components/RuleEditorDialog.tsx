@@ -347,6 +347,10 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                 paper: {
                     sx: theme => ({
                         ...dialogSurfacePaper(theme),
+                        '& .MuiAccordion-root': {
+                            backgroundColor: theme.palette.action.hover,
+                            backgroundImage: 'none',
+                        },
                         '& .MuiDialogActions-root': {
                             borderTop: 1,
                             borderColor: 'divider',
