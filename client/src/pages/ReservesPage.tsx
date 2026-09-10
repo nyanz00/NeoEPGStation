@@ -41,15 +41,16 @@ import { channelName, formatProgramDate, formatProgramTime, genreNames, programD
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
-const reserveTypes: { value: Exclude<GetReserveType, 'all'>; label: string }[] = [
+const reserveTypes: { value: GetReserveType; label: string }[] = [
+    { value: 'all', label: 'すべて' },
     { value: 'normal', label: '予約' },
     { value: 'conflict', label: '競合' },
     { value: 'overlap', label: '重複' },
     { value: 'skip', label: '除外' },
 ];
 
-function normalizeType(value: string | null): Exclude<GetReserveType, 'all'> {
-    return value === 'conflict' || value === 'overlap' || value === 'skip' ? value : 'normal';
+function normalizeType(value: string | null): GetReserveType {
+    return value === 'all' || value === 'conflict' || value === 'overlap' || value === 'skip' ? value : 'normal';
 }
 
 function statusLabel(item: ReserveItem): string | null {
@@ -157,7 +158,11 @@ export function ReservesPage(): ReactNode {
             }),
     });
     const pageCount = Math.max(1, Math.ceil((reserves.data?.total ?? 0) / settings.reservesLength));
-    const countFor = (value: Exclude<GetReserveType, 'all'>): number | undefined => {
+    const countFor = (value: GetReserveType): number | undefined => {
+        if (value === 'all') {
+            const values = [counts.data?.normal, counts.data?.conflicts, counts.data?.overlaps, counts.data?.skips];
+            return values.every(count => count === undefined) ? undefined : values.reduce<number>((total, count) => total + (count ?? 0), 0);
+        }
         if (value === 'conflict') return counts.data?.conflicts;
         if (value === 'overlap') return counts.data?.overlaps;
         if (value === 'skip') return counts.data?.skips;
@@ -232,7 +237,7 @@ export function ReservesPage(): ReactNode {
             await refresh();
         },
     });
-    const updateParams = (next: { type?: Exclude<GetReserveType, 'all'>; page?: number }, replace = false): void => {
+    const updateParams = (next: { type?: GetReserveType; page?: number }, replace = false): void => {
         const value = new URLSearchParams(params);
         if (next.type !== undefined) value.set('type', next.type);
         value.set('page', (next.page ?? 1).toString(10));
@@ -274,7 +279,7 @@ export function ReservesPage(): ReactNode {
             />
             <PageSubHeader>
                 <Box sx={{ px: { xs: 1, md: 2 } }}>
-                    <Tabs value={type} onChange={(_event, value: Exclude<GetReserveType, 'all'>) => updateParams({ type: value })} variant="scrollable" scrollButtons="auto">
+                    <Tabs value={type} onChange={(_event, value: GetReserveType) => updateParams({ type: value })} variant="scrollable" scrollButtons="auto">
                         {reserveTypes.map(item => (
                             <Tab key={item.value} value={item.value} label={`${item.label}${countFor(item.value) === undefined ? '' : ` ${countFor(item.value)}`}`} />
                         ))}

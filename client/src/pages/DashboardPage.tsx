@@ -447,8 +447,8 @@ export function DashboardPage(): ReactNode {
             },
             { queryKey: ['recorded', recordedOption], queryFn: () => api.getRecorded(recordedOption) },
             {
-                queryKey: ['reserves', 'normal', userId, settings.isHalfWidthDisplayed, settings.reservesLength],
-                queryFn: () => api.getReserves({ type: 'normal', isHalfWidth: settings.isHalfWidthDisplayed, userId, offset: 0, limit: settings.reservesLength }),
+                queryKey: ['reserves', 'all', userId, settings.isHalfWidthDisplayed, settings.reservesLength],
+                queryFn: () => api.getReserves({ type: 'all', isHalfWidth: settings.isHalfWidthDisplayed, userId, offset: 0, limit: settings.reservesLength }),
             },
             { queryKey: ['reserve-counts'], queryFn: api.getReserveCounts },
             { queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 },
@@ -645,7 +645,7 @@ export function DashboardPage(): ReactNode {
                     title="予約"
                     displayed={reserves.data?.reserves.length}
                     total={reserves.data?.total}
-                    morePath="/reserves?type=normal&page=2"
+                    morePath="/reserves?type=all&page=2"
                     badge={reserveCounts.data?.conflicts}
                     onBadgeClick={() => void navigate('/reserves?type=conflict')}
                     loading={reserves.isPending}
