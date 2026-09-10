@@ -16,7 +16,14 @@ export function NotificationProvider({ children }: { children: ReactNode }): Rea
     return (
         <NotificationContext.Provider value={value}>
             {children}
-            <Snackbar open={state !== null} autoHideDuration={3_000} onClose={() => setState(null)}>
+            <Snackbar
+                open={state !== null}
+                autoHideDuration={3_000}
+                onClose={() => setState(null)}
+                // Keep notifications above the page and drawers, but below interactive
+                // modal surfaces so an overlapping Menu or Dialog remains clickable.
+                sx={{ zIndex: theme => theme.zIndex.modal - 1 }}
+            >
                 <Alert severity={state?.severity ?? 'info'} onClose={() => setState(null)} variant="filled">
                     {state?.message}
                 </Alert>
