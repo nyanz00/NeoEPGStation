@@ -73,7 +73,6 @@ export function ReserveProgramDialog({
             onClose={onClose}
             fullWidth
             maxWidth="md"
-            disableScrollLock
             aria-labelledby="reserve-program-title"
             slotProps={{
                 paper: {
