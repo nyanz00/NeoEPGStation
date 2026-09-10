@@ -419,7 +419,7 @@ export function GuideProgramDialog({
                     sx: theme => ({
                         ...programDialogPaper(theme),
                         maxWidth: 640,
-                        maxHeight: 'min(90dvh, 760px)',
+                        maxHeight: 'min(92dvh, 820px)',
                         '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
                     }),
                 },
