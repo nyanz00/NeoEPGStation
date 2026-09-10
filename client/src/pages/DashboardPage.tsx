@@ -36,11 +36,12 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { RecordedItemActions } from '../components/RecordedItemActions';
+import { ReserveProgramDialog } from '../components/ReserveProgramDialog';
 import { api } from '../core/api/queries';
 import { appIconAssetUrl, getAppIconSet } from '../core/icons/appIcons';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelName, formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
+import { formatProgramDate, formatProgramTime, programDuration } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
 import { loadAddEncodeSettings, saveAddEncodeSettings } from '../core/storage/encode';
 import { useSettings } from '../core/storage/settings';
@@ -736,39 +737,11 @@ export function DashboardPage(): ReactNode {
                 )}
             </Menu>
 
-            <Dialog open={reserveDetailTarget !== null} onClose={() => setReserveDetailTarget(null)} fullWidth maxWidth="sm" disableScrollLock>
-                {reserveDetailTarget !== null && (
-                    <>
-                        <DialogTitle>{reserveDetailTarget.name}</DialogTitle>
-                        <DialogContent dividers>
-                            <Stack spacing={1}>
-                                <Typography color="text.secondary">{channelName(channels.data, reserveDetailTarget.channelId)}</Typography>
-                                <Button
-                                    variant="text"
-                                    sx={{ alignSelf: 'flex-start', px: 0, justifyContent: 'flex-start' }}
-                                    onClick={() => void navigate(`/guide?time=${reserveDetailTarget.startAt.toString(10)}&channelId=${reserveDetailTarget.channelId.toString(10)}`)}
-                                >
-                                    {formatProgramDate(reserveDetailTarget.startAt)} - {formatProgramTime(reserveDetailTarget.endAt)}（{programDuration(reserveDetailTarget)}分）
-                                </Button>
-                                {[reserveDetailTarget.genre1, reserveDetailTarget.genre2, reserveDetailTarget.genre3].some(value => value !== undefined) && (
-                                    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                                        {[reserveDetailTarget.genre1, reserveDetailTarget.genre2, reserveDetailTarget.genre3]
-                                            .filter((value): value is number => value !== undefined)
-                                            .map((value, index) => (
-                                                <Chip key={`${value}-${index}`} size="small" label={genreNames[value] ?? `ジャンル ${value}`} />
-                                            ))}
-                                    </Stack>
-                                )}
-                                {reserveDetailTarget.description !== undefined && <Typography sx={{ whiteSpace: 'pre-wrap' }}>{reserveDetailTarget.description}</Typography>}
-                                {reserveDetailTarget.extended !== undefined && <Typography sx={{ whiteSpace: 'pre-wrap' }}>{reserveDetailTarget.extended}</Typography>}
-                            </Stack>
-                        </DialogContent>
-                        <DialogActions>
-                            <Button onClick={() => setReserveDetailTarget(null)}>閉じる</Button>
-                        </DialogActions>
-                    </>
-                )}
-            </Dialog>
+            <ReserveProgramDialog
+                item={reserveDetailTarget}
+                channel={reserveDetailTarget === null ? undefined : channelMap.get(reserveDetailTarget.channelId)}
+                onClose={() => setReserveDetailTarget(null)}
+            />
 
             <Dialog open={reserveRemoveTarget !== null} onClose={() => setReserveRemoveTarget(null)} disableScrollLock>
                 <DialogTitle>{reserveRemoveTarget?.isSkip ? '除外から予約に戻す' : reserveRemoveTarget?.isOverlap ? '重複状態を解除' : '予約をキャンセル'}</DialogTitle>

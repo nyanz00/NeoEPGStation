@@ -33,11 +33,12 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
+import { ReserveProgramDialog } from '../components/ReserveProgramDialog';
 import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelName, formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
+import { channelName, formatProgramDate, formatProgramTime, programDuration } from '../core/program';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
@@ -146,13 +147,19 @@ export function ReservesPage(): ReactNode {
     const { notify } = useNotifications();
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const counts = useQuery({ queryKey: ['reserve-counts'], queryFn: api.getReserveCounts });
+    const selectedUserId = typeof userId === 'number' ? userId : undefined;
+    const requestUserId = type === 'all' ? undefined : selectedUserId;
+    const normalCount = useQuery({
+        queryKey: ['reserves', 'normal-count', selectedUserId],
+        queryFn: () => api.getReserves({ type: 'normal', isHalfWidth: settings.isHalfWidthDisplayed, userId: selectedUserId, offset: 0, limit: 1 }),
+    });
     const reserves = useQuery({
-        queryKey: ['reserves', type, userId, page, settings.isHalfWidthDisplayed, settings.reservesLength],
+        queryKey: ['reserves', type, requestUserId, page, settings.isHalfWidthDisplayed, settings.reservesLength],
         queryFn: () =>
             api.getReserves({
                 type,
                 isHalfWidth: settings.isHalfWidthDisplayed,
-                userId: typeof userId === 'number' ? userId : undefined,
+                userId: requestUserId,
                 offset: (page - 1) * settings.reservesLength,
                 limit: settings.reservesLength,
             }),
@@ -163,10 +170,11 @@ export function ReservesPage(): ReactNode {
             const values = [counts.data?.normal, counts.data?.conflicts, counts.data?.overlaps, counts.data?.skips];
             return values.every(count => count === undefined) ? undefined : values.reduce<number>((total, count) => total + (count ?? 0), 0);
         }
+        if (value === 'normal') return normalCount.data?.total;
         if (value === 'conflict') return counts.data?.conflicts;
         if (value === 'overlap') return counts.data?.overlaps;
         if (value === 'skip') return counts.data?.skips;
-        return counts.data?.normal;
+        return undefined;
     };
 
     useEffect(() => {
@@ -372,35 +380,11 @@ export function ReservesPage(): ReactNode {
                     </MenuItem>
                 )}
             </Menu>
-            <Dialog open={detailTarget !== null} onClose={() => setDetailTarget(null)} fullWidth maxWidth="sm">
-                {detailTarget !== null && (
-                    <>
-                        <DialogTitle>{detailTarget.name}</DialogTitle>
-                        <DialogContent dividers>
-                            <Stack spacing={1}>
-                                <Typography color="text.secondary">{channelName(channels.data, detailTarget.channelId)}</Typography>
-                                <Typography>
-                                    {formatProgramDate(detailTarget.startAt)} - {formatProgramTime(detailTarget.endAt)}（{programDuration(detailTarget)}分）
-                                </Typography>
-                                {[detailTarget.genre1, detailTarget.genre2, detailTarget.genre3].some(value => value !== undefined) && (
-                                    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                                        {[detailTarget.genre1, detailTarget.genre2, detailTarget.genre3]
-                                            .filter((value): value is number => value !== undefined)
-                                            .map((value, index) => (
-                                                <Chip key={`${value}-${index}`} size="small" label={genreNames[value] ?? `ジャンル ${value}`} />
-                                            ))}
-                                    </Stack>
-                                )}
-                                {detailTarget.description !== undefined && <Typography sx={{ whiteSpace: 'pre-wrap' }}>{detailTarget.description}</Typography>}
-                                {detailTarget.extended !== undefined && <Typography sx={{ whiteSpace: 'pre-wrap' }}>{detailTarget.extended}</Typography>}
-                            </Stack>
-                        </DialogContent>
-                        <DialogActions>
-                            <Button onClick={() => setDetailTarget(null)}>閉じる</Button>
-                        </DialogActions>
-                    </>
-                )}
-            </Dialog>
+            <ReserveProgramDialog
+                item={detailTarget}
+                channel={detailTarget === null ? undefined : channels.data?.find(channel => channel.id === detailTarget.channelId)}
+                onClose={() => setDetailTarget(null)}
+            />
             <Dialog open={target !== null} onClose={() => setTarget(null)}>
                 <DialogTitle>{target?.isSkip ? '除外から予約に戻す' : target?.isOverlap ? '重複状態を解除' : '予約をキャンセル'}</DialogTitle>
                 <DialogContent>
