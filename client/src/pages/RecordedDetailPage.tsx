@@ -706,7 +706,7 @@ export function RecordedDetailPage(): ReactNode {
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.25, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
                             '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
                         }),
                     },

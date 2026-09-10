@@ -130,18 +130,18 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
                 paper: {
                     sx: theme => ({
                         ...programDialogPaper(theme),
-                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.25, pr: { xs: 2, sm: 3 } },
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
                         '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
                     }),
                 },
             }}
         >
             <DialogTitle>{video?.name ?? ''} - STREAMING</DialogTitle>
-            <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5 }}>
+            <DialogContent dividers>
                 {options.length === 0 ? (
                     <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
                 ) : (
-                    <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+                    <Stack spacing={2} sx={{ pt: 1 }}>
                         <Stack direction="row" spacing={1.5}>
                             <FormControl variant="standard" sx={{ flex: 1 }}>
                                 <InputLabel>ストリーム</InputLabel>
