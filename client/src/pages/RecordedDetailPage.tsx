@@ -697,9 +697,23 @@ export function RecordedDetailPage(): ReactNode {
                 </Box>
             )}
 
-            <Dialog open={thumbnailOpen} onClose={() => setThumbnailOpen(false)} fullWidth maxWidth="xs">
+            <Dialog
+                open={thumbnailOpen}
+                onClose={() => setThumbnailOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        }),
+                    },
+                }}
+            >
                 <DialogTitle>サムネイル再生成</DialogTitle>
-                <DialogContent>
+                <DialogContent dividers>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選んだ録画ファイルタイプを元にサムネイルを再生成します。
                     </Typography>
@@ -715,8 +729,11 @@ export function RecordedDetailPage(): ReactNode {
                     </FormControl>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setThumbnailOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" onClick={() => setThumbnailOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button
+                        variant="contained"
                         disabled={sourceVideoFileId === '' || replaceThumbnail.isPending}
                         onClick={() => sourceVideoFileId !== '' && replaceThumbnail.mutate(sourceVideoFileId)}
                     >

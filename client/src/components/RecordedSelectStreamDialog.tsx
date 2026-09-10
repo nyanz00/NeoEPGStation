@@ -4,6 +4,7 @@ import type { Config, VideoFile, VideoSubtitle } from '../../../api';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
+import { programDialogPaper } from './programDialogStyles';
 import {
     getRecordedStreamOptions,
     getRecordedStreamWatchPath,
@@ -120,9 +121,23 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
     };
 
     return (
-        <Dialog open={video !== null} onClose={close} fullWidth maxWidth="xs">
+        <Dialog
+            open={video !== null}
+            onClose={close}
+            fullWidth
+            maxWidth="xs"
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...programDialogPaper(theme),
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                        '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                    }),
+                },
+            }}
+        >
             <DialogTitle>{video?.name ?? ''} - STREAMING</DialogTitle>
-            <DialogContent>
+            <DialogContent dividers>
                 {options.length === 0 ? (
                     <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
                 ) : (
@@ -169,10 +184,10 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
                 )}
             </DialogContent>
             <DialogActions>
-                <Button color="inherit" onClick={close}>
+                <Button color="inherit" variant="outlined" onClick={close}>
                     キャンセル
                 </Button>
-                <Button disabled={preparing || selectedOption === undefined || (video?.type === 'encoded' && subtitles.isPending)} onClick={() => void watch()}>
+                <Button variant="contained" disabled={preparing || selectedOption === undefined || (video?.type === 'encoded' && subtitles.isPending)} onClick={() => void watch()}>
                     {preparing ? '字幕を準備中…' : '視聴'}
                 </Button>
             </DialogActions>
