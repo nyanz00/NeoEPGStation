@@ -210,7 +210,7 @@ export function RecordedItemActions({
                         Info
                     </MenuItem>
                 )}
-                {item.isRecording && onStop !== undefined && (
+                {(item.isRecording || item.isEncoding) && onStop !== undefined && (
                     <MenuItem onClick={() => closeThen(onStop)}>
                         <StopCircleOutlined fontSize="small" sx={{ mr: 1.5 }} />
                         stop
