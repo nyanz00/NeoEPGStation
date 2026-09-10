@@ -1,11 +1,15 @@
 import { alpha, type Theme } from '@mui/material/styles';
 
-// Shared by the guide and encode dialogs without changing other dialogs.
-export const programDialogPaper = (theme: Theme) => ({
+export const dialogSurfacePaper = (theme: Theme) => ({
     borderRadius: '12px',
     backgroundImage: 'none',
     border: `1px solid ${theme.palette.divider}`,
     boxShadow: '0 16px 56px rgba(0,0,0,0.35)',
+});
+
+// Shared by program and recording dialogs that also use the compact field layout.
+export const programDialogPaper = (theme: Theme) => ({
+    ...dialogSurfacePaper(theme),
     width: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
     m: { xs: 1.5, sm: 4 },
     maxHeight: 'calc(100dvh - 24px)',

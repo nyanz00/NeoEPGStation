@@ -24,6 +24,7 @@ import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
+import { dialogSurfacePaper } from './programDialogStyles';
 import { UserSelector } from './UserSelector';
 
 interface EncodeSetting {
@@ -337,7 +338,25 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
         });
 
     return (
-        <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+        <Dialog
+            open={open}
+            onClose={onClose}
+            fullWidth
+            maxWidth="md"
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...dialogSurfacePaper(theme),
+                        '& .MuiDialogActions-root': {
+                            borderTop: 1,
+                            borderColor: 'divider',
+                            gap: 1,
+                            '& .MuiButton-root': { minHeight: 42, borderRadius: '7px' },
+                        },
+                    }),
+                },
+            }}
+        >
             <DialogTitle>{rule === undefined ? 'ルール追加' : 'ルール編集'}</DialogTitle>
             <DialogContent dividers>
                 <Stack spacing={1.5}>
@@ -521,7 +540,9 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                 </Stack>
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose}>キャンセル</Button>
+                <Button color="inherit" variant="outlined" onClick={onClose}>
+                    キャンセル
+                </Button>
                 <Button variant="contained" disabled={save.isPending || typeof state.userId !== 'number'} onClick={() => save.mutate()}>
                     {rule === undefined ? '追加' : '更新'}
                 </Button>
