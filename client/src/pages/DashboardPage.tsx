@@ -52,6 +52,7 @@ const dashboardScrollPositions = new Map<string, DashboardScrollPositions>();
 const dashboardDesktopMedia = '@media (min-width:1023px)';
 
 function parseInteger(value: string | null, minimum = 0): number | undefined {
+    if (value === null || value.trim().length === 0) return undefined;
     const number = Number(value);
     return Number.isSafeInteger(number) && number >= minimum ? number : undefined;
 }
