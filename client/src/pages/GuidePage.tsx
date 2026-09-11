@@ -539,7 +539,7 @@ export function GuideProgramDialog({
                                     </Typography>
                                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: 1, sm: 2 } }}>
                                         <FormControl size="small" fullWidth>
-                                            <InputLabel>録画タイプ</InputLabel>
+                                            <InputLabel sx={{ display: { xs: 'none', sm: 'block' } }}>録画タイプ</InputLabel>
                                             <Select displayEmpty label="録画タイプ" value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
                                                 <MenuItem value="">TS</MenuItem>
                                                 {encodeModes.map(mode => (
@@ -549,7 +549,7 @@ export function GuideProgramDialog({
                                                 ))}
                                             </Select>
                                         </FormControl>
-                                        <UserSelector value={userId} onChange={setUserId} includeMaster={false} minWidth={0} />
+                                        <UserSelector value={userId} onChange={setUserId} includeMaster={false} minWidth={0} hideLabelOnMobile />
                                     </Box>
                                     <Stack
                                         direction="row"

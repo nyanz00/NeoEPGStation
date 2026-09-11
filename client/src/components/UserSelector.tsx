@@ -10,9 +10,10 @@ interface UserSelectorProps {
     includeMaster?: boolean;
     label?: string;
     minWidth?: number;
+    hideLabelOnMobile?: boolean;
 }
 
-export function UserSelector({ value, onChange, includeMaster = true, label = 'ユーザー', minWidth = 180 }: UserSelectorProps): ReactNode {
+export function UserSelector({ value, onChange, includeMaster = true, label = 'ユーザー', minWidth = 180, hideLabelOnMobile = false }: UserSelectorProps): ReactNode {
     const activeUser = useActiveUser();
     const users = useQuery({ queryKey: ['users'], queryFn: api.getUsers });
     const hasNoUsers = users.isSuccess && users.data.users.length === 0;
@@ -31,7 +32,7 @@ export function UserSelector({ value, onChange, includeMaster = true, label = '�
 
     return (
         <FormControl size="small" sx={{ minWidth }} error={users.isError}>
-            <InputLabel>{label}</InputLabel>
+            <InputLabel sx={hideLabelOnMobile ? { display: { xs: 'none', sm: 'block' } } : undefined}>{label}</InputLabel>
             <Select
                 label={label}
                 value={value ?? ''}
