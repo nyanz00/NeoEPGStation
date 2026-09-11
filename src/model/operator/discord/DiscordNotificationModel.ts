@@ -239,7 +239,18 @@ export default class DiscordNotificationModel implements IDiscordNotificationMod
             .split(/\r?\n|\r/)
             .map(line => line.trim())
             .filter(line => line.length > 0);
-        return (lines[lines.length - 1] ?? '').slice(0, 800);
+        const errorPattern =
+            /(?:error|failed|failure|invalid|unsupported|unknown|not found|cannot|could not|no .+ found|エラー|失敗|無効|未対応|見つかりません)/i;
+        let errorIndex = -1;
+        for (let index = 0; index < lines.length; index++) {
+            if (errorPattern.test(lines[index])) errorIndex = index;
+        }
+
+        const relevantLines =
+            errorIndex === -1
+                ? lines.slice(-4)
+                : lines.slice(Math.max(0, errorIndex - 1), Math.min(lines.length, errorIndex + 3));
+        return relevantLines.join('\n').slice(0, 800);
     }
 
     private matchesCondition(

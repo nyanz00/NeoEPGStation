@@ -858,6 +858,7 @@ class EncoderModel implements IEncoderModel {
         stderr: '',
     };
     private lastEncoderMessage: string = '';
+    private encoderOutputTail: string = '';
     private amatsukazeErrorMessage: string = '';
     private onAmatsukazeTaskMatched: ((taskId: number) => void) | null = null;
 
@@ -930,6 +931,9 @@ class EncoderModel implements IEncoderModel {
             this.log.encode.error('encodeOption is null');
             throw new Error('EncodeOptionIsNull');
         }
+        this.encodingProgressBuffer = { stdout: '', stderr: '' };
+        this.lastEncoderMessage = '';
+        this.encoderOutputTail = '';
         this.amatsukazeErrorMessage = '';
 
         // エンコード元ファイルの情報を取得
@@ -1993,6 +1997,10 @@ class EncoderModel implements IEncoderModel {
         const line = rawLine.trim();
         if (line.length === 0) return;
         this.lastEncoderMessage = line;
+        this.encoderOutputTail = `${this.encoderOutputTail}${this.encoderOutputTail.length === 0 ? '' : '\n'}${line}`;
+        if (this.encoderOutputTail.length > EncoderModel.ENCODER_OUTPUT_TAIL_MAX_LENGTH) {
+            this.encoderOutputTail = this.encoderOutputTail.slice(-EncoderModel.ENCODER_OUTPUT_TAIL_MAX_LENGTH);
+        }
 
         const progress = this.parseEncodingProgressLine(line, videoInfo);
         if (progress === null) return;
@@ -2129,6 +2137,9 @@ class EncoderModel implements IEncoderModel {
         } else if (code !== 0) {
             // エンコードが正常終了しなかった
             this.log.encode.error(`encode failed: ${this.encodeOption.encodeId} ${outputFilePath}`);
+            if (this.encoderOutputTail.length > 0) {
+                this.log.encode.error(`encoder output:\n${this.encoderOutputTail}`);
+            }
         } else {
             // エンコード正常終了
             this.log.encode.info(`Successfully encod: ${this.encodeOption.encodeId} ${outputFilePath}`);
@@ -2158,7 +2169,7 @@ class EncoderModel implements IEncoderModel {
             isError,
             outputFilePath,
             this.isCanceld,
-            this.amatsukazeErrorMessage || this.lastEncoderMessage,
+            this.amatsukazeErrorMessage || this.encoderOutputTail || this.lastEncoderMessage,
         );
         this.listener.removeAllListeners();
     }
@@ -2239,6 +2250,7 @@ namespace EncoderModel {
     export const ENCODE_FINISH_EVENT = 'encodeFinishEvent';
     export const ENCODE_PRIPORITY = 10;
     export const DEFAULT_TIMEOUT_RATE = 4.0;
+    export const ENCODER_OUTPUT_TAIL_MAX_LENGTH = 16_384;
 }
 
 export default EncoderModel;
