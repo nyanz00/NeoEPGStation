@@ -947,7 +947,7 @@ export function SearchPage(): ReactNode {
                     sx={{
                         position: 'fixed',
                         right: { xs: 12, lg: '16vw' },
-                        bottom: { xs: 16, lg: '12vh' },
+                        bottom: { xs: 16, lg: '4vh' },
                         zIndex: theme => theme.zIndex.appBar - 1,
                         boxShadow: 6,
                     }}
