@@ -499,7 +499,7 @@ export function GuideProgramDialog({
                                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                                         録画設定
                                     </Typography>
-                                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
+                                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: 1, sm: 2 } }}>
                                         <FormControl size="small" fullWidth>
                                             <InputLabel>録画タイプ</InputLabel>
                                             <Select displayEmpty label="録画タイプ" value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
@@ -513,7 +513,16 @@ export function GuideProgramDialog({
                                         </FormControl>
                                         <UserSelector value={userId} onChange={setUserId} includeMaster={false} minWidth={0} />
                                     </Box>
-                                    <Stack direction={{ xs: 'column', sm: 'row' }}>
+                                    <Stack
+                                        direction="row"
+                                        useFlexGap
+                                        sx={{
+                                            flexWrap: 'wrap',
+                                            columnGap: 1,
+                                            '& .MuiFormControlLabel-root': { mr: { xs: 0.5, sm: 2 } },
+                                            '& .MuiFormControlLabel-label': { fontSize: { xs: '0.8rem', sm: '0.9375rem' } },
+                                        }}
+                                    >
                                         <FormControlLabel
                                             control={
                                                 <Checkbox checked={deleteOriginal} disabled={encodeMode.length === 0} onChange={event => setDeleteOriginal(event.target.checked)} />
@@ -549,9 +558,21 @@ export function GuideProgramDialog({
                             )}
                         </Box>
                     </DialogContent>
-                    <DialogActions>
+                    <DialogActions
+                        sx={{
+                            flexWrap: { xs: 'nowrap !important', sm: 'wrap' },
+                            gap: { xs: 0.5, sm: 1 },
+                            '& .MuiButton-root': { minWidth: { xs: 0, sm: 64 }, px: { xs: 0.5, sm: 1.5 }, fontSize: { xs: '0.8125rem', sm: '0.875rem' } },
+                            '& .MuiButton-startIcon': { mr: { xs: 0.5, sm: 1 } },
+                        }}
+                    >
                         <Button sx={{ mr: 'auto' }} startIcon={<SearchOutlined />} onClick={openRelatedSearch}>
-                            関連番組を検索
+                            <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                                検索
+                            </Box>
+                            <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                                関連番組を検索
+                            </Box>
                         </Button>
                         <Button color="inherit" onClick={() => onClose(program.id)}>
                             閉じる

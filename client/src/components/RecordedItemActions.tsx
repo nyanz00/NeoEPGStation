@@ -1,5 +1,6 @@
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined';
@@ -10,7 +11,7 @@ import SubtitlesOutlined from '@mui/icons-material/SubtitlesOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import ImageOutlined from '@mui/icons-material/ImageOutlined';
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Stack, Typography } from '@mui/material';
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecordedItem, VideoFile } from '../../../api';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -24,6 +25,7 @@ import type { ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 import { UserSelector } from './UserSelector';
+import { dialogSurfacePaper, programDialogClose } from './programDialogStyles';
 
 function formatBytes(size: number): string {
     if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GB`;
@@ -282,27 +284,53 @@ export function RecordedItemActions({
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={downloadOpen} onClose={() => setDownloadOpen(false)} fullWidth maxWidth="xs">
-                <DialogTitle>{item.name}</DialogTitle>
-                <DialogContent>
-                    <Typography sx={{ mb: 1 }}>video files</Typography>
-                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 2 }}>
+            <Dialog
+                open={downloadOpen}
+                onClose={() => setDownloadOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...dialogSurfacePaper(theme),
+                            bgcolor: '#191E23',
+                            width: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
+                            m: { xs: 1.5, sm: 4 },
+                            maxHeight: 'calc(100dvh - 24px)',
+                        }),
+                    },
+                }}
+            >
+                <DialogTitle sx={{ position: 'relative', pr: 7, fontSize: { xs: '1.15rem', sm: '1.25rem' }, overflowWrap: 'anywhere' }}>
+                    {item.name}
+                    <IconButton aria-label="閉じる" onClick={() => setDownloadOpen(false)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
+                    <Typography sx={{ mb: 1, fontWeight: 600 }}>video files</Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(auto-fit, minmax(180px, 1fr))' }, gap: 1, mb: 2 }}>
                         {files.map(file => (
-                            <Button key={file.id} variant="contained" onClick={() => download(file, false)}>
+                            <Button
+                                key={file.id}
+                                variant="contained"
+                                onClick={() => download(file, false)}
+                                sx={{ minWidth: 0, justifyContent: 'flex-start', overflowWrap: 'anywhere' }}
+                            >
                                 {file.name} ({formatBytes(file.size)})
                             </Button>
                         ))}
-                    </Stack>
-                    <Typography sx={{ mb: 1 }}>play lists</Typography>
-                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    </Box>
+                    <Typography sx={{ mb: 1, fontWeight: 600 }}>play lists</Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(auto-fit, minmax(140px, 1fr))' }, gap: 1 }}>
                         {files.map(file => (
-                            <Button key={file.id} variant="contained" onClick={() => download(file, true)}>
+                            <Button key={file.id} variant="contained" onClick={() => download(file, true)} sx={{ minWidth: 0 }}>
                                 {file.name}
                             </Button>
                         ))}
-                    </Stack>
+                    </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ borderTop: 1, borderColor: 'divider', px: { xs: 2, sm: 3 }, py: 1.5 }}>
                     <Button onClick={() => setDownloadOpen(false)}>閉じる</Button>
                 </DialogActions>
             </Dialog>

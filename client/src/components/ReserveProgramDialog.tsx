@@ -154,10 +154,22 @@ export function ReserveProgramDialog({
                             />
                         </Stack>
                     </DialogContent>
-                    <DialogActions>
+                    <DialogActions
+                        sx={{
+                            flexWrap: { xs: 'nowrap !important', sm: 'wrap' },
+                            gap: { xs: 0.5, sm: 1 },
+                            '& .MuiButton-root': { minWidth: { xs: 0, sm: 64 }, px: { xs: 0.5, sm: 1.5 }, fontSize: { xs: '0.8125rem', sm: '0.875rem' } },
+                            '& .MuiButton-startIcon': { mr: { xs: 0.5, sm: 1 } },
+                        }}
+                    >
                         {item.ruleId !== undefined && (
                             <Button sx={{ mr: 'auto' }} startIcon={<SearchOutlined />} onClick={() => closeAndNavigate(`/recorded?ruleId=${item.ruleId!.toString(10)}`)}>
-                                録画済み検索
+                                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                                    検索
+                                </Box>
+                                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                                    録画済み検索
+                                </Box>
                             </Button>
                         )}
                         <Button color="inherit" onClick={onClose}>

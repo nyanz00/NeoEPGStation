@@ -89,8 +89,9 @@ export interface AppSettings {
     isForceEnableSubtitleStroke: boolean;
 }
 
-const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const isAndroid = /Android/.test(navigator.userAgent);
+const iosDownloadSchemeOptInMigrationKey = 'ios-download-scheme-opt-in-v1';
 
 export const defaultSettings: AppSettings = {
     isEnablePWA: true,
@@ -160,7 +161,7 @@ export const defaultSettings: AppSettings = {
     deleteRecordedDefaultValue: false,
     shouldUseRecordedViewURLScheme: true,
     recordedViewURLScheme: null,
-    shouldUseRecordedDownloadURLScheme: true,
+    shouldUseRecordedDownloadURLScheme: false,
     recordedDownloadURLScheme: null,
     searchLength: 300,
     isEnableAutoScrollWhenEditingRule: true,
@@ -196,6 +197,16 @@ function loadSettings(): AppSettings {
             : defaultSettings.annictAutoWatchMode;
         const threshold = Number(parsed.annictAutoWatchThresholdPercent);
         const historyLength = Number(parsed.watchHistoryLength);
+        let shouldUseRecordedDownloadURLScheme = parsed.shouldUseRecordedDownloadURLScheme ?? defaultSettings.shouldUseRecordedDownloadURLScheme;
+        if (isAppleMobile && parsed.recordedDownloadURLScheme == null && localStorage.getItem(iosDownloadSchemeOptInMigrationKey) !== '1') {
+            shouldUseRecordedDownloadURLScheme = false;
+            try {
+                localStorage.setItem('settings', JSON.stringify({ ...parsed, shouldUseRecordedDownloadURLScheme: false }));
+                localStorage.setItem(iosDownloadSchemeOptInMigrationKey, '1');
+            } catch {
+                // Keep the corrected value for this session when storage is unavailable.
+            }
+        }
         return {
             ...defaultSettings,
             ...parsed,
@@ -237,6 +248,7 @@ function loadSettings(): AppSettings {
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
             watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
+            shouldUseRecordedDownloadURLScheme,
             reservesLength: normalizeListLength(parsed.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(parsed.recordingLength, defaultSettings.recordingLength, 1_000),
             recordedLength: normalizeListLength(parsed.recordedLength, defaultSettings.recordedLength, 1_000),
