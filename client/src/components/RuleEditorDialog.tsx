@@ -3,7 +3,6 @@ import {
     Box,
     Button,
     Checkbox,
-    Chip,
     Dialog,
     DialogActions,
     DialogContent,
@@ -241,7 +240,7 @@ function getInitialEncodeRowCount(state: RuleEditorState): number {
     state.encodes.forEach((encode, index) => {
         if (encode.mode.length > 0 || encode.channelIds.length > 0 || encode.parentDirectoryName.length > 0 || encode.directory.length > 0) count = index + 1;
     });
-    return count;
+    return Math.max(1, count);
 }
 
 export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], annictId, rule, onClose, onSaved }: RuleEditorDialogProps): ReactNode {
@@ -365,7 +364,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             open={open}
             onClose={onClose}
             fullWidth
-            maxWidth="md"
+            maxWidth="sm"
             slotProps={{
                 paper: {
                     sx: theme => ({
@@ -400,14 +399,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             </Stack>
             <Tabs value={activeTab} onChange={(_event, value: number) => setActiveTab(value)} variant="fullWidth" aria-label="ルール設定項目">
                 <Tab label="録画・保存" />
-                <Tab
-                    label={
-                        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                            <span>エンコード</span>
-                            <Chip label={encodeRowCount} size="small" variant="outlined" sx={{ height: 22, '& .MuiChip-label': { px: 0.75 } }} />
-                        </Stack>
-                    }
-                />
+                <Tab label={`エンコード ${encodeRowCount.toString(10)}`} />
             </Tabs>
             <DialogContent dividers sx={{ py: 2 }}>
                 {activeTab === 0 && (
