@@ -2008,6 +2008,25 @@ class EncoderModel implements IEncoderModel {
         this.encodeEvent.emitUpdateEncodeProgress();
     }
 
+    private getEncoderFailureMessage(): string {
+        const lines = this.encoderOutputTail
+            .split(/\r?\n|\r/)
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+        const errorPattern =
+            /(?:error|failed|failure|invalid|unsupported|unknown|not found|cannot|could not|no .+ found|エラー|失敗|無効|未対応|見つかりません)/i;
+        let errorIndex = -1;
+        for (let index = 0; index < lines.length; index++) {
+            if (errorPattern.test(lines[index])) errorIndex = index;
+        }
+
+        const relevantLines =
+            errorIndex === -1
+                ? lines.slice(-4)
+                : lines.slice(Math.max(0, errorIndex - 1), Math.min(lines.length, errorIndex + 3));
+        return relevantLines.join('\n').slice(0, EncoderModel.ENCODER_FAILURE_MESSAGE_MAX_LENGTH);
+    }
+
     private parseEncodingProgressLine(line: string, videoInfo: VideoInfo | null): EncodeProgressInfo | null {
         const jsonProgress = this.parseJsonEncodingProgressLine(line);
         if (jsonProgress !== null) {
@@ -2129,6 +2148,7 @@ class EncoderModel implements IEncoderModel {
 
             return;
         }
+        const encoderFailureMessage = this.amatsukazeErrorMessage || this.getEncoderFailureMessage();
 
         let isError = true;
         if (this.isCanceld === true) {
@@ -2137,8 +2157,8 @@ class EncoderModel implements IEncoderModel {
         } else if (code !== 0) {
             // エンコードが正常終了しなかった
             this.log.encode.error(`encode failed: ${this.encodeOption.encodeId} ${outputFilePath}`);
-            if (this.encoderOutputTail.length > 0) {
-                this.log.encode.error(`encoder output:\n${this.encoderOutputTail}`);
+            if (encoderFailureMessage.length > 0) {
+                this.log.encode.error(`encoder output:\n${encoderFailureMessage}`);
             }
         } else {
             // エンコード正常終了
@@ -2169,7 +2189,7 @@ class EncoderModel implements IEncoderModel {
             isError,
             outputFilePath,
             this.isCanceld,
-            this.amatsukazeErrorMessage || this.encoderOutputTail || this.lastEncoderMessage,
+            encoderFailureMessage || this.lastEncoderMessage,
         );
         this.listener.removeAllListeners();
     }
@@ -2251,6 +2271,7 @@ namespace EncoderModel {
     export const ENCODE_PRIPORITY = 10;
     export const DEFAULT_TIMEOUT_RATE = 4.0;
     export const ENCODER_OUTPUT_TAIL_MAX_LENGTH = 16_384;
+    export const ENCODER_FAILURE_MESSAGE_MAX_LENGTH = 4_000;
 }
 
 export default EncoderModel;
