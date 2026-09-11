@@ -946,8 +946,8 @@ export function SearchPage(): ReactNode {
                     onClick={() => setRuleEditorOpen(true)}
                     sx={{
                         position: 'fixed',
-                        right: { xs: 12, lg: '14vw' },
-                        bottom: { xs: 16, lg: '4vh' },
+                        right: { xs: 12, lg: '16vw' },
+                        bottom: { xs: 16, lg: '12vh' },
                         zIndex: theme => theme.zIndex.appBar - 1,
                         boxShadow: 6,
                     }}
