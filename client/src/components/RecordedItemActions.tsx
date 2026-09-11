@@ -309,26 +309,26 @@ export function RecordedItemActions({
                 </DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     <Typography sx={{ mb: 1, fontWeight: 600 }}>video files</Typography>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(auto-fit, minmax(180px, 1fr))' }, gap: 1, mb: 2 }}>
+                    <Stack spacing={1} sx={{ alignItems: 'flex-start', mb: 2 }}>
                         {files.map(file => (
                             <Button
                                 key={file.id}
                                 variant="contained"
                                 onClick={() => download(file, false)}
-                                sx={{ minWidth: 0, justifyContent: 'flex-start', overflowWrap: 'anywhere' }}
+                                sx={{ width: 'fit-content', maxWidth: '100%', minWidth: 0, justifyContent: 'flex-start', textAlign: 'left', overflowWrap: 'anywhere' }}
                             >
                                 {file.name} ({formatBytes(file.size)})
                             </Button>
                         ))}
-                    </Box>
+                    </Stack>
                     <Typography sx={{ mb: 1, fontWeight: 600 }}>play lists</Typography>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(auto-fit, minmax(140px, 1fr))' }, gap: 1 }}>
+                    <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
                         {files.map(file => (
-                            <Button key={file.id} variant="contained" onClick={() => download(file, true)} sx={{ minWidth: 0 }}>
+                            <Button key={file.id} variant="contained" onClick={() => download(file, true)} sx={{ width: 'fit-content', maxWidth: '100%', minWidth: 0 }}>
                                 {file.name}
                             </Button>
                         ))}
-                    </Box>
+                    </Stack>
                 </DialogContent>
                 <DialogActions sx={{ borderTop: 1, borderColor: 'divider', px: { xs: 2, sm: 3 }, py: 1.5 }}>
                     <Button onClick={() => setDownloadOpen(false)}>閉じる</Button>
