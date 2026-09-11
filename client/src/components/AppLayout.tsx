@@ -41,6 +41,7 @@ interface SideNavigationState {
 
 interface AppLayoutContextValue {
     toggleDrawer: () => void;
+    contentOffset: number;
 }
 
 const AppLayoutContext = createContext<AppLayoutContextValue | null>(null);
@@ -231,7 +232,11 @@ export function AppLayout(): ReactNode {
         </Box>
     );
 
-    const contextValue = useMemo(() => ({ toggleDrawer: () => (desktop ? setDesktopOpen(value => !value) : setMobileOpen(value => !value)) }), [desktop]);
+    const contentOffset = desktop && !theaterMode && desktopOpen ? drawerWidth : 0;
+    const contextValue = useMemo(
+        () => ({ toggleDrawer: () => (desktop ? setDesktopOpen(value => !value) : setMobileOpen(value => !value)), contentOffset }),
+        [contentOffset, desktop],
+    );
     const drawerOpen = desktop ? desktopOpen : mobileOpen;
     const overlayDrawer = theaterMode || !desktop;
 

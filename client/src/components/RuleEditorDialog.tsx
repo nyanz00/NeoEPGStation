@@ -28,6 +28,7 @@ import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
+import { useAppLayout } from './AppLayout';
 import { dialogSurfacePaper, programDialogClose } from './programDialogStyles';
 import { UserSelector } from './UserSelector';
 
@@ -244,6 +245,7 @@ function getInitialEncodeRowCount(state: RuleEditorState): number {
 }
 
 export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], annictId, rule, onClose, onSaved }: RuleEditorDialogProps): ReactNode {
+    const { contentOffset } = useAppLayout();
     const activeUser = useActiveUser();
     const settings = useSettings();
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
@@ -364,12 +366,22 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             open={open}
             onClose={onClose}
             fullWidth
-            maxWidth="sm"
+            maxWidth={false}
             slotProps={{
+                container: {
+                    sx: {
+                        alignItems: { lg: 'flex-start' },
+                        boxSizing: 'border-box',
+                        pt: { lg: 10 },
+                        pl: { lg: `${contentOffset.toString(10)}px` },
+                    },
+                },
                 paper: {
                     sx: theme => ({
                         ...dialogSurfacePaper(theme),
-                        maxHeight: 'calc(100dvh - 32px)',
+                        width: { xs: 'calc(100% - 24px)', sm: 'min(860px, calc(100% - 64px))' },
+                        m: { xs: 1.5, sm: 0 },
+                        maxHeight: { xs: 'calc(100dvh - 24px)', sm: 'calc(100dvh - 64px)', lg: 'calc(100dvh - 96px)' },
                         '& .MuiDialogActions-root': {
                             borderTop: 1,
                             borderColor: 'divider',
