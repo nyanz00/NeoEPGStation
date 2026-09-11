@@ -334,6 +334,7 @@ export function GuideProgramDialog({
     const [encodeMode, setEncodeMode] = useState(initialDialogSettings.encode === 'TS' ? '' : initialDialogSettings.encode);
     const [deleteOriginal, setDeleteOriginal] = useState(initialDialogSettings.isDeleteOriginalAfterEncode);
     const [updateThumbnail, setUpdateThumbnail] = useState(initialDialogSettings.updateThumbnail);
+    const recordingTypeLabel = encodeMode.length === 0 ? 'オリジナル' : 'エンコード';
     const encodeModes = useMemo(
         () => Array.from(new Set((config.data?.encode ?? []).filter((mode): mode is string => typeof mode === 'string' && mode.trim().length > 0))),
         [config.data?.encode],
@@ -539,8 +540,8 @@ export function GuideProgramDialog({
                                     </Typography>
                                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: 1, sm: 2 } }}>
                                         <FormControl size="small" fullWidth>
-                                            <InputLabel sx={{ display: { xs: 'none', sm: 'block' } }}>録画タイプ</InputLabel>
-                                            <Select displayEmpty label="録画タイプ" value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
+                                            <InputLabel sx={{ display: { xs: 'none', sm: 'block' } }}>{recordingTypeLabel}</InputLabel>
+                                            <Select displayEmpty label={recordingTypeLabel} value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
                                                 <MenuItem value="">TS</MenuItem>
                                                 {encodeModes.map(mode => (
                                                     <MenuItem key={mode} value={mode}>
