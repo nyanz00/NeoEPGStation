@@ -47,7 +47,16 @@ import { api } from '../core/api/queries';
 import { isDefaultVisibleChannel } from '../core/channels';
 import { guideChannelDisplayName } from '../core/guide/channels';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelTypeLabel, createProgramSearchKeyword, formatProgramDate, formatProgramTime, genreNames, normalizeChannelFilter, programDuration } from '../core/program';
+import {
+    channelTypeLabel,
+    createProgramSearchKeyword,
+    formatProgramDate,
+    formatProgramDateCompact,
+    formatProgramTime,
+    genreNames,
+    normalizeChannelFilter,
+    programDuration,
+} from '../core/program';
 import { withBasePath } from '../core/path';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import {
@@ -442,24 +451,53 @@ export function GuideProgramDialog({
                         }}
                     >
                         <Stack
-                            direction="row"
-                            spacing={1.5}
+                            direction={{ xs: 'column', sm: 'row' }}
+                            spacing={{ xs: 1, sm: 1.5 }}
                             useFlexGap
-                            sx={{ alignItems: 'center', flexWrap: 'wrap', px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
+                            sx={{
+                                alignItems: { xs: 'stretch', sm: 'center' },
+                                flexWrap: { sm: 'wrap' },
+                                px: { xs: 2, sm: 3 },
+                                py: 1,
+                                flexShrink: 0,
+                                borderBottom: 1,
+                                borderColor: 'divider',
+                            }}
                         >
-                            {channel?.hasLogoData && (
-                                <Box component="img" src={withBasePath(`/api/channels/${channel.id}/logo`)} alt="" sx={{ width: 48, height: 32, objectFit: 'contain' }} />
-                            )}
-                            <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+                                {channel?.hasLogoData && (
+                                    <Box
+                                        component="img"
+                                        src={withBasePath(`/api/channels/${channel.id}/logo`)}
+                                        alt=""
+                                        sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
+                                    />
+                                )}
+                                <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
+                            </Stack>
+                            <Stack
+                                direction="row"
+                                spacing={{ xs: 0.5, sm: 1 }}
+                                sx={{
+                                    alignItems: 'center',
+                                    flexWrap: 'nowrap',
+                                    minWidth: 0,
+                                    whiteSpace: 'nowrap',
+                                    '& .MuiChip-root': { height: { xs: 24, sm: 32 } },
+                                    '& .MuiChip-label': { px: { xs: 0.75, sm: 1.5 }, fontSize: { xs: '0.75rem', sm: '0.8125rem' } },
+                                }}
+                            >
                                 <AccessTimeOutlined fontSize="small" color="action" />
-                                <Typography variant="body2">
+                                <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
                                     {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}
                                 </Typography>
+                                <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
+                                    {formatProgramDateCompact(program.startAt)}–{formatProgramTime(program.endAt)}
+                                </Typography>
+                                <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
+                                {program.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
+                                {program.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
                             </Stack>
-                            <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
-                            {program.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
-                            {program.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
                         </Stack>
                         <Stack
                             spacing={2}

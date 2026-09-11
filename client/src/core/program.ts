@@ -65,6 +65,12 @@ export function formatProgramTime(value: number): string {
     return new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
 }
 
+export function formatProgramDateCompact(value: number): string {
+    const date = new Date(value);
+    const weekday = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
+    return `${date.getMonth() + 1}/${date.getDate()}(${weekday}) ${date.getHours().toString(10).padStart(2, '0')}:${date.getMinutes().toString(10).padStart(2, '0')}`;
+}
+
 export function channelName(channels: ChannelItem[] | undefined, channelId: number): string {
     return channels?.find(channel => channel.id === channelId)?.name ?? channelId.toString(10);
 }
