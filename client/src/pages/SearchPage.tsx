@@ -944,7 +944,13 @@ export function SearchPage(): ReactNode {
                     startIcon={<PlaylistAddOutlined />}
                     disabled={ruleId !== null && rule.data === undefined}
                     onClick={() => setRuleEditorOpen(true)}
-                    sx={{ position: 'fixed', top: { xs: 68, sm: 72 }, right: { xs: 12, sm: 24 }, zIndex: theme => theme.zIndex.appBar - 1, boxShadow: 6 }}
+                    sx={{
+                        position: 'fixed',
+                        right: { xs: 12, lg: '14vw' },
+                        bottom: { xs: 16, lg: '12vh' },
+                        zIndex: theme => theme.zIndex.appBar - 1,
+                        boxShadow: 6,
+                    }}
                 >
                     {ruleId === null ? 'ルール作成' : 'ルール設定'}
                 </Button>
