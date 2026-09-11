@@ -132,6 +132,8 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
                         ...programDialogPaper(theme),
                         '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
                         '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
+                        '& .MuiDialogContent-root .MuiInputLabel-root': { mb: 0.25 },
+                        '& .MuiDialogContent-root .MuiInputBase-root': { mt: '0 !important' },
                     }),
                 },
             }}

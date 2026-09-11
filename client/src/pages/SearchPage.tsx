@@ -470,6 +470,10 @@ export function SearchPage(): ReactNode {
     const handledSideNavigationResetKey = useRef<string | null>(null);
     const keywordInputRef = useRef<HTMLInputElement | null>(null);
     const resultsRef = useRef<HTMLDivElement | null>(null);
+    const topRuleButtonRef = useRef<HTMLButtonElement | null>(null);
+    const bottomRuleButtonRef = useRef<HTMLButtonElement | null>(null);
+    const [topRuleButtonVisible, setTopRuleButtonVisible] = useState(true);
+    const [bottomRuleButtonVisible, setBottomRuleButtonVisible] = useState(false);
     const { notify } = useNotifications();
 
     useEffect(() => {
@@ -477,6 +481,35 @@ export function SearchPage(): ReactNode {
         const frame = window.requestAnimationFrame(() => keywordInputRef.current?.focus({ preventScroll: true }));
         return () => window.cancelAnimationFrame(frame);
     }, [ruleId]);
+
+    useEffect(() => {
+        if (programs === null) {
+            setTopRuleButtonVisible(true);
+            setBottomRuleButtonVisible(false);
+            return;
+        }
+        const topButton = topRuleButtonRef.current;
+        const bottomButton = bottomRuleButtonRef.current;
+        if (topButton === null || bottomButton === null) return;
+        const isVisible = (element: HTMLElement): boolean => {
+            const rect = element.getBoundingClientRect();
+            return rect.bottom > 56 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+        };
+        setTopRuleButtonVisible(isVisible(topButton));
+        setBottomRuleButtonVisible(isVisible(bottomButton));
+        const observer = new IntersectionObserver(
+            entries => {
+                entries.forEach(entry => {
+                    if (entry.target === topButton) setTopRuleButtonVisible(entry.isIntersecting);
+                    if (entry.target === bottomButton) setBottomRuleButtonVisible(entry.isIntersecting);
+                });
+            },
+            { rootMargin: '-56px 0px 0px' },
+        );
+        observer.observe(topButton);
+        observer.observe(bottomButton);
+        return () => observer.disconnect();
+    }, [programs]);
 
     const availableTypes = useMemo(() => {
         const types = new Set<ChannelType>();
@@ -800,6 +833,7 @@ export function SearchPage(): ReactNode {
                                     検索
                                 </Button>
                                 <Button
+                                    ref={topRuleButtonRef}
                                     variant="outlined"
                                     startIcon={<PlaylistAddOutlined />}
                                     disabled={ruleId !== null && rule.data === undefined}
@@ -892,6 +926,7 @@ export function SearchPage(): ReactNode {
                                 {animeReturnPath !== null ? 'キャンセル' : 'クリア'}
                             </Button>
                             <Button
+                                ref={bottomRuleButtonRef}
                                 variant="contained"
                                 startIcon={<PlaylistAddOutlined />}
                                 disabled={ruleId !== null && rule.data === undefined}
@@ -903,6 +938,17 @@ export function SearchPage(): ReactNode {
                     </Stack>
                 )}
             </Box>
+            {programs !== null && !topRuleButtonVisible && !bottomRuleButtonVisible && (
+                <Button
+                    variant="contained"
+                    startIcon={<PlaylistAddOutlined />}
+                    disabled={ruleId !== null && rule.data === undefined}
+                    onClick={() => setRuleEditorOpen(true)}
+                    sx={{ position: 'fixed', top: { xs: 68, sm: 72 }, right: { xs: 12, sm: 24 }, zIndex: theme => theme.zIndex.appBar - 1, boxShadow: 6 }}
+                >
+                    {ruleId === null ? 'ルール作成' : 'ルール設定'}
+                </Button>
+            )}
             <ProgramDialog
                 program={selectedProgram}
                 channels={channels.data ?? []}

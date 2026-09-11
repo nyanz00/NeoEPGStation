@@ -288,7 +288,7 @@ export function RecordedItemActions({
                 open={downloadOpen}
                 onClose={() => setDownloadOpen(false)}
                 fullWidth
-                maxWidth="xs"
+                maxWidth="sm"
                 slotProps={{
                     paper: {
                         sx: theme => ({
@@ -309,7 +309,7 @@ export function RecordedItemActions({
                 </DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     <Typography sx={{ mb: 1, fontWeight: 600 }}>video files</Typography>
-                    <Stack spacing={1} sx={{ alignItems: 'flex-start', mb: 2 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: 'flex-start', flexWrap: { sm: 'wrap' }, mb: 2 }}>
                         {files.map(file => (
                             <Button
                                 key={file.id}
@@ -322,7 +322,7 @@ export function RecordedItemActions({
                         ))}
                     </Stack>
                     <Typography sx={{ mb: 1, fontWeight: 600 }}>play lists</Typography>
-                    <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: 'flex-start', flexWrap: { sm: 'wrap' } }}>
                         {files.map(file => (
                             <Button key={file.id} variant="contained" onClick={() => download(file, true)} sx={{ width: 'fit-content', maxWidth: '100%', minWidth: 0 }}>
                                 {file.name}
