@@ -90,7 +90,7 @@ function RecordedSelector({ value, onChange }: { value: RecordedItem | null; onC
                 isHalfWidth: settings.isHalfWidthDisplayed,
                 offset: 0,
                 limit: 30,
-                isReverse: true,
+                isReverse: false,
             } as const;
             const results = await Promise.all([
                 api.getRecorded({ ...common, keyword: keyword.trim() }),
