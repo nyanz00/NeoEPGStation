@@ -139,7 +139,7 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
             }}
         >
             <DialogTitle>{video?.name ?? ''} - STREAMING</DialogTitle>
-            <DialogContent dividers sx={video?.type === 'encoded' ? { py: 1.5 } : undefined}>
+            <DialogContent dividers sx={{ ...(video?.type === 'encoded' ? { py: 1.5 } : {}), bgcolor: 'action.hover' }}>
                 {options.length === 0 ? (
                     <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
                 ) : (
