@@ -54,6 +54,7 @@ import { DateTextInput } from '../components/DateTimeInput';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
+import { programDialogClose, programDialogPaper } from '../components/programDialogStyles';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
 import { useNotifications } from '../core/notifications/Notifications';
@@ -1375,16 +1376,27 @@ export function RecordedPage(): ReactNode {
                 </Box>
             </Popover>
 
-            <Dialog open={bulkUserOpen} onClose={() => !bulkUpdateUser.isPending && setBulkUserOpen(false)} maxWidth="xs" fullWidth>
-                <DialogTitle>ユーザーを一括変更</DialogTitle>
-                <DialogContent>
+            <Dialog
+                open={bulkUserOpen}
+                onClose={() => !bulkUpdateUser.isPending && setBulkUserOpen(false)}
+                maxWidth="xs"
+                fullWidth
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+            >
+                <DialogTitle sx={{ position: 'relative' }}>
+                    ユーザーを一括変更
+                    <IconButton aria-label="閉じる" disabled={bulkUpdateUser.isPending} onClick={() => setBulkUserOpen(false)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選択した {selected.size} 件の録画を別のユーザーへ変更します。
                     </Typography>
                     <UserSelector value={bulkUserId} onChange={setBulkUserId} includeMaster={false} label="変更先ユーザー" minWidth={220} />
                 </DialogContent>
                 <DialogActions>
-                    <Button disabled={bulkUpdateUser.isPending} onClick={() => setBulkUserOpen(false)}>
+                    <Button color="inherit" variant="outlined" disabled={bulkUpdateUser.isPending} onClick={() => setBulkUserOpen(false)}>
                         キャンセル
                     </Button>
                     <Button
@@ -1397,9 +1409,20 @@ export function RecordedPage(): ReactNode {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={moveOpen} onClose={() => !moveSelected.isPending && setMoveOpen(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>サブディレクトリへ一括移動</DialogTitle>
-                <DialogContent>
+            <Dialog
+                open={moveOpen}
+                onClose={() => !moveSelected.isPending && setMoveOpen(false)}
+                maxWidth="sm"
+                fullWidth
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+            >
+                <DialogTitle sx={{ position: 'relative' }}>
+                    サブディレクトリへ一括移動
+                    <IconButton aria-label="閉じる" disabled={moveSelected.isPending} onClick={() => setMoveOpen(false)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選択した {selected.size} 件に紐づく、元録画とエンコード済みを含むすべての動画ファイルを移動します。
                     </Typography>
@@ -1430,7 +1453,7 @@ export function RecordedPage(): ReactNode {
                     </Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button disabled={moveSelected.isPending} onClick={() => setMoveOpen(false)}>
+                    <Button color="inherit" variant="outlined" disabled={moveSelected.isPending} onClick={() => setMoveOpen(false)}>
                         キャンセル
                     </Button>
                     <Button variant="contained" disabled={hasEncodingSelection || moveSelected.isPending} onClick={() => moveSelected.mutate()}>

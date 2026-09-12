@@ -25,7 +25,7 @@ import type { ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 import { UserSelector } from './UserSelector';
-import { dialogSurfacePaper, programDialogClose } from './programDialogStyles';
+import { dialogSurfacePaper, programDialogClose, programDialogPaper } from './programDialogStyles';
 
 function formatBytes(size: number): string {
     if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GB`;
@@ -234,17 +234,31 @@ export function RecordedItemActions({
                 </MenuItem>
             </Menu>
 
-            <Dialog open={userOpen} onClose={() => setUserOpen(false)} fullWidth maxWidth="xs">
-                <DialogTitle>ユーザー変更</DialogTitle>
-                <DialogContent>
+            <Dialog
+                open={userOpen}
+                onClose={() => !updateUser.isPending && setUserOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+            >
+                <DialogTitle sx={{ position: 'relative' }}>
+                    ユーザー変更
+                    <IconButton aria-label="閉じる" disabled={updateUser.isPending} onClick={() => setUserOpen(false)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         {item.name} のユーザーを変更
                     </Typography>
                     <UserSelector value={selectedUserId} onChange={setSelectedUserId} includeMaster={false} />
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setUserOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" disabled={updateUser.isPending} onClick={() => setUserOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button
+                        variant="contained"
                         disabled={typeof selectedUserId !== 'number' || updateUser.isPending}
                         onClick={() => typeof selectedUserId === 'number' && updateUser.mutate(selectedUserId)}
                     >
