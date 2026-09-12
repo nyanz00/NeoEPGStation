@@ -843,7 +843,7 @@ export function RecordedDetailPage(): ReactNode {
                 <IconButton aria-label="閉じる" onClick={closeEncodeDialog} sx={programDialogClose}>
                     <CloseOutlined />
                 </IconButton>
-                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5 }}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5, bgcolor: 'action.hover' }}>
                     <Stack spacing={1}>
                         <Box sx={programDialogFields}>
                             <FormControl fullWidth size="small">
