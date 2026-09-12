@@ -1483,9 +1483,15 @@ export function RecordedPage(): ReactNode {
                 maxWidth="sm"
                 fullWidth
                 scroll="paper"
+                aria-labelledby="cleanup-dialog-title"
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
             >
+                <DialogTitle id="cleanup-dialog-title">クリーンアップ</DialogTitle>
+                <IconButton aria-label="閉じる" disabled={createCleanupPlan.isPending || executeCleanup.isPending} onClick={() => setCleanupOpen(false)} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
                 {createCleanupPlan.isPending || executeCleanup.isPending ? (
-                    <DialogContent sx={{ py: 4 }}>
+                    <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 4, bgcolor: 'action.hover' }}>
                         <Typography variant="h6" sx={{ fontWeight: 700 }}>
                             {createCleanupPlan.isPending ? '候補リスト作成中' : 'クリーンアップ実行中'}
                         </Typography>
@@ -1501,12 +1507,11 @@ export function RecordedPage(): ReactNode {
                     </DialogContent>
                 ) : (
                     <>
-                        <DialogTitle>クリーンアップ</DialogTitle>
-                        <DialogContent>
+                        <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                             <Typography variant="body2" sx={{ mb: 1.5 }}>
                                 クリーンアップは、まず削除候補リストを書き出します。ファイルを確認して、消したくない行を削除してから実行してください。
                             </Typography>
-                            <Button sx={{ px: 0 }} onClick={() => createCleanupPlan.mutate()}>
+                            <Button variant="outlined" onClick={() => createCleanupPlan.mutate()}>
                                 {cleanupPath.length > 0 ? '候補リストを再作成' : '候補リストを作成'}
                             </Button>
                             {cleanupPlan !== null && (
@@ -1561,17 +1566,29 @@ export function RecordedPage(): ReactNode {
                             />
                         </DialogContent>
                         <DialogActions>
-                            <Button onClick={() => setCleanupOpen(false)}>キャンセル</Button>
-                            <Button color="error" disabled={cleanupPath.length === 0} onClick={() => setCleanupConfirmOpen(true)}>
+                            <Button color="inherit" variant="outlined" onClick={() => setCleanupOpen(false)}>
+                                キャンセル
+                            </Button>
+                            <Button variant="contained" color="error" disabled={cleanupPath.length === 0} onClick={() => setCleanupConfirmOpen(true)}>
                                 リストを実行
                             </Button>
                         </DialogActions>
                     </>
                 )}
             </Dialog>
-            <Dialog open={cleanupConfirmOpen} onClose={() => setCleanupConfirmOpen(false)} maxWidth="xs" fullWidth>
-                <DialogTitle>クリーンアップ最終確認</DialogTitle>
-                <DialogContent>
+            <Dialog
+                open={cleanupConfirmOpen}
+                onClose={() => setCleanupConfirmOpen(false)}
+                maxWidth="xs"
+                fullWidth
+                aria-labelledby="cleanup-confirm-dialog-title"
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+            >
+                <DialogTitle id="cleanup-confirm-dialog-title">クリーンアップ最終確認</DialogTitle>
+                <IconButton aria-label="閉じる" onClick={() => setCleanupConfirmOpen(false)} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography color="error" sx={{ fontWeight: 700 }}>
                         注意: 本当に削除しますか？
                         <br />
@@ -1583,8 +1600,11 @@ export function RecordedPage(): ReactNode {
                     <TextField value={cleanupPath} slotProps={{ input: { readOnly: true } }} size="small" fullWidth />
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setCleanupConfirmOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" onClick={() => setCleanupConfirmOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button
+                        variant="contained"
                         color="error"
                         disabled={executeCleanup.isPending}
                         onClick={() => {
