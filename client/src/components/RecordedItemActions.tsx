@@ -349,9 +349,24 @@ export function RecordedItemActions({
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={infoOpen} onClose={() => setInfoOpen(false)} fullWidth maxWidth="md">
+            <Dialog
+                open={infoOpen}
+                onClose={() => setInfoOpen(false)}
+                fullWidth
+                maxWidth="md"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            bgcolor: '#191E23',
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        }),
+                    },
+                }}
+            >
                 <DialogTitle>Info</DialogTitle>
-                <DialogContent>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     {files.length > 1 && (
                         <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
                             {files.map(file => (
@@ -370,7 +385,7 @@ export function RecordedItemActions({
                     ) : null}
                 </DialogContent>
                 <DialogActions>
-                    <Button disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
+                    <Button color="inherit" variant="outlined" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
                         Reanalyze
                     </Button>
                     <Button onClick={() => setInfoOpen(false)}>閉じる</Button>

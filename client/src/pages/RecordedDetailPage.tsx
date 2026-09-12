@@ -754,9 +754,24 @@ export function RecordedDetailPage(): ReactNode {
                 }}
             />
 
-            <Dialog open={dropLogOpen} onClose={() => setDropLogOpen(false)} fullWidth maxWidth="md">
+            <Dialog
+                open={dropLogOpen}
+                onClose={() => setDropLogOpen(false)}
+                fullWidth
+                maxWidth="md"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            bgcolor: '#191E23',
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        }),
+                    },
+                }}
+            >
                 <DialogTitle>{item?.name ?? '録画'} - ドロップログ</DialogTitle>
-                <DialogContent dividers>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     {dropLogLoading ? (
                         <Box sx={{ py: 4, textAlign: 'center' }}>
                             <CircularProgress />
