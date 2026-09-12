@@ -12,10 +12,6 @@ import {
     CardContent,
     Checkbox,
     Chip,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
     FormControl,
     FormControlLabel,
     InputLabel,
@@ -28,20 +24,19 @@ import {
     Typography,
 } from '@mui/material';
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ChannelId, ChannelItem, ChannelType, Genre, ManualReserveOption, ReserveListItem, RuleSearchOption, ScheduleProgramItem } from '../../../api';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import type { ChannelId, ChannelType, Genre, ReserveListItem, RuleSearchOption, ScheduleProgramItem } from '../../../api';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
 import { RuleEditorDialog } from '../components/RuleEditorDialog';
-import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { channelName, channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, programDuration, subGenreNames, weekItems } from '../core/program';
-import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
+import { GuideProgramDialog } from './GuidePage';
 
 interface KeywordFields {
     caseSensitive: boolean;
@@ -289,151 +284,6 @@ function reserveIndex(
 
 function reserveLabel(kind: ReserveKind): string {
     return { normal: '予約済み', conflict: '競合', skip: '除外', overlap: '重複' }[kind];
-}
-
-interface ProgramDialogProps {
-    program: ScheduleProgramItem | null;
-    channels: ChannelItem[];
-    reserve?: ProgramReserve;
-    onClose: () => void;
-}
-
-function ProgramDialog({ program, channels, reserve, onClose }: ProgramDialogProps): ReactNode {
-    const navigate = useNavigate();
-    const activeUser = useActiveUser();
-    const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
-    const queryClient = useQueryClient();
-    const { notify } = useNotifications();
-    const [userId, setUserId] = useState<ActiveUserId>(typeof activeUser === 'number' ? activeUser : null);
-    const [encodeMode, setEncodeMode] = useState('');
-    const [deleteOriginal, setDeleteOriginal] = useState(false);
-    const [updateThumbnail, setUpdateThumbnail] = useState(false);
-    const encodeModes = useMemo(
-        () => Array.from(new Set((config.data?.encode ?? []).filter((mode): mode is string => typeof mode === 'string' && mode.trim().length > 0))),
-        [config.data?.encode],
-    );
-
-    useEffect(() => setUserId(typeof activeUser === 'number' ? activeUser : null), [activeUser, program]);
-
-    const finish = async (): Promise<void> => {
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['reserve-lists'] }),
-            queryClient.invalidateQueries({ queryKey: ['reserves'] }),
-            queryClient.invalidateQueries({ queryKey: ['reserve-counts'] }),
-        ]);
-        onClose();
-    };
-    const add = useMutation({
-        mutationFn: async () => {
-            if (program === null || typeof userId !== 'number') throw new Error('予約するユーザーを選択してください');
-            const option: ManualReserveOption = { programId: program.id, userId, allowEndLack: true };
-            if (encodeMode.length > 0) {
-                option.encodeOption = { mode1: encodeMode, isDeleteOriginalAfterEncode: deleteOriginal, updateThumbnail };
-            }
-            return api.addReserve(option);
-        },
-        onSuccess: async () => {
-            notify(`${program?.name ?? '番組'}を予約しました`, 'success');
-            await finish();
-        },
-        onError: error => notify(`予約に失敗しました: ${error.message}`, 'error'),
-    });
-    const remove = useMutation({
-        mutationFn: async () => {
-            if (reserve === undefined) return;
-            if (reserve.kind === 'skip') await api.removeReserveSkip(reserve.item.reserveId);
-            else if (reserve.kind === 'overlap') await api.removeReserveOverlap(reserve.item.reserveId);
-            else await api.cancelReserve(reserve.item.reserveId);
-        },
-        onSuccess: async () => {
-            notify(
-                reserve?.kind === 'skip' ? '除外から予約に戻しました' : reserve?.kind === 'overlap' ? '重複状態を解除して予約に戻しました' : '予約をキャンセルしました',
-                'success',
-            );
-            await finish();
-        },
-        onError: error => notify(`予約の変更に失敗しました: ${error.message}`, 'error'),
-    });
-
-    return (
-        <Dialog open={program !== null} onClose={onClose} fullWidth maxWidth="sm" slotProps={{ paper: { sx: { maxHeight: 'min(90vh, 760px)' } } }}>
-            {program !== null && (
-                <>
-                    <DialogTitle>{program.name}</DialogTitle>
-                    <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-                        <Stack spacing={1.5} sx={{ p: 2, flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
-                            <Typography color="text.secondary">{channelName(channels, program.channelId)}</Typography>
-                            <Typography>
-                                {formatProgramDate(program.startAt)} - {formatProgramTime(program.endAt)}（{programDuration(program)}分）
-                            </Typography>
-                            {program.description !== undefined && <Typography>{program.description}</Typography>}
-                            {program.extended !== undefined && <Typography sx={{ whiteSpace: 'pre-wrap' }}>{program.extended}</Typography>}
-                        </Stack>
-                        <Box sx={{ p: 2, flex: '0 0 auto', borderTop: 1, borderColor: 'divider' }}>
-                            {reserve === undefined ? (
-                                <Stack spacing={1.5}>
-                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                                        <FormControl size="small" fullWidth>
-                                            <InputLabel>録画タイプ</InputLabel>
-                                            <Select label="録画タイプ" value={encodeMode} onChange={event => setEncodeMode(event.target.value)}>
-                                                <MenuItem value="">TS</MenuItem>
-                                                {encodeModes.map(mode => (
-                                                    <MenuItem key={mode} value={mode}>
-                                                        {mode}
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                        <UserSelector value={userId} onChange={setUserId} includeMaster={false} minWidth={200} />
-                                    </Stack>
-                                    <Stack direction={{ xs: 'column', sm: 'row' }}>
-                                        <FormControlLabel
-                                            control={
-                                                <Checkbox checked={deleteOriginal} disabled={encodeMode.length === 0} onChange={event => setDeleteOriginal(event.target.checked)} />
-                                            }
-                                            label="元ファイル削除"
-                                        />
-                                        <FormControlLabel
-                                            control={
-                                                <Checkbox
-                                                    checked={updateThumbnail}
-                                                    disabled={encodeMode.length === 0}
-                                                    onChange={event => setUpdateThumbnail(event.target.checked)}
-                                                />
-                                            }
-                                            label="サムネイル再生成"
-                                        />
-                                    </Stack>
-                                </Stack>
-                            ) : (
-                                <Chip color={reserve.kind === 'conflict' ? 'error' : 'primary'} label={reserveLabel(reserve.kind)} />
-                            )}
-                        </Box>
-                    </DialogContent>
-                    <DialogActions>
-                        <Button onClick={onClose}>閉じる</Button>
-                        <Button
-                            onClick={() => {
-                                onClose();
-                                void navigate(reserve === undefined ? `/reserves/manual?programId=${program.id}` : `/reserves/manual?reserveId=${reserve.item.reserveId}`);
-                            }}
-                        >
-                            詳細
-                        </Button>
-                        {reserve === undefined ? (
-                            <Button variant="contained" onClick={() => add.mutate()} disabled={add.isPending || typeof userId !== 'number'}>
-                                予約
-                            </Button>
-                        ) : reserve.kind !== 'conflict' ? (
-                            <Button color="error" onClick={() => remove.mutate()} disabled={remove.isPending}>
-                                {reserve.kind === 'skip' || reserve.kind === 'overlap' ? '解除' : reserve.item.ruleId === undefined ? '削除' : '除外'}
-                            </Button>
-                        ) : null}
-                    </DialogActions>
-                </>
-            )}
-        </Dialog>
-    );
 }
 
 export function SearchPage(): ReactNode {
@@ -955,9 +805,9 @@ export function SearchPage(): ReactNode {
                     {ruleId === null ? 'ルール作成' : 'ルール設定'}
                 </Button>
             )}
-            <ProgramDialog
+            <GuideProgramDialog
                 program={selectedProgram}
-                channels={channels.data ?? []}
+                channel={selectedProgram === null ? null : (channels.data?.find(channel => channel.id === selectedProgram.channelId) ?? null)}
                 reserve={selectedProgram === null ? undefined : reserves.get(selectedProgram.id)}
                 onClose={() => setSelectedProgram(null)}
             />
