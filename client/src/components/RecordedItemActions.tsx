@@ -385,10 +385,12 @@ export function RecordedItemActions({
                     ) : null}
                 </DialogContent>
                 <DialogActions>
-                    <Button color="inherit" variant="outlined" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
+                    <Button variant="contained" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
                         Reanalyze
                     </Button>
-                    <Button onClick={() => setInfoOpen(false)}>閉じる</Button>
+                    <Button color="inherit" variant="outlined" onClick={() => setInfoOpen(false)}>
+                        閉じる
+                    </Button>
                 </DialogActions>
             </Dialog>
         </>
