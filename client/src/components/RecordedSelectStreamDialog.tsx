@@ -140,50 +140,51 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
         >
             <DialogTitle>{video?.name ?? ''} - STREAMING</DialogTitle>
             <DialogContent dividers sx={{ ...(video?.type === 'encoded' ? { py: 1.5 } : {}), bgcolor: 'action.hover' }}>
-                {options.length === 0 ? (
-                    <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
-                ) : (
-                    <Stack spacing={video?.type === 'encoded' ? 1.25 : 2} sx={{ pt: video?.type === 'encoded' ? 0.5 : 1 }}>
-                        <Stack direction="row" spacing={1.5}>
-                            <FormControl variant="standard" sx={{ flex: 1 }}>
-                                <InputLabel>ストリーム</InputLabel>
-                                <Select value={selectedOption?.type ?? ''} onChange={event => changeType(event.target.value as RecordedStreamType)}>
-                                    {options.map(option => (
-                                        <MenuItem key={option.type} value={option.type}>
-                                            {option.type}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <FormControl variant="standard" sx={{ flex: 1 }}>
-                                <InputLabel>画質</InputLabel>
-                                <Select value={mode} onChange={event => setMode(Number(event.target.value))}>
-                                    {(selectedOption?.qualities ?? []).map((quality, index) => (
-                                        <MenuItem key={`${quality}-${index.toString(10)}`} value={index}>
-                                            {quality}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
+                {video !== null &&
+                    (options.length === 0 ? (
+                        <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
+                    ) : (
+                        <Stack spacing={video.type === 'encoded' ? 1.25 : 2} sx={{ pt: video.type === 'encoded' ? 0.5 : 1 }}>
+                            <Stack direction="row" spacing={1.5}>
+                                <FormControl variant="standard" sx={{ flex: 1 }}>
+                                    <InputLabel>ストリーム</InputLabel>
+                                    <Select value={selectedOption?.type ?? ''} onChange={event => changeType(event.target.value as RecordedStreamType)}>
+                                        {options.map(option => (
+                                            <MenuItem key={option.type} value={option.type}>
+                                                {option.type}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <FormControl variant="standard" sx={{ flex: 1 }}>
+                                    <InputLabel>画質</InputLabel>
+                                    <Select value={mode} onChange={event => setMode(Number(event.target.value))}>
+                                        {(selectedOption?.qualities ?? []).map((quality, index) => (
+                                            <MenuItem key={`${quality}-${index.toString(10)}`} value={index}>
+                                                {quality}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                            </Stack>
+                            {video.type === 'encoded' && (
+                                <FormControl variant="standard" fullWidth>
+                                    <InputLabel>字幕</InputLabel>
+                                    <Select
+                                        value={subtitleIndex === null ? 'none' : subtitleIndex}
+                                        onChange={event => setSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
+                                    >
+                                        <MenuItem value="none">字幕なし</MenuItem>
+                                        {(subtitles.data?.items ?? []).map(subtitle => (
+                                            <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
+                                                {subtitle.displayName}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                            )}
                         </Stack>
-                        {video?.type === 'encoded' && (
-                            <FormControl variant="standard" fullWidth>
-                                <InputLabel>字幕</InputLabel>
-                                <Select
-                                    value={subtitleIndex === null ? 'none' : subtitleIndex}
-                                    onChange={event => setSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
-                                >
-                                    <MenuItem value="none">字幕なし</MenuItem>
-                                    {(subtitles.data?.items ?? []).map(subtitle => (
-                                        <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
-                                            {subtitle.displayName}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                        )}
-                    </Stack>
-                )}
+                    ))}
             </DialogContent>
             <DialogActions>
                 <Button color="inherit" variant="outlined" onClick={close}>
