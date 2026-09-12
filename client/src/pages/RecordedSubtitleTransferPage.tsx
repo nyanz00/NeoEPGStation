@@ -26,7 +26,7 @@ import {
     Tooltip,
     Typography,
 } from '@mui/material';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecordedItem, SubtitleTransferTask, VideoFile, VideoSubtitle } from '../../../api';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -38,6 +38,8 @@ import { formatProgramDate } from '../core/program';
 import { useSettings } from '../core/storage/settings';
 
 type TransferSide = 'left' | 'right';
+
+const RECORDED_SEARCH_PAGE_SIZE = 30;
 
 interface PaneSelection {
     recorded: RecordedItem | null;
@@ -79,17 +81,17 @@ function RecordedSelector({ value, onChange }: { value: RecordedItem | null; onC
     const [keyword, setKeyword] = useState('');
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 5 * 60 * 1000 });
     const channelNames = useMemo(() => new Map((channels.data ?? []).map(channel => [channel.id, channel.name])), [channels.data]);
-    const search = useQuery({
+    const search = useInfiniteQuery({
         queryKey: ['subtitle-transfer-recorded-search', keyword, settings.isHalfWidthDisplayed, channels.data],
-        queryFn: async () => {
+        queryFn: async ({ pageParam }) => {
             const normalizedKeyword = keyword.trim().normalize('NFKC').toLocaleLowerCase();
             const matchingChannelIds = (channels.data ?? [])
                 .filter(channel => channel.name.normalize('NFKC').toLocaleLowerCase().includes(normalizedKeyword))
                 .map(channel => channel.id);
             const common = {
                 isHalfWidth: settings.isHalfWidthDisplayed,
-                offset: 0,
-                limit: 30,
+                offset: pageParam,
+                limit: RECORDED_SEARCH_PAGE_SIZE,
                 isReverse: false,
             } as const;
             const results = await Promise.all([
@@ -99,16 +101,19 @@ function RecordedSelector({ value, onChange }: { value: RecordedItem | null; onC
             const records = results
                 .flatMap(result => result.records)
                 .filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index)
-                .sort((a, b) => b.startAt - a.startAt)
-                .slice(0, 30);
-            return { records, total: records.length };
+                .sort((a, b) => b.startAt - a.startAt);
+            const hasMore = results.some(result => pageParam + result.records.length < result.total);
+            return { records, nextOffset: hasMore ? pageParam + RECORDED_SEARCH_PAGE_SIZE : undefined };
         },
+        initialPageParam: 0,
+        getNextPageParam: lastPage => lastPage.nextOffset,
         enabled: keyword.trim().length > 0,
     });
     const options = useMemo(() => {
-        const items = value === null ? [...(search.data?.records ?? [])] : [value, ...(search.data?.records ?? [])];
-        return items.filter((item, index) => items.findIndex(candidate => candidate.id === item.id) === index);
-    }, [search.data?.records, value]);
+        const records = search.data?.pages.flatMap(page => page.records) ?? [];
+        const items = value === null ? records : [value, ...records];
+        return items.filter((item, index) => items.findIndex(candidate => candidate.id === item.id) === index).sort((a, b) => b.startAt - a.startAt);
+    }, [search.data?.pages, value]);
 
     return (
         <Autocomplete
@@ -122,6 +127,15 @@ function RecordedSelector({ value, onChange }: { value: RecordedItem | null; onC
                 if (reason === 'input') setKeyword(next);
             }}
             onChange={(_event, next) => onChange(next)}
+            slotProps={{
+                listbox: {
+                    onScroll: event => {
+                        const listbox = event.currentTarget;
+                        const isNearBottom = listbox.scrollTop + listbox.clientHeight >= listbox.scrollHeight - 48;
+                        if (isNearBottom && search.hasNextPage && !search.isFetchingNextPage) void search.fetchNextPage();
+                    },
+                },
+            }}
             renderOption={(props, option) => (
                 <Box component="li" {...props} key={option.id}>
                     <Box sx={{ minWidth: 0 }}>
