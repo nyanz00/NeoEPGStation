@@ -3,7 +3,7 @@ import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
+import { Box, Button, ButtonBase, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, ReserveItem } from '../../../api';
 import type { ReactNode } from 'react';
@@ -14,6 +14,7 @@ import { withBasePath } from '../core/path';
 import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenreLabels } from '../core/program';
 import { LinkifiedProgramText } from './LinkifiedProgramText';
 import { programDialogClose, programDialogPaper } from './programDialogStyles';
+import { ResponsiveProgramBadges } from './ResponsiveProgramBadges';
 
 function reserveLabel(item: ReserveItem): string {
     if (item.isConflict) return '競合';
@@ -134,29 +135,25 @@ export function ReserveProgramDialog({
                                     alignItems: 'center',
                                     flexWrap: 'nowrap',
                                     minWidth: 0,
+                                    flex: { sm: '1 1 320px' },
+                                    width: { xs: '100%', sm: 'auto' },
                                     whiteSpace: 'nowrap',
-                                    '& .MuiChip-root': { height: { xs: 24, sm: 32 } },
-                                    '& .MuiChip-label': { px: { xs: 0.75, sm: 1.5 }, fontSize: { xs: '0.75rem', sm: '0.8125rem' } },
-                                    cursor: 'pointer',
-                                }}
-                                role="link"
-                                tabIndex={0}
-                                onClick={openGuide}
-                                onKeyDown={event => {
-                                    if (event.key === 'Enter' || event.key === ' ') openGuide();
                                 }}
                             >
-                                <AccessTimeOutlined fontSize="small" color="action" />
-                                <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
-                                    {formatProgramDate(item.startAt)} – {formatProgramTime(item.endAt)}
-                                </Typography>
-                                <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
-                                    {formatProgramDateCompact(item.startAt)}–{formatProgramTime(item.endAt)}
-                                </Typography>
-                                <Chip size="small" variant="outlined" label={`${programDuration(item)}分`} />
-                                {programGenreLabels(item).map(genre => (
-                                    <Chip key={genre} size="small" variant="outlined" label={genre} />
-                                ))}
+                                <ButtonBase
+                                    onClick={openGuide}
+                                    aria-label="この番組の時刻とチャンネルを番組表で表示"
+                                    sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flex: '0 0 auto', borderRadius: 1 }}
+                                >
+                                    <AccessTimeOutlined fontSize="small" color="action" />
+                                    <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                                        {formatProgramDate(item.startAt)} – {formatProgramTime(item.endAt)}
+                                    </Typography>
+                                    <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
+                                        {formatProgramDateCompact(item.startAt)}–{formatProgramTime(item.endAt)}
+                                    </Typography>
+                                </ButtonBase>
+                                <ResponsiveProgramBadges duration={programDuration(item)} genres={programGenreLabels(item)} />
                             </Stack>
                         </Stack>
                         <Stack

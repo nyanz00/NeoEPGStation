@@ -43,6 +43,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { OnAirSelectStreamDialog } from '../components/OnAirSelectStreamDialog';
+import { ResponsiveProgramBadges } from '../components/ResponsiveProgramBadges';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
 import { isDefaultVisibleChannel } from '../core/channels';
@@ -485,9 +486,9 @@ export function GuideProgramDialog({
                                     alignItems: 'center',
                                     flexWrap: 'nowrap',
                                     minWidth: 0,
+                                    flex: { sm: '1 1 320px' },
+                                    width: { xs: '100%', sm: 'auto' },
                                     whiteSpace: 'nowrap',
-                                    '& .MuiChip-root': { height: { xs: 24, sm: 32 } },
-                                    '& .MuiChip-label': { px: { xs: 0.75, sm: 1.5 }, fontSize: { xs: '0.75rem', sm: '0.8125rem' } },
                                 }}
                             >
                                 <AccessTimeOutlined fontSize="small" color="action" />
@@ -497,10 +498,7 @@ export function GuideProgramDialog({
                                 <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
                                     {formatProgramDateCompact(program.startAt)}–{formatProgramTime(program.endAt)}
                                 </Typography>
-                                <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
-                                {programGenreLabels(program).map(genre => (
-                                    <Chip key={genre} size="small" variant="outlined" label={genre} />
-                                ))}
+                                <ResponsiveProgramBadges duration={programDuration(program)} genres={programGenreLabels(program)} />
                             </Stack>
                         </Stack>
                         <Stack
