@@ -76,9 +76,11 @@ export function ResponsiveProgramBadges({ duration, genres }: { duration: number
                     <Chip
                         size="small"
                         variant="outlined"
+                        clickable
                         label={primaryLabel}
                         title={genres[0]}
-                        onClick={genres.length === 1 && layout === 'without-duration' ? openGenres : undefined}
+                        aria-label={`${genres[0]}のジャンル一覧を表示`}
+                        onClick={openGenres}
                         sx={{ ...badgeSx, minWidth: 0, flex: '0 1 auto' }}
                     />
                 )}
