@@ -498,7 +498,10 @@ export function GuideProgramDialog({
                                 <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
                                     {formatProgramDateCompact(program.startAt)}–{formatProgramTime(program.endAt)}
                                 </Typography>
-                                <ResponsiveProgramBadges duration={programDuration(program)} genres={programGenreLabels(program)} />
+                                <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
+                                    ({programDuration(program)}分)
+                                </Typography>
+                                <ResponsiveProgramBadges genres={programGenreLabels(program)} />
                             </Stack>
                         </Stack>
                         <Stack

@@ -2,7 +2,7 @@ import { Box, Chip, Popover, Stack, Typography } from '@mui/material';
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-type BadgeLayout = 'duration' | 'full' | 'without-duration' | 'summary';
+type BadgeLayout = 'full' | 'summary';
 
 const badgeSx = {
     height: { xs: 24, sm: 32 },
@@ -19,9 +19,8 @@ function compactGenreLabel(label: string): string {
     return label.split('・')[0] || label;
 }
 
-export function ResponsiveProgramBadges({ duration, genres }: { duration: number; genres: string[] }): ReactNode {
+export function ResponsiveProgramBadges({ genres }: { genres: string[] }): ReactNode {
     const containerRef = useRef<HTMLDivElement>(null);
-    const durationMeasureRef = useRef<HTMLDivElement>(null);
     const genreMeasureRef = useRef<HTMLDivElement>(null);
     const moreMeasureRef = useRef<HTMLDivElement>(null);
     const [layout, setLayout] = useState<BadgeLayout>('summary');
@@ -37,18 +36,11 @@ export function ResponsiveProgramBadges({ duration, genres }: { duration: number
             if (!active) return;
             const available = container.clientWidth;
             const gap = 4;
-            const durationWidth = durationMeasureRef.current?.offsetWidth ?? 0;
             const genreWidth = genreMeasureRef.current?.offsetWidth ?? 0;
             const moreWidth = moreMeasureRef.current?.offsetWidth ?? 0;
 
-            if (genres.length === 0) {
-                setLayout('duration');
-            } else if (genres.length === 1) {
-                setLayout(durationWidth + genreWidth + gap <= available ? 'full' : 'without-duration');
-            } else if (durationWidth + genreWidth + moreWidth + gap * 2 <= available) {
+            if (genres.length <= 1 || genreWidth + moreWidth + gap <= available) {
                 setLayout('full');
-            } else if (genreWidth + moreWidth + gap <= available) {
-                setLayout('without-duration');
             } else {
                 setLayout('summary');
             }
@@ -61,7 +53,7 @@ export function ResponsiveProgramBadges({ duration, genres }: { duration: number
             active = false;
             observer.disconnect();
         };
-    }, [duration, genres, hiddenCount, primaryLabel]);
+    }, [genres, hiddenCount, primaryLabel]);
 
     const openGenres = (event: ReactMouseEvent<HTMLElement>): void => {
         event.stopPropagation();
@@ -71,8 +63,7 @@ export function ResponsiveProgramBadges({ duration, genres }: { duration: number
     return (
         <Box ref={containerRef} sx={{ position: 'relative', minWidth: 0, flex: '1 1 auto', overflow: 'hidden' }} onClick={event => event.stopPropagation()}>
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0, width: '100%', flexWrap: 'nowrap' }}>
-                {(layout === 'duration' || layout === 'full') && <Chip size="small" variant="outlined" label={`${duration}分`} sx={{ ...badgeSx, flex: '0 0 auto' }} />}
-                {(layout === 'full' || layout === 'without-duration') && genres.length > 0 && (
+                {layout === 'full' && genres.length > 0 && (
                     <Chip
                         size="small"
                         variant="outlined"
@@ -84,7 +75,7 @@ export function ResponsiveProgramBadges({ duration, genres }: { duration: number
                         sx={{ ...badgeSx, minWidth: 0, flex: '0 1 auto' }}
                     />
                 )}
-                {(layout === 'full' || layout === 'without-duration') && hiddenCount > 0 && (
+                {layout === 'full' && hiddenCount > 0 && (
                     <Chip
                         size="small"
                         variant="outlined"
@@ -114,7 +105,6 @@ export function ResponsiveProgramBadges({ duration, genres }: { duration: number
                 spacing={0.5}
                 sx={{ position: 'fixed', left: -10000, top: -10000, visibility: 'hidden', pointerEvents: 'none', whiteSpace: 'nowrap' }}
             >
-                <Chip ref={durationMeasureRef} size="small" variant="outlined" label={`${duration}分`} sx={badgeSx} />
                 <Chip ref={genreMeasureRef} size="small" variant="outlined" label={primaryLabel} sx={badgeSx} />
                 <Chip ref={moreMeasureRef} size="small" variant="outlined" label={`+${hiddenCount}`} sx={badgeSx} />
             </Stack>

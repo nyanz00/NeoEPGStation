@@ -152,8 +152,11 @@ export function ReserveProgramDialog({
                                     <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
                                         {formatProgramDateCompact(item.startAt)}–{formatProgramTime(item.endAt)}
                                     </Typography>
+                                    <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
+                                        ({programDuration(item)}分)
+                                    </Typography>
                                 </ButtonBase>
-                                <ResponsiveProgramBadges duration={programDuration(item)} genres={programGenreLabels(item)} />
+                                <ResponsiveProgramBadges genres={programGenreLabels(item)} />
                             </Stack>
                         </Stack>
                         <Stack
