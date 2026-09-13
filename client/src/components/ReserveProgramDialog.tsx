@@ -11,7 +11,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
-import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration } from '../core/program';
+import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenreLabels } from '../core/program';
+import { LinkifiedProgramText } from './LinkifiedProgramText';
 import { programDialogClose, programDialogPaper } from './programDialogStyles';
 
 function reserveLabel(item: ReserveItem): string {
@@ -65,6 +66,15 @@ export function ReserveProgramDialog({
     const closeAndNavigate = (path: string): void => {
         onClose();
         void navigate(path);
+    };
+    const openGuide = (): void => {
+        if (item === null) return;
+        const date = new Date(item.startAt);
+        const time = `${date.getFullYear().toString(10).slice(-2)}${(date.getMonth() + 1).toString(10).padStart(2, '0')}${date.getDate().toString(10).padStart(2, '0')}${date
+            .getHours()
+            .toString(10)
+            .padStart(2, '0')}`;
+        closeAndNavigate(`/guide?time=${time}&channelId=${item.channelId.toString(10)}`);
     };
 
     return (
@@ -127,6 +137,13 @@ export function ReserveProgramDialog({
                                     whiteSpace: 'nowrap',
                                     '& .MuiChip-root': { height: { xs: 24, sm: 32 } },
                                     '& .MuiChip-label': { px: { xs: 0.75, sm: 1.5 }, fontSize: { xs: '0.75rem', sm: '0.8125rem' } },
+                                    cursor: 'pointer',
+                                }}
+                                role="link"
+                                tabIndex={0}
+                                onClick={openGuide}
+                                onKeyDown={event => {
+                                    if (event.key === 'Enter' || event.key === ' ') openGuide();
                                 }}
                             >
                                 <AccessTimeOutlined fontSize="small" color="action" />
@@ -137,8 +154,9 @@ export function ReserveProgramDialog({
                                     {formatProgramDateCompact(item.startAt)}–{formatProgramTime(item.endAt)}
                                 </Typography>
                                 <Chip size="small" variant="outlined" label={`${programDuration(item)}分`} />
-                                {item.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
-                                {item.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
+                                {programGenreLabels(item).map(genre => (
+                                    <Chip key={genre} size="small" variant="outlined" label={genre} />
+                                ))}
                             </Stack>
                         </Stack>
                         <Stack
@@ -153,12 +171,16 @@ export function ReserveProgramDialog({
                                 '& .MuiTypography-root': { lineHeight: 1.8 },
                             }}
                         >
-                            {item.description !== undefined && <Typography>{item.description}</Typography>}
+                            {item.description !== undefined && (
+                                <Typography>
+                                    <LinkifiedProgramText text={item.description} />
+                                </Typography>
+                            )}
                             {item.extended !== undefined && (
                                 <Box sx={{ whiteSpace: 'pre-wrap' }}>
                                     {item.extended.split(/(^[◇◆].+$)/m).map((part, index) => (
                                         <Typography key={index} sx={{ fontWeight: /^[◇◆]/.test(part) ? 600 : 400, mt: /^[◇◆]/.test(part) ? 1 : 0 }}>
-                                            {part.trim()}
+                                            <LinkifiedProgramText text={part.trim()} />
                                         </Typography>
                                     ))}
                                 </Box>

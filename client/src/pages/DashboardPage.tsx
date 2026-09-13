@@ -1,4 +1,5 @@
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined';
 import MoreVertOutlined from '@mui/icons-material/MoreVertOutlined';
@@ -37,6 +38,7 @@ import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { ReserveProgramDialog } from '../components/ReserveProgramDialog';
+import { programDialogClose, programDialogFields, programDialogPaper } from '../components/programDialogStyles';
 import { api } from '../core/api/queries';
 import { appIconAssetUrl, getAppIconSet } from '../core/icons/appIcons';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
@@ -312,6 +314,12 @@ function RecordedEncodeDialog({ item, open, onClose, onChanged }: { item: Record
         setSourceVideoFileId(item.videoFiles?.[0]?.id ?? '');
         setDirectory('');
     }, [item, open]);
+    useEffect(() => {
+        const data = config.data;
+        if (data === undefined) return;
+        setMode(current => (data.encode.includes(current) ? current : (data.encode[0] ?? '')));
+        setParentDir(current => (data.recorded.includes(current) ? current : (data.recorded[0] ?? '')));
+    }, [config.data]);
 
     const persist = (): void => {
         saveAddEncodeSettings({
@@ -339,41 +347,65 @@ function RecordedEncodeDialog({ item, open, onClose, onChanged }: { item: Record
     const canEncode = item !== null && sourceVideoFileId !== '' && mode.length > 0 && (sameDirectory || parentDir.length > 0);
 
     return (
-        <Dialog open={open} onClose={close} fullWidth maxWidth="sm" disableScrollLock>
-            <DialogTitle>{item?.name ?? '録画'}</DialogTitle>
-            <DialogContent dividers>
-                <Stack spacing={1.5}>
-                    <FormControl fullWidth size="small">
-                        <InputLabel>元ファイル</InputLabel>
-                        <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
-                            {files.map(video => (
-                                <MenuItem key={video.id} value={video.id}>
-                                    {video.name}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    <FormControl fullWidth size="small">
-                        <InputLabel>エンコードプリセット</InputLabel>
-                        <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
-                            {config.data?.encode.map(value => (
-                                <MenuItem key={value} value={value}>
-                                    {value}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    <FormControl fullWidth size="small" disabled={sameDirectory}>
-                        <InputLabel>保存先</InputLabel>
-                        <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
-                            {config.data?.recorded.map(value => (
-                                <MenuItem key={value} value={value}>
-                                    {value}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    <TextField disabled={sameDirectory} size="small" label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
+        <Dialog
+            open={open}
+            onClose={close}
+            fullWidth
+            maxWidth="sm"
+            disableScrollLock
+            aria-labelledby="dashboard-encode-program-title"
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...programDialogPaper(theme),
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                        '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        '& .MuiCheckbox-root': { py: 0.5 },
+                    }),
+                },
+            }}
+        >
+            <DialogTitle id="dashboard-encode-program-title">{item?.name ?? '録画'}</DialogTitle>
+            <IconButton aria-label="閉じる" onClick={close} sx={programDialogClose}>
+                <CloseOutlined />
+            </IconButton>
+            <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5, bgcolor: 'action.hover' }}>
+                <Stack spacing={1}>
+                    <Box sx={programDialogFields}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>元ファイル</InputLabel>
+                            <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
+                                {files.map(video => (
+                                    <MenuItem key={video.id} value={video.id}>
+                                        {video.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>エンコードプリセット</InputLabel>
+                            <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
+                                {config.data?.encode.map(value => (
+                                    <MenuItem key={value} value={value}>
+                                        {value}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Box>
+                    <Box sx={programDialogFields}>
+                        <FormControl fullWidth size="small" disabled={sameDirectory}>
+                            <InputLabel>保存先</InputLabel>
+                            <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
+                                {config.data?.recorded.map(value => (
+                                    <MenuItem key={value} value={value}>
+                                        {value}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <TextField disabled={sameDirectory} size="small" label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
+                    </Box>
                     <Stack spacing={0}>
                         <FormControlLabel
                             control={<Checkbox checked={sameDirectory} onChange={event => setSameDirectory(event.target.checked)} />}
@@ -385,7 +417,9 @@ function RecordedEncodeDialog({ item, open, onClose, onChanged }: { item: Record
                 </Stack>
             </DialogContent>
             <DialogActions>
-                <Button onClick={close}>キャンセル</Button>
+                <Button color="inherit" variant="outlined" onClick={close}>
+                    キャンセル
+                </Button>
                 <Button
                     variant="contained"
                     disabled={!canEncode || addEncode.isPending}
@@ -438,11 +472,12 @@ export function DashboardPage(): ReactNode {
         enabled: settings.isShowVersionUpdateNotification,
     });
     const userId = typeof activeUser === 'number' ? activeUser : undefined;
+    const page = parseInteger(searchParams.get('page'), 1) ?? 1;
     const recordedOption = useMemo<GetRecordedOption>(
         () => ({
             isHalfWidth: settings.isHalfWidthDisplayed,
             userId,
-            offset: 0,
+            offset: (page - 1) * settings.recordedLength,
             limit: settings.recordedLength,
             keyword: searchParams.get('keyword') || undefined,
             ruleId: parseInteger(searchParams.get('ruleId')),
@@ -450,18 +485,26 @@ export function DashboardPage(): ReactNode {
             genre: parseInteger(searchParams.get('genre')),
             hasOriginalFile: isTrueQuery(searchParams.get('hasOriginalFile')) || undefined,
         }),
-        [searchParams, settings.isHalfWidthDisplayed, settings.recordedLength, userId],
+        [page, searchParams, settings.isHalfWidthDisplayed, settings.recordedLength, userId],
     );
     const [recording, recorded, reserves, reserveCounts, channels] = useQueries({
         queries: [
             {
-                queryKey: ['recording', userId, settings.isHalfWidthDisplayed, settings.recordingLength],
-                queryFn: () => api.getRecording({ isHalfWidth: settings.isHalfWidthDisplayed, userId, offset: 0, limit: settings.recordingLength }),
+                queryKey: ['recording', page, userId, settings.isHalfWidthDisplayed, settings.recordingLength],
+                queryFn: () =>
+                    api.getRecording({ isHalfWidth: settings.isHalfWidthDisplayed, userId, offset: (page - 1) * settings.recordingLength, limit: settings.recordingLength }),
             },
             { queryKey: ['recorded', recordedOption], queryFn: () => api.getRecorded(recordedOption) },
             {
-                queryKey: ['reserves', 'all', userId, settings.isHalfWidthDisplayed, settings.reservesLength],
-                queryFn: () => api.getReserves({ type: 'all', isHalfWidth: settings.isHalfWidthDisplayed, userId, offset: 0, limit: settings.reservesLength }),
+                queryKey: ['reserves', 'all', page, userId, settings.isHalfWidthDisplayed, settings.reservesLength],
+                queryFn: () =>
+                    api.getReserves({
+                        type: 'all',
+                        isHalfWidth: settings.isHalfWidthDisplayed,
+                        userId,
+                        offset: (page - 1) * settings.reservesLength,
+                        limit: settings.reservesLength,
+                    }),
             },
             { queryKey: ['reserve-counts'], queryFn: api.getReserveCounts },
             { queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 },
@@ -549,7 +592,7 @@ export function DashboardPage(): ReactNode {
                 title={
                     <Box sx={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 0.75 }}>
                         <Typography component="h1" variant="h6" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '1.25rem' } }}>
-                            NeoEPGStation v{version.data?.version ?? '1.0.0-beta.2'}
+                            NeoEPGStation{version.data === undefined ? '' : ` v${version.data.version}`}
                             {version.data?.branch === 'develop' ? ' +dev' : ''}
                         </Typography>
                         {settings.isShowVersionUpdateNotification && updateInfo.data?.hasStableUpdate === true && (

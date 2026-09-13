@@ -41,6 +41,7 @@ import type { ChannelType, ManualReserveOption, ReserveListItem, ScheduleChannle
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { OnAirSelectStreamDialog } from '../components/OnAirSelectStreamDialog';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
@@ -55,6 +56,7 @@ import {
     formatProgramTime,
     genreNames,
     normalizeChannelFilter,
+    programGenreLabels,
     programDuration,
 } from '../core/program';
 import { withBasePath } from '../core/path';
@@ -496,8 +498,9 @@ export function GuideProgramDialog({
                                     {formatProgramDateCompact(program.startAt)}–{formatProgramTime(program.endAt)}
                                 </Typography>
                                 <Chip size="small" variant="outlined" label={`${programDuration(program)}分`} />
-                                {program.name.includes('[字]') && <Chip size="small" variant="outlined" label="字幕" />}
-                                {program.name.includes('[解]') && <Chip size="small" variant="outlined" label="解説" />}
+                                {programGenreLabels(program).map(genre => (
+                                    <Chip key={genre} size="small" variant="outlined" label={genre} />
+                                ))}
                             </Stack>
                         </Stack>
                         <Stack
@@ -512,12 +515,16 @@ export function GuideProgramDialog({
                                 '& .MuiTypography-root': { lineHeight: 1.8 },
                             }}
                         >
-                            {program.description !== undefined && <Typography>{program.description}</Typography>}
+                            {program.description !== undefined && (
+                                <Typography>
+                                    <LinkifiedProgramText text={program.description} />
+                                </Typography>
+                            )}
                             {program.extended !== undefined && (
                                 <Box sx={{ whiteSpace: 'pre-wrap' }}>
                                     {program.extended.split(/(^[◇◆].+$)/m).map((part, index) => (
                                         <Typography key={index} sx={{ fontWeight: /^[◇◆]/.test(part) ? 600 : 400, mt: /^[◇◆]/.test(part) ? 1 : 0 }}>
-                                            {part.trim()}
+                                            <LinkifiedProgramText text={part.trim()} />
                                         </Typography>
                                     ))}
                                 </Box>

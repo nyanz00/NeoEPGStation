@@ -181,7 +181,7 @@ export function RecordedItemActions({
                     <AccountCircleOutlined fontSize="small" sx={{ mr: 1.5 }} />
                     user
                 </MenuItem>
-                {!item.isRecording && (
+                {!item.isRecording && (config.data?.encode.length ?? 0) > 0 && (
                     <MenuItem onClick={() => closeThen(onEncode)}>
                         <SyncOutlined fontSize="small" sx={{ mr: 1.5 }} />
                         encode

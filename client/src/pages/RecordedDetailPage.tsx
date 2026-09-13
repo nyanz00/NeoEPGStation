@@ -38,6 +38,7 @@ import type { AddManualEncodeProgramOption, AnnictRecordedEpisodeInfo, RecordedI
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { RecordedSelectStreamDialog } from '../components/RecordedSelectStreamDialog';
 import { api } from '../core/api/queries';
@@ -685,12 +686,12 @@ export function RecordedDetailPage(): ReactNode {
                     <Box sx={{ mt: 3 }}>
                         {item.description !== undefined && (
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                                {item.description}
+                                <LinkifiedProgramText text={item.description} />
                             </Typography>
                         )}
                         {item.extended !== undefined && (
                             <Typography variant="body2" sx={{ mt: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                                {item.extended}
+                                <LinkifiedProgramText text={item.extended} />
                             </Typography>
                         )}
                     </Box>

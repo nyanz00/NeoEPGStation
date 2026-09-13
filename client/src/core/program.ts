@@ -19,6 +19,16 @@ export const genreNames = [
     'その他',
 ] as const;
 
+export function programGenreLabels(program: { genre1?: number; genre2?: number; genre3?: number }): string[] {
+    return Array.from(
+        new Set(
+            [program.genre1, program.genre2, program.genre3]
+                .filter((genre): genre is number => genre !== undefined)
+                .map(genre => genreNames[genre] ?? `ジャンル ${genre.toString(10)}`),
+        ),
+    );
+}
+
 // prettier-ignore
 export const subGenreNames: ReadonlyArray<ReadonlyArray<string>> = [
     ['定時・総合', '天気', '特集・ドキュメント', '政治・国会', '経済・市況', '海外・国際', '解説', '討論・会談', '報道特番', 'ローカル・地域', '交通', '', '', '', '', 'その他'],
