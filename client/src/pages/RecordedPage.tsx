@@ -1389,7 +1389,7 @@ export function RecordedPage(): ReactNode {
                         <CloseOutlined />
                     </IconButton>
                 </DialogTitle>
-                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選択した {selected.size} 件の録画を別のユーザーへ変更します。
                     </Typography>
@@ -1422,7 +1422,7 @@ export function RecordedPage(): ReactNode {
                         <CloseOutlined />
                     </IconButton>
                 </DialogTitle>
-                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選択した {selected.size} 件に紐づく、元録画とエンコード済みを含むすべての動画ファイルを移動します。
                     </Typography>

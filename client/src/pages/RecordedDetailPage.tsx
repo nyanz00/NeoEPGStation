@@ -706,6 +706,7 @@ export function RecordedDetailPage(): ReactNode {
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
+                            bgcolor: '#191E23',
                             '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
                             '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
                         }),
@@ -713,7 +714,7 @@ export function RecordedDetailPage(): ReactNode {
                 }}
             >
                 <DialogTitle>サムネイル再生成</DialogTitle>
-                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5 }}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 1.5 }}>
                         選んだ録画ファイルタイプを元にサムネイルを再生成します。
                     </Typography>

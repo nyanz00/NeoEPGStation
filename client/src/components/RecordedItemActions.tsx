@@ -247,7 +247,7 @@ export function RecordedItemActions({
                         <CloseOutlined />
                     </IconButton>
                 </DialogTitle>
-                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         {item.name} のユーザーを変更
                     </Typography>
