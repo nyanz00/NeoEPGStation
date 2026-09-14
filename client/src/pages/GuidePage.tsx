@@ -456,10 +456,10 @@ export function GuideProgramDialog({
                         }}
                     >
                         <Stack
-                            spacing={1}
+                            spacing={0.5}
                             sx={{
                                 px: { xs: 2, sm: 3 },
-                                py: 1,
+                                py: 0.75,
                                 flexShrink: 0,
                                 borderBottom: 1,
                                 borderColor: 'divider',
@@ -467,7 +467,7 @@ export function GuideProgramDialog({
                         >
                             <Stack
                                 direction={{ xs: 'column', sm: 'row' }}
-                                spacing={{ xs: 1, sm: 1.5 }}
+                                spacing={{ xs: 0.5, sm: 1 }}
                                 useFlexGap
                                 sx={{
                                     alignItems: { xs: 'stretch', sm: 'center' },
