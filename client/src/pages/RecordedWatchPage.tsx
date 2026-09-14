@@ -53,7 +53,7 @@ import { RecordedPlayerCore, type RecordedPlayerSourceType, type RecordedPlayerS
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/player/RecordedPlaybackTracker';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
-import { formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
+import { formatProgramDate, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
 import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -667,7 +667,7 @@ function RecordedPlayer({
 }
 
 function ProgramPanel({ item, channel }: { item: RecordedItem; channel: ChannelItem | undefined }): ReactNode {
-    const genre = item.genre1 === undefined ? undefined : genreNames[item.genre1];
+    const genres = programGenrePathLabels(item);
     return (
         <Stack spacing={1.5} sx={{ p: { xs: 1.75, sm: 2 } }}>
             <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
@@ -694,12 +694,16 @@ function ProgramPanel({ item, channel }: { item: RecordedItem; channel: ChannelI
                     {item.description}
                 </Typography>
             )}
-            {genre !== undefined && (
-                <Box sx={{ alignSelf: 'flex-start', px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                        {genre}
-                    </Typography>
-                </Box>
+            {genres.length > 0 && (
+                <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+                    {genres.map((genre, index) => (
+                        <Box key={`${index.toString(10)}-${genre}`} sx={{ px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                {genre}
+                            </Typography>
+                        </Box>
+                    ))}
+                </Stack>
             )}
             {item.extended !== undefined && (
                 <Box sx={{ pt: 0.5 }}>

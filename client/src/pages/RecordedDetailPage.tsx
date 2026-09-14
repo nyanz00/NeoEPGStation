@@ -47,7 +47,7 @@ import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { createRecordedRelatedSearchOption, getRecordedVideoPlaylistURL, getRecordedVideoSchemeURL, loadKodiHost, saveKodiHost } from '../core/media/recorded';
-import { formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
+import { formatProgramDate, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { loadAddEncodeSettings, saveAddEncodeSettings } from '../core/storage/encode';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -481,7 +481,7 @@ export function RecordedDetailPage(): ReactNode {
     const kodiHosts = config.data?.kodiHosts ?? [];
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const thumbnail = item?.thumbnails?.[0];
-    const genre = item?.genre1 === undefined ? undefined : genreNames[item.genre1];
+    const genres = item === undefined ? [] : programGenrePathLabels(item);
     const drop = item?.dropLogFile;
     const hasDrop = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     const hasAnnictHeaderControl = annictEpisode.isError || annictEpisode.data?.state === 'pending' || annictEpisode.data?.state === 'matched';
@@ -618,11 +618,11 @@ export function RecordedDetailPage(): ReactNode {
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
                                 {channel?.name ?? item.channelId.toString(10)}
                             </Typography>
-                            {genre !== undefined && (
-                                <Typography variant="body2" color="text.secondary">
+                            {genres.map((genre, index) => (
+                                <Typography key={`${index.toString(10)}-${genre}`} variant="body2" color="text.secondary">
                                     {genre}
                                 </Typography>
-                            )}
+                            ))}
                             <Typography variant="body2" color="text.secondary">
                                 {formatProgramDate(item.startAt)} - {formatProgramTime(item.endAt)} ({programDuration(item)} m)
                             </Typography>
