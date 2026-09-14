@@ -44,7 +44,7 @@ import { withBasePath } from '../core/path';
 import { LiveMpegTsPlayerCore, type LiveMpegTsPlayerState } from '../core/player/LiveMpegTsPlayerCore';
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
-import { channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, isLikelyBroadcastPauseTime, programDuration } from '../core/program';
+import { channelTypeLabel, formatProgramDate, formatProgramTime, isLikelyBroadcastPauseTime, programDuration, programGenrePathLabels } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
 import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -439,7 +439,7 @@ function ProgramPanel({
         );
     }
 
-    const genre = program.genre1 === undefined ? undefined : genreNames[program.genre1];
+    const genres = programGenrePathLabels(program);
     return (
         <Stack spacing={1.5} sx={{ p: { xs: 1.75, sm: 2 } }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -480,12 +480,16 @@ function ProgramPanel({
                     {program.description}
                 </Typography>
             )}
-            {genre !== undefined && (
-                <Box sx={{ alignSelf: 'flex-start', px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                        {genre}
-                    </Typography>
-                </Box>
+            {genres.length > 0 && (
+                <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+                    {genres.map((genre, index) => (
+                        <Box key={`${index.toString(10)}-${genre}`} sx={{ px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                {genre}
+                            </Typography>
+                        </Box>
+                    ))}
+                </Stack>
             )}
             {program.extended !== undefined && (
                 <Box sx={{ pt: 0.5 }}>
