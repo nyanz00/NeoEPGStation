@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
-import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenreLabels } from '../core/program';
+import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenreLabels, programGenrePathLabels } from '../core/program';
 import { LinkifiedProgramText } from './LinkifiedProgramText';
 import { programDialogClose, programDialogPaper } from './programDialogStyles';
 import { ResponsiveProgramBadges } from './ResponsiveProgramBadges';
@@ -156,7 +156,7 @@ export function ReserveProgramDialog({
                                         ({programDuration(item)}分)
                                     </Typography>
                                 </ButtonBase>
-                                <ResponsiveProgramBadges genres={programGenreLabels(item)} />
+                                <ResponsiveProgramBadges genres={programGenreLabels(item)} details={programGenrePathLabels(item)} />
                             </Stack>
                         </Stack>
                         <Stack

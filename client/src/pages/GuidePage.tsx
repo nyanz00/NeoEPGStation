@@ -57,8 +57,9 @@ import {
     formatProgramTime,
     genreNames,
     normalizeChannelFilter,
-    programGenreLabels,
     programDuration,
+    programGenreLabels,
+    programGenrePathLabels,
 } from '../core/program';
 import { withBasePath } from '../core/path';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
@@ -501,7 +502,7 @@ export function GuideProgramDialog({
                                 <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
                                     ({programDuration(program)}分)
                                 </Typography>
-                                <ResponsiveProgramBadges genres={programGenreLabels(program)} />
+                                <ResponsiveProgramBadges genres={programGenreLabels(program)} details={programGenrePathLabels(program)} />
                             </Stack>
                         </Stack>
                         <Stack
@@ -543,9 +544,6 @@ export function GuideProgramDialog({
                         >
                             {reserve === undefined ? (
                                 <Stack spacing={0.5} sx={{ '& .MuiCheckbox-root': { py: 0.5 }, '& .MuiInputLabel-root': { mb: 0.5 } }}>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                        録画設定
-                                    </Typography>
                                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: 1, sm: 2 } }}>
                                         <FormControl size="small" fullWidth>
                                             <InputLabel sx={{ display: { xs: 'none', sm: 'block' } }}>{recordingTypeLabel}</InputLabel>

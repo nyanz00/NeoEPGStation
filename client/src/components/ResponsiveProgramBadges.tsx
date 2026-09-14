@@ -19,7 +19,7 @@ function compactGenreLabel(label: string): string {
     return label.split('・')[0] || label;
 }
 
-export function ResponsiveProgramBadges({ genres }: { genres: string[] }): ReactNode {
+export function ResponsiveProgramBadges({ genres, details = genres }: { genres: string[]; details?: string[] }): ReactNode {
     const containerRef = useRef<HTMLDivElement>(null);
     const genreMeasureRef = useRef<HTMLDivElement>(null);
     const moreMeasureRef = useRef<HTMLDivElement>(null);
@@ -70,7 +70,7 @@ export function ResponsiveProgramBadges({ genres }: { genres: string[] }): React
                         clickable
                         label={primaryLabel}
                         title={genres[0]}
-                        aria-label={`${genres[0]}のジャンル一覧を表示`}
+                        aria-label={`${genres[0]}のジャンル詳細を表示`}
                         onClick={openGenres}
                         sx={{ ...badgeSx, minWidth: 0, flex: '0 1 auto' }}
                     />
@@ -81,7 +81,7 @@ export function ResponsiveProgramBadges({ genres }: { genres: string[] }): React
                         variant="outlined"
                         clickable
                         label={`+${hiddenCount}`}
-                        aria-label={`その他のジャンル${hiddenCount}件を表示`}
+                        aria-label={`ジャンル詳細${details.length}件を表示`}
                         onClick={openGenres}
                         sx={{ ...badgeSx, flex: '0 0 auto' }}
                     />
@@ -92,7 +92,7 @@ export function ResponsiveProgramBadges({ genres }: { genres: string[] }): React
                         variant="outlined"
                         clickable
                         label={`ジャンル +${genres.length}`}
-                        aria-label={`ジャンル${genres.length}件を表示`}
+                        aria-label={`ジャンル詳細${details.length}件を表示`}
                         onClick={openGenres}
                         sx={{ ...badgeSx, minWidth: 0, maxWidth: '100%' }}
                     />
@@ -122,8 +122,8 @@ export function ResponsiveProgramBadges({ genres }: { genres: string[] }): React
                     ジャンル
                 </Typography>
                 <Stack spacing={0.75} sx={{ alignItems: 'flex-start' }}>
-                    {genres.map(genre => (
-                        <Chip key={genre} size="small" variant="outlined" label={genre} />
+                    {details.map((genre, index) => (
+                        <Chip key={`${index.toString(10)}-${genre}`} size="small" variant="outlined" label={genre} />
                     ))}
                 </Stack>
             </Popover>
