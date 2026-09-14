@@ -456,12 +456,8 @@ export function GuideProgramDialog({
                         }}
                     >
                         <Stack
-                            direction={{ xs: 'column', sm: 'row' }}
-                            spacing={{ xs: 1, sm: 1.5 }}
-                            useFlexGap
+                            spacing={1}
                             sx={{
-                                alignItems: { xs: 'stretch', sm: 'center' },
-                                flexWrap: { sm: 'wrap' },
                                 px: { xs: 2, sm: 3 },
                                 py: 1,
                                 flexShrink: 0,
@@ -469,41 +465,40 @@ export function GuideProgramDialog({
                                 borderColor: 'divider',
                             }}
                         >
-                            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
-                                {channel?.hasLogoData && (
-                                    <Box
-                                        component="img"
-                                        src={withBasePath(`/api/channels/${channel.id}/logo`)}
-                                        alt=""
-                                        sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
-                                    />
-                                )}
-                                <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
-                            </Stack>
                             <Stack
-                                direction="row"
-                                spacing={{ xs: 0.5, sm: 1 }}
+                                direction={{ xs: 'column', sm: 'row' }}
+                                spacing={{ xs: 1, sm: 1.5 }}
+                                useFlexGap
                                 sx={{
-                                    alignItems: 'center',
-                                    flexWrap: 'nowrap',
-                                    minWidth: 0,
-                                    flex: { sm: '1 1 320px' },
-                                    width: { xs: '100%', sm: 'auto' },
-                                    whiteSpace: 'nowrap',
+                                    alignItems: { xs: 'stretch', sm: 'center' },
+                                    flexWrap: { sm: 'wrap' },
                                 }}
                             >
-                                <AccessTimeOutlined fontSize="small" color="action" />
-                                <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
-                                    {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}
-                                </Typography>
-                                <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
-                                    {formatProgramDateCompact(program.startAt)}–{formatProgramTime(program.endAt)}
-                                </Typography>
-                                <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
-                                    ({programDuration(program)}分)
-                                </Typography>
-                                <ResponsiveProgramBadges genres={programGenreLabels(program)} details={programGenrePathLabels(program)} />
+                                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+                                    {channel?.hasLogoData && (
+                                        <Box
+                                            component="img"
+                                            src={withBasePath(`/api/channels/${channel.id}/logo`)}
+                                            alt=""
+                                            sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
+                                        />
+                                    )}
+                                    <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
+                                </Stack>
+                                <Stack direction="row" spacing={{ xs: 0.5, sm: 1 }} sx={{ alignItems: 'center', alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>
+                                    <AccessTimeOutlined fontSize="small" color="action" />
+                                    <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                                        {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}
+                                    </Typography>
+                                    <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
+                                        {formatProgramDateCompact(program.startAt)}–{formatProgramTime(program.endAt)}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
+                                        ({programDuration(program)}分)
+                                    </Typography>
+                                </Stack>
                             </Stack>
+                            <ResponsiveProgramBadges genres={programGenreLabels(program)} details={programGenrePathLabels(program)} />
                         </Stack>
                         <Stack
                             spacing={2}

@@ -104,12 +104,8 @@ export function ReserveProgramDialog({
                     </IconButton>
                     <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
                         <Stack
-                            direction={{ xs: 'column', sm: 'row' }}
-                            spacing={{ xs: 1, sm: 1.5 }}
-                            useFlexGap
+                            spacing={1}
                             sx={{
-                                alignItems: { xs: 'stretch', sm: 'center' },
-                                flexWrap: { sm: 'wrap' },
                                 px: { xs: 2, sm: 3 },
                                 py: 1,
                                 flexShrink: 0,
@@ -117,33 +113,30 @@ export function ReserveProgramDialog({
                                 borderColor: 'divider',
                             }}
                         >
-                            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
-                                {channel?.hasLogoData && (
-                                    <Box
-                                        component="img"
-                                        src={withBasePath(`/api/channels/${channel.id}/logo`)}
-                                        alt=""
-                                        sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
-                                    />
-                                )}
-                                <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? item.channelId}</Typography>
-                            </Stack>
                             <Stack
-                                direction="row"
-                                spacing={{ xs: 0.5, sm: 1 }}
+                                direction={{ xs: 'column', sm: 'row' }}
+                                spacing={{ xs: 1, sm: 1.5 }}
+                                useFlexGap
                                 sx={{
-                                    alignItems: 'center',
-                                    flexWrap: 'nowrap',
-                                    minWidth: 0,
-                                    flex: { sm: '1 1 320px' },
-                                    width: { xs: '100%', sm: 'auto' },
-                                    whiteSpace: 'nowrap',
+                                    alignItems: { xs: 'stretch', sm: 'center' },
+                                    flexWrap: { sm: 'wrap' },
                                 }}
                             >
+                                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+                                    {channel?.hasLogoData && (
+                                        <Box
+                                            component="img"
+                                            src={withBasePath(`/api/channels/${channel.id}/logo`)}
+                                            alt=""
+                                            sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
+                                        />
+                                    )}
+                                    <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? item.channelId}</Typography>
+                                </Stack>
                                 <ButtonBase
                                     onClick={openGuide}
                                     aria-label="この番組の時刻とチャンネルを番組表で表示"
-                                    sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, flex: '0 0 auto', borderRadius: 1 }}
+                                    sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, alignSelf: 'flex-start', flex: '0 0 auto', borderRadius: 1 }}
                                 >
                                     <AccessTimeOutlined fontSize="small" color="action" />
                                     <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
@@ -156,8 +149,8 @@ export function ReserveProgramDialog({
                                         ({programDuration(item)}分)
                                     </Typography>
                                 </ButtonBase>
-                                <ResponsiveProgramBadges genres={programGenreLabels(item)} details={programGenrePathLabels(item)} />
                             </Stack>
+                            <ResponsiveProgramBadges genres={programGenreLabels(item)} details={programGenrePathLabels(item)} />
                         </Stack>
                         <Stack
                             spacing={2}
