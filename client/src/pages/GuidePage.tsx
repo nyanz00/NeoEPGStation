@@ -486,7 +486,11 @@ export function GuideProgramDialog({
                                     }}
                                 >
                                     <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? program.channelId}</Typography>
-                                    <Stack direction="row" spacing={{ xs: 0.5, sm: 1 }} sx={{ alignItems: 'center', alignSelf: 'flex-start', whiteSpace: 'nowrap' }}>
+                                    <Stack
+                                        direction="row"
+                                        spacing={{ xs: 0.5, sm: 1 }}
+                                        sx={{ alignItems: 'center', alignSelf: { xs: 'flex-start', sm: 'center' }, whiteSpace: 'nowrap' }}
+                                    >
                                         <AccessTimeOutlined fontSize="small" color="action" />
                                         <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
                                             {formatProgramDate(program.startAt)} – {formatProgramTime(program.endAt)}

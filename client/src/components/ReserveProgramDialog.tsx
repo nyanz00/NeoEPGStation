@@ -137,7 +137,14 @@ export function ReserveProgramDialog({
                                     <ButtonBase
                                         onClick={openGuide}
                                         aria-label="この番組の時刻とチャンネルを番組表で表示"
-                                        sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, alignSelf: 'flex-start', flex: '0 0 auto', borderRadius: 1 }}
+                                        sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: { xs: 0.5, sm: 1 },
+                                            alignSelf: { xs: 'flex-start', sm: 'center' },
+                                            flex: '0 0 auto',
+                                            borderRadius: 1,
+                                        }}
                                     >
                                         <AccessTimeOutlined fontSize="small" color="action" />
                                         <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
