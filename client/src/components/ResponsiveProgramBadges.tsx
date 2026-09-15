@@ -5,11 +5,11 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 type BadgeLayout = 'full' | 'summary';
 
 const badgeSx = {
-    height: { xs: 20, sm: 24 },
+    height: { xs: 24, sm: 32 },
     maxWidth: '100%',
     '& .MuiChip-label': {
-        px: { xs: 0.5, sm: 0.8 },
-        fontSize: { xs: '0.65rem', sm: '0.72rem' },
+        px: { xs: 0.65, sm: 1.25 },
+        fontSize: { xs: '0.7rem', sm: '0.8125rem' },
         overflow: 'hidden',
         textOverflow: 'ellipsis',
     },

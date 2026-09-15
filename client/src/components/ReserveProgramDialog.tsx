@@ -104,62 +104,53 @@ export function ReserveProgramDialog({
                     </IconButton>
                     <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
                         <Stack
-                            direction="row"
-                            spacing={1.5}
+                            spacing={1}
                             sx={{
-                                alignItems: 'flex-start',
                                 px: { xs: 2, sm: 3 },
-                                py: 0.75,
+                                py: 1,
                                 flexShrink: 0,
                                 borderBottom: 1,
                                 borderColor: 'divider',
                             }}
                         >
-                            {channel?.hasLogoData && (
-                                <Box
-                                    component="img"
-                                    src={withBasePath(`/api/channels/${channel.id}/logo`)}
-                                    alt=""
-                                    sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
-                                />
-                            )}
-                            <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
-                                <Stack
-                                    direction={{ xs: 'column', sm: 'row' }}
-                                    spacing={{ xs: 0.5, sm: 1 }}
-                                    useFlexGap
-                                    sx={{
-                                        alignItems: { xs: 'stretch', sm: 'center' },
-                                        flexWrap: { sm: 'wrap' },
-                                    }}
-                                >
+                            <Stack
+                                direction={{ xs: 'column', sm: 'row' }}
+                                spacing={{ xs: 1, sm: 1.5 }}
+                                useFlexGap
+                                sx={{
+                                    alignItems: { xs: 'stretch', sm: 'center' },
+                                    flexWrap: { sm: 'wrap' },
+                                }}
+                            >
+                                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+                                    {channel?.hasLogoData && (
+                                        <Box
+                                            component="img"
+                                            src={withBasePath(`/api/channels/${channel.id}/logo`)}
+                                            alt=""
+                                            sx={{ width: 48, height: 32, objectFit: 'contain', flexShrink: 0 }}
+                                        />
+                                    )}
                                     <Typography sx={{ fontWeight: 600 }}>{channel?.name ?? item.channelId}</Typography>
-                                    <ButtonBase
-                                        onClick={openGuide}
-                                        aria-label="この番組の時刻とチャンネルを番組表で表示"
-                                        sx={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: { xs: 0.5, sm: 1 },
-                                            alignSelf: { xs: 'flex-start', sm: 'center' },
-                                            flex: '0 0 auto',
-                                            borderRadius: 1,
-                                        }}
-                                    >
-                                        <AccessTimeOutlined fontSize="small" color="action" />
-                                        <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
-                                            {formatProgramDate(item.startAt)} – {formatProgramTime(item.endAt)}
-                                        </Typography>
-                                        <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
-                                            {formatProgramDateCompact(item.startAt)}–{formatProgramTime(item.endAt)}
-                                        </Typography>
-                                        <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
-                                            ({programDuration(item)}分)
-                                        </Typography>
-                                    </ButtonBase>
                                 </Stack>
-                                <ResponsiveProgramBadges genres={programGenreLabels(item)} details={programGenrePathLabels(item)} />
+                                <ButtonBase
+                                    onClick={openGuide}
+                                    aria-label="この番組の時刻とチャンネルを番組表で表示"
+                                    sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 }, alignSelf: 'flex-start', flex: '0 0 auto', borderRadius: 1 }}
+                                >
+                                    <AccessTimeOutlined fontSize="small" color="action" />
+                                    <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                                        {formatProgramDate(item.startAt)} – {formatProgramTime(item.endAt)}
+                                    </Typography>
+                                    <Typography sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.78rem' }}>
+                                        {formatProgramDateCompact(item.startAt)}–{formatProgramTime(item.endAt)}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ fontSize: { xs: '0.78rem', sm: '0.875rem' } }}>
+                                        ({programDuration(item)}分)
+                                    </Typography>
+                                </ButtonBase>
                             </Stack>
+                            <ResponsiveProgramBadges genres={programGenreLabels(item)} details={programGenrePathLabels(item)} />
                         </Stack>
                         <Stack
                             spacing={2}
