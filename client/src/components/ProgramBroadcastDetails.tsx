@@ -152,7 +152,7 @@ export function ProgramBroadcastDetails({
                     aria-label={expanded ? 'ジャンルと映像・音声情報を閉じる' : 'ジャンルと映像・音声情報を表示'}
                     aria-expanded={expanded}
                     onClick={() => setExpanded(value => !value)}
-                    sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -1 }, flexShrink: 0, color: 'text.secondary' }}
+                    sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -2 }, flexShrink: 0, color: 'text.secondary' }}
                 >
                     <ExpandMoreOutlined sx={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: theme => theme.transitions.create('transform') }} />
                 </IconButton>
