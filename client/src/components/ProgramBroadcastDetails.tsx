@@ -119,7 +119,7 @@ export function ProgramBroadcastDetails({
 
     return (
         <Box sx={{ px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
+            <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignItems: 'center', minWidth: 0 }}>
                 <Stack
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={{ xs: 1, sm: 1.5 }}
@@ -152,7 +152,7 @@ export function ProgramBroadcastDetails({
                     aria-label={expanded ? 'ジャンルと映像・音声情報を閉じる' : 'ジャンルと映像・音声情報を表示'}
                     aria-expanded={expanded}
                     onClick={() => setExpanded(value => !value)}
-                    sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -2 }, flexShrink: 0, color: 'text.secondary' }}
+                    sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -1 }, flexShrink: 0, color: 'text.secondary' }}
                 >
                     <ExpandMoreOutlined sx={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: theme => theme.transitions.create('transform') }} />
                 </IconButton>
