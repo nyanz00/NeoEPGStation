@@ -70,11 +70,6 @@ function detailValue(parts: Array<string | undefined>): string {
     return parts.filter((part): part is string => part !== undefined && part.length > 0).join(' / ') || '情報なし';
 }
 
-function elementOuterHeight(element: HTMLElement): number {
-    const style = window.getComputedStyle(element);
-    return element.offsetHeight + (Number.parseFloat(style.marginTop) || 0) + (Number.parseFloat(style.marginBottom) || 0);
-}
-
 function DetailRow({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }): ReactNode {
     return (
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
@@ -102,8 +97,6 @@ export function ProgramBroadcastDetails({
     const rootRef = useRef<HTMLDivElement | null>(null);
     const detailsRef = useRef<HTMLDivElement | null>(null);
     const instantExpansion = useRef(false);
-    const autoHeightLocked = useRef(false);
-    const manualHeightLock = useRef<{ paper: HTMLElement; previousHeight: string; lockedHeight: string } | null>(null);
     const genres = programGenrePathLabels(program);
     const time = (
         <>
@@ -145,7 +138,8 @@ export function ProgramBroadcastDetails({
         const maximumHeight = paper.offsetHeight;
         paper.style.height = previousHeight;
 
-        const detailsHeight = elementOuterHeight(details);
+        const detailsStyle = window.getComputedStyle(details);
+        const detailsHeight = details.offsetHeight + (Number.parseFloat(detailsStyle.marginTop) || 0) + (Number.parseFloat(detailsStyle.marginBottom) || 0);
         const expandedHeight = Math.ceil(collapsedHeight + detailsHeight);
         if (expandedHeight > maximumHeight) return;
 
@@ -153,48 +147,13 @@ export function ProgramBroadcastDetails({
         const lockedMinHeight = `min(${expandedHeight.toString(10)}px, ${autoExpandMaxHeight})`;
         // Retain the initial expanded height when manually collapsed so the toggle does not move.
         paper.style.minHeight = lockedMinHeight;
-        autoHeightLocked.current = true;
         instantExpansion.current = true;
         setExpanded(true);
 
         return () => {
-            autoHeightLocked.current = false;
             if (paper.style.minHeight === lockedMinHeight) paper.style.minHeight = previousMinHeight;
         };
     }, [autoExpandMaxHeight]);
-
-    useLayoutEffect(
-        () => () => {
-            const lock = manualHeightLock.current;
-            if (lock !== null && lock.paper.style.height === lock.lockedHeight) lock.paper.style.height = lock.previousHeight;
-        },
-        [],
-    );
-
-    const lockPaperHeightForExpansion = (): void => {
-        if (autoHeightLocked.current || manualHeightLock.current !== null) return;
-
-        const root = rootRef.current;
-        const details = detailsRef.current;
-        const paper = root?.closest<HTMLElement>('.MuiDialog-paper');
-        const description = root?.nextElementSibling instanceof HTMLElement ? root.nextElementSibling : null;
-        if (root === null || details === null || paper === undefined || paper === null) return;
-
-        const detailsHeight = elementOuterHeight(details);
-        const descriptionStyle = description === null ? null : window.getComputedStyle(description);
-        const descriptionPadding = descriptionStyle === null ? 0 : (Number.parseFloat(descriptionStyle.paddingTop) || 0) + (Number.parseFloat(descriptionStyle.paddingBottom) || 0);
-        const reclaimableDescriptionHeight = description === null ? 0 : Math.max(0, description.offsetHeight - descriptionPadding);
-        // Keep the paper still and take expansion space from the description first.
-        // Grow only by the amount that cannot be reclaimed from that flexible region.
-        const requiredGrowth = Math.max(0, detailsHeight - reclaimableDescriptionHeight);
-        const targetHeight = Math.ceil(paper.offsetHeight + requiredGrowth);
-        const maximumHeight = autoExpandMaxHeight ?? 'calc(100dvh - 24px)';
-        const previousHeight = paper.style.height;
-        const lockedHeight = `min(${targetHeight.toString(10)}px, ${maximumHeight})`;
-
-        paper.style.height = lockedHeight;
-        manualHeightLock.current = { paper, previousHeight, lockedHeight };
-    };
 
     return (
         <Box ref={rootRef} sx={{ px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
@@ -232,7 +191,6 @@ export function ProgramBroadcastDetails({
                     aria-expanded={expanded}
                     onClick={() => {
                         instantExpansion.current = false;
-                        if (!expanded) lockPaperHeightForExpansion();
                         setExpanded(value => !value);
                     }}
                     sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -1 }, flexShrink: 0, color: 'text.secondary' }}
