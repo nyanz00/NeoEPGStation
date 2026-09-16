@@ -444,7 +444,7 @@ export function GuideProgramDialog({
                             overflow: 'hidden',
                         }}
                     >
-                        <ProgramBroadcastDetails key={program.id} program={program} channel={channel ?? undefined} />
+                        <ProgramBroadcastDetails key={program.id} program={program} channel={channel ?? undefined} autoExpandMaxHeight="min(92dvh, 820px)" />
                         <Stack
                             spacing={2}
                             sx={{

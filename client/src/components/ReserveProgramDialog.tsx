@@ -100,7 +100,7 @@ export function ReserveProgramDialog({
                         <CloseOutlined />
                     </IconButton>
                     <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-                        <ProgramBroadcastDetails key={item.id} program={item} channel={channel} onTimeClick={openGuide} />
+                        <ProgramBroadcastDetails key={item.id} program={item} channel={channel} onTimeClick={openGuide} autoExpandMaxHeight="min(94dvh, 880px)" />
                         <Stack
                             spacing={2}
                             sx={{

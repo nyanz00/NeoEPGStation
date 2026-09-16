@@ -5,7 +5,7 @@ import HeadphonesOutlined from '@mui/icons-material/HeadphonesOutlined';
 import VideocamOutlined from '@mui/icons-material/VideocamOutlined';
 import { Box, ButtonBase, Collapse, IconButton, Stack, Typography } from '@mui/material';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ScheduleProgramItem } from '../../../api';
 import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { withBasePath } from '../core/path';
@@ -86,12 +86,17 @@ export function ProgramBroadcastDetails({
     program,
     channel,
     onTimeClick,
+    autoExpandMaxHeight,
 }: {
     program: ProgramBroadcastItem;
     channel?: ProgramChannelSummary;
     onTimeClick?: () => void;
+    autoExpandMaxHeight?: string;
 }): ReactNode {
     const [expanded, setExpanded] = useState(false);
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const detailsRef = useRef<HTMLDivElement | null>(null);
+    const instantExpansion = useRef(false);
     const genres = programGenrePathLabels(program);
     const time = (
         <>
@@ -117,8 +122,41 @@ export function ProgramBroadcastDetails({
         borderRadius: 1,
     } as const;
 
+    useLayoutEffect(() => {
+        if (autoExpandMaxHeight === undefined || !window.matchMedia('(min-width: 600px)').matches) return;
+
+        const root = rootRef.current;
+        const details = detailsRef.current;
+        const paper = root?.closest<HTMLElement>('.MuiDialog-paper');
+        if (root === null || details === null || paper === undefined || paper === null) return;
+
+        // A short desktop dialog can show both the complete description and these details.
+        // Measure before the first paint so it opens in its final expanded size without recentering.
+        const collapsedHeight = paper.offsetHeight;
+        const previousHeight = paper.style.height;
+        paper.style.height = '100000px';
+        const maximumHeight = paper.offsetHeight;
+        paper.style.height = previousHeight;
+
+        const detailsStyle = window.getComputedStyle(details);
+        const detailsHeight = details.offsetHeight + (Number.parseFloat(detailsStyle.marginTop) || 0) + (Number.parseFloat(detailsStyle.marginBottom) || 0);
+        const expandedHeight = Math.ceil(collapsedHeight + detailsHeight);
+        if (expandedHeight > maximumHeight) return;
+
+        const previousMinHeight = paper.style.minHeight;
+        const lockedMinHeight = `min(${expandedHeight.toString(10)}px, ${autoExpandMaxHeight})`;
+        // Retain the initial expanded height when manually collapsed so the toggle does not move.
+        paper.style.minHeight = lockedMinHeight;
+        instantExpansion.current = true;
+        setExpanded(true);
+
+        return () => {
+            if (paper.style.minHeight === lockedMinHeight) paper.style.minHeight = previousMinHeight;
+        };
+    }, [autoExpandMaxHeight]);
+
     return (
-        <Box sx={{ px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
+        <Box ref={rootRef} sx={{ px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
             <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignItems: 'center', minWidth: 0 }}>
                 <Stack
                     direction={{ xs: 'column', sm: 'row' }}
@@ -151,14 +189,17 @@ export function ProgramBroadcastDetails({
                     size="small"
                     aria-label={expanded ? 'ジャンルと映像・音声情報を閉じる' : 'ジャンルと映像・音声情報を表示'}
                     aria-expanded={expanded}
-                    onClick={() => setExpanded(value => !value)}
+                    onClick={() => {
+                        instantExpansion.current = false;
+                        setExpanded(value => !value);
+                    }}
                     sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -1 }, flexShrink: 0, color: 'text.secondary' }}
                 >
                     <ExpandMoreOutlined sx={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: theme => theme.transitions.create('transform') }} />
                 </IconButton>
             </Stack>
-            <Collapse in={expanded} timeout="auto" unmountOnExit>
-                <Stack spacing={0.75} sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+            <Collapse in={expanded} timeout={instantExpansion.current ? 0 : 'auto'}>
+                <Stack ref={detailsRef} spacing={0.75} sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
                     <DetailRow icon={<CategoryOutlined fontSize="small" />} label="ジャンル">
                         <Stack spacing={0.25}>
                             {genres.length > 0 ? (
