@@ -9,6 +9,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { ScheduleProgramItem } from '../../../api';
 import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { withBasePath } from '../core/path';
+import { useSettings } from '../core/storage/settings';
 
 type ProgramBroadcastItem = Pick<
     ScheduleProgramItem,
@@ -104,6 +105,7 @@ export function ProgramBroadcastDetails({
     onTimeClick?: () => void;
     autoExpandMaxHeight?: string;
 }): ReactNode {
+    const settings = useSettings();
     const [expanded, setExpanded] = useState(false);
     const rootRef = useRef<HTMLDivElement | null>(null);
     const detailsRef = useRef<HTMLDivElement | null>(null);
@@ -136,7 +138,10 @@ export function ProgramBroadcastDetails({
     } as const;
 
     useLayoutEffect(() => {
-        if (autoExpandMaxHeight === undefined || !window.matchMedia('(min-width: 600px)').matches) return;
+        if (autoExpandMaxHeight === undefined) return;
+
+        const isDesktop = window.matchMedia('(min-width: 600px)').matches;
+        if (!isDesktop && !settings.isAlwaysShowBroadcastDetails) return;
 
         const root = rootRef.current;
         const details = detailsRef.current;
@@ -158,21 +163,31 @@ export function ProgramBroadcastDetails({
         const isAtMaximumHeight = collapsedHeight >= maximumHeight - 1;
         const isDescriptionShort = descriptionHeight < detailsHeight;
         const canKeepDescriptionAndDetails = expandedHeight <= maximumHeight;
-        if (isAtMaximumHeight || !isDescriptionShort || !canKeepDescriptionAndDetails) return;
+        if (isDesktop && !isAtMaximumHeight && isDescriptionShort && canKeepDescriptionAndDetails) {
+            const previousMinHeight = paper.style.minHeight;
+            const lockedMinHeight = `min(${expandedHeight.toString(10)}px, ${autoExpandMaxHeight})`;
+            // Retain the initial expanded height when manually collapsed so the toggle does not move.
+            paper.style.minHeight = lockedMinHeight;
+            autoHeightLocked.current = true;
+            instantExpansion.current = true;
+            setExpanded(true);
 
-        const previousMinHeight = paper.style.minHeight;
-        const lockedMinHeight = `min(${expandedHeight.toString(10)}px, ${autoExpandMaxHeight})`;
-        // Retain the initial expanded height when manually collapsed so the toggle does not move.
-        paper.style.minHeight = lockedMinHeight;
-        autoHeightLocked.current = true;
+            return () => {
+                autoHeightLocked.current = false;
+                if (paper.style.minHeight === lockedMinHeight) paper.style.minHeight = previousMinHeight;
+            };
+        }
+
+        if (!settings.isAlwaysShowBroadcastDetails) return;
+
+        // Grow toward the dialog's maximum height before taking space from the description.
+        // Keep that resulting height after collapse so the dialog and toggle do not move.
+        const lockedHeight = `min(${expandedHeight.toString(10)}px, ${autoExpandMaxHeight})`;
+        paper.style.height = lockedHeight;
+        manualHeightLock.current = { paper, previousHeight, lockedHeight };
         instantExpansion.current = true;
         setExpanded(true);
-
-        return () => {
-            autoHeightLocked.current = false;
-            if (paper.style.minHeight === lockedMinHeight) paper.style.minHeight = previousMinHeight;
-        };
-    }, [autoExpandMaxHeight]);
+    }, [autoExpandMaxHeight, settings.isAlwaysShowBroadcastDetails]);
 
     useLayoutEffect(
         () => () => {

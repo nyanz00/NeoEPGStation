@@ -24,6 +24,7 @@ export interface AppSettings {
     isHalfWidthDisplayed: boolean;
     isHideRecordedThumbnailButton: boolean;
     isShowVersionUpdateNotification: boolean;
+    isAlwaysShowBroadcastDetails: boolean;
     sideNavigationOrder: SideNavigationItemId[];
     hiddenSideNavigationItems: SideNavigationItemId[];
     isOnAirTabListView: boolean;
@@ -108,6 +109,7 @@ export const defaultSettings: AppSettings = {
     isHalfWidthDisplayed: true,
     isHideRecordedThumbnailButton: false,
     isShowVersionUpdateNotification: true,
+    isAlwaysShowBroadcastDetails: false,
     sideNavigationOrder: [...defaultSideNavigationOrder],
     hiddenSideNavigationItems: [],
     isOnAirTabListView: true,
@@ -214,6 +216,7 @@ function loadSettings(): AppSettings {
             isAppLogoLinkedToIcon: parsed.isAppLogoLinkedToIcon === true,
             isAppLogoHidden: parsed.isAppLogoHidden === true,
             isHideRecordedThumbnailButton: parsed.isHideRecordedThumbnailButton === true,
+            isAlwaysShowBroadcastDetails: parsed.isAlwaysShowBroadcastDetails === true,
             themeColorPreset: isAppThemePresetId(parsed.themeColorPreset) ? parsed.themeColorPreset : defaultSettings.themeColorPreset,
             customThemeColor: normalizeCustomThemeColor(parsed.customThemeColor),
             isCustomCssEnabled: parsed.isCustomCssEnabled === true,
@@ -282,6 +285,7 @@ export const settingsStore = {
             isCustomCssEnabled: value.isCustomCssEnabled === true,
             customCss: typeof value.customCss === 'string' ? value.customCss : '',
             isShowVersionUpdateNotification: value.isShowVersionUpdateNotification !== false,
+            isAlwaysShowBroadcastDetails: value.isAlwaysShowBroadcastDetails === true,
             sideNavigationOrder: normalizeSideNavigationOrder(value.sideNavigationOrder),
             hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(value.hiddenSideNavigationItems),
             watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(value.watchSubtitlePreferredKeywords),

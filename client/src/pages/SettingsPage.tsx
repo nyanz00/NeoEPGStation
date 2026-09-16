@@ -1218,6 +1218,13 @@ export function SettingsPage(): ReactNode {
                         {activeSettingsTab === 'display' && (
                             <SettingSection title="表示設定">
                                 <SettingRow
+                                    title="放送詳細を常に表示する"
+                                    description="番組ダイアログを開いたとき、ジャンルと映像・音声情報を展開して表示する"
+                                    control={
+                                        <Switch checked={draft.isAlwaysShowBroadcastDetails} onChange={event => patch('isAlwaysShowBroadcastDetails', event.target.checked)} />
+                                    }
+                                />
+                                <SettingRow
                                     title="バージョン更新通知"
                                     description="ダッシュボードに新しい安定版があることを表示する"
                                     control={
