@@ -70,6 +70,17 @@ function detailValue(parts: Array<string | undefined>): string {
     return parts.filter((part): part is string => part !== undefined && part.length > 0).join(' / ') || '情報なし';
 }
 
+function elementOuterHeight(element: HTMLElement): number {
+    const style = window.getComputedStyle(element);
+    return element.offsetHeight + (Number.parseFloat(style.marginTop) || 0) + (Number.parseFloat(style.marginBottom) || 0);
+}
+
+function elementContentHeight(element: HTMLElement): number {
+    const style = window.getComputedStyle(element);
+    const verticalPadding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+    return Math.max(0, element.offsetHeight - verticalPadding);
+}
+
 function DetailRow({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }): ReactNode {
     return (
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', minWidth: 0 }}>
@@ -97,6 +108,8 @@ export function ProgramBroadcastDetails({
     const rootRef = useRef<HTMLDivElement | null>(null);
     const detailsRef = useRef<HTMLDivElement | null>(null);
     const instantExpansion = useRef(false);
+    const autoHeightLocked = useRef(false);
+    const manualHeightLock = useRef<{ paper: HTMLElement; previousHeight: string; lockedHeight: string } | null>(null);
     const genres = programGenrePathLabels(program);
     const time = (
         <>
@@ -128,7 +141,8 @@ export function ProgramBroadcastDetails({
         const root = rootRef.current;
         const details = detailsRef.current;
         const paper = root?.closest<HTMLElement>('.MuiDialog-paper');
-        if (root === null || details === null || paper === undefined || paper === null) return;
+        const description = root?.nextElementSibling instanceof HTMLElement ? root.nextElementSibling : null;
+        if (root === null || details === null || paper === undefined || paper === null || description === null) return;
 
         // A short desktop dialog can show both the complete description and these details.
         // Measure before the first paint so it opens in its final expanded size without recentering.
@@ -138,22 +152,49 @@ export function ProgramBroadcastDetails({
         const maximumHeight = paper.offsetHeight;
         paper.style.height = previousHeight;
 
-        const detailsStyle = window.getComputedStyle(details);
-        const detailsHeight = details.offsetHeight + (Number.parseFloat(detailsStyle.marginTop) || 0) + (Number.parseFloat(detailsStyle.marginBottom) || 0);
+        const detailsHeight = elementOuterHeight(details);
         const expandedHeight = Math.ceil(collapsedHeight + detailsHeight);
-        if (expandedHeight > maximumHeight) return;
+        const descriptionHeight = elementContentHeight(description);
+        const isAtMaximumHeight = collapsedHeight >= maximumHeight - 1;
+        const isDescriptionShort = descriptionHeight < detailsHeight;
+        const canKeepDescriptionAndDetails = expandedHeight <= maximumHeight;
+        if (isAtMaximumHeight || !isDescriptionShort || !canKeepDescriptionAndDetails) return;
 
         const previousMinHeight = paper.style.minHeight;
         const lockedMinHeight = `min(${expandedHeight.toString(10)}px, ${autoExpandMaxHeight})`;
         // Retain the initial expanded height when manually collapsed so the toggle does not move.
         paper.style.minHeight = lockedMinHeight;
+        autoHeightLocked.current = true;
         instantExpansion.current = true;
         setExpanded(true);
 
         return () => {
+            autoHeightLocked.current = false;
             if (paper.style.minHeight === lockedMinHeight) paper.style.minHeight = previousMinHeight;
         };
     }, [autoExpandMaxHeight]);
+
+    useLayoutEffect(
+        () => () => {
+            const lock = manualHeightLock.current;
+            if (lock !== null && lock.paper.style.height === lock.lockedHeight) lock.paper.style.height = lock.previousHeight;
+        },
+        [],
+    );
+
+    const lockPaperHeightForManualExpansion = (): void => {
+        if (autoHeightLocked.current || manualHeightLock.current !== null) return;
+
+        const root = rootRef.current;
+        const paper = root?.closest<HTMLElement>('.MuiDialog-paper');
+        if (root === null || paper === undefined || paper === null) return;
+
+        const previousHeight = paper.style.height;
+        const maximumHeight = autoExpandMaxHeight ?? 'calc(100dvh - 24px)';
+        const lockedHeight = `min(${paper.offsetHeight.toString(10)}px, ${maximumHeight})`;
+        paper.style.height = lockedHeight;
+        manualHeightLock.current = { paper, previousHeight, lockedHeight };
+    };
 
     return (
         <Box ref={rootRef} sx={{ px: { xs: 2, sm: 3 }, py: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
@@ -191,6 +232,7 @@ export function ProgramBroadcastDetails({
                     aria-expanded={expanded}
                     onClick={() => {
                         instantExpansion.current = false;
+                        if (!expanded) lockPaperHeightForManualExpansion();
                         setExpanded(value => !value);
                     }}
                     sx={{ width: 36, height: 36, mr: { xs: -0.5, sm: -1 }, flexShrink: 0, color: 'text.secondary' }}
