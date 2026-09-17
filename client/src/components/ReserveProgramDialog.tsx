@@ -11,7 +11,7 @@ import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { LinkifiedProgramText } from './LinkifiedProgramText';
 import { ProgramBroadcastDetails } from './ProgramBroadcastDetails';
-import { ProgramDialogTitle, programDialogTitleBottomPadding } from './ProgramDialogTitle';
+import { ProgramDialogTitle, programDialogCloseTop, programDialogTitleBottomPadding } from './ProgramDialogTitle';
 import { programDialogClose, programDialogPaper } from './programDialogStyles';
 
 function reserveLabel(item: ReserveItem): string {
@@ -103,7 +103,7 @@ export function ReserveProgramDialog({
             {item !== null && (
                 <>
                     <ProgramDialogTitle id="reserve-program-title">{item.name}</ProgramDialogTitle>
-                    <IconButton aria-label="閉じる" onClick={onClose} sx={{ ...programDialogClose, top: 9 }}>
+                    <IconButton aria-label="閉じる" onClick={onClose} sx={{ ...programDialogClose, top: programDialogCloseTop }}>
                         <CloseOutlined />
                     </IconButton>
                     <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>

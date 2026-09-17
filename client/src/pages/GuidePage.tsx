@@ -43,7 +43,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { OnAirSelectStreamDialog } from '../components/OnAirSelectStreamDialog';
-import { ProgramDialogTitle, programDialogTitleBottomPadding } from '../components/ProgramDialogTitle';
+import { ProgramDialogTitle, programDialogCloseTop, programDialogTitleBottomPadding } from '../components/ProgramDialogTitle';
 import { ProgramBroadcastDetails } from '../components/ProgramBroadcastDetails';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
@@ -438,7 +438,7 @@ export function GuideProgramDialog({
             {program !== null && (
                 <>
                     <ProgramDialogTitle id="guide-program-title">{program.name}</ProgramDialogTitle>
-                    <IconButton aria-label="閉じる" onClick={() => onClose(program.id)} sx={{ ...programDialogClose, top: 9 }}>
+                    <IconButton aria-label="閉じる" onClick={() => onClose(program.id)} sx={{ ...programDialogClose, top: programDialogCloseTop }}>
                         <CloseOutlined />
                     </IconButton>
                     <DialogContent
