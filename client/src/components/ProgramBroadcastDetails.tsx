@@ -107,11 +107,14 @@ export function ProgramBroadcastDetails({
 }): ReactNode {
     const settings = useSettings();
     const [expanded, setExpanded] = useState(false);
+    const expandedRef = useRef(expanded);
+    expandedRef.current = expanded;
     const rootRef = useRef<HTMLDivElement | null>(null);
     const detailsRef = useRef<HTMLDivElement | null>(null);
     const instantExpansion = useRef(false);
     const autoHeightLocked = useRef(false);
     const manualHeightLock = useRef<{ paper: HTMLElement; previousHeight: string; lockedHeight: string } | null>(null);
+    const descriptionOverflowOverride = useRef<{ element: HTMLElement; previousOverflowY: string } | null>(null);
     const genres = programGenrePathLabels(program);
     const time = (
         <>
@@ -193,9 +196,43 @@ export function ProgramBroadcastDetails({
         () => () => {
             const lock = manualHeightLock.current;
             if (lock !== null && lock.paper.style.height === lock.lockedHeight) lock.paper.style.height = lock.previousHeight;
+            const overflowOverride = descriptionOverflowOverride.current;
+            if (overflowOverride !== null) overflowOverride.element.style.overflowY = overflowOverride.previousOverflowY;
         },
         [],
     );
+
+    const setDescriptionOverflow = (overflowY: 'auto' | 'hidden'): void => {
+        const root = rootRef.current;
+        const description = root?.nextElementSibling instanceof HTMLElement ? root.nextElementSibling : null;
+        if (description === null) return;
+
+        if (descriptionOverflowOverride.current?.element !== description) {
+            descriptionOverflowOverride.current = { element: description, previousOverflowY: description.style.overflowY };
+        }
+        description.style.overflowY = overflowY;
+    };
+
+    const settleDescriptionOverflow = (): void => {
+        const root = rootRef.current;
+        const description = root?.nextElementSibling instanceof HTMLElement ? root.nextElementSibling : null;
+        if (description === null) return;
+
+        // Re-evaluate overflow after the collapse transition. Some browsers keep the
+        // former scrollbar painted when a flex child grows enough to fit its content.
+        setDescriptionOverflow('hidden');
+        const hasScrollableOverflow = description.scrollHeight - description.clientHeight > 1;
+        setDescriptionOverflow(hasScrollableOverflow ? 'auto' : 'hidden');
+        if (!hasScrollableOverflow) description.scrollTop = 0;
+    };
+
+    useLayoutEffect(() => {
+        const handleResize = (): void => {
+            if (!expandedRef.current) settleDescriptionOverflow();
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const lockPaperHeightForManualExpansion = (): void => {
         if (autoHeightLocked.current || manualHeightLock.current !== null) return;
@@ -255,7 +292,7 @@ export function ProgramBroadcastDetails({
                     <ExpandMoreOutlined sx={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: theme => theme.transitions.create('transform') }} />
                 </IconButton>
             </Stack>
-            <Collapse in={expanded} timeout={instantExpansion.current ? 0 : 'auto'}>
+            <Collapse in={expanded} timeout={instantExpansion.current ? 0 : 'auto'} onEnter={() => setDescriptionOverflow('auto')} onExited={settleDescriptionOverflow}>
                 <Stack ref={detailsRef} spacing={0.75} sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
                     <DetailRow icon={<CategoryOutlined fontSize="small" />} label="ジャンル">
                         <Stack spacing={0.25}>
