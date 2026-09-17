@@ -49,6 +49,12 @@ export const subGenreNames: ReadonlyArray<ReadonlyArray<string>> = [
     ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'その他'],
 ];
 
+export function genrePathLabel(genre: number, subGenre?: number): string {
+    const genreLabel = genreNames[genre] ?? `ジャンル ${genre.toString(10)}`;
+    const subGenreLabel = subGenre === undefined ? undefined : subGenreNames[genre]?.[subGenre];
+    return subGenreLabel === undefined || subGenreLabel.length === 0 ? genreLabel : `${genreLabel} / ${subGenreLabel}`;
+}
+
 export function programGenrePathLabels(program: { genre1?: number; subGenre1?: number; genre2?: number; subGenre2?: number; genre3?: number; subGenre3?: number }): string[] {
     return [
         [program.genre1, program.subGenre1],
@@ -56,9 +62,7 @@ export function programGenrePathLabels(program: { genre1?: number; subGenre1?: n
         [program.genre3, program.subGenre3],
     ].flatMap(([genre, subGenre]) => {
         if (genre === undefined) return [];
-        const genreLabel = genreNames[genre] ?? `ジャンル ${genre.toString(10)}`;
-        const subGenreLabel = subGenre === undefined ? undefined : subGenreNames[genre]?.[subGenre];
-        return [subGenreLabel === undefined || subGenreLabel.length === 0 ? genreLabel : `${genreLabel} / ${subGenreLabel}`];
+        return [genrePathLabel(genre, subGenre)];
     });
 }
 

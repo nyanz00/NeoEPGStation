@@ -31,7 +31,7 @@ import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelName, channelTypeLabel, genreNames } from '../core/program';
+import { channelName, channelTypeLabel, genrePathLabel } from '../core/program';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
@@ -48,7 +48,7 @@ function ruleChannels(rule: Rule, channels: Awaited<ReturnType<typeof api.getCha
 function ruleGenres(rule: Rule): string {
     if ((rule.searchOption.genres?.length ?? 0) === 0) return '全ジャンル';
     return rule.searchOption
-        .genres!.map(item => genreNames[item.genre] ?? `ジャンル${item.genre}`)
+        .genres!.map(item => genrePathLabel(item.genre, item.subGenre))
         .filter((value, index, values) => values.indexOf(value) === index)
         .join('、');
 }

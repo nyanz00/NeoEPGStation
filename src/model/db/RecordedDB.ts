@@ -1,5 +1,5 @@
 import { inject, injectable } from 'inversify';
-import { In, IsNull, Not } from 'typeorm';
+import { In } from 'typeorm';
 import * as apid from '../../../api';
 import Recorded from '../../db/entities/Recorded';
 import Thumbnail from '../../db/entities/Thumbnail';
@@ -625,17 +625,26 @@ export default class RecordedDB implements IRecordedDB {
      */
     public async findGenreList(): Promise<apid.RecordedGenreListItem[]> {
         const connection = await this.op.getConnection();
+        // UNION で同じ録画 ID と大ジャンルの組を 1 件にまとめる
+        const rows: Array<{ cnt: number | string; genre: number | string }> = await this.promieRetry.run(() =>
+            connection.query(`
+                SELECT COUNT(*) AS cnt, genre
+                FROM (
+                    SELECT id, genre1 AS genre FROM recorded WHERE genre1 IS NOT NULL
+                    UNION
+                    SELECT id, genre2 AS genre FROM recorded WHERE genre2 IS NOT NULL
+                    UNION
+                    SELECT id, genre3 AS genre FROM recorded WHERE genre3 IS NOT NULL
+                ) AS recorded_genres
+                GROUP BY genre
+                ORDER BY genre ASC
+            `),
+        );
 
-        const queryBuilder = await connection
-            .getRepository(Recorded)
-            .createQueryBuilder('recorded')
-            .select('count(*) as cnt, genre1 as genre')
-            .where({ genre1: Not(IsNull()) })
-            .groupBy('genre');
-
-        return await this.promieRetry.run(() => {
-            return queryBuilder.getRawMany();
-        });
+        return rows.map(row => ({
+            cnt: Number(row.cnt),
+            genre: Number(row.genre),
+        }));
     }
 
     public async findEncodedNameList(): Promise<string[]> {

@@ -91,7 +91,7 @@ export class GuideDomRenderer {
     public updateGenres(genres: GuideGenreSettings): void {
         this.genres = genres;
         for (const item of this.items) {
-            item.element.classList.toggle('guide-program-genre-hidden', genres[item.genre ?? 15] === false);
+            item.element.classList.toggle('guide-program-genre-hidden', item.genre !== undefined && genres[item.genre] === false);
         }
     }
 
@@ -154,7 +154,7 @@ export class GuideDomRenderer {
                 element.setAttribute('role', 'button');
                 element.setAttribute('aria-label', element.title);
                 if (this.options.dark) element.classList.add('guide-program-dark');
-                if (this.genres[genre ?? 15] === false) element.classList.add('guide-program-genre-hidden');
+                if (genre !== undefined && this.genres[genre] === false) element.classList.add('guide-program-genre-hidden');
                 if (reserve !== undefined) element.dataset.reserve = reserve.kind;
 
                 const name = document.createElement('div');

@@ -286,21 +286,21 @@ export default class ProgramDB implements IProgramDB {
         let genre3: number | null = null;
         let subGenre3: number | null = null;
         if (typeof program.genres !== 'undefined') {
-            // 最大3つのジャンルを格納する
-            if (program.genres[0].lv1 < 0xe) {
-                genre1 = program.genres[0].lv1;
-                subGenre1 = typeof program.genres[0].lv2 === 'undefined' ? null : program.genres[0].lv2;
-            }
+            // 拡張情報を通常ジャンルの枠に数えず、その他 (0x0f) は保持する
+            const genres = program.genres
+                .filter(genre => genre.lv1 >= 0 && genre.lv1 <= 0x0f && genre.lv1 !== 0x0e)
+                .slice(0, 3);
+            const genreValues = genres.map(genre => ({
+                genre: genre.lv1,
+                subGenre: typeof genre.lv2 === 'undefined' ? null : genre.lv2,
+            }));
 
-            if (program.genres.length > 1 && program.genres[1].lv1 < 0xe) {
-                genre2 = program.genres[1].lv1;
-                subGenre2 = typeof program.genres[1].lv2 === 'undefined' ? null : program.genres[1].lv2;
-            }
-
-            if (program.genres.length > 2 && program.genres[2].lv1 < 0xe) {
-                genre3 = program.genres[2].lv1;
-                subGenre3 = typeof program.genres[2].lv2 === 'undefined' ? null : program.genres[2].lv2;
-            }
+            genre1 = genreValues[0]?.genre ?? null;
+            subGenre1 = genreValues[0]?.subGenre ?? null;
+            genre2 = genreValues[1]?.genre ?? null;
+            subGenre2 = genreValues[1]?.subGenre ?? null;
+            genre3 = genreValues[2]?.genre ?? null;
+            subGenre3 = genreValues[2]?.subGenre ?? null;
         }
 
         // 日本時間取得
