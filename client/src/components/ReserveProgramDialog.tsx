@@ -2,7 +2,7 @@ import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, IconButton, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, ReserveItem } from '../../../api';
 import type { ReactNode } from 'react';
@@ -11,6 +11,7 @@ import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { LinkifiedProgramText } from './LinkifiedProgramText';
 import { ProgramBroadcastDetails } from './ProgramBroadcastDetails';
+import { ProgramDialogTitle, programDialogTitleBottomPadding } from './ProgramDialogTitle';
 import { programDialogClose, programDialogPaper } from './programDialogStyles';
 
 function reserveLabel(item: ReserveItem): string {
@@ -90,7 +91,10 @@ export function ReserveProgramDialog({
                         maxHeight: 'min(94dvh, 880px)',
                         '& .MuiDialogTitle-root': {
                             ...programDialogPaper(theme)['& .MuiDialogTitle-root'],
-                            padding: { xs: '12px 56px 8px 16px', sm: '12px 64px 8px 24px' },
+                            padding: {
+                                xs: `12px 56px ${programDialogTitleBottomPadding} 16px`,
+                                sm: `12px 64px ${programDialogTitleBottomPadding} 24px`,
+                            },
                         },
                     }),
                 },
@@ -98,7 +102,7 @@ export function ReserveProgramDialog({
         >
             {item !== null && (
                 <>
-                    <DialogTitle id="reserve-program-title">{item.name}</DialogTitle>
+                    <ProgramDialogTitle id="reserve-program-title">{item.name}</ProgramDialogTitle>
                     <IconButton aria-label="閉じる" onClick={onClose} sx={{ ...programDialogClose, top: 9 }}>
                         <CloseOutlined />
                     </IconButton>

@@ -43,6 +43,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { OnAirSelectStreamDialog } from '../components/OnAirSelectStreamDialog';
+import { ProgramDialogTitle, programDialogTitleBottomPadding } from '../components/ProgramDialogTitle';
 import { ProgramBroadcastDetails } from '../components/ProgramBroadcastDetails';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
@@ -425,7 +426,10 @@ export function GuideProgramDialog({
                         maxHeight: 'min(92dvh, 820px)',
                         '& .MuiDialogTitle-root': {
                             ...programDialogPaper(theme)['& .MuiDialogTitle-root'],
-                            padding: { xs: '12px 56px 8px 16px', sm: '12px 64px 8px 24px' },
+                            padding: {
+                                xs: `12px 56px ${programDialogTitleBottomPadding} 16px`,
+                                sm: `12px 64px ${programDialogTitleBottomPadding} 24px`,
+                            },
                         },
                     }),
                 },
@@ -433,7 +437,7 @@ export function GuideProgramDialog({
         >
             {program !== null && (
                 <>
-                    <DialogTitle id="guide-program-title">{program.name}</DialogTitle>
+                    <ProgramDialogTitle id="guide-program-title">{program.name}</ProgramDialogTitle>
                     <IconButton aria-label="閉じる" onClick={() => onClose(program.id)} sx={{ ...programDialogClose, top: 9 }}>
                         <CloseOutlined />
                     </IconButton>
