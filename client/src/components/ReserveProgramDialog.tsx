@@ -88,7 +88,7 @@ export function ReserveProgramDialog({
                         ...programDialogPaper(theme),
                         maxWidth: 720,
                         maxHeight: 'min(94dvh, 880px)',
-                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], pt: 1.5, pb: 0.5 },
                     }),
                 },
             }}

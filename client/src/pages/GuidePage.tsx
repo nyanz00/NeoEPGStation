@@ -423,7 +423,7 @@ export function GuideProgramDialog({
                         ...programDialogPaper(theme),
                         maxWidth: 640,
                         maxHeight: 'min(92dvh, 820px)',
-                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], pt: 1.5, pb: 0.5 },
                     }),
                 },
             }}
