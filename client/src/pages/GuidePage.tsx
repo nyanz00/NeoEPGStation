@@ -434,7 +434,7 @@ export function GuideProgramDialog({
             {program !== null && (
                 <>
                     <DialogTitle id="guide-program-title">{program.name}</DialogTitle>
-                    <IconButton aria-label="閉じる" onClick={() => onClose(program.id)} sx={programDialogClose}>
+                    <IconButton aria-label="閉じる" onClick={() => onClose(program.id)} sx={{ ...programDialogClose, top: 9 }}>
                         <CloseOutlined />
                     </IconButton>
                     <DialogContent

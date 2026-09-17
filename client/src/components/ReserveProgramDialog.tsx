@@ -99,7 +99,7 @@ export function ReserveProgramDialog({
             {item !== null && (
                 <>
                     <DialogTitle id="reserve-program-title">{item.name}</DialogTitle>
-                    <IconButton aria-label="閉じる" onClick={onClose} sx={programDialogClose}>
+                    <IconButton aria-label="閉じる" onClick={onClose} sx={{ ...programDialogClose, top: 9 }}>
                         <CloseOutlined />
                     </IconButton>
                     <DialogContent dividers sx={{ p: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
