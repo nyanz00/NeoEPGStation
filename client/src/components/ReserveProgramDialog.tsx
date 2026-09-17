@@ -90,7 +90,7 @@ export function ReserveProgramDialog({
                         maxHeight: 'min(94dvh, 880px)',
                         '& .MuiDialogTitle-root': {
                             ...programDialogPaper(theme)['& .MuiDialogTitle-root'],
-                            padding: { xs: '12px 56px 4px 16px', sm: '12px 64px 4px 24px' },
+                            padding: { xs: '12px 56px 8px 16px', sm: '12px 64px 8px 24px' },
                         },
                     }),
                 },
