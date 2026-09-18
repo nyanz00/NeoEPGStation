@@ -521,6 +521,7 @@ export function DashboardPage(): ReactNode {
         params.set('page', '2');
         return params.toString();
     }, [searchParams]);
+    const reservesMoreParams = new URLSearchParams({ type: 'all', page: '2', userId: userId?.toString(10) ?? 'master' });
 
     useEffect(() => {
         if (!allSettled || restoredScrollKey.current === location.key) return;
@@ -701,7 +702,7 @@ export function DashboardPage(): ReactNode {
                     title="予約"
                     displayed={reserves.data?.reserves.length}
                     total={reserves.data?.total}
-                    morePath="/reserves?type=all&page=2"
+                    morePath={`/reserves?${reservesMoreParams.toString()}`}
                     badge={reserveCounts.data?.conflicts}
                     onBadgeClick={() => void navigate('/reserves?type=conflict')}
                     loading={reserves.isPending}

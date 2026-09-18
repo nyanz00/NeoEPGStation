@@ -54,6 +54,12 @@ function normalizeType(value: string | null): GetReserveType {
     return value === 'all' || value === 'conflict' || value === 'overlap' || value === 'skip' ? value : 'normal';
 }
 
+function parseUserFilter(value: string | null): ActiveUserId | undefined {
+    if (value === 'master') return 'master';
+    const id = Number(value);
+    return value !== null && /^[0-9]+$/.test(value) && Number.isSafeInteger(id) && id > 0 ? id : undefined;
+}
+
 function statusLabel(item: ReserveItem): string | null {
     if (item.isConflict) return '競合';
     if (item.isSkip) return '除外';
@@ -137,7 +143,9 @@ export function ReservesPage(): ReactNode {
     const navigate = useNavigate();
     const type = normalizeType(params.get('type'));
     const page = Math.max(1, Number(params.get('page')) || 1);
-    const [userId, setUserId] = useState<ActiveUserId>(activeUser ?? 'master');
+    const [fallbackUserId, setFallbackUserId] = useState<ActiveUserId>(activeUser ?? 'master');
+    const routeUserId = parseUserFilter(params.get('userId'));
+    const userId = routeUserId ?? fallbackUserId;
     const [editing, setEditing] = useState(false);
     const [selected, setSelected] = useState<Set<ReserveId>>(new Set());
     const [target, setTarget] = useState<ReserveItem | null>(null);
@@ -148,7 +156,14 @@ export function ReservesPage(): ReactNode {
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const counts = useQuery({ queryKey: ['reserve-counts'], queryFn: api.getReserveCounts });
     const selectedUserId = typeof userId === 'number' ? userId : undefined;
-    const requestUserId = type === 'all' ? undefined : selectedUserId;
+    // The ordinary "all" tab includes all users; an explicit URL filter preserves a dashboard continuation.
+    const requestUserId = type === 'all' && routeUserId === undefined ? undefined : selectedUserId;
+    const allUserId = typeof routeUserId === 'number' ? routeUserId : undefined;
+    const allCount = useQuery({
+        queryKey: ['reserves', 'all-count', allUserId],
+        queryFn: () => api.getReserves({ type: 'all', isHalfWidth: settings.isHalfWidthDisplayed, userId: allUserId, offset: 0, limit: 1 }),
+        enabled: allUserId !== undefined && type !== 'all',
+    });
     const normalCount = useQuery({
         queryKey: ['reserves', 'normal-count', selectedUserId],
         queryFn: () => api.getReserves({ type: 'normal', isHalfWidth: settings.isHalfWidthDisplayed, userId: selectedUserId, offset: 0, limit: 1 }),
@@ -167,6 +182,7 @@ export function ReservesPage(): ReactNode {
     const pageCount = Math.max(1, Math.ceil((reserves.data?.total ?? 0) / settings.reservesLength));
     const countFor = (value: GetReserveType): number | undefined => {
         if (value === 'all') {
+            if (allUserId !== undefined) return type === 'all' ? reserves.data?.total : allCount.data?.total;
             const values = [counts.data?.normal, counts.data?.conflicts, counts.data?.overlaps, counts.data?.skips];
             return values.every(count => count === undefined) ? undefined : values.reduce<number>((total, count) => total + (count ?? 0), 0);
         }
@@ -251,6 +267,13 @@ export function ReservesPage(): ReactNode {
         value.set('page', (next.page ?? 1).toString(10));
         setParams(value, { replace });
     };
+    const changeUser = (value: ActiveUserId): void => {
+        setFallbackUserId(value);
+        const next = new URLSearchParams(params);
+        next.set('userId', typeof value === 'number' ? value.toString(10) : 'master');
+        next.set('page', '1');
+        setParams(next);
+    };
     useEffect(() => {
         if (reserves.isSuccess && page > pageCount) updateParams({ page: pageCount }, true);
     }, [page, pageCount, reserves.isSuccess]);
@@ -269,7 +292,7 @@ export function ReservesPage(): ReactNode {
                 title={reserveTypes.find(item => item.value === type)?.label ?? '予約'}
                 actions={
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <UserSelector value={userId} onChange={setUserId} />
+                        <UserSelector value={userId} onChange={changeUser} />
                         <Button
                             variant={editing ? 'contained' : 'outlined'}
                             onClick={() => {
