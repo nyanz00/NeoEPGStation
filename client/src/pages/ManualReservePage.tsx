@@ -26,7 +26,16 @@ import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelName, formatProgramDate, formatProgramTime, programDuration } from '../core/program';
+import {
+    channelName,
+    formatProgramDate,
+    formatProgramTime,
+    programAudioComponentLabel,
+    programAudioSamplingRateLabel,
+    programDuration,
+    programGenrePathLabels,
+    programVideoComponentLabel,
+} from '../core/program';
 import { type ActiveUserId, useActiveUser } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
@@ -157,6 +166,12 @@ export function ManualReservePage(): ReactNode {
         queryFn: () => api.getSchedule(programId, settings.isHalfWidthDisplayed),
         enabled: validProgramId,
     });
+    const reserveProgramId = reserve.data?.programId;
+    const reserveProgram = useQuery({
+        queryKey: ['schedule', reserveProgramId, settings.isHalfWidthDisplayed],
+        queryFn: () => api.getSchedule(reserveProgramId!, settings.isHalfWidthDisplayed),
+        enabled: validReserveId && reserveProgramId !== undefined,
+    });
     const [state, setState] = useState<EditorState | null>(null);
     const [timeSpecified, setTimeSpecified] = useState<TimeSpecifiedState | null>(null);
 
@@ -221,6 +236,13 @@ export function ManualReservePage(): ReactNode {
             return { ...current, encodes };
         });
 
+    const programInfo = validReserveId ? (reserveProgram.data ?? reserve.data) : program.data;
+    const genres = programInfo === undefined ? [] : programGenrePathLabels(programInfo);
+    const video = programVideoComponentLabel(programInfo?.videoComponentType);
+    const audio = programAudioComponentLabel(programInfo?.audioComponentType);
+    const audioSamplingRate = programAudioSamplingRateLabel(programInfo?.audioSamplingRate);
+    const isFree = programInfo !== undefined && 'isFree' in programInfo ? programInfo.isFree : undefined;
+
     return (
         <>
             <PageHeader
@@ -252,18 +274,46 @@ export function ManualReservePage(): ReactNode {
                     <Card variant="outlined">
                         <CardContent>
                             <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                                {(validReserveId ? reserve.data : program.data)?.name}
+                                {programInfo?.name}
                             </Typography>
-                            <Typography color="text.secondary">{channelName(channels.data, (validReserveId ? reserve.data : program.data)!.channelId)}</Typography>
+                            <Typography color="text.secondary">{channelName(channels.data, programInfo!.channelId)}</Typography>
                             <Typography color="text.secondary">
-                                {formatProgramDate((validReserveId ? reserve.data : program.data)!.startAt)} -{' '}
-                                {formatProgramTime((validReserveId ? reserve.data : program.data)!.endAt)}（{programDuration((validReserveId ? reserve.data : program.data)!)}分）
+                                {formatProgramDate(programInfo!.startAt)} - {formatProgramTime(programInfo!.endAt)}（{programDuration(programInfo!)}分）
                             </Typography>
-                            {(validReserveId ? reserve.data : program.data)!.description !== undefined && (
-                                <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{(validReserveId ? reserve.data : program.data)!.description}</Typography>
+                            {genres.length > 0 && (
+                                <Stack spacing={0.25} sx={{ my: 1 }}>
+                                    {genres.map((genre, index) => (
+                                        <Typography key={`${index.toString(10)}-${genre}`} variant="body2" color="text.secondary">
+                                            {genre}
+                                        </Typography>
+                                    ))}
+                                </Stack>
                             )}
-                            {(validReserveId ? reserve.data : program.data)!.extended !== undefined && (
-                                <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{(validReserveId ? reserve.data : program.data)!.extended}</Typography>
+                            {programInfo!.description !== undefined && <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{programInfo!.description}</Typography>}
+                            {programInfo!.extended !== undefined && <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{programInfo!.extended}</Typography>}
+                            {(video !== undefined || audio !== undefined || audioSamplingRate !== undefined || isFree !== undefined) && (
+                                <Stack spacing={0.25} sx={{ mt: 1 }}>
+                                    {video !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {video}
+                                        </Typography>
+                                    )}
+                                    {audio !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {audio}
+                                        </Typography>
+                                    )}
+                                    {audioSamplingRate !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {audioSamplingRate}
+                                        </Typography>
+                                    )}
+                                    {isFree !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {isFree ? '無料放送' : '有料放送'}
+                                        </Typography>
+                                    )}
+                                </Stack>
                             )}
                         </CardContent>
                     </Card>

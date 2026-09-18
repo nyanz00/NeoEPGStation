@@ -7,7 +7,16 @@ import { Box, ButtonBase, Collapse, IconButton, Stack, Typography } from '@mui/m
 import type { ReactNode } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ScheduleProgramItem } from '../../../api';
-import { formatProgramDate, formatProgramDateCompact, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
+import {
+    formatProgramDate,
+    formatProgramDateCompact,
+    formatProgramTime,
+    programAudioComponentLabel,
+    programAudioSamplingRateLabel,
+    programDuration,
+    programGenrePathLabels,
+    programVideoCodecLabel,
+} from '../core/program';
 import { withBasePath } from '../core/path';
 import { useSettings } from '../core/storage/settings';
 
@@ -32,39 +41,6 @@ interface ProgramChannelSummary {
     id: number;
     name: string;
     hasLogoData: boolean;
-}
-
-const audioComponentLabels: Record<number, string> = {
-    0x01: '1/0モード（モノラル）',
-    0x02: '1/0＋1/0モード（デュアルモノ）',
-    0x03: '2/0モード（ステレオ）',
-    0x04: '2/1モード',
-    0x05: '3/0モード',
-    0x06: '2/2モード',
-    0x07: '3/1モード',
-    0x08: '3/2モード',
-    0x09: '3/2＋LFEモード（5.1ch）',
-    0x0a: '3/3.1モード',
-    0x0b: '2/0/0-2/0/2-0.1モード',
-    0x0c: '5/2.1モード',
-    0x0d: '3/2/2.1モード',
-    0x0e: '2/0/0-3/0/2-0.1モード',
-    0x0f: '0/2/0-3/0/2-0.1モード',
-    0x10: '2/0/0-3/2/3-0.2モード',
-    0x11: '3/3/3-5/2/3-3/0/0.2モード',
-};
-
-function videoCodecLabel(value: ProgramBroadcastItem['videoType']): string | undefined {
-    if (value === 'mpeg2') return 'MPEG-2';
-    if (value === 'h.264') return 'H.264';
-    if (value === 'h.265') return 'H.265';
-    return undefined;
-}
-
-function audioSamplingRateLabel(value: ProgramBroadcastItem['audioSamplingRate']): string | undefined {
-    if (value === undefined) return undefined;
-    const kiloHertz = value / 1000;
-    return `${Number.isInteger(kiloHertz) ? kiloHertz.toFixed(0) : kiloHertz.toString()}kHz`;
 }
 
 function detailValue(parts: Array<string | undefined>): string {
@@ -308,16 +284,11 @@ export function ProgramBroadcastDetails({
                         </Stack>
                     </DetailRow>
                     <DetailRow icon={<VideocamOutlined fontSize="small" />} label="映像">
-                        <Typography variant="body2">{detailValue([videoCodecLabel(program.videoType), program.videoResolution])}</Typography>
+                        <Typography variant="body2">{detailValue([programVideoCodecLabel(program.videoType), program.videoResolution])}</Typography>
                     </DetailRow>
                     <DetailRow icon={<HeadphonesOutlined fontSize="small" />} label="主音声">
                         <Typography variant="body2">
-                            {detailValue([
-                                program.audioComponentType === undefined
-                                    ? undefined
-                                    : (audioComponentLabels[program.audioComponentType] ?? `音声モード 0x${program.audioComponentType.toString(16).padStart(2, '0')}`),
-                                audioSamplingRateLabel(program.audioSamplingRate),
-                            ])}
+                            {detailValue([programAudioComponentLabel(program.audioComponentType), programAudioSamplingRateLabel(program.audioSamplingRate)])}
                         </Typography>
                     </DetailRow>
                 </Stack>

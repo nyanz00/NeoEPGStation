@@ -1,4 +1,4 @@
-import type { ChannelItem, ChannelType, ScheduleProgramItem } from '../../../api';
+import type { ChannelItem, ChannelType, ProgramAudioSamplingRate, ProgramVideoType, ScheduleProgramItem } from '../../../api';
 
 export const genreNames = [
     'ニュース・報道',
@@ -18,6 +18,9 @@ export const genreNames = [
     '拡張',
     'その他',
 ] as const;
+
+/** 番組内容の検索条件として選択可能な大ジャンル。予備枠と付属情報用の拡張枠は除外する。 */
+export const searchableGenreItems = genreNames.map((name, genre) => ({ genre, name })).filter(item => (item.genre >= 0 && item.genre <= 11) || item.genre === 15);
 
 export function programGenreLabels(program: { genre1?: number; genre2?: number; genre3?: number }): string[] {
     return Array.from(
@@ -64,6 +67,85 @@ export function programGenrePathLabels(program: { genre1?: number; subGenre1?: n
         if (genre === undefined) return [];
         return [genrePathLabel(genre, subGenre)];
     });
+}
+
+const videoComponentLabels: Record<number, string> = {
+    0x01: '480i（525i）、アスペクト比4:3',
+    0x02: '480i（525i）、アスペクト比16:9 パンベクトルあり',
+    0x03: '480i（525i）、アスペクト比16:9 パンベクトルなし',
+    0x04: '480i（525i）、アスペクト比 > 16:9',
+    0x83: '4320p、アスペクト比16:9',
+    0x91: '2160p、アスペクト比4:3',
+    0x92: '2160p、アスペクト比16:9 パンベクトルあり',
+    0x93: '2160p、アスペクト比16:9 パンベクトルなし',
+    0x94: '2160p、アスペクト比 > 16:9',
+    0xa1: '480p（525p）、アスペクト比4:3',
+    0xa2: '480p（525p）、アスペクト比16:9 パンベクトルあり',
+    0xa3: '480p（525p）、アスペクト比16:9 パンベクトルなし',
+    0xa4: '480p（525p）、アスペクト比 > 16:9',
+    0xb1: '1080i（1125i）、アスペクト比4:3',
+    0xb2: '1080i（1125i）、アスペクト比16:9 パンベクトルあり',
+    0xb3: '1080i（1125i）、アスペクト比16:9 パンベクトルなし',
+    0xb4: '1080i（1125i）、アスペクト比 > 16:9',
+    0xc1: '720p（750p）、アスペクト比4:3',
+    0xc2: '720p（750p）、アスペクト比16:9 パンベクトルあり',
+    0xc3: '720p（750p）、アスペクト比16:9 パンベクトルなし',
+    0xc4: '720p（750p）、アスペクト比 > 16:9',
+    0xd1: '240p、アスペクト比4:3',
+    0xd2: '240p、アスペクト比16:9 パンベクトルあり',
+    0xd3: '240p、アスペクト比16:9 パンベクトルなし',
+    0xd4: '240p、アスペクト比 > 16:9',
+    0xe1: '1080p（1125p）、アスペクト比4:3',
+    0xe2: '1080p（1125p）、アスペクト比16:9 パンベクトルあり',
+    0xe3: '1080p（1125p）、アスペクト比16:9 パンベクトルなし',
+    0xe4: '1080p（1125p）、アスペクト比 > 16:9',
+    0xf1: '180p、アスペクト比4:3',
+    0xf2: '180p、アスペクト比16:9 パンベクトルあり',
+    0xf3: '180p、アスペクト比16:9 パンベクトルなし',
+    0xf4: '180p、アスペクト比 > 16:9',
+};
+
+const audioComponentLabels: Record<number, string> = {
+    0x01: '1/0モード（モノラル）',
+    0x02: '1/0＋1/0モード（デュアルモノ）',
+    0x03: '2/0モード（ステレオ）',
+    0x04: '2/1モード',
+    0x05: '3/0モード',
+    0x06: '2/2モード',
+    0x07: '3/1モード',
+    0x08: '3/2モード',
+    0x09: '3/2＋LFEモード（5.1ch）',
+    0x0a: '3/3.1モード',
+    0x0b: '2/0/0-2/0/2-0.1モード',
+    0x0c: '5/2.1モード',
+    0x0d: '3/2/2.1モード',
+    0x0e: '2/0/0-3/0/2-0.1モード',
+    0x0f: '0/2/0-3/0/2-0.1モード',
+    0x10: '2/0/0-3/2/3-0.2モード',
+    0x11: '3/3/3-5/2/3-3/0/0.2モード',
+};
+
+export function programVideoComponentLabel(value: number | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    return videoComponentLabels[value];
+}
+
+export function programVideoCodecLabel(value: ProgramVideoType | undefined): string | undefined {
+    if (value === 'mpeg2') return 'MPEG-2';
+    if (value === 'h.264') return 'H.264';
+    if (value === 'h.265') return 'H.265';
+    return undefined;
+}
+
+export function programAudioComponentLabel(value: number | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    return audioComponentLabels[value] ?? `音声モード 0x${value.toString(16).padStart(2, '0')}`;
+}
+
+export function programAudioSamplingRateLabel(value: ProgramAudioSamplingRate | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    const kiloHertz = value / 1000;
+    return `${Number.isInteger(kiloHertz) ? kiloHertz.toFixed(0) : kiloHertz.toString()}kHz`;
 }
 
 export const weekItems = [

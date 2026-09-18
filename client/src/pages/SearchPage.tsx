@@ -34,7 +34,7 @@ import { DateTextInput } from '../components/DateTimeInput';
 import { RuleEditorDialog } from '../components/RuleEditorDialog';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelName, channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, programDuration, subGenreNames, weekItems } from '../core/program';
+import { channelName, channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, programDuration, searchableGenreItems, subGenreNames, weekItems } from '../core/program';
 import { useSettings } from '../core/storage/settings';
 import { GuideProgramDialog } from './GuidePage';
 
@@ -543,10 +543,10 @@ export function SearchPage(): ReactNode {
                                                     <Checkbox size="small" checked={form.genres.length === 0} />
                                                     すべて
                                                 </MenuItem>
-                                                {genreNames.map((name, index) => (
-                                                    <MenuItem key={`${index}-${name}`} value={index}>
-                                                        <Checkbox size="small" checked={form.genres.includes(index)} />
-                                                        {name}
+                                                {searchableGenreItems.map(item => (
+                                                    <MenuItem key={item.genre} value={item.genre}>
+                                                        <Checkbox size="small" checked={form.genres.includes(item.genre)} />
+                                                        {item.name}
                                                     </MenuItem>
                                                 ))}
                                             </Select>
