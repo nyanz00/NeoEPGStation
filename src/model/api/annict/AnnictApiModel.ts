@@ -35,6 +35,12 @@ interface CacheFile<T> {
     value: T;
 }
 
+interface WorkListRefreshResult {
+    works: apid.AnnictWorkSummary[];
+    cachedAt: number;
+    enrichmentPending: boolean;
+}
+
 interface AnnictProgramPage {
     nodes: any[];
     hasNextPage: boolean;
@@ -177,6 +183,8 @@ class AnnictApiModel implements IAnnictApiModel {
     private readonly episodeWatchRequests = new Map<string, Promise<void>>();
     private readonly episodeStatusSyncRequests = new Map<string, Promise<void>>();
     private readonly episodeCompletionRequests = new Map<string, Promise<void>>();
+    private readonly workListRefreshRequests = new Map<string, Promise<WorkListRefreshResult>>();
+    private readonly workListRefreshFailures = new Map<string, number>();
     private readonly workListEnrichmentRequests = new Map<string, Promise<void>>();
     private readonly workListEnrichmentFailures = new Map<string, number>();
 
@@ -896,20 +904,35 @@ class AnnictApiModel implements IAnnictApiModel {
                 enrichmentPending,
             };
         }
-        try {
-            const works = await this.fetchBasicWorkList(season);
-            const cachedAt = Date.now();
-            const generation = randomUUID();
-            await this.writeJson(basicFile, { cachedAt, generation, value: works });
-            const enrichmentPending = this.startWorkListEnrichment(
+        if (!refresh && (cached !== null || basicCached !== null)) {
+            const displayBasicCache =
+                basicCached !== null &&
+                (cached === null || this.workListCacheGeneration(basicCached) !== this.workListCacheGeneration(cached));
+            const displayedCache = displayBasicCache ? basicCached : (cached ?? basicCached!);
+            const refreshPending = this.startWorkListRefresh(season, basicFile, enrichedFile);
+            const enrichmentPending =
+                displayBasicCache && basicCached !== null
+                    ? this.startWorkListEnrichment(
+                          season,
+                          basicCached.value,
+                          basicCached.cachedAt,
+                          this.workListCacheGeneration(basicCached),
+                          basicFile,
+                          enrichedFile,
+                      )
+                    : false;
+            return {
                 season,
-                works,
-                cachedAt,
-                generation,
-                basicFile,
-                enrichedFile,
-            );
-            return { season, works, cachedAt, stale: false, enrichmentPending };
+                works: displayedCache.value,
+                cachedAt: displayedCache.cachedAt,
+                stale: true,
+                refreshPending,
+                enrichmentPending,
+            };
+        }
+        try {
+            const result = await this.getOrStartWorkListRefresh(season, basicFile, enrichedFile, true)!;
+            return { season, ...result, stale: false, refreshPending: false };
         } catch (err) {
             if (
                 basicCached !== null &&
@@ -929,6 +952,7 @@ class AnnictApiModel implements IAnnictApiModel {
                     works: basicCached.value,
                     cachedAt: basicCached.cachedAt,
                     stale: true,
+                    refreshPending: false,
                     enrichmentPending,
                 };
             }
@@ -938,11 +962,71 @@ class AnnictApiModel implements IAnnictApiModel {
                     works: cached.value,
                     cachedAt: cached.cachedAt,
                     stale: true,
+                    refreshPending: false,
                     enrichmentPending: false,
                 };
             }
             throw err;
         }
+    }
+
+    private startWorkListRefresh(season: string, basicFile: string, enrichedFile: string): boolean {
+        const request = this.getOrStartWorkListRefresh(season, basicFile, enrichedFile, false);
+        if (request === null) return false;
+        void request.catch(() => undefined);
+        return true;
+    }
+
+    private getOrStartWorkListRefresh(
+        season: string,
+        basicFile: string,
+        enrichedFile: string,
+        force: boolean,
+    ): Promise<WorkListRefreshResult> | null {
+        const active = this.workListRefreshRequests.get(season);
+        if (active !== undefined) return active;
+        const failedAt = this.workListRefreshFailures.get(season);
+        if (!force && failedAt !== undefined && Date.now() - failedAt < 5 * 60 * 1000) return null;
+
+        const request = this.refreshWorkList(season, basicFile, enrichedFile)
+            .then(result => {
+                this.workListRefreshFailures.delete(season);
+                return result;
+            })
+            .catch(err => {
+                this.workListRefreshFailures.set(season, Date.now());
+                this.log.system.warn(
+                    `Annict work list refresh failed: season=${season}, error=${this.errorMessage(err)}`,
+                );
+                throw err;
+            })
+            .finally(() => {
+                if (this.workListRefreshRequests.get(season) === request) {
+                    this.workListRefreshRequests.delete(season);
+                }
+            });
+        this.workListRefreshRequests.set(season, request);
+        return request;
+    }
+
+    private async refreshWorkList(
+        season: string,
+        basicFile: string,
+        enrichedFile: string,
+    ): Promise<WorkListRefreshResult> {
+        const works = await this.fetchBasicWorkList(season);
+        const cachedAt = Date.now();
+        const generation = randomUUID();
+        await this.writeJson(basicFile, { cachedAt, generation, value: works });
+        const enrichmentPending = this.startWorkListEnrichment(
+            season,
+            works,
+            cachedAt,
+            generation,
+            basicFile,
+            enrichedFile,
+        );
+        return { works, cachedAt, enrichmentPending };
     }
 
     private async fetchBasicWorkList(season: string): Promise<apid.AnnictWorkSummary[]> {

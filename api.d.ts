@@ -297,6 +297,7 @@ export interface AnnictWorkList {
     rerun?: boolean;
     cachedAt: number;
     stale: boolean;
+    refreshPending?: boolean;
     enrichmentPending?: boolean;
 }
 

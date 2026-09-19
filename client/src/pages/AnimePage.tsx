@@ -454,7 +454,7 @@ export function AnimePage(): ReactNode {
         queryKey: ['annict', 'works', season, mode, settings.annictExcludePaidChannels],
         queryFn: () => api.getAnnictWorks(season, false, mode === 'rerun', settings.annictExcludePaidChannels),
         enabled: status.data?.configured === true,
-        refetchInterval: query => (query.state.data?.enrichmentPending === true ? 2_000 : false),
+        refetchInterval: query => (query.state.data?.refreshPending === true || query.state.data?.enrichmentPending === true ? 2_000 : false),
         refetchIntervalInBackground: false,
     });
     const viewerStatusIds = useMemo(() => works.data?.works.map(work => work.annictId) ?? [], [works.data?.works]);
@@ -864,7 +864,12 @@ export function AnimePage(): ReactNode {
                         </Stack>
                     </PageSubHeader>
                     <Stack spacing={2} sx={{ p: { xs: 1.5, md: 3 } }}>
-                        {works.data?.stale === true && <Alert severity="warning">Annictへ接続できなかったため、保存済みデータを表示しています。</Alert>}
+                        {works.data?.stale === true &&
+                            (works.data.refreshPending === true ? (
+                                <Alert severity="info">保存済みデータを表示しています。最新情報はバックグラウンドで取得中です。</Alert>
+                            ) : (
+                                <Alert severity="warning">Annictへ接続できなかったため、保存済みデータを表示しています。</Alert>
+                            ))}
                         {works.error !== null && works.data !== undefined && (
                             <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
                         )}
