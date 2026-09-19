@@ -27,7 +27,7 @@ import {
     useMediaQuery,
     useTheme,
 } from '@mui/material';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { GetReserveType, ReserveId, ReserveItem } from '../../../api';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -42,16 +42,17 @@ import { channelName, formatProgramDate, formatProgramTime, programDuration } fr
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
-const reserveTypes: { value: GetReserveType; label: string }[] = [
-    { value: 'all', label: 'すべて' },
+type ReserveViewType = Exclude<GetReserveType, 'all'>;
+
+const reserveTypes: { value: ReserveViewType; label: string }[] = [
     { value: 'normal', label: '予約' },
     { value: 'conflict', label: '競合' },
     { value: 'overlap', label: '重複' },
     { value: 'skip', label: '除外' },
 ];
 
-function normalizeType(value: string | null): GetReserveType {
-    return value === 'all' || value === 'conflict' || value === 'overlap' || value === 'skip' ? value : 'normal';
+function normalizeType(value: string | null): ReserveViewType {
+    return value === 'conflict' || value === 'overlap' || value === 'skip' ? value : 'normal';
 }
 
 function parseUserFilter(value: string | null): ActiveUserId | undefined {
@@ -154,44 +155,33 @@ export function ReservesPage(): ReactNode {
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
-    const counts = useQuery({ queryKey: ['reserve-counts'], queryFn: api.getReserveCounts });
     const selectedUserId = typeof userId === 'number' ? userId : undefined;
-    // The ordinary "all" tab includes all users; an explicit URL filter preserves a dashboard continuation.
-    const requestUserId = type === 'all' && routeUserId === undefined ? undefined : selectedUserId;
-    const allUserId = typeof routeUserId === 'number' ? routeUserId : undefined;
-    const allCount = useQuery({
-        queryKey: ['reserves', 'all-count', allUserId],
-        queryFn: () => api.getReserves({ type: 'all', isHalfWidth: settings.isHalfWidthDisplayed, userId: allUserId, offset: 0, limit: 1 }),
-        enabled: allUserId !== undefined && type !== 'all',
-    });
-    const normalCount = useQuery({
-        queryKey: ['reserves', 'normal-count', selectedUserId],
-        queryFn: () => api.getReserves({ type: 'normal', isHalfWidth: settings.isHalfWidthDisplayed, userId: selectedUserId, offset: 0, limit: 1 }),
+    const typeCounts = useQueries({
+        queries: reserveTypes.map(item => ({
+            queryKey: ['reserves', 'count', item.value, selectedUserId, settings.isHalfWidthDisplayed],
+            queryFn: () =>
+                api.getReserves({
+                    type: item.value,
+                    isHalfWidth: settings.isHalfWidthDisplayed,
+                    userId: selectedUserId,
+                    offset: 0,
+                    limit: 1,
+                }),
+        })),
     });
     const reserves = useQuery({
-        queryKey: ['reserves', type, requestUserId, page, settings.isHalfWidthDisplayed, settings.reservesLength],
+        queryKey: ['reserves', type, selectedUserId, page, settings.isHalfWidthDisplayed, settings.reservesLength],
         queryFn: () =>
             api.getReserves({
                 type,
                 isHalfWidth: settings.isHalfWidthDisplayed,
-                userId: requestUserId,
+                userId: selectedUserId,
                 offset: (page - 1) * settings.reservesLength,
                 limit: settings.reservesLength,
             }),
     });
     const pageCount = Math.max(1, Math.ceil((reserves.data?.total ?? 0) / settings.reservesLength));
-    const countFor = (value: GetReserveType): number | undefined => {
-        if (value === 'all') {
-            if (allUserId !== undefined) return type === 'all' ? reserves.data?.total : allCount.data?.total;
-            const values = [counts.data?.normal, counts.data?.conflicts, counts.data?.overlaps, counts.data?.skips];
-            return values.every(count => count === undefined) ? undefined : values.reduce<number>((total, count) => total + (count ?? 0), 0);
-        }
-        if (value === 'normal') return normalCount.data?.total;
-        if (value === 'conflict') return counts.data?.conflicts;
-        if (value === 'overlap') return counts.data?.overlaps;
-        if (value === 'skip') return counts.data?.skips;
-        return undefined;
-    };
+    const countFor = (value: ReserveViewType): number | undefined => typeCounts[reserveTypes.findIndex(item => item.value === value)]?.data?.total;
 
     useEffect(() => {
         setEditing(false);
@@ -261,7 +251,7 @@ export function ReservesPage(): ReactNode {
             await refresh();
         },
     });
-    const updateParams = (next: { type?: GetReserveType; page?: number }, replace = false): void => {
+    const updateParams = (next: { type?: ReserveViewType; page?: number }, replace = false): void => {
         const value = new URLSearchParams(params);
         if (next.type !== undefined) value.set('type', next.type);
         value.set('page', (next.page ?? 1).toString(10));
@@ -310,7 +300,7 @@ export function ReservesPage(): ReactNode {
             />
             <PageSubHeader>
                 <Box sx={{ px: { xs: 1, md: 2 } }}>
-                    <Tabs value={type} onChange={(_event, value: GetReserveType) => updateParams({ type: value })} variant="scrollable" scrollButtons="auto">
+                    <Tabs value={type} onChange={(_event, value: ReserveViewType) => updateParams({ type: value })} variant="scrollable" scrollButtons="auto">
                         {reserveTypes.map(item => (
                             <Tab key={item.value} value={item.value} label={`${item.label}${countFor(item.value) === undefined ? '' : ` ${countFor(item.value)}`}`} />
                         ))}

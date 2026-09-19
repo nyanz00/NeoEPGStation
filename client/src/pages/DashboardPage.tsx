@@ -496,17 +496,27 @@ export function DashboardPage(): ReactNode {
             },
             { queryKey: ['recorded', recordedOption], queryFn: () => api.getRecorded(recordedOption) },
             {
-                queryKey: ['reserves', 'all', page, userId, settings.isHalfWidthDisplayed, settings.reservesLength],
+                queryKey: ['reserves', 'normal', page, userId, settings.isHalfWidthDisplayed, settings.reservesLength],
                 queryFn: () =>
                     api.getReserves({
-                        type: 'all',
+                        type: 'normal',
                         isHalfWidth: settings.isHalfWidthDisplayed,
                         userId,
                         offset: (page - 1) * settings.reservesLength,
                         limit: settings.reservesLength,
                     }),
             },
-            { queryKey: ['reserve-counts'], queryFn: api.getReserveCounts },
+            {
+                queryKey: ['reserves', 'count', 'conflict', userId, settings.isHalfWidthDisplayed],
+                queryFn: () =>
+                    api.getReserves({
+                        type: 'conflict',
+                        isHalfWidth: settings.isHalfWidthDisplayed,
+                        userId,
+                        offset: 0,
+                        limit: 1,
+                    }),
+            },
             { queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 },
         ],
     });
@@ -521,7 +531,7 @@ export function DashboardPage(): ReactNode {
         params.set('page', '2');
         return params.toString();
     }, [searchParams]);
-    const reservesMoreParams = new URLSearchParams({ type: 'all', page: '2', userId: userId?.toString(10) ?? 'master' });
+    const reservesMoreParams = new URLSearchParams({ type: 'normal', page: '2', userId: userId?.toString(10) ?? 'master' });
 
     useEffect(() => {
         if (!allSettled || restoredScrollKey.current === location.key) return;
@@ -703,8 +713,8 @@ export function DashboardPage(): ReactNode {
                     displayed={reserves.data?.reserves.length}
                     total={reserves.data?.total}
                     morePath={`/reserves?${reservesMoreParams.toString()}`}
-                    badge={reserveCounts.data?.conflicts}
-                    onBadgeClick={() => void navigate('/reserves?type=conflict')}
+                    badge={reserveCounts.data?.total}
+                    onBadgeClick={() => void navigate(`/reserves?type=conflict&userId=${userId?.toString(10) ?? 'master'}`)}
                     loading={reserves.isPending}
                     error={reserves.error}
                     onRetry={() => void reserves.refetch()}
