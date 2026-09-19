@@ -454,6 +454,8 @@ export function AnimePage(): ReactNode {
         queryKey: ['annict', 'works', season, mode, settings.annictExcludePaidChannels],
         queryFn: () => api.getAnnictWorks(season, false, mode === 'rerun', settings.annictExcludePaidChannels),
         enabled: status.data?.configured === true,
+        refetchInterval: query => (query.state.data?.enrichmentPending === true ? 2_000 : false),
+        refetchIntervalInBackground: false,
     });
     const viewerStatusIds = useMemo(() => works.data?.works.map(work => work.annictId) ?? [], [works.data?.works]);
     const viewerStatuses = useQuery({
@@ -863,12 +865,15 @@ export function AnimePage(): ReactNode {
                     </PageSubHeader>
                     <Stack spacing={2} sx={{ p: { xs: 1.5, md: 3 } }}>
                         {works.data?.stale === true && <Alert severity="warning">Annictへ接続できなかったため、保存済みデータを表示しています。</Alert>}
+                        {works.error !== null && works.data !== undefined && (
+                            <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
+                        )}
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>
                         )}
                         {works.isPending || (watchingOnly && writeAvailable && viewerStatuses.isPending) ? (
                             <Loading />
-                        ) : works.error !== null ? (
+                        ) : works.error !== null && works.data === undefined ? (
                             <Alert severity="error" action={<Button onClick={refreshWorks}>再試行</Button>}>
                                 {queryErrorMessage(works.error)}
                             </Alert>

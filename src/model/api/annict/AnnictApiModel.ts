@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { randomUUID } from 'crypto';
 import { inject, injectable } from 'inversify';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -30,6 +31,7 @@ interface RuleLinksFile {
 }
 interface CacheFile<T> {
     cachedAt: number;
+    generation?: string;
     value: T;
 }
 
@@ -175,6 +177,8 @@ class AnnictApiModel implements IAnnictApiModel {
     private readonly episodeWatchRequests = new Map<string, Promise<void>>();
     private readonly episodeStatusSyncRequests = new Map<string, Promise<void>>();
     private readonly episodeCompletionRequests = new Map<string, Promise<void>>();
+    private readonly workListEnrichmentRequests = new Map<string, Promise<void>>();
+    private readonly workListEnrichmentFailures = new Map<string, number>();
 
     constructor(
         @inject('IChannelApiModel') channelApiModel: IChannelApiModel,
@@ -858,70 +862,174 @@ class AnnictApiModel implements IAnnictApiModel {
     ): Promise<apid.AnnictWorkList> {
         if (!/^\d{4}-(winter|spring|summer|autumn)$/.test(season)) throw new Error('seasonが不正です');
         if (rerun) return this.getRerunWorks(season, refresh, excludePaidChannels);
-        const file = path.join(this.root, 'cache', `works-v11-${season}.json`);
-        const cached = await this.readCache<apid.AnnictWorkSummary[]>(file);
-        if (!refresh && cached !== null && Date.now() - cached.cachedAt < 24 * 60 * 60 * 1000) {
-            return { season, works: cached.value, cachedAt: cached.cachedAt, stale: false };
+        const enrichedFile = path.join(this.root, 'cache', `works-v11-${season}.json`);
+        const basicFile = path.join(this.root, 'cache', `works-basic-v1-${season}.json`);
+        const [cached, basicCached] = await Promise.all([
+            this.readCache<apid.AnnictWorkSummary[]>(enrichedFile),
+            this.readCache<apid.AnnictWorkSummary[]>(basicFile),
+        ]);
+        const maxAge = 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        if (
+            !refresh &&
+            cached !== null &&
+            now - cached.cachedAt < maxAge &&
+            (basicCached === null || this.workListCacheGeneration(cached) === this.workListCacheGeneration(basicCached))
+        ) {
+            return { season, works: cached.value, cachedAt: cached.cachedAt, stale: false, enrichmentPending: false };
+        }
+        if (!refresh && basicCached !== null && now - basicCached.cachedAt < maxAge) {
+            const generation = this.workListCacheGeneration(basicCached);
+            const enrichmentPending = this.startWorkListEnrichment(
+                season,
+                basicCached.value,
+                basicCached.cachedAt,
+                generation,
+                basicFile,
+                enrichedFile,
+            );
+            return {
+                season,
+                works: basicCached.value,
+                cachedAt: basicCached.cachedAt,
+                stale: false,
+                enrichmentPending,
+            };
         }
         try {
-            const nodes: any[] = [];
-            let after: string | undefined;
-            const seenCursors = new Set<string>();
-            for (;;) {
-                const data = await this.requestWithSavedToken(
-                    `query Works($season: [String!], $after: String) {
-                        searchWorks(
-                            seasons: $season
-                            first: 100
-                            after: $after
-                            orderBy: { field: WATCHERS_COUNT, direction: DESC }
-                        ) {
-                            nodes {
-                                annictId title titleKana seasonName seasonYear media watchersCount malAnimeId
-                                image {
-                                    recommendedImageUrl facebookOgImageUrl twitterAvatarUrl
-                                    twitterBiggerAvatarUrl twitterNormalAvatarUrl twitterMiniAvatarUrl
-                                }
-                                programs(first: 1, orderBy: { field: STARTED_AT, direction: ASC }) {
-                                    nodes { startedAt }
-                                }
-                            }
-                            pageInfo { hasNextPage endCursor }
-                        }
-                    }`,
-                    { season: [season], after },
-                    true,
-                );
-                nodes.push(...(Array.isArray(data.searchWorks?.nodes) ? data.searchWorks.nodes : []));
-                const pageInfo = data.searchWorks?.pageInfo;
-                if (typeof pageInfo?.hasNextPage !== 'boolean') {
-                    throw new Error('Annict作品一覧のページ情報を取得できませんでした');
-                }
-                if (pageInfo?.hasNextPage !== true) break;
-                if (typeof pageInfo.endCursor !== 'string' || pageInfo.endCursor.length === 0) {
-                    throw new Error('Annict作品一覧の次ページカーソルを取得できませんでした');
-                }
-                if (seenCursors.has(pageInfo.endCursor))
-                    throw new Error('Annict作品一覧の次ページカーソルが重複しました');
-                seenCursors.add(pageInfo.endCursor);
-                after = pageInfo.endCursor;
-            }
-            const works = await this.enrichWorkReleaseDates(
-                await this.fillMissingWorkImages(
-                    nodes
-                        .filter(
-                            (work: any) => work !== null && typeof work === 'object' && Number.isFinite(work.annictId),
-                        )
-                        .map(this.mapWork),
-                ),
-            );
+            const works = await this.fetchBasicWorkList(season);
             const cachedAt = Date.now();
-            await this.writeJson(file, { cachedAt, value: works });
-            return { season, works, cachedAt, stale: false };
+            const generation = randomUUID();
+            await this.writeJson(basicFile, { cachedAt, generation, value: works });
+            const enrichmentPending = this.startWorkListEnrichment(
+                season,
+                works,
+                cachedAt,
+                generation,
+                basicFile,
+                enrichedFile,
+            );
+            return { season, works, cachedAt, stale: false, enrichmentPending };
         } catch (err) {
-            if (cached !== null) return { season, works: cached.value, cachedAt: cached.cachedAt, stale: true };
+            if (
+                basicCached !== null &&
+                (cached === null || this.workListCacheGeneration(basicCached) !== this.workListCacheGeneration(cached))
+            ) {
+                const generation = this.workListCacheGeneration(basicCached);
+                const enrichmentPending = this.startWorkListEnrichment(
+                    season,
+                    basicCached.value,
+                    basicCached.cachedAt,
+                    generation,
+                    basicFile,
+                    enrichedFile,
+                );
+                return {
+                    season,
+                    works: basicCached.value,
+                    cachedAt: basicCached.cachedAt,
+                    stale: true,
+                    enrichmentPending,
+                };
+            }
+            if (cached !== null) {
+                return {
+                    season,
+                    works: cached.value,
+                    cachedAt: cached.cachedAt,
+                    stale: true,
+                    enrichmentPending: false,
+                };
+            }
             throw err;
         }
+    }
+
+    private async fetchBasicWorkList(season: string): Promise<apid.AnnictWorkSummary[]> {
+        const nodes: any[] = [];
+        let after: string | undefined;
+        const seenCursors = new Set<string>();
+        for (;;) {
+            const data = await this.requestWithSavedToken(
+                `query Works($season: [String!], $after: String) {
+                    searchWorks(
+                        seasons: $season
+                        first: 100
+                        after: $after
+                        orderBy: { field: WATCHERS_COUNT, direction: DESC }
+                    ) {
+                        nodes {
+                            annictId title titleKana seasonName seasonYear media watchersCount malAnimeId
+                            image {
+                                recommendedImageUrl facebookOgImageUrl twitterAvatarUrl
+                                twitterBiggerAvatarUrl twitterNormalAvatarUrl twitterMiniAvatarUrl
+                            }
+                            programs(first: 1, orderBy: { field: STARTED_AT, direction: ASC }) {
+                                nodes { startedAt }
+                            }
+                        }
+                        pageInfo { hasNextPage endCursor }
+                    }
+                }`,
+                { season: [season], after },
+                true,
+            );
+            nodes.push(...(Array.isArray(data.searchWorks?.nodes) ? data.searchWorks.nodes : []));
+            const pageInfo = data.searchWorks?.pageInfo;
+            if (typeof pageInfo?.hasNextPage !== 'boolean') {
+                throw new Error('Annict作品一覧のページ情報を取得できませんでした');
+            }
+            if (pageInfo.hasNextPage !== true) break;
+            if (typeof pageInfo.endCursor !== 'string' || pageInfo.endCursor.length === 0) {
+                throw new Error('Annict作品一覧の次ページカーソルを取得できませんでした');
+            }
+            if (seenCursors.has(pageInfo.endCursor)) {
+                throw new Error('Annict作品一覧の次ページカーソルが重複しました');
+            }
+            seenCursors.add(pageInfo.endCursor);
+            after = pageInfo.endCursor;
+        }
+        return nodes
+            .filter((work: any) => work !== null && typeof work === 'object' && Number.isFinite(work.annictId))
+            .map(this.mapWork);
+    }
+
+    private startWorkListEnrichment(
+        season: string,
+        works: apid.AnnictWorkSummary[],
+        cachedAt: number,
+        generation: string,
+        basicFile: string,
+        enrichedFile: string,
+    ): boolean {
+        const key = `${season}:${generation}`;
+        if (this.workListEnrichmentRequests.has(key)) return true;
+        const failedAt = this.workListEnrichmentFailures.get(key);
+        if (failedAt !== undefined && Date.now() - failedAt < 5 * 60 * 1000) return false;
+
+        const request = Promise.resolve()
+            .then(async () => {
+                const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(works));
+                const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                if (latestBasic === null || this.workListCacheGeneration(latestBasic) !== generation) return;
+                await this.writeJson(enrichedFile, { cachedAt, generation, value: enriched });
+                this.workListEnrichmentFailures.delete(key);
+            })
+            .catch(err => {
+                this.workListEnrichmentFailures.set(key, Date.now());
+                this.log.system.warn(
+                    `Annict work list enrichment failed: season=${season}, error=${this.errorMessage(err)}`,
+                );
+            })
+            .finally(() => {
+                this.workListEnrichmentRequests.delete(key);
+            });
+        this.workListEnrichmentRequests.set(key, request);
+        return true;
+    }
+
+    private workListCacheGeneration(cache: CacheFile<apid.AnnictWorkSummary[]>): string {
+        return cache.generation ?? `legacy:${cache.cachedAt.toString(10)}`;
     }
 
     public async getWork(annictId: number, refresh: boolean): Promise<apid.AnnictWorkDetail> {
@@ -2631,9 +2739,13 @@ class AnnictApiModel implements IAnnictApiModel {
 
     private async writeJson(file: string, value: unknown): Promise<void> {
         await fs.promises.mkdir(path.dirname(file), { recursive: true });
-        const temporary = `${file}.${process.pid}.tmp`;
-        await fs.promises.writeFile(temporary, JSON.stringify(value), 'utf8');
-        await fs.promises.rename(temporary, file);
+        const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+        try {
+            await fs.promises.writeFile(temporary, JSON.stringify(value), 'utf8');
+            await fs.promises.rename(temporary, file);
+        } finally {
+            await fs.promises.rm(temporary, { force: true }).catch(() => undefined);
+        }
     }
 }
 
