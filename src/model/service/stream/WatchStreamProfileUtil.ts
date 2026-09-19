@@ -63,6 +63,8 @@ interface WatchQuality extends WatchStreamQuality {
 }
 
 namespace WatchStreamProfileUtil {
+    export const UNCONVERTED_QUALITY_NAME = '無変換';
+
     const DEFAULT_LIVE_QUALITIES = ['1080p', '720p', '480p'];
 
     const DEFAULT_RECORDED_QUALITIES = DEFAULT_LIVE_QUALITIES;
@@ -215,7 +217,7 @@ namespace WatchStreamProfileUtil {
     };
 
     export const isEnabled = (config: IConfigFile): boolean => {
-        return config.watch?.enabled === true;
+        return config.watch?.enabled !== false;
     };
 
     export const getLiveQualityNames = (config: IConfigFile): string[] => {

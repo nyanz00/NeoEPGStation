@@ -99,10 +99,10 @@ export function OnAirSelectStreamDialog({ channel, config, settings, onClose, on
         >
             <DialogTitle id="on-air-stream-title">{channel?.name ?? ''}</DialogTitle>
             <DialogContent dividers sx={{ bgcolor: 'action.hover' }}>
-                {options.length === 0 ? (
-                    <Typography color="text.secondary">利用できる視聴設定がありません。</Typography>
-                ) : (
-                    <Stack spacing={2} sx={{ pt: 1 }}>
+                <Stack spacing={2} sx={{ pt: 1 }}>
+                    {options.length === 0 ? (
+                        <Typography color="text.secondary">利用できる視聴設定がありません。</Typography>
+                    ) : (
                         <Stack direction="row" spacing={1.5}>
                             <FormControl variant="standard" sx={{ flex: 1 }}>
                                 <InputLabel>ストリーム</InputLabel>
@@ -125,9 +125,9 @@ export function OnAirSelectStreamDialog({ channel, config, settings, onClose, on
                                 </Select>
                             </FormControl>
                         </Stack>
-                        <FormControlLabel control={<Switch checked={useURLScheme} onChange={event => changeExternal(event.target.checked)} />} label="外部アプリで開く" />
-                    </Stack>
-                )}
+                    )}
+                    <FormControlLabel control={<Switch checked={useURLScheme} onChange={event => changeExternal(event.target.checked)} />} label="外部アプリで開く" />
+                </Stack>
             </DialogContent>
             <DialogActions>
                 {onGuide !== undefined && channel !== null && (

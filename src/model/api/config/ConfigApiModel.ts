@@ -94,12 +94,17 @@ export default class ConfigApiModel implements IConfigApiModel {
                     result.isEnableTSLiveStream = true;
                     result.streamConfig.live.ts = {};
 
-                    if (typeof config.stream.live.ts.m2ts !== 'undefined') {
-                        result.streamConfig.live.ts.m2ts = config.stream.live.ts.m2ts.map(c => {
-                            return {
-                                name: c.name,
-                                isUnconverted: typeof c.cmd === 'undefined',
-                            };
+                    const liveM2Ts = config.stream.live.ts.m2ts ?? [];
+                    result.streamConfig.live.ts.m2ts = liveM2Ts.map(c => {
+                        return {
+                            name: c.name,
+                            isUnconverted: typeof c.cmd === 'undefined',
+                        };
+                    });
+                    if (liveM2Ts.some(c => typeof c.cmd === 'undefined') === false) {
+                        result.streamConfig.live.ts.m2ts.push({
+                            name: WatchStreamProfileUtil.UNCONVERTED_QUALITY_NAME,
+                            isUnconverted: true,
                         });
                     }
                     if (typeof config.stream.live.ts.m2tsll !== 'undefined') {
@@ -188,6 +193,10 @@ export default class ConfigApiModel implements IConfigApiModel {
                     name: name,
                     isUnconverted: false,
                 };
+            });
+            result.streamConfig.live.ts.m2ts.push({
+                name: WatchStreamProfileUtil.UNCONVERTED_QUALITY_NAME,
+                isUnconverted: true,
             });
             result.streamConfig.live.ts.m2tsll = WatchStreamProfileUtil.getLiveDisplayQualityNames(config);
             if (typeof result.streamConfig.recorded === 'undefined') {

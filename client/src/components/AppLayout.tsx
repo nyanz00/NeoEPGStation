@@ -96,7 +96,7 @@ export function AppLayout(): ReactNode {
 
         const groups: Record<SideNavigationItemId, NavigationItem[]> = {
             dashboard: [{ label: sideNavigationLabels.dashboard, path: '/', icon: <DashboardOutlined /> }],
-            onair: [{ label: sideNavigationLabels.onair, path: '/onair', icon: <LiveTvOutlined /> }],
+            onair: config.data?.isEnableTSLiveStream === true ? [{ label: sideNavigationLabels.onair, path: '/onair', icon: <LiveTvOutlined /> }] : [],
             guide: guideNavigation,
             anime: [{ label: sideNavigationLabels.anime, path: '/anime', icon: <AlphaAIcon /> }],
             recording: [
