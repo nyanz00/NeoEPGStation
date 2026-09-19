@@ -58,6 +58,21 @@ interface RuleEditorState {
     deleteOriginal: boolean;
     updateThumbnail: boolean;
     encodeStartDelayMinutes: string;
+    copyKeywordToDirectory: boolean;
+}
+
+export interface BulkRuleTarget {
+    annictId: number;
+    title: string;
+    searchOption: RuleSearchOption;
+}
+
+export interface BulkRuleSaveResult {
+    requested: number;
+    createdAnnictIds: number[];
+    alreadyAddedAnnictIds: number[];
+    failed: Array<{ annictId: number; title: string }>;
+    linkWarnings: Array<{ annictId: number; title: string; message: string }>;
 }
 
 interface RuleEditorDialogProps {
@@ -66,8 +81,10 @@ interface RuleEditorDialogProps {
     priorityChannelIds?: ChannelId[];
     annictId?: number;
     rule?: Rule;
+    bulkTargets?: BulkRuleTarget[];
     onClose: () => void;
     onSaved?: () => void;
+    onBulkSaved?: (result: BulkRuleSaveResult) => void;
 }
 
 function emptyEncode(): EncodeSetting {
@@ -109,6 +126,7 @@ function initialState(rule: Rule | undefined, activeUser: ActiveUserId, settings
         deleteOriginal: rule?.encodeOption?.isDeleteOriginalAfterEncode ?? settings.isCheckDeleteOriginalAfterEncode,
         updateThumbnail: rule?.encodeOption?.updateThumbnail === true,
         encodeStartDelayMinutes: rule?.encodeOption?.startDelayMinutes?.toString(10) ?? '0',
+        copyKeywordToDirectory: rule === undefined && settings.isEnableCopyKeywordToDirectory,
     };
 }
 
@@ -157,6 +175,28 @@ function buildEncodeOption(state: RuleEditorState): ReserveEncodedOption | undef
         if (item.directory.trim().length > 0) option[`directory${index}`] = item.directory.trim();
     });
     return option;
+}
+
+function applyBulkDirectoryDefaults(
+    saveOption: ReserveSaveOption | undefined,
+    encodeOption: ReserveEncodedOption | undefined,
+    title: string,
+    copyKeywordToDirectory: boolean,
+): { saveOption?: ReserveSaveOption; encodeOption?: ReserveEncodedOption } {
+    const nextSaveOption = saveOption === undefined ? undefined : { ...saveOption };
+    const nextEncodeOption = encodeOption === undefined ? undefined : { ...encodeOption };
+    if (!copyKeywordToDirectory) return { saveOption: nextSaveOption, encodeOption: nextEncodeOption };
+
+    const resolvedSaveOption = nextSaveOption ?? {};
+    if (resolvedSaveOption.directory === undefined) resolvedSaveOption.directory = title;
+    if (nextEncodeOption !== undefined) {
+        ([1, 2, 3] as const).forEach(index => {
+            if (nextEncodeOption[`mode${index}`] !== undefined && nextEncodeOption[`directory${index}`] === undefined) {
+                nextEncodeOption[`directory${index}`] = title;
+            }
+        });
+    }
+    return { saveOption: resolvedSaveOption, encodeOption: nextEncodeOption };
 }
 
 function EncodeRow({
@@ -244,7 +284,7 @@ function getInitialEncodeRowCount(state: RuleEditorState): number {
     return Math.max(1, count);
 }
 
-export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], annictId, rule, onClose, onSaved }: RuleEditorDialogProps): ReactNode {
+export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], annictId, rule, bulkTargets, onClose, onSaved, onBulkSaved }: RuleEditorDialogProps): ReactNode {
     const { contentOffset } = useAppLayout();
     const activeUser = useActiveUser();
     const settings = useSettings();
@@ -255,6 +295,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
     const [encodeRowCount, setEncodeRowCount] = useState(() => getInitialEncodeRowCount(initialState(rule, activeUser, settings)));
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
+    const bulkMode = bulkTargets !== undefined;
     const sortedChannels = [...(channels.data ?? [])].sort((a, b) => {
         const aIndex = priorityChannelIds.indexOf(a.id);
         const bIndex = priorityChannelIds.indexOf(b.id);
@@ -270,14 +311,14 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
         if (rule === undefined && settings.isEnableEncodingSettingWhenCreateRule && (config.data?.encode.length ?? 0) > 0) {
             next.encodes[0].mode = config.data!.encode[0];
         }
-        if (rule === undefined && settings.isEnableCopyKeywordToDirectory && searchOption.keyword !== undefined) {
+        if (!bulkMode && rule === undefined && settings.isEnableCopyKeywordToDirectory && searchOption.keyword !== undefined) {
             next.directory = searchOption.keyword;
             next.encodes[0].directory = searchOption.keyword;
         }
         setState(next);
         setActiveTab(0);
         setEncodeRowCount(getInitialEncodeRowCount(next));
-    }, [activeUser, config.data, open, rule, searchOption.keyword, settings]);
+    }, [activeUser, bulkMode, config.data, open, rule, searchOption.keyword, settings]);
 
     const save = useMutation({
         mutationFn: async () => {
@@ -289,7 +330,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                 throw new Error('エンコード開始待機時間を0以上の整数で入力してください');
             }
             let effectiveSearchOption = searchOption;
-            if (state.isTimeSpecification) {
+            if (!bulkMode && state.isTimeSpecification) {
                 if (state.timeName.trim().length === 0) throw new Error('番組名を入力してください');
                 if (state.timeChannelId === '') throw new Error('放送局を選択してください');
                 if (state.timeWeek === 0) throw new Error('曜日を1つ以上選択してください');
@@ -303,42 +344,115 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                     times: [{ start, range, week: state.timeWeek }],
                 };
             }
+            const reserveOption = {
+                enable: state.enable,
+                allowEndLack: state.allowEndLack,
+                avoidDuplicate: state.avoidDuplicate,
+                periodToAvoidDuplicate: period,
+            };
+            const commonSaveOption = buildSaveOption(state);
+            const commonEncodeOption = buildEncodeOption(state);
+
+            if (bulkTargets !== undefined) {
+                if (bulkTargets.length === 0) throw new Error('追加する作品がありません');
+                const pageSize = 1000;
+                const firstPage = await api.getRules({ type: 'normal', userId: state.userId, offset: 0, limit: pageSize });
+                const existingRules = [...firstPage.rules];
+                for (let offset = pageSize; offset < firstPage.total; offset += pageSize) {
+                    const page = await api.getRules({ type: 'normal', userId: state.userId, offset, limit: pageSize });
+                    existingRules.push(...page.rules);
+                }
+                const existingAnnictIds = new Set(existingRules.flatMap(item => (item.annictId === undefined ? [] : [item.annictId])));
+                const result: BulkRuleSaveResult = {
+                    requested: bulkTargets.length,
+                    createdAnnictIds: [],
+                    alreadyAddedAnnictIds: [],
+                    failed: [],
+                    linkWarnings: [],
+                };
+                for (const target of bulkTargets) {
+                    if (existingAnnictIds.has(target.annictId)) {
+                        result.alreadyAddedAnnictIds.push(target.annictId);
+                        continue;
+                    }
+                    const resolved = applyBulkDirectoryDefaults(commonSaveOption, commonEncodeOption, target.title, state.copyKeywordToDirectory);
+                    const option: AddRuleOption = {
+                        isTimeSpecification: false,
+                        userId: state.userId,
+                        searchOption: target.searchOption,
+                        reserveOption,
+                        saveOption: resolved.saveOption,
+                        encodeOption: resolved.encodeOption,
+                    };
+                    try {
+                        const ruleId = await api.addRule(option);
+                        result.createdAnnictIds.push(target.annictId);
+                        try {
+                            const linkResult = await api.linkAnnictRule(ruleId, target.annictId);
+                            if (linkResult.statusUpdateError !== undefined) {
+                                result.linkWarnings.push({
+                                    annictId: target.annictId,
+                                    title: target.title,
+                                    message: linkResult.statusUpdateError,
+                                });
+                            }
+                        } catch (error) {
+                            result.linkWarnings.push({
+                                annictId: target.annictId,
+                                title: target.title,
+                                message: error instanceof Error ? error.message : 'Annictの視聴ステータスを更新できませんでした',
+                            });
+                        }
+                    } catch {
+                        result.failed.push({ annictId: target.annictId, title: target.title });
+                    }
+                }
+                return { kind: 'bulk' as const, result };
+            }
+
             const option: AddRuleOption = {
                 isTimeSpecification: state.isTimeSpecification,
                 userId: state.userId,
                 searchOption: effectiveSearchOption,
-                reserveOption: {
-                    enable: state.enable,
-                    allowEndLack: state.allowEndLack,
-                    avoidDuplicate: state.avoidDuplicate,
-                    periodToAvoidDuplicate: period,
-                },
-                saveOption: buildSaveOption(state),
-                encodeOption: buildEncodeOption(state),
+                reserveOption,
+                saveOption: commonSaveOption,
+                encodeOption: commonEncodeOption,
             };
             if (rule !== undefined) {
                 await api.updateRule(rule.id, option, settings.annictStopWatchingOnRuleDisable);
-                return undefined;
+                return { kind: 'single' as const, annictStatusError: undefined, annictLinkError: undefined };
             }
             const ruleId = await api.addRule(option);
-            if (annictId === undefined) return undefined;
+            if (annictId === undefined) return { kind: 'single' as const, annictStatusError: undefined, annictLinkError: undefined };
             try {
-                await api.linkAnnictRule(ruleId, annictId);
-                return undefined;
+                const linkResult = await api.linkAnnictRule(ruleId, annictId);
+                return { kind: 'single' as const, annictStatusError: linkResult.statusUpdateError, annictLinkError: undefined };
             } catch (error) {
-                return error instanceof Error ? error.message : 'Annictの視聴ステータスを更新できませんでした';
+                return {
+                    kind: 'single' as const,
+                    annictStatusError: undefined,
+                    annictLinkError: error instanceof Error ? error.message : 'Annict作品との関連付けに失敗しました',
+                };
             }
         },
-        onSuccess: async annictError => {
-            await Promise.all([
+        onSuccess: async result => {
+            await Promise.allSettled([
                 queryClient.invalidateQueries({ queryKey: ['rules'] }),
                 queryClient.invalidateQueries({ queryKey: ['reserves'] }),
                 queryClient.invalidateQueries({ queryKey: ['reserve-counts'] }),
                 queryClient.invalidateQueries({ queryKey: ['reserve-lists'] }),
                 queryClient.invalidateQueries({ queryKey: ['annict', 'viewer-statuses'] }),
             ]);
+            if (result.kind === 'bulk') {
+                onBulkSaved?.(result.result);
+                onClose();
+                return;
+            }
             notify(rule === undefined ? 'ルールを追加しました' : 'ルールを更新しました', 'success');
-            if (annictError !== undefined) notify(`ルールは追加しましたが、Annict連携に失敗しました: ${annictError}`, 'warning');
+            if (result.annictStatusError !== undefined) {
+                notify(`ルールは関連付けましたが、Annict視聴ステータスを更新できませんでした: ${result.annictStatusError}`, 'warning');
+            }
+            if (result.annictLinkError !== undefined) notify(`ルールは追加しましたが、Annict作品との関連付けに失敗しました: ${result.annictLinkError}`, 'warning');
             onSaved?.();
             onClose();
         },
@@ -364,7 +478,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
     return (
         <Dialog
             open={open}
-            onClose={onClose}
+            onClose={save.isPending ? undefined : onClose}
             fullWidth
             maxWidth={false}
             slotProps={{
@@ -393,8 +507,8 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             }}
         >
             <DialogTitle sx={{ position: 'relative', pr: 7 }}>
-                {rule === undefined ? 'ルール追加' : 'ルール編集'}
-                <IconButton aria-label="閉じる" onClick={onClose} sx={programDialogClose}>
+                {bulkMode ? `ルール一括追加（${bulkTargets.length.toString(10)}作品）` : rule === undefined ? 'ルール追加' : 'ルール編集'}
+                <IconButton aria-label="閉じる" disabled={save.isPending} onClick={onClose} sx={programDialogClose}>
                     <CloseOutlined />
                 </IconButton>
             </DialogTitle>
@@ -416,17 +530,19 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             <DialogContent dividers sx={{ py: 2 }}>
                 {activeTab === 0 && (
                     <Stack spacing={2}>
-                        <FormControlLabel
-                            control={
-                                <Switch
-                                    checked={state.isTimeSpecification}
-                                    disabled={rule !== undefined}
-                                    onChange={event => setState(current => ({ ...current, isTimeSpecification: event.target.checked }))}
-                                />
-                            }
-                            label="時刻指定"
-                        />
-                        {state.isTimeSpecification && (
+                        {!bulkMode && (
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={state.isTimeSpecification}
+                                        disabled={rule !== undefined}
+                                        onChange={event => setState(current => ({ ...current, isTimeSpecification: event.target.checked }))}
+                                    />
+                                }
+                                label="時刻指定"
+                            />
+                        )}
+                        {!bulkMode && state.isTimeSpecification && (
                             <Stack spacing={1.5}>
                                 <TextField
                                     size="small"
@@ -549,6 +665,17 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                                     value={state.recordedFormat}
                                     onChange={event => setState(current => ({ ...current, recordedFormat: event.target.value }))}
                                 />
+                                {bulkMode && (
+                                    <FormControlLabel
+                                        control={
+                                            <Checkbox
+                                                checked={state.copyKeywordToDirectory}
+                                                onChange={event => setState(current => ({ ...current, copyKeywordToDirectory: event.target.checked }))}
+                                            />
+                                        }
+                                        label="空のサブディレクトリには作品名を個別に使用"
+                                    />
+                                )}
                             </Stack>
                         </Box>
                     </Stack>
@@ -624,11 +751,11 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                 )}
             </DialogContent>
             <DialogActions>
-                <Button color="inherit" variant="outlined" onClick={onClose}>
+                <Button color="inherit" variant="outlined" disabled={save.isPending} onClick={onClose}>
                     キャンセル
                 </Button>
                 <Button variant="contained" disabled={save.isPending || typeof state.userId !== 'number'} onClick={() => save.mutate()}>
-                    {rule === undefined ? '追加' : '更新'}
+                    {save.isPending ? (bulkMode ? '追加中…' : '保存中…') : bulkMode ? '一括追加' : rule === undefined ? '追加' : '更新'}
                 </Button>
             </DialogActions>
         </Dialog>

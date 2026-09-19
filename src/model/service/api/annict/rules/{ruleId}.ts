@@ -8,10 +8,10 @@ export const put: Operation = async (req, res) => {
     try {
         const ruleId = Number(req.params.ruleId);
         const annictId = Number(req.body?.annictId);
-        await container
+        const result = await container
             .get<IAnnictApiModel>('IAnnictApiModel')
             .linkRule(ruleId, annictId, await getViewerProfileId(req));
-        api.responseJSON(res, 204);
+        api.responseJSON(res, 200, result);
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
@@ -22,5 +22,5 @@ put.apiDoc = {
     tags: ['annict'],
     parameters: [{ $ref: '#/components/parameters/PathRuleId' }],
     requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
-    responses: { 204: { description: '関連付けました' }, default: { description: '予期しないエラー' } },
+    responses: { 200: { description: '関連付け結果を返しました' }, default: { description: '予期しないエラー' } },
 };

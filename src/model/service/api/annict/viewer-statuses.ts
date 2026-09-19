@@ -47,10 +47,10 @@ export const put: Operation = async (req, res) => {
     try {
         const viewerProfileId = await getViewerProfileId(req);
         if (viewerProfileId === undefined) throw new Error('視聴者プロフィールを選択してください');
-        await container
+        const result = await container
             .get<IAnnictApiModel>('IAnnictApiModel')
             .setViewerStatuses(ids(req.body?.annictIds), kind(req.body?.kind), viewerProfileId);
-        api.responseJSON(res, 204);
+        api.responseJSON(res, 200, result);
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
@@ -60,5 +60,5 @@ put.apiDoc = {
     summary: 'Annict視聴ステータス一括更新',
     tags: ['annict'],
     requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } },
-    responses: { 204: { description: '更新しました' }, default: { description: '予期しないエラー' } },
+    responses: { 200: { description: '更新結果を返しました' }, default: { description: '予期しないエラー' } },
 };

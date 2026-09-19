@@ -14,6 +14,7 @@ export const get: Operation = async (req, res) => {
                     String(req.query.season ?? ''),
                     String(req.query.refresh) === 'true',
                     String(req.query.rerun) === 'true',
+                    String(req.query.excludePaidChannels) === 'true',
                 ),
         );
     } catch (err: any) {
@@ -27,6 +28,7 @@ get.apiDoc = {
         { name: 'season', in: 'query', required: true, schema: { type: 'string' } },
         { name: 'refresh', in: 'query', schema: { type: 'boolean' } },
         { name: 'rerun', in: 'query', schema: { type: 'boolean' } },
+        { name: 'excludePaidChannels', in: 'query', schema: { type: 'boolean' } },
     ],
     responses: { 200: { description: '取得しました' }, default: { description: '予期しないエラー' } },
 };

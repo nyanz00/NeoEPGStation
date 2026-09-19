@@ -2,8 +2,10 @@ import type {
     AnnictStatus,
     AnnictEpisodeWatchOption,
     AnnictRecordedEpisodeInfo,
+    AnnictRuleLinkResult,
     AnnictViewerStatusKind,
     AnnictViewerStatuses,
+    AnnictViewerStatusUpdateResults,
     AnnictWorkDetail,
     AnnictWorkList,
     BlueskyStatus,
@@ -243,13 +245,29 @@ export const api = {
         await apiClient.delete('/annict/write-token');
     },
     async getAnnictViewerStatuses(annictIds: number[]): Promise<AnnictViewerStatuses> {
-        return (await apiClient.post<AnnictViewerStatuses>('/annict/viewer-statuses', { annictIds })).data;
+        const uniqueIds = [...new Set(annictIds)];
+        const responses: AnnictViewerStatuses[] = [];
+        for (let offset = 0; offset < uniqueIds.length; offset += 500) {
+            responses.push((await apiClient.post<AnnictViewerStatuses>('/annict/viewer-statuses', { annictIds: uniqueIds.slice(offset, offset + 500) })).data);
+        }
+        return { statuses: responses.flatMap(response => response.statuses) };
     },
-    async setAnnictViewerStatuses(annictIds: number[], kind: AnnictViewerStatusKind): Promise<void> {
-        await apiClient.put('/annict/viewer-statuses', { annictIds, kind });
+    async setAnnictViewerStatuses(annictIds: number[], kind: AnnictViewerStatusKind): Promise<AnnictViewerStatusUpdateResults> {
+        const uniqueIds = [...new Set(annictIds)];
+        const results: AnnictViewerStatusUpdateResults['results'] = [];
+        for (let offset = 0; offset < uniqueIds.length; offset += 500) {
+            const batchIds = uniqueIds.slice(offset, offset + 500);
+            try {
+                results.push(...(await apiClient.put<AnnictViewerStatusUpdateResults>('/annict/viewer-statuses', { annictIds: batchIds, kind })).data.results);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Annictの視聴ステータス更新リクエストに失敗しました';
+                results.push(...batchIds.map(annictId => ({ annictId, success: false, error: message })));
+            }
+        }
+        return { results };
     },
-    async linkAnnictRule(ruleId: RuleId, annictId: number): Promise<void> {
-        await apiClient.put(`/annict/rules/${ruleId}`, { annictId });
+    async linkAnnictRule(ruleId: RuleId, annictId: number): Promise<AnnictRuleLinkResult> {
+        return (await apiClient.put<AnnictRuleLinkResult>(`/annict/rules/${ruleId}`, { annictId })).data;
     },
     async getRecordedAnnictEpisode(recordedId: RecordedId): Promise<AnnictRecordedEpisodeInfo> {
         return (await apiClient.get<AnnictRecordedEpisodeInfo>(`/recorded/${recordedId}/annictEpisode`)).data;
@@ -300,8 +318,8 @@ export const api = {
     async removeRecordedPlaybackHistory(recordedId: RecordedId, userId: number): Promise<void> {
         await apiClient.delete(`/recorded/${recordedId}/playback`, { headers: playbackUserHeader(userId) });
     },
-    async getAnnictWorks(season: string, refresh = false, rerun = false): Promise<AnnictWorkList> {
-        return (await apiClient.get<AnnictWorkList>('/annict/works', { params: { season, refresh, rerun } })).data;
+    async getAnnictWorks(season: string, refresh = false, rerun = false, excludePaidChannels = false): Promise<AnnictWorkList> {
+        return (await apiClient.get<AnnictWorkList>('/annict/works', { params: { season, refresh, rerun, excludePaidChannels } })).data;
     },
     async getAnnictWork(annictId: number, refresh = false): Promise<AnnictWorkDetail> {
         return (await apiClient.get<AnnictWorkDetail>(`/annict/works/${annictId}`, { params: { refresh } })).data;

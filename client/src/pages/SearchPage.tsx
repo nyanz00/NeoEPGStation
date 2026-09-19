@@ -72,6 +72,7 @@ interface ProgramReserve {
 }
 
 const allKeywordFields: KeywordFields = { caseSensitive: false, regexp: false, name: true, description: true, extended: false };
+const animeKeywordFields: KeywordFields = { caseSensitive: false, regexp: false, name: true, description: false, extended: false };
 const defaultForm: SearchFormState = {
     keyword: '',
     keywordFields: allKeywordFields,
@@ -90,6 +91,48 @@ const defaultForm: SearchFormState = {
     endDate: '',
     isFree: false,
 };
+
+type AnimeReturnContext = {
+    annictId: number;
+    year?: number;
+    season?: 'winter' | 'spring' | 'summer' | 'autumn';
+    mode?: 'initial' | 'rerun';
+};
+
+function parseAnimeReturnContext(params: URLSearchParams): AnimeReturnContext | null {
+    if (params.get('origin') !== 'anime') return null;
+    const annictId = Number(params.get('annictId'));
+    if (!Number.isInteger(annictId) || annictId <= 0) return null;
+
+    const yearValue = params.get('year');
+    const year = yearValue !== null && /^\d{4}$/.test(yearValue) ? Number(yearValue) : undefined;
+    const seasonValue = params.get('season');
+    const season = seasonValue === 'winter' || seasonValue === 'spring' || seasonValue === 'summer' || seasonValue === 'autumn' ? seasonValue : undefined;
+    const mode = params.get('mode') === 'rerun' ? 'rerun' : params.get('mode') === 'initial' ? 'initial' : undefined;
+    return {
+        annictId,
+        ...(year !== undefined && year >= 2000 && year <= 2100 ? { year } : {}),
+        ...(season !== undefined ? { season } : {}),
+        ...(mode !== undefined ? { mode } : {}),
+    };
+}
+
+function animeDetailReturnPath(context: AnimeReturnContext): string {
+    const params = new URLSearchParams();
+    if (context.mode !== undefined) params.set('mode', context.mode);
+    if (context.year !== undefined) params.set('year', String(context.year));
+    if (context.season !== undefined) params.set('season', context.season);
+    const query = params.toString();
+    return `/anime/${context.annictId}${query.length > 0 ? `?${query}` : ''}`;
+}
+
+function animeListReturnPath(context: AnimeReturnContext): string {
+    const params = new URLSearchParams({ focus: String(context.annictId) });
+    if (context.mode !== undefined) params.set('mode', context.mode);
+    if (context.year !== undefined) params.set('year', String(context.year));
+    if (context.season !== undefined) params.set('season', context.season);
+    return `/anime?${params.toString()}`;
+}
 
 function channelIdsFromParams(params: URLSearchParams): ChannelId[] {
     return params
@@ -293,8 +336,10 @@ export function SearchPage(): ReactNode {
     const navigate = useNavigate();
     const parsedRuleId = Number(params.get('ruleId') ?? params.get('rule'));
     const ruleId = Number.isInteger(parsedRuleId) && parsedRuleId > 0 ? parsedRuleId : null;
-    const parsedAnimeAnnictId = Number(params.get('annictId'));
-    const animeReturnPath = params.get('origin') === 'anime' && Number.isInteger(parsedAnimeAnnictId) && parsedAnimeAnnictId > 0 ? `/anime/${parsedAnimeAnnictId}` : null;
+    const animeReturnContext = parseAnimeReturnContext(params);
+    const animeReturnPath = animeReturnContext === null ? null : animeDetailReturnPath(animeReturnContext);
+    const animeListPath = animeReturnContext === null ? null : animeListReturnPath(animeReturnContext);
+    const fromAnimeDetail = (location.state as { fromAnimeDetail?: boolean } | null)?.fromAnimeDetail === true;
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const rule = useQuery({ queryKey: ['rule', ruleId], queryFn: () => api.getRule(ruleId!), enabled: ruleId !== null });
@@ -303,6 +348,7 @@ export function SearchPage(): ReactNode {
         return {
             ...defaultForm,
             keyword: params.get('keyword') ?? '',
+            keywordFields: params.get('origin') === 'anime' ? animeKeywordFields : allKeywordFields,
             channelIds: channelIdsFromParams(params),
             week: weekFromParams(params),
             genres,
@@ -468,15 +514,15 @@ export function SearchPage(): ReactNode {
                     navigate('/reserves?type=conflict');
                 } else if (ruleId !== null) {
                     navigate('/rule');
-                } else if (animeReturnPath !== null) {
-                    navigate(`/anime?focus=${parsedAnimeAnnictId}`);
+                } else if (animeListPath !== null) {
+                    navigate(animeListPath, { replace: true });
                 } else {
                     resetSearchPage();
                 }
             })
             .catch(() => {
                 if (ruleId !== null) navigate('/rule');
-                else if (animeReturnPath !== null) navigate(`/anime?focus=${parsedAnimeAnnictId}`);
+                else if (animeListPath !== null) navigate(animeListPath, { replace: true });
                 else resetSearchPage();
             });
     };
@@ -772,7 +818,17 @@ export function SearchPage(): ReactNode {
                             </Typography>
                         )}
                         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', pt: 1.5 }}>
-                            <Button variant="outlined" onClick={animeReturnPath !== null ? () => navigate(animeReturnPath) : clearSearchForm}>
+                            <Button
+                                variant="outlined"
+                                onClick={
+                                    animeReturnPath !== null
+                                        ? () => {
+                                              if (fromAnimeDetail) navigate(-1);
+                                              else navigate(animeReturnPath, { replace: true });
+                                          }
+                                        : clearSearchForm
+                                }
+                            >
                                 {animeReturnPath !== null ? 'キャンセル' : 'クリア'}
                             </Button>
                             <Button
@@ -815,7 +871,7 @@ export function SearchPage(): ReactNode {
                 open={ruleEditorOpen}
                 searchOption={toSearchOption(form)}
                 priorityChannelIds={priorityEncodeChannelIds}
-                annictId={animeReturnPath !== null ? parsedAnimeAnnictId : undefined}
+                annictId={animeReturnContext?.annictId}
                 rule={rule.data}
                 onClose={() => setRuleEditorOpen(false)}
                 onSaved={handleRuleSaved}

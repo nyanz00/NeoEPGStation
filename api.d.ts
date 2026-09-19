@@ -194,6 +194,23 @@ export interface AnnictViewerStatuses {
     statuses: AnnictViewerStatus[];
 }
 
+export interface AnnictViewerStatusUpdateResult {
+    annictId: number;
+    success: boolean;
+    error?: string;
+}
+
+export interface AnnictViewerStatusUpdateResults {
+    results: AnnictViewerStatusUpdateResult[];
+}
+
+export interface AnnictRuleLinkResult {
+    linked: boolean;
+    statusUpdated: boolean;
+    statusUpdateSkipped?: boolean;
+    statusUpdateError?: string;
+}
+
 export type AnnictRecordedEpisodeState = 'unlinked' | 'pending' | 'matched';
 
 export type AnnictRecordedEpisodePendingReason =
