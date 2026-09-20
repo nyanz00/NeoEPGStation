@@ -152,22 +152,27 @@ function AnimeWorkImage({
     title,
     fallbackAnnictId,
     onResolvedImageUrl,
+    fadeIn = false,
 }: {
     imageUrl?: string;
     title: string;
     fallbackAnnictId?: number;
     onResolvedImageUrl?: (imageUrl: string) => void;
+    fadeIn?: boolean;
 }): ReactNode {
     const [activeImageUrl, setActiveImageUrl] = useState(imageUrl);
     const [failed, setFailed] = useState(false);
+    const [loaded, setLoaded] = useState(false);
     const fallbackRequested = useRef(false);
     useEffect(() => {
         setActiveImageUrl(imageUrl);
         setFailed(false);
+        setLoaded(false);
         fallbackRequested.current = false;
     }, [imageUrl]);
     const handleError = async (): Promise<void> => {
         if (fallbackAnnictId === undefined || fallbackRequested.current) {
+            setLoaded(false);
             setFailed(true);
             return;
         }
@@ -175,6 +180,7 @@ function AnimeWorkImage({
         try {
             const detail = await api.getAnnictWork(fallbackAnnictId);
             if (detail.imageUrl !== undefined && detail.imageUrl !== activeImageUrl) {
+                setLoaded(false);
                 setActiveImageUrl(detail.imageUrl);
                 onResolvedImageUrl?.(detail.imageUrl);
                 setFailed(false);
@@ -183,6 +189,7 @@ function AnimeWorkImage({
         } catch {
             // 画像の代替取得失敗はプレースホルダー表示へフォールバックする。
         }
+        setLoaded(false);
         setFailed(true);
     };
     const visible = activeImageUrl !== undefined && !failed;
@@ -195,8 +202,19 @@ function AnimeWorkImage({
                     src={activeImageUrl}
                     alt={`${title}の画像`}
                     draggable={false}
+                    onLoad={() => setLoaded(true)}
                     onError={() => void handleError()}
-                    sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                    sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain',
+                        display: 'block',
+                        opacity: !fadeIn || loaded ? 1 : 0,
+                        transition: fadeIn ? 'opacity 180ms ease' : 'none',
+                        '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                    }}
                 />
             )}
         </Box>
@@ -470,6 +488,7 @@ export function AnimePage(): ReactNode {
     const [bulkRulePreparation, setBulkRulePreparation] = useState<BulkRulePreparation | null>(null);
     const previousExcludePaidChannels = useRef(settings.annictExcludePaidChannels);
     const animeListSignature = `${season}:${mode}:${settings.annictExcludePaidChannels ? 'exclude-paid' : 'all'}`;
+    const [revealedAnimeList, setRevealedAnimeList] = useState(() => ({ signature: animeListSignature, animate: false }));
     const selectedWorkSignature = [...selectedWorkIds].sort((left, right) => left - right).join(',');
     const markWatched = useMutation({
         mutationFn: (annictIds: number[]) => api.setAnnictViewerStatuses(annictIds, 'watched'),
@@ -581,6 +600,11 @@ export function AnimePage(): ReactNode {
             return popularityDifference !== 0 ? popularityDifference : left.title.localeCompare(right.title, 'ja');
         });
     }, [filterKeyword, showNonTv, sortOrder, viewerStatuses.error, viewerStatusMap, watchingOnly, works.data?.works, writeAvailable]);
+    const animeListWaiting = works.isPending || (watchingOnly && writeAvailable && viewerStatuses.isPending);
+    useLayoutEffect(() => {
+        if (animeListWaiting || revealedAnimeList.signature === animeListSignature) return;
+        setRevealedAnimeList({ signature: animeListSignature, animate: true });
+    }, [animeListSignature, animeListWaiting, revealedAnimeList.signature]);
 
     const toggleWorkSelection = (annictId: number): void => {
         setSelectedWorkIds(current => {
@@ -863,7 +887,23 @@ export function AnimePage(): ReactNode {
                             </Box>
                         </Stack>
                     </PageSubHeader>
-                    <Stack spacing={2} sx={{ p: { xs: 1.5, md: 3 } }}>
+                    <Stack
+                        key={revealedAnimeList.signature}
+                        spacing={2}
+                        onAnimationEnd={event => {
+                            if (event.target !== event.currentTarget) return;
+                            setRevealedAnimeList(current => (current.animate ? { ...current, animate: false } : current));
+                        }}
+                        sx={{
+                            p: { xs: 1.5, md: 3 },
+                            animation: revealedAnimeList.animate ? 'anime-list-fade-in 250ms ease both' : 'none',
+                            '@keyframes anime-list-fade-in': {
+                                from: { opacity: 0 },
+                                to: { opacity: 1 },
+                            },
+                            '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+                        }}
+                    >
                         {works.data?.stale === true &&
                             (works.data.refreshPending === true ? (
                                 <Alert severity="info">保存済みデータを表示しています。最新情報はバックグラウンドで取得中です。</Alert>
@@ -876,7 +916,7 @@ export function AnimePage(): ReactNode {
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>
                         )}
-                        {works.isPending || (watchingOnly && writeAvailable && viewerStatuses.isPending) ? (
+                        {animeListWaiting || revealedAnimeList.signature !== animeListSignature ? (
                             <Loading />
                         ) : works.error !== null && works.data === undefined ? (
                             <Alert severity="error" action={<Button onClick={refreshWorks}>再試行</Button>}>
@@ -947,6 +987,7 @@ export function AnimePage(): ReactNode {
                                                     imageUrl={work.imageUrl}
                                                     title={work.title}
                                                     fallbackAnnictId={work.annictId}
+                                                    fadeIn
                                                     onResolvedImageUrl={imageUrl =>
                                                         setResolvedImageUrls(current => (current[work.annictId] === imageUrl ? current : { ...current, [work.annictId]: imageUrl }))
                                                     }
