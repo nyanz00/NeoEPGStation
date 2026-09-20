@@ -265,6 +265,9 @@ export default class ReserveApiModel implements IReserveApiModel {
             reserveId: reserve.id,
         };
 
+        if (reserve.userId !== null) {
+            result.userId = reserve.userId;
+        }
         if (reserve.programId !== null) {
             result.programId = reserve.programId;
         }

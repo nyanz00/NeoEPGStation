@@ -25,7 +25,7 @@ import {
 } from '@mui/material';
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { ChannelId, ChannelType, Genre, ReserveListItem, RuleSearchOption, ScheduleProgramItem } from '../../../api';
+import type { ChannelId, ChannelType, Genre, RuleSearchOption, ScheduleProgramItem } from '../../../api';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
@@ -36,7 +36,7 @@ import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { channelName, channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, programDuration, searchableGenreItems, subGenreNames, weekItems } from '../core/program';
 import { useSettings } from '../core/storage/settings';
-import { GuideProgramDialog } from './GuidePage';
+import { GuideProgramDialog, reserveIndex, type ProgramReserve } from './GuidePage';
 
 interface KeywordFields {
     caseSensitive: boolean;
@@ -63,12 +63,6 @@ interface SearchFormState {
     startDate: string;
     endDate: string;
     isFree: boolean;
-}
-
-type ReserveKind = 'normal' | 'conflict' | 'skip' | 'overlap';
-interface ProgramReserve {
-    kind: ReserveKind;
-    item: ReserveListItem;
 }
 
 const allKeywordFields: KeywordFields = { caseSensitive: false, regexp: false, name: true, description: true, extended: false };
@@ -308,25 +302,11 @@ function KeywordOptions({ value, onChange }: { value: KeywordFields; onChange: (
     );
 }
 
-function reserveIndex(
-    lists: { normal: ReserveListItem[]; conflicts: ReserveListItem[]; skips: ReserveListItem[]; overlaps: ReserveListItem[] } | undefined,
-): Map<number, ProgramReserve> {
-    const result = new Map<number, ProgramReserve>();
-    if (lists === undefined) return result;
-    const add = (kind: ReserveKind, items: ReserveListItem[]): void => {
-        items.forEach(item => {
-            if (typeof item.programId === 'number') result.set(item.programId, { kind, item });
-        });
-    };
-    add('normal', lists.normal);
-    add('conflict', lists.conflicts);
-    add('skip', lists.skips);
-    add('overlap', lists.overlaps);
-    return result;
-}
-
-function reserveLabel(kind: ReserveKind): string {
-    return { normal: '予約済み', conflict: '競合', skip: '除外', overlap: '重複' }[kind];
+function reserveLabel(reserve: ProgramReserve): string {
+    const labels = { normal: '予約済み', conflict: '競合', skip: '除外', overlap: '重複' } as const;
+    const primary = reserve.primary.kind;
+    const secondary = Array.from(new Set(reserve.entries.map(entry => entry.kind))).filter(kind => kind !== primary);
+    return secondary.length === 0 ? labels[primary] : `${labels[primary]}＋${secondary.map(kind => `${labels[kind]}あり`).join('・')}`;
 }
 
 export function SearchPage(): ReactNode {
@@ -757,19 +737,19 @@ export function SearchPage(): ReactNode {
                                         // theme. Keep Vue's red reservation decoration from being replaced
                                         // by that default color.
                                         borderColor: theme =>
-                                            reserve?.kind === 'conflict' || reserve?.kind === 'normal'
+                                            reserve?.primary.kind === 'conflict' || reserve?.primary.kind === 'normal'
                                                 ? `${theme.palette.error.main} !important`
                                                 : lastSelectedProgram?.id === program.id || reserve !== undefined
                                                   ? 'primary.main'
                                                   : 'divider',
-                                        borderWidth: reserve?.kind === 'normal' || reserve?.kind === 'conflict' ? 4 : 1,
-                                        borderStyle: reserve?.kind === 'conflict' ? 'dashed' : undefined,
+                                        borderWidth: reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict' ? 4 : 1,
+                                        borderStyle: reserve?.primary.kind === 'conflict' ? 'dashed' : undefined,
                                         outline: theme =>
-                                            reserve?.kind === 'normal' || reserve?.kind === 'conflict'
-                                                ? `3px ${reserve.kind === 'conflict' ? 'dashed' : 'solid'} ${theme.palette.error.main}`
+                                            reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict'
+                                                ? `3px ${reserve.primary.kind === 'conflict' ? 'dashed' : 'solid'} ${theme.palette.error.main}`
                                                 : undefined,
-                                        outlineOffset: reserve?.kind === 'normal' || reserve?.kind === 'conflict' ? -4 : undefined,
-                                        ...(reserve?.kind === 'normal' || reserve?.kind === 'conflict'
+                                        outlineOffset: reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict' ? -4 : undefined,
+                                        ...(reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict'
                                             ? {
                                                   // The shared outlined-card override targets
                                                   // `.MuiPaper-outlined` with equal importance. Increase
@@ -793,7 +773,7 @@ export function SearchPage(): ReactNode {
                                                     {program.name}
                                                 </Typography>
                                                 {reserve !== undefined && (
-                                                    <Chip size="small" color={reserve.kind === 'conflict' ? 'error' : 'primary'} label={reserveLabel(reserve.kind)} />
+                                                    <Chip size="small" color={reserve.primary.kind === 'conflict' ? 'error' : 'primary'} label={reserveLabel(reserve)} />
                                                 )}
                                             </Stack>
                                             <Typography variant="body2" color="text.secondary">

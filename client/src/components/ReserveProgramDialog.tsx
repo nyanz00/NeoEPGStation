@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, ReserveItem } from '../../../api';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatGuideTime } from '../core/guide/time';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { LinkifiedProgramText } from './LinkifiedProgramText';
@@ -68,11 +69,7 @@ export function ReserveProgramDialog({
     };
     const openGuide = (): void => {
         if (item === null) return;
-        const date = new Date(item.startAt);
-        const time = `${date.getFullYear().toString(10).slice(-2)}${(date.getMonth() + 1).toString(10).padStart(2, '0')}${date.getDate().toString(10).padStart(2, '0')}${date
-            .getHours()
-            .toString(10)
-            .padStart(2, '0')}`;
+        const time = formatGuideTime(item.startAt);
         closeAndNavigate(`/guide?time=${time}&channelId=${item.channelId.toString(10)}`);
     };
 

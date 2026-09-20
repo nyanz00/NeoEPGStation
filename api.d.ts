@@ -601,6 +601,7 @@ export interface ReserveLists {
  */
 export interface ReserveListItem {
     reserveId: ReserveId;
+    userId?: UserId;
     programId?: ProgramId;
     ruleId?: RuleId;
 }

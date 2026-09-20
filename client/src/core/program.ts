@@ -1,5 +1,7 @@
 import type { ChannelItem, ChannelType, ProgramAudioSamplingRate, ProgramVideoType, ScheduleProgramItem } from '../../../api';
 
+const JST_TIME_ZONE = 'Asia/Tokyo';
+
 export const genreNames = [
     'ニュース・報道',
     'スポーツ',
@@ -166,18 +168,27 @@ export function formatProgramDate(value: number): string {
         weekday: 'short',
         hour: '2-digit',
         minute: '2-digit',
-        hour12: false,
+        hourCycle: 'h23',
+        timeZone: JST_TIME_ZONE,
     }).format(new Date(value));
 }
 
 export function formatProgramTime(value: number): string {
-    return new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value));
+    return new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: JST_TIME_ZONE }).format(new Date(value));
 }
 
 export function formatProgramDateCompact(value: number): string {
-    const date = new Date(value);
-    const weekday = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
-    return `${date.getMonth() + 1}/${date.getDate()}(${weekday}) ${date.getHours().toString(10).padStart(2, '0')}:${date.getMinutes().toString(10).padStart(2, '0')}`;
+    const parts = new Intl.DateTimeFormat('ja-JP', {
+        month: 'numeric',
+        day: 'numeric',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+        timeZone: JST_TIME_ZONE,
+    }).formatToParts(new Date(value));
+    const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find(item => item.type === type)?.value ?? '';
+    return `${part('month')}/${part('day')}(${part('weekday')}) ${part('hour').padStart(2, '0')}:${part('minute').padStart(2, '0')}`;
 }
 
 export function channelName(channels: ChannelItem[] | undefined, channelId: number): string {
@@ -194,7 +205,8 @@ export function programDuration(program: Pick<ScheduleProgramItem, 'startAt' | '
 
 /** 番組情報がない場合に、放送休止の可能性が高い深夜帯かを判定する。 */
 export function isLikelyBroadcastPauseTime(value: number = Date.now()): boolean {
-    const hour = new Date(value).getHours();
+    if (!Number.isFinite(value)) return false;
+    const hour = new Date(value + 9 * 60 * 60 * 1_000).getUTCHours();
     return hour >= 23 || hour < 7;
 }
 

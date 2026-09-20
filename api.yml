@@ -1306,6 +1306,8 @@ components:
             properties:
                 reserveId:
                     $ref: '#/components/schemas/ReserveId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 programId:
                     $ref: '#/components/schemas/ProgramId'
                 ruleId:
