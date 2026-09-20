@@ -1274,11 +1274,12 @@ export function GuidePage(): ReactNode {
                             ...programDialogPaper(theme),
                             width: 'min(150px, calc(100% - 32px))',
                             m: 2,
+                            borderRadius: '4px',
                         }),
                     },
                 }}
             >
-                <DialogContent sx={{ p: 0 }}>
+                <DialogContent sx={{ px: 0, py: 1 }}>
                     <Stack>
                         {Array.from({ length: 8 }, (_, index) => (
                             <Button
@@ -1286,7 +1287,7 @@ export function GuidePage(): ReactNode {
                                 color="inherit"
                                 disabled={startAt === dayTargetAt(index) && dayDialogScrollTop <= 1}
                                 onClick={() => selectDay(index)}
-                                sx={{ minHeight: 38, borderRadius: 0, px: 2, py: 0.25, fontSize: '1.05rem', whiteSpace: 'nowrap' }}
+                                sx={{ minHeight: 48, borderRadius: 0, px: 2, py: 0, fontSize: '1rem', whiteSpace: 'nowrap' }}
                             >
                                 {formatJstDateLabel(todayStart + index * DAY_MS)}
                             </Button>
