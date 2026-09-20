@@ -1243,26 +1243,20 @@ export function GuidePage(): ReactNode {
             <Dialog
                 open={dayDialogOpen}
                 onClose={() => setDayDialogOpen(false)}
-                fullWidth
                 maxWidth="xs"
-                aria-labelledby="guide-day-dialog-title"
+                aria-label="表示日付"
                 slotProps={{
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            maxWidth: 300,
-                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
-                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                            width: 'min(220px, calc(100% - 32px))',
+                            m: 2,
                         }),
                     },
                 }}
             >
-                <DialogTitle id="guide-day-dialog-title">表示日付</DialogTitle>
-                <IconButton aria-label="閉じる" onClick={() => setDayDialogOpen(false)} sx={programDialogClose}>
-                    <CloseOutlined />
-                </IconButton>
-                <DialogContent dividers sx={{ p: 0, bgcolor: 'action.hover' }}>
-                    <Stack sx={{ py: 0.5 }}>
+                <DialogContent sx={{ p: 0.5 }}>
+                    <Stack>
                         {Array.from({ length: 8 }, (_, index) => (
                             <Button
                                 key={index}
@@ -1270,18 +1264,13 @@ export function GuidePage(): ReactNode {
                                 color="inherit"
                                 disabled={startAt === dayTargetAt(index) && dayDialogScrollTop <= 1}
                                 onClick={() => selectDay(index)}
-                                sx={{ minHeight: 40, borderRadius: 0, py: 0.5 }}
+                                sx={{ minHeight: 36, borderRadius: 0, py: 0.25 }}
                             >
                                 {formatJstDateLabel(todayStart + index * DAY_MS)}
                             </Button>
                         ))}
                     </Stack>
                 </DialogContent>
-                <DialogActions>
-                    <Button color="inherit" onClick={() => setDayDialogOpen(false)}>
-                        閉じる
-                    </Button>
-                </DialogActions>
             </Dialog>
 
             <Menu anchorEl={timeAnchor} open={timeAnchor !== null} onClose={() => setTimeAnchor(null)} slotProps={{ paper: { sx: { p: 1, minWidth: 310 } } }}>
