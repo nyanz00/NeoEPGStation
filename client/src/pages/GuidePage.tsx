@@ -656,6 +656,7 @@ export function GuidePage(): ReactNode {
     const [selected, setSelected] = useState<{ program: ScheduleProgramItem; channel: ScheduleChannleItem } | null>(null);
     const [onAirChannel, setOnAirChannel] = useState<ScheduleChannleItem | null>(null);
     const [dayDialogOpen, setDayDialogOpen] = useState(false);
+    const [dayDialogScrollTop, setDayDialogScrollTop] = useState(0);
     const [timeAnchor, setTimeAnchor] = useState<HTMLElement | null>(null);
     const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
     const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
@@ -990,10 +991,24 @@ export function GuidePage(): ReactNode {
         updateVisible();
     }, [deferredChannelFilter, updateVisible]);
 
+    const dayTargetAt = (dayOffset: number): number => (dayOffset === 0 ? startOfJstHour(now) : todayStart + dayOffset * DAY_MS);
+    const openDayDialog = (): void => {
+        setDayDialogScrollTop(scroller.current?.scrollTop ?? 0);
+        setDayDialogOpen(true);
+    };
     const selectDay = (dayOffset: number): void => {
-        const day = todayStart + dayOffset * DAY_MS;
-        changeStartAt(dayOffset === 0 ? startOfJstHour(Date.now()) : day);
+        const targetAt = dayTargetAt(dayOffset);
         setDayDialogOpen(false);
+        if (startAt !== targetAt) {
+            changeStartAt(targetAt);
+            return;
+        }
+
+        const element = scroller.current;
+        if (element === null) return;
+        element.scrollTo({ left: element.scrollLeft, top: 0, behavior: 'auto' });
+        lastScrollPosition.current = { left: element.scrollLeft, top: 0 };
+        updateVisible();
     };
     const openTimeMenu = (event: ReactMouseEvent<HTMLElement>): void => {
         setTimeDay(startOfJstDay(startAt));
@@ -1038,7 +1053,7 @@ export function GuidePage(): ReactNode {
                 title={
                     <Button
                         color="inherit"
-                        onClick={() => setDayDialogOpen(true)}
+                        onClick={openDayDialog}
                         sx={{ minWidth: 0, px: { xs: 0.25, sm: 0.5 }, fontSize: { xs: '0.82rem', sm: '1.15rem' }, fontWeight: 700, whiteSpace: 'nowrap' }}
                     >
                         {isSingleStation ? (singleStationName ?? '番組表') : isMobile ? formatJstDateLabel(startAt) : `番組表 ${formatJstDateLabel(startAt)}`}
@@ -1225,20 +1240,48 @@ export function GuidePage(): ReactNode {
                 </Box>
             )}
 
-            <Dialog open={dayDialogOpen} onClose={() => setDayDialogOpen(false)} maxWidth="xs">
-                <DialogContent sx={{ width: 170, p: 1 }}>
-                    {Array.from({ length: 8 }, (_, index) => (
-                        <Button
-                            key={index}
-                            fullWidth
-                            color="inherit"
-                            disabled={startAt === (index === 0 ? startOfJstHour(now) : todayStart + index * DAY_MS)}
-                            onClick={() => selectDay(index)}
-                        >
-                            {formatJstDateLabel(todayStart + index * DAY_MS)}
-                        </Button>
-                    ))}
+            <Dialog
+                open={dayDialogOpen}
+                onClose={() => setDayDialogOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                aria-labelledby="guide-day-dialog-title"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            maxWidth: 300,
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        }),
+                    },
+                }}
+            >
+                <DialogTitle id="guide-day-dialog-title">表示日付</DialogTitle>
+                <IconButton aria-label="閉じる" onClick={() => setDayDialogOpen(false)} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
+                <DialogContent dividers sx={{ p: 0, bgcolor: 'action.hover' }}>
+                    <Stack sx={{ py: 0.5 }}>
+                        {Array.from({ length: 8 }, (_, index) => (
+                            <Button
+                                key={index}
+                                fullWidth
+                                color="inherit"
+                                disabled={startAt === dayTargetAt(index) && dayDialogScrollTop <= 1}
+                                onClick={() => selectDay(index)}
+                                sx={{ minHeight: 40, borderRadius: 0, py: 0.5 }}
+                            >
+                                {formatJstDateLabel(todayStart + index * DAY_MS)}
+                            </Button>
+                        ))}
+                    </Stack>
                 </DialogContent>
+                <DialogActions>
+                    <Button color="inherit" onClick={() => setDayDialogOpen(false)}>
+                        閉じる
+                    </Button>
+                </DialogActions>
             </Dialog>
 
             <Menu anchorEl={timeAnchor} open={timeAnchor !== null} onClose={() => setTimeAnchor(null)} slotProps={{ paper: { sx: { p: 1, minWidth: 310 } } }}>
