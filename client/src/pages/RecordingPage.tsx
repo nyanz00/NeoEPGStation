@@ -1,6 +1,8 @@
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
+import SelectAllOutlined from '@mui/icons-material/SelectAllOutlined';
 import StopCircleOutlined from '@mui/icons-material/StopCircleOutlined';
 import {
     Box,
@@ -29,6 +31,7 @@ import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
+import { createRecordedRelatedSearchOption } from '../core/media/recorded';
 import { useNotifications } from '../core/notifications/Notifications';
 import { formatProgramDate, formatProgramTime, programDuration } from '../core/program';
 import { useSettings } from '../core/storage/settings';
@@ -184,7 +187,16 @@ export function RecordingPage(): ReactNode {
                 limit: settings.recordingLength,
             }),
     });
+    const recordingDropStatus = useQuery({
+        queryKey: ['recording-drop-status'],
+        queryFn: api.getRecordingDropStatus,
+        enabled: (recording.data?.records.length ?? 0) > 0,
+        refetchInterval: 5_000,
+        refetchIntervalInBackground: false,
+        retry: false,
+    });
     const pageCount = Math.max(1, Math.ceil((recording.data?.total ?? 0) / settings.recordingLength));
+    const liveDropLogFileByRecordedId = useMemo(() => new Map((recordingDropStatus.data ?? []).map(status => [status.recordedId, status.dropLogFile])), [recordingDropStatus.data]);
     const selectedVideoIds = useMemo(() => {
         const ids: VideoFileId[] = [];
         recording.data?.records.forEach(item => {
@@ -197,6 +209,21 @@ export function RecordingPage(): ReactNode {
         setEditing(false);
         setSelected(new Set());
     }, [page]);
+    useEffect(() => {
+        if (recording.data === undefined) return;
+        const visibleIds = new Set(recording.data.records.map(item => item.id));
+        setSelected(current => {
+            const next = new Set([...current].filter(id => visibleIds.has(id)));
+            return next.size === current.size ? current : next;
+        });
+        setStopTargets(current => {
+            const next = current.filter(item => visibleIds.has(item.id));
+            return next.length === current.length ? current : next;
+        });
+    }, [recording.data]);
+    useEffect(() => {
+        if (selected.size === 0) setConfirmOpen(false);
+    }, [selected.size]);
     useEffect(() => {
         if (recording.isSuccess && page > pageCount) setParams(pageCount === 1 ? {} : { page: String(pageCount) }, { replace: true });
     }, [page, pageCount, recording.isSuccess, setParams]);
@@ -284,7 +311,14 @@ export function RecordingPage(): ReactNode {
         });
     const selectAll = (): void => {
         const items = recording.data?.records ?? [];
-        setSelected(current => (current.size === items.length ? new Set() : new Set(items.map(item => item.id))));
+        setSelected(current => (items.length > 0 && items.every(item => current.has(item.id)) ? new Set() : new Set(items.map(item => item.id))));
+    };
+    const isAllSelected = (recording.data?.records.length ?? 0) > 0 && (recording.data?.records.every(item => selected.has(item.id)) ?? false);
+    const selectAllLabel = isAllSelected ? 'すべて解除' : 'すべて選択';
+    const openRelatedRecorded = (item: RecordedItem): void => {
+        const option = createRecordedRelatedSearchOption(item);
+        const query = option.ruleId === undefined ? `keyword=${encodeURIComponent(option.keyword ?? '')}` : `ruleId=${option.ruleId.toString(10)}`;
+        void navigate(`/recorded?${query}`);
     };
 
     return (
@@ -295,28 +329,68 @@ export function RecordingPage(): ReactNode {
                     <Stack direction="row" spacing={0.5}>
                         {editing ? (
                             <>
-                                <Button onClick={selectAll}>すべて選択</Button>
+                                <Tooltip title={selectAllLabel}>
+                                    <IconButton aria-label={selectAllLabel} onClick={selectAll} sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <SelectAllOutlined />
+                                    </IconButton>
+                                </Tooltip>
+                                <Button onClick={selectAll} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+                                    {selectAllLabel}
+                                </Button>
+                                <Tooltip title="録画停止">
+                                    <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <IconButton
+                                            aria-label="録画停止"
+                                            disabled={selected.size === 0}
+                                            onClick={() => setStopTargets(recording.data?.records.filter(item => selected.has(item.id)) ?? [])}
+                                        >
+                                            <StopCircleOutlined />
+                                        </IconButton>
+                                    </Box>
+                                </Tooltip>
                                 <Button
                                     color="warning"
                                     startIcon={<StopCircleOutlined />}
                                     disabled={selected.size === 0}
                                     onClick={() => setStopTargets(recording.data?.records.filter(item => selected.has(item.id)) ?? [])}
+                                    sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                                 >
                                     録画停止
                                 </Button>
+                                <Tooltip title="削除">
+                                    <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <IconButton aria-label="削除" disabled={selected.size === 0 || selectedVideoIds.length === 0} onClick={() => setConfirmOpen(true)}>
+                                            <DeleteOutlineOutlined />
+                                        </IconButton>
+                                    </Box>
+                                </Tooltip>
                                 <Button
                                     color="error"
                                     startIcon={<DeleteOutlineOutlined />}
                                     disabled={selected.size === 0 || selectedVideoIds.length === 0}
                                     onClick={() => setConfirmOpen(true)}
+                                    sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                                 >
                                     削除
                                 </Button>
+                                <Tooltip title="選択を終了">
+                                    <IconButton
+                                        aria-label="選択を終了"
+                                        onClick={() => {
+                                            setEditing(false);
+                                            setSelected(new Set());
+                                        }}
+                                        sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
+                                    >
+                                        <CloseOutlined />
+                                    </IconButton>
+                                </Tooltip>
                                 <Button
                                     onClick={() => {
                                         setEditing(false);
                                         setSelected(new Set());
                                     }}
+                                    sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                                 >
                                     終了
                                 </Button>
@@ -345,21 +419,25 @@ export function RecordingPage(): ReactNode {
                     </Typography>
                 ) : (
                     <Stack spacing={1.25}>
-                        {recording.data.records.map(item => (
-                            <RecordingCard
-                                key={item.id}
-                                item={item}
-                                channel={channels.data.find(channel => channel.id === item.channelId)}
-                                editing={editing}
-                                selected={selected.has(item.id)}
-                                onSelect={() => toggle(item.id)}
-                                onOpen={() => navigate(`/recorded/detail/${item.id}`)}
-                                onSearch={() => navigate(`/recorded?keyword=${encodeURIComponent(item.name)}`)}
-                                onStop={() => setStopTargets([item])}
-                                onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recording'] })}
-                                onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recording'] })}
-                            />
-                        ))}
+                        {recording.data.records.map(item => {
+                            const liveDropLogFile = liveDropLogFileByRecordedId.get(item.id);
+                            const displayedItem = liveDropLogFile === undefined ? item : { ...item, dropLogFile: liveDropLogFile };
+                            return (
+                                <RecordingCard
+                                    key={item.id}
+                                    item={displayedItem}
+                                    channel={channels.data.find(channel => channel.id === item.channelId)}
+                                    editing={editing}
+                                    selected={selected.has(item.id)}
+                                    onSelect={() => toggle(item.id)}
+                                    onOpen={() => navigate(`/recorded/detail/${item.id}`)}
+                                    onSearch={() => openRelatedRecorded(item)}
+                                    onStop={() => setStopTargets([item])}
+                                    onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recording'] })}
+                                    onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recording'] })}
+                                />
+                            );
+                        })}
                         {pageCount > 1 && (
                             <VueCompatiblePagination
                                 count={pageCount}

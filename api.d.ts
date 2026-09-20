@@ -898,6 +898,14 @@ export interface DropLogFile {
 }
 
 /**
+ * Active recording drop-log counters
+ */
+export interface RecordingDropLogStatus {
+    recordedId: RecordedId;
+    dropLogFile: DropLogFile;
+}
+
+/**
  * Recorded tag
  */
 export interface RecordedTag {

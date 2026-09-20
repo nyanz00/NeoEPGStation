@@ -54,6 +54,14 @@ export default class RecordingApiModel implements IRecordingApiModel {
     }
 
     /**
+     * 録画中番組のドロップ・エラー・スクランブル数を取得する
+     * @return Promise<apid.RecordingDropLogStatus[]>
+     */
+    public async getDropStatus(): Promise<apid.RecordingDropLogStatus[]> {
+        return this.ipc.recording.getCurrentDropLogFiles();
+    }
+
+    /**
      * 録画ファイルを残したまま録画を停止する
      * @param recordedId: recorded id
      */

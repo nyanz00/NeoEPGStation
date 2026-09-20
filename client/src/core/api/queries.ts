@@ -40,6 +40,7 @@ import type {
     RecordedPlaybackHistory,
     RecordedPlaybackHistorySettings,
     RecordedListPosition,
+    RecordingDropLogStatus,
     RecordedSearchOptions,
     RecordedSubDirectories,
     ProgramId,
@@ -370,6 +371,9 @@ export const api = {
     },
     async getRecording(option: GetRecordedOption): Promise<Records> {
         return (await apiClient.get<Records>('/recording', { params: option })).data;
+    },
+    async getRecordingDropStatus(): Promise<RecordingDropLogStatus[]> {
+        return (await apiClient.get<RecordingDropLogStatus[]>('/recording/dropStatus')).data;
     },
     async getRecorded(option: GetRecordedOption): Promise<Records> {
         return (await apiClient.get<Records>('/recorded', { params: option })).data;
