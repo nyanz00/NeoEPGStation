@@ -1045,7 +1045,8 @@ export function GuidePage(): ReactNode {
     const nowColumnStartAt = startAt + nowColumnIndex * DAY_MS;
     const nowLineTop = ((now - nowColumnStartAt) / HOUR_MS) * size.timescaleHeight;
     const showNowLine = nowColumnIndex >= 0 && nowColumnIndex < (isSingleStation ? SINGLE_STATION_DAYS : 1) && nowLineTop >= 0 && nowLineTop <= durationHeight;
-    const singleStationName = isSingleStation ? displayedSchedules?.[0]?.channel.name : undefined;
+    const singleStationChannel = isSingleStation ? displayedSchedules?.[0]?.channel : undefined;
+    const singleStationName = singleStationChannel?.name;
 
     return (
         <>
@@ -1054,9 +1055,31 @@ export function GuidePage(): ReactNode {
                     <Button
                         color="inherit"
                         onClick={openDayDialog}
-                        sx={{ minWidth: 0, px: { xs: 0.25, sm: 0.5 }, fontSize: { xs: '0.82rem', sm: '1.15rem' }, fontWeight: 700, whiteSpace: 'nowrap' }}
+                        sx={{ minWidth: 0, px: { xs: 0.25, sm: 0.5 }, gap: { xs: 0.75, sm: 1 }, fontSize: { xs: '0.82rem', sm: '1.15rem' }, fontWeight: 700, whiteSpace: 'nowrap' }}
                     >
-                        {isSingleStation ? (singleStationName ?? '番組表') : isMobile ? formatJstDateLabel(startAt) : `番組表 ${formatJstDateLabel(startAt)}`}
+                        {isSingleStation ? (
+                            <>
+                                {singleStationChannel?.hasLogoData === true && (
+                                    <Box
+                                        component="img"
+                                        src={withBasePath(`/api/channels/${singleStationChannel.id}/logo`)}
+                                        alt=""
+                                        decoding="async"
+                                        onError={event => {
+                                            event.currentTarget.style.display = 'none';
+                                        }}
+                                        sx={{ width: { xs: 36, sm: 44 }, height: { xs: 26, sm: 32 }, flex: '0 0 auto', objectFit: 'contain' }}
+                                    />
+                                )}
+                                <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {singleStationName ?? '番組表'}
+                                </Box>
+                            </>
+                        ) : isMobile ? (
+                            formatJstDateLabel(startAt)
+                        ) : (
+                            `番組表 ${formatJstDateLabel(startAt)}`
+                        )}
                     </Button>
                 }
                 actions={
