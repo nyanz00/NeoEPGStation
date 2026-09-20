@@ -1249,22 +1249,23 @@ export function GuidePage(): ReactNode {
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            width: 'min(220px, calc(100% - 32px))',
+                            width: 'max-content',
+                            minWidth: 0,
+                            maxWidth: 'calc(100% - 32px)',
                             m: 2,
                         }),
                     },
                 }}
             >
-                <DialogContent sx={{ p: 0.5 }}>
+                <DialogContent sx={{ p: 0 }}>
                     <Stack>
                         {Array.from({ length: 8 }, (_, index) => (
                             <Button
                                 key={index}
-                                fullWidth
                                 color="inherit"
                                 disabled={startAt === dayTargetAt(index) && dayDialogScrollTop <= 1}
                                 onClick={() => selectDay(index)}
-                                sx={{ minHeight: 36, borderRadius: 0, py: 0.25 }}
+                                sx={{ minHeight: 38, borderRadius: 0, px: 1.25, py: 0.25, fontSize: '1.05rem', whiteSpace: 'nowrap' }}
                             >
                                 {formatJstDateLabel(todayStart + index * DAY_MS)}
                             </Button>
