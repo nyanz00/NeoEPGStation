@@ -1272,9 +1272,7 @@ export function GuidePage(): ReactNode {
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            width: 'max-content',
-                            minWidth: 0,
-                            maxWidth: 'calc(100% - 32px)',
+                            width: 'min(150px, calc(100% - 32px))',
                             m: 2,
                         }),
                     },
@@ -1288,7 +1286,7 @@ export function GuidePage(): ReactNode {
                                 color="inherit"
                                 disabled={startAt === dayTargetAt(index) && dayDialogScrollTop <= 1}
                                 onClick={() => selectDay(index)}
-                                sx={{ minHeight: 38, borderRadius: 0, px: 1.25, py: 0.25, fontSize: '1.05rem', whiteSpace: 'nowrap' }}
+                                sx={{ minHeight: 38, borderRadius: 0, px: 2, py: 0.25, fontSize: '1.05rem', whiteSpace: 'nowrap' }}
                             >
                                 {formatJstDateLabel(todayStart + index * DAY_MS)}
                             </Button>
