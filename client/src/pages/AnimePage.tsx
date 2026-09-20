@@ -896,7 +896,7 @@ export function AnimePage(): ReactNode {
                         }}
                         sx={{
                             p: { xs: 1.5, md: 3 },
-                            animation: revealedAnimeList.animate ? 'anime-list-fade-in 250ms ease both' : 'none',
+                            animation: revealedAnimeList.animate ? 'anime-list-fade-in 320ms ease both' : 'none',
                             '@keyframes anime-list-fade-in': {
                                 from: { opacity: 0 },
                                 to: { opacity: 1 },
