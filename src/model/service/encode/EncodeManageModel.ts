@@ -253,10 +253,11 @@ class EncodeManageModel implements IEncodeManageModel {
             }
             this.scheduledQueue = this.scheduledQueue.filter(item => !releasedIds.has(item.option.encodeId));
             try {
+                await this.saveWaitQueuePositions();
                 await this.saveScheduledQueuePositions();
             } catch (err: any) {
                 releaseFailed = true;
-                this.log.encode.error('save scheduled encode queue positions failed');
+                this.log.encode.error('save released encode queue positions failed');
                 this.log.encode.error(err);
             }
         } finally {
@@ -288,11 +289,15 @@ class EncodeManageModel implements IEncodeManageModel {
                 const encodeOption = encoder.getEncodeOption();
                 if (encodeOption === null) {
                     this.log.encode.warn('encodeOption is null');
+                    await this.saveWaitQueuePositions();
                     continue;
                 }
 
                 this.runningQueue.push(encoder);
                 await this.saveTask(encodeOption, 'running', this.runningQueue.length - 1, Date.now());
+                // Keep persisted positions aligned with the in-memory queue so a restart
+                // cannot reorder items after the head of the queue has been removed.
+                await this.saveWaitQueuePositions();
                 encoder.setOnFinish((isError, outputFilePath, isCanceled, encoderMessage) => {
                     this.onFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage);
                 });
@@ -474,6 +479,7 @@ class EncodeManageModel implements IEncodeManageModel {
                 return q.getEncodeId() !== encodeId;
             });
             await this.deleteTask(encodeId);
+            await this.saveRunningQueuePositions();
         } finally {
             this.executeManagementModel.unLockExecution(exeId);
         }
@@ -500,17 +506,22 @@ class EncodeManageModel implements IEncodeManageModel {
                 await runningQueueItem.cancel();
             } else {
                 // waitQueue から削除
+                const waitQueueLength = this.waitQueue.length;
+                const scheduledQueueLength = this.scheduledQueue.length;
                 this.waitQueue = this.waitQueue.filter(q => {
                     return q.getEncodeId() !== encodeId;
                 });
                 this.scheduledQueue = this.scheduledQueue.filter(item => item.option.encodeId !== encodeId);
+                await this.deleteTask(encodeId);
+                if (this.waitQueue.length !== waitQueueLength) await this.saveWaitQueuePositions();
+                if (this.scheduledQueue.length !== scheduledQueueLength) await this.saveScheduledQueuePositions();
                 this.refreshScheduledTimer();
 
                 process.nextTick(() => {
                     this.emitNeedsCheckQueue();
                 });
             }
-            await this.deleteTask(encodeId);
+            if (typeof runningQueueItem !== 'undefined') await this.deleteTask(encodeId);
         } finally {
             this.executeManagementModel.unLockExecution(exeId);
         }
@@ -987,6 +998,15 @@ class EncodeManageModel implements IEncodeManageModel {
         for (let position = 0; position < this.waitQueue.length; position++) {
             const option = this.waitQueue[position].getEncodeOption();
             if (option !== null) await this.saveTask(option, 'waiting', position, 0);
+        }
+    }
+
+    private async saveRunningQueuePositions(): Promise<void> {
+        const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+        const updatedAt = Date.now();
+        for (let position = 0; position < this.runningQueue.length; position++) {
+            const encodeId = this.runningQueue[position].getEncodeId();
+            if (encodeId !== null) await repository.update({ encodeId }, { position, updatedAt });
         }
     }
 
