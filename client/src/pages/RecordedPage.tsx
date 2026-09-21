@@ -1903,10 +1903,19 @@ export function RecordedPage(): ReactNode {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
-                <DialogTitle>録画を削除</DialogTitle>
-                <DialogContent>
-                    <Typography sx={{ mb: 2 }}>選択した {selectedRecords.length} 件から削除するファイルを選択してください。</Typography>
+            <Dialog
+                open={deleteOpen}
+                onClose={() => !deleteSelected.isPending && setDeleteOpen(false)}
+                maxWidth="xs"
+                fullWidth
+                aria-labelledby="recorded-bulk-delete-title"
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+            >
+                <DialogTitle id="recorded-bulk-delete-title">録画を削除</DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                        選択した {selectedRecords.length} 件から削除するファイルを選択してください。
+                    </Typography>
                     <FormControl fullWidth>
                         <InputLabel>削除対象</InputLabel>
                         <Select label="削除対象" value={deleteOption} onChange={event => setDeleteOption(event.target.value as MultipleDeletionOption)}>
@@ -1917,7 +1926,9 @@ export function RecordedPage(): ReactNode {
                     </FormControl>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setDeleteOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" disabled={deleteSelected.isPending} onClick={() => setDeleteOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button color="error" variant="contained" disabled={deleteSelected.isPending} onClick={() => deleteSelected.mutate()}>
                         削除
                     </Button>
