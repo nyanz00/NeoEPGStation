@@ -861,6 +861,8 @@ class EncoderModel implements IEncoderModel {
     private encoderOutputTail: string = '';
     private amatsukazeErrorMessage: string = '';
     private onAmatsukazeTaskMatched: ((taskId: number) => void) | null = null;
+    private readonly finishHandoffPromise: Promise<void>;
+    private resolveFinishHandoff!: () => void;
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -884,6 +886,9 @@ class EncoderModel implements IEncoderModel {
         this.videoUtil = videoUtil;
         this.encodeEvent = encodeEvent;
         this.recodingUtil = recodingUtil;
+        this.finishHandoffPromise = new Promise(resolve => {
+            this.resolveFinishHandoff = resolve;
+        });
     }
 
     /**
@@ -2145,6 +2150,7 @@ class EncoderModel implements IEncoderModel {
 
         if (this.encodeOption === null) {
             this.log.encode.error('encodeOptionIsNull');
+            this.resolveFinishHandoff();
 
             return;
         }
@@ -2184,14 +2190,19 @@ class EncoderModel implements IEncoderModel {
         }
 
         // エンコードプロセスの終了を通知
-        this.listener.emit(
-            EncoderModel.ENCODE_FINISH_EVENT,
-            isError,
-            outputFilePath,
-            this.isCanceld,
-            encoderFailureMessage || this.lastEncoderMessage,
-        );
-        this.listener.removeAllListeners();
+        try {
+            this.listener.emit(
+                EncoderModel.ENCODE_FINISH_EVENT,
+                isError,
+                outputFilePath,
+                this.isCanceld,
+                encoderFailureMessage || this.lastEncoderMessage,
+            );
+        } finally {
+            this.listener.removeAllListeners();
+            // EncodeManageModel が完了処理を登録し終えたことを cancel() 側へ通知する。
+            this.resolveFinishHandoff();
+        }
     }
 
     /**
@@ -2221,6 +2232,21 @@ class EncoderModel implements IEncoderModel {
                 this.log.encode.error(err);
             });
         }
+
+        await this.waitForFinishHandoff();
+    }
+
+    private async waitForFinishHandoff(): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            const timerId = setTimeout(() => {
+                reject(new Error('EncodeFinishHandoffTimeoutError'));
+            }, EncoderModel.FINISH_HANDOFF_TIMEOUT);
+
+            void this.finishHandoffPromise.then(() => {
+                clearTimeout(timerId);
+                resolve();
+            });
+        });
     }
 
     /**
@@ -2268,6 +2294,7 @@ class EncoderModel implements IEncoderModel {
 
 namespace EncoderModel {
     export const ENCODE_FINISH_EVENT = 'encodeFinishEvent';
+    export const FINISH_HANDOFF_TIMEOUT = 5_000;
     export const ENCODE_PRIPORITY = 10;
     export const DEFAULT_TIMEOUT_RATE = 4.0;
     export const ENCODER_OUTPUT_TAIL_MAX_LENGTH = 16_384;

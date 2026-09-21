@@ -29,5 +29,12 @@ export default interface IEncodeManageModel {
     reorderWaitQueue(encodeIds: apid.EncodeId[], expectedEncodeIds: apid.EncodeId[]): Promise<void>;
     getRecordedIndex(): EncodeRecordedIdIndex;
     cancelEncodeByRecordedId(recordedId: apid.RecordedId): Promise<void>;
+    cancelEncodeByVideoFileId(videoFileId: apid.VideoFileId): Promise<void>;
+    withRecordedDeletion(recordedId: apid.RecordedId, action: () => Promise<void>): Promise<void>;
+    withVideoFileDeletion(
+        recordedId: apid.RecordedId,
+        videoFileId: apid.VideoFileId,
+        action: () => Promise<void>,
+    ): Promise<void>;
     getEncodeInfo(): EncodeQueueInfo;
 }

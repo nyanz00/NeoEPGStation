@@ -48,6 +48,7 @@ import type {
     RecordedCleanupPlanResult,
     Rule,
     RuleId,
+    RuleKeywordItem,
     Rules,
     GetRuleOption,
     ReserveCnts,
@@ -411,8 +412,8 @@ export const api = {
     async getDropLog(dropLogFileId: number, maxsize = 512): Promise<string> {
         return (await apiClient.get<string>(`/dropLogs/${dropLogFileId}`, { params: { maxsize }, responseType: 'text' })).data;
     },
-    async getRecordedSearchOptions(): Promise<RecordedSearchOptions> {
-        return (await apiClient.get<RecordedSearchOptions>('/recorded/options')).data;
+    async getRecordedSearchOptions(userId?: number): Promise<RecordedSearchOptions> {
+        return (await apiClient.get<RecordedSearchOptions>('/recorded/options', { params: { userId } })).data;
     },
     async getLatestRecordedCleanupPlan(): Promise<RecordedCleanupPlanResult | null> {
         const response = await apiClient.get<RecordedCleanupPlanResult>('/recorded/cleanupPlan');
@@ -575,6 +576,9 @@ export const api = {
     },
     async getRules(option: GetRuleOption): Promise<Rules> {
         return (await apiClient.get<Rules>('/rules', { params: option })).data;
+    },
+    async getRuleKeywords(option: GetRuleOption): Promise<RuleKeywordItem[]> {
+        return (await apiClient.get<{ items: RuleKeywordItem[] }>('/rules/keyword', { params: option })).data.items;
     },
     async getRule(ruleId: RuleId): Promise<Rule> {
         return (await apiClient.get<Rule>(`/rules/${ruleId}`)).data;

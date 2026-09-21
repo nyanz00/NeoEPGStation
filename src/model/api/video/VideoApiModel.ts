@@ -368,7 +368,31 @@ export default class VideoApiModel implements IVideoApiModel {
      * @return Promise<void>
      */
     public async deleteVideoFile(videoFileId: apid.VideoFileId): Promise<void> {
-        await this.ipc.recorded.deleteVideoFile(videoFileId);
+        const videoFile = await this.videoFileDB.findId(videoFileId);
+        if (videoFile === null) {
+            throw new Error('VideoFileIsNotFound');
+        }
+
+        const recorded = await this.recordedDB.findId(videoFile.recordedId);
+        if (recorded?.isProtected === true) {
+            throw new Error('RecordedIsProtected');
+        }
+
+        // 録画中のファイル削除は Operator 側で録画全体の削除へ昇格する。
+        // この場合は同じ recordedId のエンコードをすべて停止してから削除する。
+        if (recorded?.isRecording === true) {
+            await this.encodeManage.withRecordedDeletion(videoFile.recordedId, async () => {
+                if ((await this.recordedDB.findId(videoFile.recordedId)) === null) return;
+                await this.ipc.recorded.deleteVideoFile(videoFileId);
+            });
+            return;
+        }
+
+        // 入力元を削除する場合だけ対象エンコードの完了処理まで待つ。
+        await this.encodeManage.withVideoFileDeletion(videoFile.recordedId, videoFileId, async () => {
+            if ((await this.videoFileDB.findId(videoFileId)) === null) return;
+            await this.ipc.recorded.deleteVideoFile(videoFileId);
+        });
     }
 
     /**

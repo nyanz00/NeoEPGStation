@@ -7,6 +7,8 @@ import { cloneDeep } from 'lodash';
 import * as apid from '../../../../api';
 import EncodeTask from '../../../db/entities/EncodeTask';
 import IDBOperator from '../../db/IDBOperator';
+import IRecordedDB from '../../db/IRecordedDB';
+import IVideoFileDB from '../../db/IVideoFileDB';
 import IEncodeEvent from '../../event/IEncodeEvent';
 import IConfiguration from '../../IConfiguration';
 import IExecutionManagementModel from '../../IExecutionManagementModel';
@@ -20,6 +22,11 @@ interface ScheduledEncodeItem {
     scheduledAt: number;
 }
 
+interface FinishingEncodeItem {
+    option: EncodeOption;
+    promise: Promise<void>;
+}
+
 @injectable()
 class EncodeManageModel implements IEncodeManageModel {
     private log: ILogger;
@@ -31,6 +38,9 @@ class EncodeManageModel implements IEncodeManageModel {
     private waitQueue: IEncoderModel[] = [];
     private runningQueue: IEncoderModel[] = [];
     private scheduledQueue: ScheduledEncodeItem[] = [];
+    private finishingEncodes = new Map<apid.EncodeId, FinishingEncodeItem>();
+    private deletingRecordedIds = new Map<apid.RecordedId, number>();
+    private deletingVideoFileIds = new Map<apid.VideoFileId, number>();
     private scheduledTimer: NodeJS.Timeout | null = null;
     private idCnt: number = 1;
     private readonly ownerFingerprint = createHash('sha256')
@@ -47,6 +57,8 @@ class EncodeManageModel implements IEncodeManageModel {
         @inject('EncoderModelProvider') encoderModelProvider: EncoderModelProvider,
         @inject('IEncodeEvent') encodeEvent: IEncodeEvent,
         @inject('IDBOperator') private dbOperator: IDBOperator,
+        @inject('IRecordedDB') private recordedDB: IRecordedDB,
+        @inject('IVideoFileDB') private videoFileDB: IVideoFileDB,
     ) {
         this.log = logger.getLogger();
         this.configure = configure;
@@ -89,6 +101,20 @@ class EncodeManageModel implements IEncodeManageModel {
         const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.ADD_ENCODE_PRIPORITY);
 
         try {
+            if (
+                this.deletingRecordedIds.has(option.recordedId) ||
+                this.deletingVideoFileIds.has(option.sourceVideoFileId)
+            ) {
+                throw new Error('EncodeSourceIsDeleting');
+            }
+            const [recorded, videoFile] = await Promise.all([
+                this.recordedDB.findId(option.recordedId),
+                this.videoFileDB.findId(option.sourceVideoFileId),
+            ]);
+            if (recorded === null) throw new Error('RecordedIdIsNotFound');
+            if (videoFile === null || videoFile.recordedId !== option.recordedId)
+                throw new Error('VideoFileIsNotFound');
+
             if (scheduledAt === null) {
                 if (encoder === null) throw new Error('EncoderIsNull');
                 this.waitQueue.push(encoder);
@@ -313,41 +339,65 @@ class EncodeManageModel implements IEncodeManageModel {
         isCanceled: boolean,
         encoderMessage?: string,
     ): void {
-        if (isError) {
-            // エラー通知
-            if (isCanceled === false) {
-                this.encodeEvent.emitErrorEncode({
+        const promise = Promise.resolve().then(() =>
+            this.processFinish(isError, outputFilePath, encodeOption, isCanceled, encoderMessage),
+        );
+        this.finishingEncodes.set(encodeOption.encodeId, { option: encodeOption, promise });
+        void promise
+            .catch(err => {
+                this.log.encode.error(`encode finish processing failed: ${encodeOption.encodeId}`);
+                this.log.encode.error(err);
+            })
+            .finally(() => {
+                if (this.finishingEncodes.get(encodeOption.encodeId)?.promise === promise)
+                    this.finishingEncodes.delete(encodeOption.encodeId);
+            });
+    }
+
+    private async processFinish(
+        isError: boolean,
+        outputFilePath: string | null,
+        encodeOption: EncodeOption,
+        isCanceled: boolean,
+        encoderMessage?: string,
+    ): Promise<void> {
+        try {
+            if (isError) {
+                // エラー通知
+                if (isCanceled === false) {
+                    this.encodeEvent.emitErrorEncode({
+                        recordedId: encodeOption.recordedId,
+                        videoFileId: encodeOption.sourceVideoFileId,
+                        mode: encodeOption.mode,
+                        encoderMessage,
+                    });
+                }
+            } else {
+                // 終了通知 DB に登録を依頼
+                const fileName = outputFilePath === null ? null : path.basename(outputFilePath);
+                if (
+                    encodeOption.removeOriginal === true &&
+                    this.hasSamVideoFileIdItem(encodeOption.sourceVideoFileId, encodeOption.encodeId) === true
+                ) {
+                    // queue に削除予定の videofile が存在するので、削除しないように false にする
+                    encodeOption.removeOriginal = false;
+                }
+
+                await this.encodeEvent.emitFinishEncode({
                     recordedId: encodeOption.recordedId,
                     videoFileId: encodeOption.sourceVideoFileId,
+                    parentDirName: encodeOption.parentDir,
+                    filePath: this.getOutputFilePathForDB(outputFilePath, fileName, encodeOption),
+                    fullOutputPath: outputFilePath,
                     mode: encodeOption.mode,
-                    encoderMessage,
+                    removeOriginal: encodeOption.removeOriginal,
+                    updateThumbnail: encodeOption.updateThumbnail === true,
                 });
             }
-        } else {
-            // 終了通知 DB に登録を依頼
-            const fileName = outputFilePath === null ? null : path.basename(outputFilePath);
-            if (
-                encodeOption.removeOriginal === true &&
-                this.hasSamVideoFileIdItem(encodeOption.sourceVideoFileId, encodeOption.encodeId) === true
-            ) {
-                // queue に削除予定の videofile が存在するので、削除しないように false にする
-                encodeOption.removeOriginal = false;
-            }
-
-            this.encodeEvent.emitFinishEncode({
-                recordedId: encodeOption.recordedId,
-                videoFileId: encodeOption.sourceVideoFileId,
-                parentDirName: encodeOption.parentDir,
-                filePath: this.getOutputFilePathForDB(outputFilePath, fileName, encodeOption),
-                fullOutputPath: outputFilePath,
-                mode: encodeOption.mode,
-                removeOriginal: encodeOption.removeOriginal,
-                updateThumbnail: encodeOption.updateThumbnail === true,
-            });
+        } finally {
+            // DB 登録や元ファイル削除まで終えてから queue から外す。
+            await this.finalize(encodeOption.encodeId);
         }
-
-        // 終了処理
-        this.finalize(encodeOption.encodeId);
     }
 
     private getOutputFilePathForDB(
@@ -577,41 +627,120 @@ class EncodeManageModel implements IEncodeManageModel {
      */
     public async cancelEncodeByRecordedId(recordedId: apid.RecordedId): Promise<void> {
         await this.restorePromise;
-        const encodeIds: apid.EncodeId[] = [];
+        await this.cancelMatchingEncodes(option => option.recordedId === recordedId);
+    }
 
-        // recordedId に該当する encodedId を取り出す
-        // wait queue
-        for (const item of this.waitQueue) {
-            const itemOption = item.getEncodeOption();
-            if (itemOption === null) {
-                continue;
-            }
+    /**
+     * 指定した videoFileId を入力元にしているエンコードをキャンセルする
+     * @param videoFileId: apid.VideoFileId
+     * @return Promise<void>
+     */
+    public async cancelEncodeByVideoFileId(videoFileId: apid.VideoFileId): Promise<void> {
+        await this.restorePromise;
+        await this.cancelMatchingEncodes(option => option.sourceVideoFileId === videoFileId);
+    }
 
-            if (itemOption.recordedId === recordedId) {
-                encodeIds.push(itemOption.encodeId);
+    /**
+     * recorded 全体の削除中は、新しいエンコードを受け付けず、既存の完了処理も待つ。
+     */
+    public async withRecordedDeletion(recordedId: apid.RecordedId, action: () => Promise<void>): Promise<void> {
+        await this.restorePromise;
+        const release = await this.acquireDeletionLease(recordedId);
+        try {
+            const predicate = (option: EncodeOption): boolean => option.recordedId === recordedId;
+            await this.cancelMatchingEncodes(predicate);
+            await this.awaitMatchingFinishes(predicate);
+            await action();
+        } finally {
+            release();
+        }
+    }
+
+    /**
+     * 個別 video file の削除中は同じ録画への新規エンコードを止めるが、
+     * キャンセルするのは、そのファイルを入力元にしているものだけに限定する。
+     */
+    public async withVideoFileDeletion(
+        recordedId: apid.RecordedId,
+        videoFileId: apid.VideoFileId,
+        action: () => Promise<void>,
+    ): Promise<void> {
+        await this.restorePromise;
+        const release = await this.acquireDeletionLease(recordedId, videoFileId);
+        try {
+            const predicate = (option: EncodeOption): boolean => option.sourceVideoFileId === videoFileId;
+            await this.cancelMatchingEncodes(predicate);
+            await this.awaitMatchingFinishes(predicate);
+            await action();
+        } finally {
+            release();
+        }
+    }
+
+    private async acquireDeletionLease(
+        recordedId: apid.RecordedId,
+        videoFileId?: apid.VideoFileId,
+    ): Promise<() => void> {
+        const exeId = await this.executeManagementModel.getExecution(EncodeManageModel.DELETE_ENCODE_SOURCE_PRIORITY);
+        try {
+            this.incrementDeletionMarker(this.deletingRecordedIds, recordedId);
+            if (typeof videoFileId !== 'undefined') {
+                this.incrementDeletionMarker(this.deletingVideoFileIds, videoFileId);
             }
+        } finally {
+            this.executeManagementModel.unLockExecution(exeId);
         }
 
-        // running queue
-        for (const item of this.runningQueue) {
-            const itemOption = item.getEncodeOption();
-            if (itemOption === null) {
-                continue;
+        let isReleased = false;
+        return () => {
+            if (isReleased === true) return;
+            isReleased = true;
+            this.decrementDeletionMarker(this.deletingRecordedIds, recordedId);
+            if (typeof videoFileId !== 'undefined') {
+                this.decrementDeletionMarker(this.deletingVideoFileIds, videoFileId);
             }
+        };
+    }
 
-            if (itemOption.recordedId === recordedId) {
-                encodeIds.push(itemOption.encodeId);
-            }
+    private incrementDeletionMarker<T extends number>(markers: Map<T, number>, id: T): void {
+        markers.set(id, (markers.get(id) ?? 0) + 1);
+    }
+
+    private decrementDeletionMarker<T extends number>(markers: Map<T, number>, id: T): void {
+        const count = markers.get(id);
+        if (typeof count === 'undefined' || count <= 1) {
+            markers.delete(id);
+        } else {
+            markers.set(id, count - 1);
         }
+    }
 
-        // scheduled queue
+    private async awaitMatchingFinishes(predicate: (option: EncodeOption) => boolean): Promise<void> {
+        const pending = [...this.finishingEncodes.values()]
+            .filter(item => predicate(item.option))
+            .map(item => item.promise);
+        if (pending.length === 0) return;
+
+        const results = await Promise.allSettled(pending);
+        const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failures.length > 0) {
+            for (const failure of failures) {
+                this.log.encode.error(failure.reason);
+            }
+            throw new Error('StopEncodeError');
+        }
+    }
+
+    private async cancelMatchingEncodes(predicate: (option: EncodeOption) => boolean): Promise<void> {
+        const encodeIds = new Set<apid.EncodeId>();
+        for (const item of [...this.waitQueue, ...this.runningQueue]) {
+            const option = item.getEncodeOption();
+            if (option !== null && predicate(option)) encodeIds.add(option.encodeId);
+        }
         for (const item of this.scheduledQueue) {
-            if (item.option.recordedId === recordedId) {
-                encodeIds.push(item.option.encodeId);
-            }
+            if (predicate(item.option)) encodeIds.add(item.option.encodeId);
         }
 
-        // 取り出した encodedId を元にキャンセル指示を出す
         let isError = false;
         for (const encodeId of encodeIds) {
             await this.cancel(encodeId).catch(err => {
@@ -621,7 +750,6 @@ class EncodeManageModel implements IEncodeManageModel {
             });
         }
 
-        // キャンセルに失敗した場合はエラーを履く
         if (isError !== false) {
             throw new Error('StopEncodeError');
         }
@@ -879,6 +1007,7 @@ namespace EncodeManageModel {
     export const RELEASE_SCHEDULED_ENCODE_PRIORITY = 2;
     export const REORDER_ENCODE_PRIORITY = 3;
     export const CLEAR_QUEUE_PRIPORITY = 3;
+    export const DELETE_ENCODE_SOURCE_PRIORITY = 4;
     export const NEEDS_CHECK_QUEUE_EVENT = 'needsCheckQueue';
     export const ENCODE_PRIPORITY = 10;
     export const DEFAULT_TIMEOUT_RATE = 4.0;

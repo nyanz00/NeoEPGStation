@@ -386,7 +386,12 @@ export function RecordedDetailPage(): ReactNode {
         retry: false,
     });
     const addEncode = useMutation({
-        mutationFn: (option: AddManualEncodeProgramOption) => api.addManualEncode(option),
+        mutationFn: (option: AddManualEncodeProgramOption) => {
+            if (!recorded.data?.videoFiles?.some(video => video.id === option.sourceVideoFileId)) {
+                return Promise.reject(new Error('選択した録画ファイルは存在しません。'));
+            }
+            return api.addManualEncode(option);
+        },
         onSuccess: async () => {
             setEncodeOpen(false);
             notify('エンコードキューに追加しました。', 'success');
@@ -400,7 +405,12 @@ export function RecordedDetailPage(): ReactNode {
         onError: error => notify(`エンコードを追加できません: ${error.message}`, 'error'),
     });
     const replaceThumbnail = useMutation({
-        mutationFn: (videoFileId: VideoFileId) => api.replaceThumbnail(videoFileId),
+        mutationFn: (videoFileId: VideoFileId) => {
+            if (!recorded.data?.videoFiles?.some(video => video.id === videoFileId)) {
+                return Promise.reject(new Error('選択した録画ファイルは存在しません。'));
+            }
+            return api.replaceThumbnail(videoFileId);
+        },
         onSuccess: () => {
             setThumbnailOpen(false);
             notify('サムネイル再生成を開始しました。', 'success');
@@ -456,7 +466,8 @@ export function RecordedDetailPage(): ReactNode {
     useEffect(() => {
         const item = recorded.data;
         if (item === undefined) return;
-        setSourceVideoFileId(current => (current === '' ? (item.videoFiles?.[0]?.id ?? '') : current));
+        const videoFiles = item.videoFiles ?? [];
+        setSourceVideoFileId(current => (current !== '' && videoFiles.some(video => video.id === current) ? current : (videoFiles[0]?.id ?? '')));
     }, [recorded.data]);
     useEffect(() => {
         const data = config.data;
@@ -485,7 +496,8 @@ export function RecordedDetailPage(): ReactNode {
     const drop = item?.dropLogFile;
     const hasDrop = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     const hasAnnictHeaderControl = annictEpisode.isError || annictEpisode.data?.state === 'pending' || annictEpisode.data?.state === 'matched';
-    const canEncode = sourceVideoFileId !== '' && mode.length > 0 && (sameDirectory || parentDir.length > 0);
+    const sourceVideoFileExists = sourceVideoFileId !== '' && files.some(video => video.id === sourceVideoFileId);
+    const canEncode = sourceVideoFileExists && mode.length > 0 && (sameDirectory || parentDir.length > 0);
     const markAtPlaybackStart = (): void => {
         if (settings.annictAutoWatchMode === 'start' && annictEpisode.data?.state === 'matched' && annictEpisode.data.writeConfigured && !annictEpisode.data.watched) {
             markAnnictEpisodeWatched.mutate();
@@ -736,8 +748,8 @@ export function RecordedDetailPage(): ReactNode {
                     </Button>
                     <Button
                         variant="contained"
-                        disabled={sourceVideoFileId === '' || replaceThumbnail.isPending}
-                        onClick={() => sourceVideoFileId !== '' && replaceThumbnail.mutate(sourceVideoFileId)}
+                        disabled={!sourceVideoFileExists || replaceThumbnail.isPending}
+                        onClick={() => sourceVideoFileExists && replaceThumbnail.mutate(sourceVideoFileId)}
                     >
                         再生成
                     </Button>
@@ -919,7 +931,7 @@ export function RecordedDetailPage(): ReactNode {
                         variant="contained"
                         disabled={!canEncode || addEncode.isPending}
                         onClick={() => {
-                            if (sourceVideoFileId === '') return;
+                            if (!sourceVideoFileExists) return;
                             persistEncodeSettings();
                             const option: AddManualEncodeProgramOption = {
                                 recordedId,

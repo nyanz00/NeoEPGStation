@@ -113,7 +113,7 @@ export function RecordedItemActions({
             setUserOpen(false);
             notify('ユーザーを変更しました。', 'success');
             onChanged();
-            await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['recorded'] }), queryClient.invalidateQueries({ queryKey: ['recorded-options'] })]);
         },
         onError: error => notify(`ユーザーを変更できません: ${error.message}`, 'error'),
     });
@@ -131,7 +131,7 @@ export function RecordedItemActions({
             notify(`${item.name} を削除しました。`, 'success');
             if (allDeleted) onDeleted();
             else onChanged();
-            await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['recorded'] }), queryClient.invalidateQueries({ queryKey: ['recorded-options'] })]);
         },
         onError: error => notify(`削除に失敗しました: ${error.message}`, 'error'),
     });

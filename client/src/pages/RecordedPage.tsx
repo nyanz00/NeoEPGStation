@@ -45,7 +45,7 @@ import {
     Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { GetRecordedOption, RecordedCleanupPlanResult, RecordedItem } from '../../../api';
+import type { AddManualEncodeProgramOption, GetRecordedOption, RecordedCleanupPlanResult, RecordedItem, VideoFileId } from '../../../api';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
@@ -54,13 +54,14 @@ import { DateTextInput } from '../components/DateTimeInput';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
-import { programDialogClose, programDialogPaper } from '../components/programDialogStyles';
+import { programDialogClose, programDialogFields, programDialogPaper } from '../components/programDialogStyles';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { formatProgramTime, genreNames, programDuration } from '../core/program';
 import type { ActiveUserId } from '../core/storage/activeUser';
+import { loadAddEncodeSettings, saveAddEncodeSettings } from '../core/storage/encode';
 import { useSettings } from '../core/storage/settings';
 
 interface RecordedFilters {
@@ -82,6 +83,8 @@ interface RecordedFilters {
     month: string;
     day: string;
 }
+
+type MultipleDeletionOption = 'all' | 'original' | 'encoded';
 
 const emptyFilters: RecordedFilters = {
     keyword: '',
@@ -168,12 +171,14 @@ function isTrueQuery(value: string | null): boolean {
     return value === '1' || value === 'true';
 }
 
-function localDateInput(value: number, endExclusive = false): string {
-    const date = new Date(endExclusive ? value - 1 : value);
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function jstDateInput(value: number, endExclusive = false): string {
+    const date = new Date((endExclusive ? value - 1 : value) + JST_OFFSET_MS);
     if (!Number.isFinite(date.getTime())) return '';
-    const year = date.getFullYear().toString(10).padStart(4, '0');
-    const month = (date.getMonth() + 1).toString(10).padStart(2, '0');
-    const day = date.getDate().toString(10).padStart(2, '0');
+    const year = date.getUTCFullYear().toString(10).padStart(4, '0');
+    const month = (date.getUTCMonth() + 1).toString(10).padStart(2, '0');
+    const day = date.getUTCDate().toString(10).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
 
@@ -196,8 +201,8 @@ function readRecordedFilters(params: URLSearchParams): RecordedFilters {
         hasDrop: isTrueQuery(params.get('hasDrop')),
         hasError: isTrueQuery(params.get('hasError')),
         hasScrambling: isTrueQuery(params.get('hasScrambling')),
-        startDate: params.get('startDate') ?? (Number.isFinite(recordedStartAt) ? localDateInput(recordedStartAt) : ''),
-        endDate: params.get('endDate') ?? (Number.isFinite(recordedEndAt) ? localDateInput(recordedEndAt, true) : ''),
+        startDate: params.get('startDate') ?? (Number.isFinite(recordedStartAt) ? jstDateInput(recordedStartAt) : ''),
+        endDate: params.get('endDate') ?? (Number.isFinite(recordedEndAt) ? jstDateInput(recordedEndAt, true) : ''),
         dateMode: params.get('dateMode') === 'specific' || params.get('recordedDateMode') === 'specific' ? 'specific' : 'range',
         year: params.get('year') ?? params.get('recordedYear') ?? '',
         month: params.get('month') ?? params.get('recordedMonth') ?? '',
@@ -235,17 +240,76 @@ function writeRecordedFilters(params: URLSearchParams, filters: RecordedFilters)
     }
 }
 
+interface LocalDateParts {
+    year: number;
+    month: number;
+    day: number;
+}
+
+function createJstDateStart(year: number, monthIndex: number, day: number): number {
+    const date = new Date(0);
+    date.setUTCFullYear(year, monthIndex, day);
+    date.setUTCHours(0, 0, 0, 0);
+    return date.getTime() - JST_OFFSET_MS;
+}
+
+function isJstDate(timestamp: number, year: number, monthIndex: number, day: number): boolean {
+    const date = new Date(timestamp + JST_OFFSET_MS);
+    return date.getUTCFullYear() === year && date.getUTCMonth() === monthIndex && date.getUTCDate() === day;
+}
+
+function parseLocalDate(value: string): LocalDateParts | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (match === null) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = createJstDateStart(year, month - 1, day);
+    if (year < 1 || !isJstDate(date, year, month - 1, day)) return null;
+    return { year, month, day };
+}
+
 function specificDateRange(filters: RecordedFilters): { start?: number; end?: number } {
+    if (filters.year.length === 0) return {};
     const year = Number(filters.year);
     const month = filters.month === '' ? undefined : Number(filters.month);
     const day = filters.day === '' ? undefined : Number(filters.day);
-    if (!Number.isInteger(year) || year < 1) return {};
+    if (!Number.isInteger(year) || year < 1 || year > 9999) return {};
     if (month !== undefined && (!Number.isInteger(month) || month < 1 || month > 12)) return {};
-    if (day !== undefined && (month === undefined || !Number.isInteger(day) || day < 1 || day > 31)) return {};
-    const start = new Date(year, (month ?? 1) - 1, day ?? 1).getTime();
-    const endExclusive =
-        day !== undefined ? new Date(year, month! - 1, day + 1).getTime() : month !== undefined ? new Date(year, month, 1).getTime() : new Date(year + 1, 0, 1).getTime();
-    return { start, end: endExclusive - 1 };
+    if (day !== undefined && (month === undefined || !Number.isInteger(day))) return {};
+    const startDate = createJstDateStart(year, (month ?? 1) - 1, day ?? 1);
+    if (!isJstDate(startDate, year, (month ?? 1) - 1, day ?? 1)) return {};
+    const endDate =
+        day !== undefined ? createJstDateStart(year, month! - 1, day + 1) : month !== undefined ? createJstDateStart(year, month, 1) : createJstDateStart(year + 1, 0, 1);
+    return { start: startDate, end: endDate - 1 };
+}
+
+function recordedDateError(filters: RecordedFilters, startDateInputValid: boolean, endDateInputValid: boolean): string | null {
+    if (filters.dateMode === 'range') {
+        if (!startDateInputValid || !endDateInputValid) return '録画日の指定が不正です';
+        const start = filters.startDate.length > 0 ? parseLocalDate(filters.startDate) : null;
+        const end = filters.endDate.length > 0 ? parseLocalDate(filters.endDate) : null;
+        if ((filters.startDate.length > 0 && start === null) || (filters.endDate.length > 0 && end === null)) return '録画日の指定が不正です';
+        if (start !== null && end !== null) {
+            const startAt = createJstDateStart(start.year, start.month - 1, start.day);
+            const endExclusive = createJstDateStart(end.year, end.month - 1, end.day + 1);
+            if (startAt >= endExclusive) return '録画日の指定が不正です';
+        }
+        return null;
+    }
+
+    if (filters.year.length === 0) return filters.month.length > 0 || filters.day.length > 0 ? '録画日の指定が不正です' : null;
+    const year = Number(filters.year);
+    const month = filters.month.length === 0 ? undefined : Number(filters.month);
+    const day = filters.day.length === 0 ? undefined : Number(filters.day);
+    if (!Number.isInteger(year) || year < 1 || year > 9999) return '録画日の指定が不正です';
+    if (month !== undefined && (!Number.isInteger(month) || month < 1 || month > 12)) return '録画日の指定が不正です';
+    if (day !== undefined) {
+        if (month === undefined || !Number.isInteger(day)) return '録画日の指定が不正です';
+        const date = createJstDateStart(year, month - 1, day);
+        if (!isJstDate(date, year, month - 1, day)) return '録画日の指定が不正です';
+    }
+    return null;
 }
 
 function recordedTime(item: RecordedItem): string {
@@ -255,43 +319,58 @@ function recordedTime(item: RecordedItem): string {
         weekday: 'short',
         hour: '2-digit',
         minute: '2-digit',
-        hour12: false,
+        hourCycle: 'h23',
+        timeZone: 'Asia/Tokyo',
     }).format(new Date(item.startAt));
     return `${start} - ${formatProgramTime(item.endAt)} (${programDuration(item)} m)`;
 }
 
 function toStartOfDay(value: string): number | undefined {
     if (value.length === 0) return undefined;
-    const result = new Date(`${value}T00:00:00`).getTime();
-    return Number.isFinite(result) ? result : undefined;
+    const date = parseLocalDate(value);
+    return date === null ? undefined : createJstDateStart(date.year, date.month - 1, date.day);
 }
 
 function toEndOfDay(value: string): number | undefined {
-    const start = toStartOfDay(value);
-    return start === undefined ? undefined : start + 24 * 60 * 60 * 1000 - 1;
+    const date = parseLocalDate(value);
+    return date === null ? undefined : createJstDateStart(date.year, date.month - 1, date.day + 1) - 1;
 }
 
-async function waitForRecordedThumbnails(items: RecordedItem[]): Promise<void> {
-    const sources = items
-        .map(item => item.thumbnails?.[0])
-        .filter((thumbnail): thumbnail is number => typeof thumbnail === 'number')
-        .map(thumbnail => withBasePath(`/api/thumbnails/${thumbnail}`));
-    if (sources.length === 0) return;
+interface RecordedThumbnailRevealState {
+    late: Set<number>;
+    failed: Set<number>;
+}
 
-    const preload = Promise.allSettled(
-        sources.map(
-            source =>
+async function waitForRecordedThumbnails(items: RecordedItem[]): Promise<RecordedThumbnailRevealState> {
+    const thumbnailIds = [...new Set(items.map(item => item.thumbnails?.[0]).filter((thumbnail): thumbnail is number => typeof thumbnail === 'number'))];
+    if (thumbnailIds.length === 0) return { late: new Set(), failed: new Set() };
+
+    const statuses = new Map<number, 'ready' | 'failed'>();
+    const preload = Promise.all(
+        thumbnailIds.map(
+            thumbnailId =>
                 new Promise<void>(resolve => {
                     const image = new Image();
-                    image.onload = () => resolve();
-                    image.onerror = () => resolve();
-                    image.src = source;
-                    if (image.complete) resolve();
+                    let settled = false;
+                    const finish = (status: 'ready' | 'failed'): void => {
+                        if (settled) return;
+                        settled = true;
+                        statuses.set(thumbnailId, status);
+                        resolve();
+                    };
+                    image.onload = () => finish('ready');
+                    image.onerror = () => finish('failed');
+                    image.src = withBasePath(`/api/thumbnails/${thumbnailId}`);
+                    if (image.complete) finish(image.naturalWidth > 0 ? 'ready' : 'failed');
                 }),
         ),
     );
     // Do not let a slow or unavailable thumbnail hold the whole page hostage.
     await Promise.race([preload, new Promise(resolve => window.setTimeout(resolve, 400))]);
+    return {
+        late: new Set(thumbnailIds.filter(thumbnailId => !statuses.has(thumbnailId))),
+        failed: new Set(thumbnailIds.filter(thumbnailId => statuses.get(thumbnailId) === 'failed')),
+    };
 }
 
 function createRecordedRequestOption(
@@ -321,6 +400,32 @@ function createRecordedRequestOption(
     };
 }
 
+function RecordedThumbnail({ thumbnailId, fadeIn, failed }: { thumbnailId?: number; fadeIn: boolean; failed: boolean }): ReactNode {
+    const [loaded, setLoaded] = useState(!fadeIn);
+    const [loadFailed, setLoadFailed] = useState(failed);
+
+    if (thumbnailId === undefined || failed || loadFailed) return null;
+
+    return (
+        <Box
+            component="img"
+            src={withBasePath(`/api/thumbnails/${thumbnailId}`)}
+            alt=""
+            loading="eager"
+            onLoad={() => setLoaded(true)}
+            onError={() => setLoadFailed(true)}
+            sx={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                display: 'block',
+                opacity: loaded ? 1 : 0,
+                transition: fadeIn ? 'opacity 180ms ease' : 'none',
+            }}
+        />
+    );
+}
+
 function RecordedCard({
     item,
     channel,
@@ -328,7 +433,11 @@ function RecordedCard({
     selected,
     focused,
     showDrop,
+    fadeThumbnail,
+    failedThumbnail,
     onOpen,
+    onEncode,
+    onStop,
     onSelect,
     onSearch,
     onChanged,
@@ -340,7 +449,11 @@ function RecordedCard({
     selected: boolean;
     focused: boolean;
     showDrop: boolean;
+    fadeThumbnail: boolean;
+    failedThumbnail: boolean;
     onOpen: () => void;
+    onEncode: () => void;
+    onStop: () => void;
     onSelect: () => void;
     onSearch: () => void;
     onChanged: () => void;
@@ -385,16 +498,11 @@ function RecordedCard({
                     overflow: 'hidden',
                 }}
             >
-                <Box
-                    component="img"
-                    src={thumbnail === undefined ? undefined : withBasePath(`/api/thumbnails/${thumbnail}`)}
-                    alt=""
-                    draggable={!editMode}
-                    loading="eager"
-                    onError={event => {
-                        event.currentTarget.style.display = 'none';
-                    }}
-                    sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                <RecordedThumbnail
+                    key={`${thumbnail ?? 'none'}-${fadeThumbnail ? 'late' : 'ready'}-${failedThumbnail ? 'failed' : 'loadable'}`}
+                    thumbnailId={thumbnail}
+                    fadeIn={fadeThumbnail}
+                    failed={failedThumbnail}
                 />
                 {editMode && <Checkbox checked={selected} sx={{ position: 'absolute', top: 2, left: 2, bgcolor: 'rgba(0,0,0,.45)' }} />}
             </Box>
@@ -432,7 +540,16 @@ function RecordedCard({
                     </Typography>
                 )}
             </Box>
-            <RecordedItemActions item={item} anchorEl={anchor} onClose={() => setAnchor(null)} onSearch={onSearch} onEncode={onOpen} onChanged={onChanged} onDeleted={onDeleted} />
+            <RecordedItemActions
+                item={item}
+                anchorEl={anchor}
+                onClose={() => setAnchor(null)}
+                onSearch={onSearch}
+                onEncode={onEncode}
+                onStop={item.isEncoding ? onStop : undefined}
+                onChanged={onChanged}
+                onDeleted={onDeleted}
+            />
         </Card>
     );
 }
@@ -445,6 +562,8 @@ function RecordedTableRow({
     focused,
     showDrop,
     onOpen,
+    onEncode,
+    onStop,
     onSelect,
     onSearch,
     onChanged,
@@ -457,6 +576,8 @@ function RecordedTableRow({
     focused: boolean;
     showDrop: boolean;
     onOpen: () => void;
+    onEncode: () => void;
+    onStop: () => void;
     onSelect: () => void;
     onSearch: () => void;
     onChanged: () => void;
@@ -506,12 +627,176 @@ function RecordedTableRow({
                     anchorEl={anchor}
                     onClose={() => setAnchor(null)}
                     onSearch={onSearch}
-                    onEncode={onOpen}
+                    onEncode={onEncode}
+                    onStop={item.isEncoding ? onStop : undefined}
                     onChanged={onChanged}
                     onDeleted={onDeleted}
                 />
             </TableCell>
         </TableRow>
+    );
+}
+
+function RecordedEncodeDialog({ item, onClose, onChanged }: { item: RecordedItem | null; onClose: () => void; onChanged: () => void }): ReactNode {
+    const queryClient = useQueryClient();
+    const { notify } = useNotifications();
+    const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig, staleTime: Number.POSITIVE_INFINITY });
+    const [initialSettings] = useState(loadAddEncodeSettings);
+    const [sourceVideoFileId, setSourceVideoFileId] = useState<VideoFileId | ''>('');
+    const [mode, setMode] = useState(initialSettings.encodeMode ?? '');
+    const [sameDirectory, setSameDirectory] = useState(initialSettings.isSaveSameDirectory);
+    const [parentDir, setParentDir] = useState(initialSettings.parentDirectory ?? '');
+    const [directory, setDirectory] = useState('');
+    const [removeOriginal, setRemoveOriginal] = useState(initialSettings.removeOriginal);
+    const [updateThumbnail, setUpdateThumbnail] = useState(initialSettings.updateThumbnail);
+    const files = item?.videoFiles ?? [];
+    const sourceVideoFileExists = sourceVideoFileId !== '' && files.some(video => video.id === sourceVideoFileId);
+    const canEncode = item !== null && sourceVideoFileExists && mode.length > 0 && (sameDirectory || parentDir.length > 0);
+
+    const persistSettings = (): void => {
+        saveAddEncodeSettings({
+            encodeMode: mode.length > 0 ? mode : null,
+            parentDirectory: parentDir.length > 0 ? parentDir : null,
+            isSaveSameDirectory: sameDirectory,
+            removeOriginal,
+            updateThumbnail,
+        });
+    };
+    const close = (): void => {
+        if (addEncode.isPending) return;
+        persistSettings();
+        onClose();
+    };
+    const addEncode = useMutation({
+        mutationFn: (option: AddManualEncodeProgramOption) => {
+            if (item === null || !item.videoFiles?.some(video => video.id === option.sourceVideoFileId)) {
+                return Promise.reject(new Error('選択した録画ファイルは存在しません。'));
+            }
+            return api.addManualEncode(option);
+        },
+        onSuccess: async () => {
+            persistSettings();
+            onClose();
+            notify('エンコードキューに追加しました。', 'success');
+            onChanged();
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['encode'] }), queryClient.invalidateQueries({ queryKey: ['recorded'] })]);
+        },
+        onError: error => notify(`エンコードを追加できません: ${error.message}`, 'error'),
+    });
+
+    useEffect(() => {
+        if (item === null) return;
+        const nextFiles = item.videoFiles ?? [];
+        setSourceVideoFileId(current => (current !== '' && nextFiles.some(video => video.id === current) ? current : (nextFiles[0]?.id ?? '')));
+    }, [item?.videoFiles]);
+    useEffect(() => {
+        if (item === null) return;
+        setDirectory('');
+    }, [item?.id]);
+    useEffect(() => {
+        const data = config.data;
+        if (data === undefined) return;
+        setMode(current => (data.encode.includes(current) ? current : (data.encode[0] ?? '')));
+        setParentDir(current => (data.recorded.includes(current) ? current : (data.recorded[0] ?? '')));
+    }, [config.data]);
+
+    return (
+        <Dialog
+            open={item !== null}
+            onClose={close}
+            fullWidth
+            maxWidth="sm"
+            aria-labelledby="recorded-list-encode-title"
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...programDialogPaper(theme),
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                        '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        '& .MuiCheckbox-root': { py: 0.5 },
+                    }),
+                },
+            }}
+        >
+            <DialogTitle id="recorded-list-encode-title">{item?.name ?? '録画'}</DialogTitle>
+            <IconButton aria-label="閉じる" disabled={addEncode.isPending} onClick={close} sx={programDialogClose}>
+                <CloseOutlined />
+            </IconButton>
+            <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5, bgcolor: 'action.hover' }}>
+                <Stack spacing={1}>
+                    <Box sx={programDialogFields}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>元ファイル</InputLabel>
+                            <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
+                                {files.map(video => (
+                                    <MenuItem key={video.id} value={video.id}>
+                                        {video.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>エンコードプリセット</InputLabel>
+                            <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
+                                {config.data?.encode.map(value => (
+                                    <MenuItem key={value} value={value}>
+                                        {value}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Box>
+                    <Box sx={programDialogFields}>
+                        <FormControl fullWidth size="small" disabled={sameDirectory}>
+                            <InputLabel>保存先</InputLabel>
+                            <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
+                                {config.data?.recorded.map(value => (
+                                    <MenuItem key={value} value={value}>
+                                        {value}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <TextField disabled={sameDirectory} size="small" label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
+                    </Box>
+                    <Stack spacing={0}>
+                        <FormControlLabel
+                            control={<Checkbox checked={sameDirectory} onChange={event => setSameDirectory(event.target.checked)} />}
+                            label="元ファイルと同じ場所に保存"
+                        />
+                        <FormControlLabel control={<Checkbox checked={removeOriginal} onChange={event => setRemoveOriginal(event.target.checked)} />} label="元ファイル削除" />
+                        <FormControlLabel control={<Checkbox checked={updateThumbnail} onChange={event => setUpdateThumbnail(event.target.checked)} />} label="サムネイル再生成" />
+                    </Stack>
+                </Stack>
+            </DialogContent>
+            <DialogActions>
+                <Button color="inherit" variant="outlined" disabled={addEncode.isPending} onClick={close}>
+                    キャンセル
+                </Button>
+                <Button
+                    variant="contained"
+                    disabled={!canEncode || addEncode.isPending}
+                    onClick={() => {
+                        if (item === null || !sourceVideoFileExists) return;
+                        const option: AddManualEncodeProgramOption = {
+                            recordedId: item.id,
+                            sourceVideoFileId,
+                            mode,
+                            removeOriginal,
+                            updateThumbnail,
+                            isSaveSameDirectory: sameDirectory,
+                        };
+                        if (!sameDirectory) {
+                            option.parentDir = parentDir;
+                            if (directory.trim().length > 0) option.directory = directory.trim();
+                        }
+                        addEncode.mutate(option);
+                    }}
+                >
+                    追加
+                </Button>
+            </DialogActions>
+        </Dialog>
     );
 }
 
@@ -541,11 +826,18 @@ export function RecordedPage(): ReactNode {
     const [filters, setFilters] = useState<RecordedFilters>(initialFilters);
     const [draftFilters, setDraftFilters] = useState<RecordedFilters>(initialFilters);
     const [searchAnchor, setSearchAnchor] = useState<HTMLElement | null>(null);
+    const [ruleSearchInput, setRuleSearchInput] = useState('');
+    const [debouncedRuleSearchInput, setDebouncedRuleSearchInput] = useState('');
+    const [startDateInputValid, setStartDateInputValid] = useState(true);
+    const [endDateInputValid, setEndDateInputValid] = useState(true);
+    const [dateInputGeneration, setDateInputGeneration] = useState(0);
     const [fileTypeMenuOpen, setFileTypeMenuOpen] = useState(false);
     const [mainMenuAnchor, setMainMenuAnchor] = useState<HTMLElement | null>(null);
     const [editMode, setEditMode] = useState(false);
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteOption, setDeleteOption] = useState<MultipleDeletionOption>('all');
+    const [encodeTarget, setEncodeTarget] = useState<RecordedItem | null>(null);
     const [bulkUserOpen, setBulkUserOpen] = useState(false);
     const [bulkUserId, setBulkUserId] = useState<ActiveUserId>(null);
     const [moveOpen, setMoveOpen] = useState(false);
@@ -559,6 +851,15 @@ export function RecordedPage(): ReactNode {
     const cleanupAutofilledPathRef = useRef<string | null>(null);
     const specificMonthRef = useRef<HTMLInputElement>(null);
     const specificDayRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (searchAnchor === null || draftFilters.manualOnly) {
+            setDebouncedRuleSearchInput('');
+            return;
+        }
+        const timer = window.setTimeout(() => setDebouncedRuleSearchInput(ruleSearchInput.trim()), 250);
+        return () => window.clearTimeout(timer);
+    }, [draftFilters.manualOnly, ruleSearchInput, searchAnchor]);
 
     /**
      * Vue's router always pushed a new route when the recorded query changed.
@@ -599,6 +900,9 @@ export function RecordedPage(): ReactNode {
         setUserId(nextUserId);
         setFilters(nextFilters);
         setDraftFilters(nextFilters);
+        setStartDateInputValid(true);
+        setEndDateInputValid(true);
+        setDateInputGeneration(current => current + 1);
         // Keep a focus marker alive while the one-shot focus query is removed
         // with replace; otherwise the highlight disappears before scrolling.
         if (nextFocus !== null) setFocusedRecordedId(nextFocus);
@@ -648,8 +952,34 @@ export function RecordedPage(): ReactNode {
         [navigateRecordedQuery, searchParams],
     );
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
-    const searchOptions = useQuery({ queryKey: ['recorded-options'], queryFn: api.getRecordedSearchOptions, staleTime: 60_000 });
-    const rules = useQuery({ queryKey: ['recorded-search-rules'], queryFn: () => api.getRules({ type: 'normal', limit: 1000 }), staleTime: 60_000 });
+    const searchOptionUserId = typeof userId === 'number' ? userId : undefined;
+    const searchOptions = useQuery({
+        queryKey: ['recorded-options', searchOptionUserId ?? 'all'],
+        queryFn: () => api.getRecordedSearchOptions(searchOptionUserId),
+        enabled: userId !== null,
+        staleTime: 60_000,
+    });
+    const ruleKeywords = useQuery({
+        queryKey: ['recorded-search-rule-keywords', debouncedRuleSearchInput],
+        queryFn: () => api.getRuleKeywords({ keyword: debouncedRuleSearchInput.length > 0 ? debouncedRuleSearchInput : undefined, limit: 1000 }),
+        enabled: searchAnchor !== null && !draftFilters.manualOnly,
+        staleTime: 60_000,
+    });
+    const selectedRuleId = typeof draftFilters.ruleId === 'number' ? draftFilters.ruleId : null;
+    const selectedRule = useQuery({
+        queryKey: ['rule', selectedRuleId],
+        queryFn: () => api.getRule(selectedRuleId!),
+        enabled: searchAnchor !== null && !draftFilters.manualOnly && selectedRuleId !== null,
+        staleTime: 60_000,
+    });
+    const ruleOptions = useMemo(() => {
+        const options = [...(ruleKeywords.data ?? [])];
+        const selected = selectedRule.data;
+        if (selected !== undefined && !options.some(option => option.id === selected.id)) {
+            options.unshift({ id: selected.id, keyword: selected.searchOption.keyword ?? '' });
+        }
+        return options;
+    }, [ruleKeywords.data, selectedRule.data]);
     const requestOption = createRecordedRequestOption(filters, page, userId, settings);
     const routePageValue = Number(searchParams.get('page'));
     const routePage = Number.isSafeInteger(routePageValue) && routePageValue > 0 ? routePageValue : 1;
@@ -666,6 +996,11 @@ export function RecordedPage(): ReactNode {
         return `${location.pathname}${query.length > 0 ? `?${query}` : ''}`;
     }, [location.pathname, location.search]);
     const [visibleRecordedListKey, setVisibleRecordedListKey] = useState('');
+    const [thumbnailReveal, setThumbnailReveal] = useState<{ key: string; late: Set<number>; failed: Set<number> }>({
+        key: '',
+        late: new Set(),
+        failed: new Set(),
+    });
     const requestSignature = JSON.stringify(requestOption);
     const recordedTransitionRef = useRef({ requestSignature: '', duration: 500 });
     if (recordedTransitionRef.current.requestSignature !== requestSignature) {
@@ -684,8 +1019,11 @@ export function RecordedPage(): ReactNode {
         if (!requestMatchesRoute || (!records.isSuccess && !records.isError)) return;
         let cancelled = false;
         const reveal = async (): Promise<void> => {
-            if (records.isSuccess) await waitForRecordedThumbnails(records.data.records);
-            if (!cancelled) setVisibleRecordedListKey(recordedListUrlKey);
+            const nextThumbnailReveal = records.isSuccess ? await waitForRecordedThumbnails(records.data.records) : { late: new Set<number>(), failed: new Set<number>() };
+            if (!cancelled) {
+                setThumbnailReveal({ key: recordedListUrlKey, ...nextThumbnailReveal });
+                setVisibleRecordedListKey(recordedListUrlKey);
+            }
         };
         void reveal();
         return () => {
@@ -699,17 +1037,18 @@ export function RecordedPage(): ReactNode {
         enabled: moveOpen,
         staleTime: 30_000,
     });
+    const currentSelectedItems = (): RecordedItem[] => records.data?.records.filter(value => selected.has(value.id)) ?? [];
     const finishBulkEdit = async (): Promise<void> => {
         setBulkUserOpen(false);
         setMoveOpen(false);
         setEditMode(false);
         setSelected(new Set());
-        await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+        await Promise.all([queryClient.invalidateQueries({ queryKey: ['recorded'] }), queryClient.invalidateQueries({ queryKey: ['recorded-options'] })]);
     };
     const bulkUpdateUser = useMutation({
         mutationFn: (nextUserId: number) =>
             api.bulkUpdateRecordedUser({
-                recordedIds: Array.from(selected),
+                recordedIds: currentSelectedItems().map(item => item.id),
                 userId: nextUserId,
             }),
         onSuccess: async result => {
@@ -724,7 +1063,7 @@ export function RecordedPage(): ReactNode {
     const moveSelected = useMutation({
         mutationFn: () =>
             api.moveRecordedToSubDirectory({
-                recordedIds: Array.from(selected),
+                recordedIds: currentSelectedItems().map(item => item.id),
                 subDirectory: moveSubDirectory,
             }),
         onSuccess: async result => {
@@ -740,11 +1079,15 @@ export function RecordedPage(): ReactNode {
     });
     const deleteSelected = useMutation({
         mutationFn: async () => {
-            const items = records.data?.records.filter(value => selected.has(value.id)) ?? [];
+            const items = currentSelectedItems();
             const results = await Promise.allSettled(
                 items.map(async item => {
-                    if ((item.videoFiles?.length ?? 0) === 0) throw new Error('削除できる録画ファイルがありません');
-                    for (const video of item.videoFiles ?? []) await api.deleteVideo(video.id);
+                    if (deleteOption === 'all') {
+                        await api.deleteRecorded(item.id);
+                        return;
+                    }
+                    const type = deleteOption === 'original' ? 'ts' : 'encoded';
+                    for (const video of item.videoFiles?.filter(value => value.type === type) ?? []) await api.deleteVideo(video.id);
                 }),
             );
             return {
@@ -758,7 +1101,7 @@ export function RecordedPage(): ReactNode {
             setDeleteOpen(false);
             setSelected(new Set(result.failed.map(entry => entry.item.id)));
             setEditMode(result.failed.length > 0);
-            if (result.succeeded.length > 0) notify(`${result.succeeded.length}件の番組を削除しました。`, 'success');
+            if (result.succeeded.length > 0) notify(`${result.succeeded.length}件の削除処理が完了しました。`, 'success');
             if (result.failed.length > 0) {
                 const detail = result.failed
                     .slice(0, 3)
@@ -766,12 +1109,20 @@ export function RecordedPage(): ReactNode {
                     .join(' / ');
                 notify(`${result.failed.length}件を削除できませんでした: ${detail}`, 'error');
             }
-            await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['recorded'] }), queryClient.invalidateQueries({ queryKey: ['recorded-options'] })]);
         },
         onError: async error => {
             notify(`削除に失敗しました: ${error.message}`, 'error');
             await queryClient.invalidateQueries({ queryKey: ['recorded'] });
         },
+    });
+    const stopEncode = useMutation({
+        mutationFn: (recordedId: number) => api.stopRecordedEncode(recordedId),
+        onSuccess: async () => {
+            notify('エンコードを停止しました。', 'success');
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['encode'] }), queryClient.invalidateQueries({ queryKey: ['recorded'] })]);
+        },
+        onError: error => notify(`エンコードを停止できません: ${error.message}`, 'error'),
     });
     const createCleanupPlan = useMutation({
         mutationFn: async () => {
@@ -854,6 +1205,16 @@ export function RecordedPage(): ReactNode {
     const selectedRecords = records.data?.records.filter(item => selected.has(item.id)) ?? [];
     const selectedSize = selectedRecords.reduce((total, item) => total + (item.videoFiles?.reduce((subtotal, videoFile) => subtotal + videoFile.size, 0) ?? 0), 0);
     const hasEncodingSelection = selectedRecords.some(item => item.isEncoding);
+    const currentRecordIds = records.data?.records.map(item => item.id) ?? [];
+    const areAllCurrentRecordsSelected = currentRecordIds.length > 0 && currentRecordIds.every(id => selected.has(id));
+    useEffect(() => {
+        if (!editMode || records.data === undefined) return;
+        const availableIds = new Set(records.data.records.map(item => item.id));
+        setSelected(current => {
+            const next = new Set([...current].filter(id => availableIds.has(id)));
+            return next.size === current.size ? current : next;
+        });
+    }, [editMode, records.data]);
     useEffect(() => {
         if (records.isSuccess && page > totalPages) changePage(totalPages, true);
     }, [changePage, page, records.isSuccess, totalPages]);
@@ -906,19 +1267,19 @@ export function RecordedPage(): ReactNode {
     return (
         <>
             <PageHeader
-                title={editMode ? `${selected.size} 件選択 (${formatFileSize(selectedSize)})` : '録画済み'}
+                title={editMode ? `${selectedRecords.length} 件選択 (${formatFileSize(selectedSize)})` : '録画済み'}
                 actions={
                     editMode ? (
                         <Stack direction="row" spacing={0.5}>
-                            <Tooltip title="すべて選択">
-                                <IconButton onClick={() => setSelected(new Set(records.data?.records.map(item => item.id) ?? []))}>
+                            <Tooltip title={areAllCurrentRecordsSelected ? 'すべて解除' : 'すべて選択'}>
+                                <IconButton onClick={() => setSelected(areAllCurrentRecordsSelected ? new Set() : new Set(currentRecordIds))}>
                                     <SelectAllOutlined />
                                 </IconButton>
                             </Tooltip>
                             <Tooltip title="ユーザーを一括変更">
                                 <span>
                                     <IconButton
-                                        disabled={selected.size === 0}
+                                        disabled={selectedRecords.length === 0}
                                         onClick={() => {
                                             setBulkUserId(null);
                                             setBulkUserOpen(true);
@@ -931,7 +1292,7 @@ export function RecordedPage(): ReactNode {
                             <Tooltip title="サブディレクトリへ一括移動">
                                 <span>
                                     <IconButton
-                                        disabled={selected.size === 0}
+                                        disabled={selectedRecords.length === 0}
                                         onClick={() => {
                                             setMoveSubDirectory('');
                                             setMoveOpen(true);
@@ -943,7 +1304,13 @@ export function RecordedPage(): ReactNode {
                             </Tooltip>
                             <Tooltip title="削除">
                                 <span>
-                                    <IconButton disabled={selected.size === 0} onClick={() => setDeleteOpen(true)}>
+                                    <IconButton
+                                        disabled={selectedRecords.length === 0}
+                                        onClick={() => {
+                                            setDeleteOption('all');
+                                            setDeleteOpen(true);
+                                        }}
+                                    >
                                         <DeleteOutlineOutlined />
                                     </IconButton>
                                 </span>
@@ -966,6 +1333,10 @@ export function RecordedPage(): ReactNode {
                                 <IconButton
                                     onClick={event => {
                                         setDraftFilters(filters);
+                                        setRuleSearchInput('');
+                                        setStartDateInputValid(true);
+                                        setEndDateInputValid(true);
+                                        setDateInputGeneration(current => current + 1);
                                         setSearchAnchor(event.currentTarget);
                                     }}
                                 >
@@ -1063,13 +1434,20 @@ export function RecordedPage(): ReactNode {
                                         focused={settings.isHighlightRecordedOnReturn && focusedRecordedId === item.id}
                                         showDrop={settings.isShowDropInfoInsteadOfDescription}
                                         onOpen={() => openRecorded(item.id)}
+                                        onEncode={() => setEncodeTarget(item)}
+                                        onStop={() => stopEncode.mutate(item.id)}
                                         onSelect={() => toggleSelection(item.id)}
                                         onSearch={() => {
                                             const option = createRecordedRelatedSearchOption(item);
-                                            applyFilters({ ...filters, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' });
+                                            applyFilters({ ...emptyFilters, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' });
                                         }}
                                         onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
-                                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
+                                        onDeleted={() => {
+                                            void Promise.all([
+                                                queryClient.invalidateQueries({ queryKey: ['recorded'] }),
+                                                queryClient.invalidateQueries({ queryKey: ['recorded-options'] }),
+                                            ]);
+                                        }}
                                     />
                                 ))}
                             </TableBody>
@@ -1093,20 +1471,31 @@ export function RecordedPage(): ReactNode {
                                 selected={selected.has(item.id)}
                                 focused={settings.isHighlightRecordedOnReturn && focusedRecordedId === item.id}
                                 showDrop={settings.isShowDropInfoInsteadOfDescription}
+                                fadeThumbnail={thumbnailReveal.key === recordedListUrlKey && item.thumbnails?.[0] !== undefined && thumbnailReveal.late.has(item.thumbnails[0])}
+                                failedThumbnail={thumbnailReveal.key === recordedListUrlKey && item.thumbnails?.[0] !== undefined && thumbnailReveal.failed.has(item.thumbnails[0])}
                                 onOpen={() => openRecorded(item.id)}
+                                onEncode={() => setEncodeTarget(item)}
+                                onStop={() => stopEncode.mutate(item.id)}
                                 onSelect={() => toggleSelection(item.id)}
                                 onSearch={() => {
                                     const option = createRecordedRelatedSearchOption(item);
-                                    applyFilters({ ...filters, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' });
+                                    applyFilters({ ...emptyFilters, keyword: option.keyword ?? '', ruleId: option.ruleId ?? '' });
                                 }}
                                 onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
-                                onDeleted={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })}
+                                onDeleted={() => {
+                                    void Promise.all([
+                                        queryClient.invalidateQueries({ queryKey: ['recorded'] }),
+                                        queryClient.invalidateQueries({ queryKey: ['recorded-options'] }),
+                                    ]);
+                                }}
                             />
                         ))}
                     </Box>
                 )}
-                {totalPages > 1 && <VueCompatiblePagination count={totalPages} page={page} onChange={(_event, value) => changePage(value)} sx={{ my: 2 }} />}
+                {!editMode && totalPages > 1 && <VueCompatiblePagination count={totalPages} page={page} onChange={(_event, value) => changePage(value)} sx={{ my: 2 }} />}
             </Box>
+
+            <RecordedEncodeDialog item={encodeTarget} onClose={() => setEncodeTarget(null)} onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })} />
 
             <Popover
                 open={searchAnchor !== null}
@@ -1123,6 +1512,11 @@ export function RecordedPage(): ReactNode {
                     component="form"
                     onSubmit={event => {
                         event.preventDefault();
+                        const error = recordedDateError(draftFilters, startDateInputValid, endDateInputValid);
+                        if (error !== null) {
+                            notify(error, 'error');
+                            return;
+                        }
                         applyFilters(draftFilters);
                         setFileTypeMenuOpen(false);
                         setSearchAnchor(null);
@@ -1139,24 +1533,43 @@ export function RecordedPage(): ReactNode {
                             value={draftFilters.keyword}
                             onChange={event => setDraftFilters(value => ({ ...value, keyword: event.target.value }))}
                         />
-                        <FormControl fullWidth>
-                            <InputLabel>ルール</InputLabel>
-                            <Select
-                                label="ルール"
-                                value={draftFilters.ruleId}
-                                disabled={draftFilters.manualOnly}
-                                onChange={event => setDraftFilters(value => ({ ...value, ruleId: event.target.value as number | '' }))}
+                        <Autocomplete
+                            options={ruleOptions}
+                            value={typeof draftFilters.ruleId === 'number' ? (ruleOptions.find(option => option.id === draftFilters.ruleId) ?? null) : null}
+                            disabled={draftFilters.manualOnly}
+                            loading={ruleKeywords.isFetching || selectedRule.isFetching}
+                            filterOptions={options => options}
+                            getOptionLabel={option => (option.keyword.length > 0 ? option.keyword : `ルール ${option.id}`)}
+                            isOptionEqualToValue={(option, value) => option.id === value.id}
+                            onInputChange={(_event, value, reason) => {
+                                if (reason === 'input' || reason === 'clear') {
+                                    setRuleSearchInput(value);
+                                    setDraftFilters(current => ({ ...current, ruleId: '' }));
+                                }
+                            }}
+                            onChange={(_event, value) => setDraftFilters(current => ({ ...current, ruleId: value?.id ?? '' }))}
+                            noOptionsText={ruleKeywords.isError ? 'ルールを取得できません' : '該当するルールはありません'}
+                            renderInput={params => <TextField {...params} label="ルール" placeholder="ルールのキーワードを入力" />}
+                        />
+                        {(ruleKeywords.isError || selectedRule.isError) && (
+                            <Alert
+                                severity="error"
+                                action={
+                                    <Button
+                                        color="inherit"
+                                        size="small"
+                                        onClick={() => {
+                                            if (ruleKeywords.isError) void ruleKeywords.refetch();
+                                            if (selectedRule.isError) void selectedRule.refetch();
+                                        }}
+                                    >
+                                        再試行
+                                    </Button>
+                                }
                             >
-                                <MenuItem value="">
-                                    <em>すべて</em>
-                                </MenuItem>
-                                {rules.data?.rules.map(rule => (
-                                    <MenuItem key={rule.id} value={rule.id}>
-                                        {rule.searchOption.keyword ?? `ルール ${rule.id}`}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
+                                ルール候補を取得できませんでした。
+                            </Alert>
+                        )}
                         <ChannelSelector
                             options={recordedChannelOptions}
                             value={draftFilters.channelId}
@@ -1304,15 +1717,33 @@ export function RecordedPage(): ReactNode {
                             exclusive
                             size="small"
                             value={draftFilters.dateMode}
-                            onChange={(_event, value: 'range' | 'specific' | null) => value !== null && setDraftFilters(current => ({ ...current, dateMode: value }))}
+                            onChange={(_event, value: 'range' | 'specific' | null) => {
+                                if (value === null) return;
+                                setDraftFilters(current => ({ ...current, dateMode: value }));
+                                setStartDateInputValid(true);
+                                setEndDateInputValid(true);
+                                setDateInputGeneration(current => current + 1);
+                            }}
                         >
                             <ToggleButton value="range">期間</ToggleButton>
                             <ToggleButton value="specific">日付指定</ToggleButton>
                         </ToggleButtonGroup>
                         {draftFilters.dateMode === 'range' ? (
                             <Stack direction="row" spacing={1}>
-                                <DateTextInput label="開始日" value={draftFilters.startDate} onChange={value => setDraftFilters(current => ({ ...current, startDate: value }))} />
-                                <DateTextInput label="終了日" value={draftFilters.endDate} onChange={value => setDraftFilters(current => ({ ...current, endDate: value }))} />
+                                <DateTextInput
+                                    key={`start-${dateInputGeneration}`}
+                                    label="開始日"
+                                    value={draftFilters.startDate}
+                                    onChange={value => setDraftFilters(current => ({ ...current, startDate: value }))}
+                                    onValidityChange={setStartDateInputValid}
+                                />
+                                <DateTextInput
+                                    key={`end-${dateInputGeneration}`}
+                                    label="終了日"
+                                    value={draftFilters.endDate}
+                                    onChange={value => setDraftFilters(current => ({ ...current, endDate: value }))}
+                                    onValidityChange={setEndDateInputValid}
+                                />
                             </Stack>
                         ) : (
                             <Stack direction="row" spacing={1}>
@@ -1356,7 +1787,17 @@ export function RecordedPage(): ReactNode {
                         )}
                     </Stack>
                     <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'center' }}>
-                        <Button type="button" color="error" onClick={() => setDraftFilters(emptyFilters)}>
+                        <Button
+                            type="button"
+                            color="error"
+                            onClick={() => {
+                                setDraftFilters(emptyFilters);
+                                setRuleSearchInput('');
+                                setStartDateInputValid(true);
+                                setEndDateInputValid(true);
+                                setDateInputGeneration(current => current + 1);
+                            }}
+                        >
                             クリア
                         </Button>
                         <Box sx={{ flex: 1 }} />
@@ -1391,7 +1832,7 @@ export function RecordedPage(): ReactNode {
                 </DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
-                        選択した {selected.size} 件の録画を別のユーザーへ変更します。
+                        選択した {selectedRecords.length} 件の録画を別のユーザーへ変更します。
                     </Typography>
                     <UserSelector value={bulkUserId} onChange={setBulkUserId} includeMaster={false} label="変更先ユーザー" minWidth={220} />
                 </DialogContent>
@@ -1424,7 +1865,7 @@ export function RecordedPage(): ReactNode {
                 </DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
-                        選択した {selected.size} 件に紐づく、元録画とエンコード済みを含むすべての動画ファイルを移動します。
+                        選択した {selectedRecords.length} 件に紐づく、元録画とエンコード済みを含むすべての動画ファイルを移動します。
                     </Typography>
                     {hasEncodingSelection && (
                         <Alert severity="warning" sx={{ mb: 2 }}>
@@ -1465,7 +1906,15 @@ export function RecordedPage(): ReactNode {
             <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
                 <DialogTitle>録画を削除</DialogTitle>
                 <DialogContent>
-                    <Typography>選択した {selected.size} 件の番組と録画ファイルを削除しますか。</Typography>
+                    <Typography sx={{ mb: 2 }}>選択した {selectedRecords.length} 件から削除するファイルを選択してください。</Typography>
+                    <FormControl fullWidth>
+                        <InputLabel>削除対象</InputLabel>
+                        <Select label="削除対象" value={deleteOption} onChange={event => setDeleteOption(event.target.value as MultipleDeletionOption)}>
+                            <MenuItem value="all">すべて</MenuItem>
+                            <MenuItem value="original">オリジナルファイルだけ</MenuItem>
+                            <MenuItem value="encoded">エンコードファイルだけ</MenuItem>
+                        </Select>
+                    </FormControl>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setDeleteOpen(false)}>キャンセル</Button>

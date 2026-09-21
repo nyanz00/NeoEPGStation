@@ -114,9 +114,9 @@ export default class RecordedApiModel implements IRecordedApiModel {
      * recorded の検索オプションリストを取得する
      * @return Promise<apid.RecordedSearchOptionList>
      */
-    public async getSearchOptionList(): Promise<apid.RecordedSearchOptions> {
-        const channels = await this.recordedDB.findChannelList();
-        const genres = await this.recordedDB.findGenreList();
+    public async getSearchOptionList(userId?: apid.UserId): Promise<apid.RecordedSearchOptions> {
+        const channels = await this.recordedDB.findChannelList(userId);
+        const genres = await this.recordedDB.findGenreList(userId);
         const encodedNames = await this.recordedDB.findEncodedNameList();
         const config = this.configuration.getConfig();
         const encodeItemIndex: { [name: string]: apid.RecordedEncodeListItem } = {};
@@ -191,9 +191,18 @@ export default class RecordedApiModel implements IRecordedApiModel {
      * @return Promise<void>
      */
     public async delete(recordedId: apid.RecordedId): Promise<void> {
-        await this.encodeManage.cancelEncodeByRecordedId(recordedId);
+        const recorded = await this.recordedDB.findId(recordedId);
+        if (recorded === null) {
+            throw new Error('RecordedIdIsNotFound');
+        }
+        if (recorded.isProtected === true) {
+            throw new Error('RecordedIsProtected');
+        }
 
-        return this.ipc.recorded.delete(recordedId);
+        return this.encodeManage.withRecordedDeletion(recordedId, async () => {
+            if ((await this.recordedDB.findId(recordedId)) === null) return;
+            await this.ipc.recorded.delete(recordedId);
+        });
     }
 
     /**
