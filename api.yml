@@ -2454,6 +2454,7 @@ components:
                 - runningItems
                 - waitItems
                 - scheduledItems
+                - recoveryItems
             properties:
                 runningItems:
                     type: array
@@ -2471,9 +2472,38 @@ components:
                             - type: object
                               required:
                                   - scheduledAt
+                                  - scheduledAtLabel
                               properties:
                                   scheduledAt:
                                       $ref: '#/components/schemas/UnixtimeMS'
+                                  scheduledAtLabel:
+                                      type: string
+                recoveryItems:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/EncodeRecoveryItem'
+
+        EncodeRecoveryItem:
+            description: 復旧確認が必要なエンコードタスク
+            type: object
+            required: [id, status, mode, reason, canRetry]
+            properties:
+                id:
+                    $ref: '#/components/schemas/EncodeId'
+                status:
+                    type: string
+                    enum: [paused, needs_attention]
+                mode:
+                    type: string
+                    nullable: true
+                recorded:
+                    allOf:
+                        - $ref: '#/components/schemas/RecordedItem'
+                    nullable: true
+                reason:
+                    type: string
+                canRetry:
+                    type: boolean
 
         EncodeQueueOrderOption:
             description: 待機中エンコードの実行順

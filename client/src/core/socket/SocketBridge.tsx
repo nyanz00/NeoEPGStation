@@ -30,23 +30,14 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
         const target = socketUrl(socketIOPort);
         let socket: Socket = target === undefined ? io(options) : io(target, options);
 
+        const statusRoots = new Set(['onair', 'recording', 'recorded', 'recorded-detail', 'reserves', 'reserve-counts', 'reserve-lists', 'rules', 'encode', 'storages', 'system']);
         const invalidateStatus = (): void => {
-            const statusRoots = new Set([
-                'onair',
-                'recording',
-                'recorded',
-                'recorded-detail',
-                'reserves',
-                'reserve-counts',
-                'reserve-lists',
-                'rules',
-                'encode',
-                'storages',
-                'system',
-            ]);
             void queryClient.invalidateQueries({
                 predicate: query => statusRoots.has(String(query.queryKey[0])),
             });
+        };
+        const invalidateEncode = (): void => {
+            void queryClient.invalidateQueries({ queryKey: ['encode'] });
         };
         const connect = (): void => onConnectionChange(true);
         const disconnect = (): void => onConnectionChange(false);
@@ -57,7 +48,7 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
             nextSocket.on('disconnect', disconnect);
             nextSocket.on('connect_error', connectError);
             nextSocket.on('updateStatus', invalidateStatus);
-            nextSocket.on('updateEncode', invalidateStatus);
+            nextSocket.on('updateEncode', invalidateEncode);
         };
 
         bind(socket);

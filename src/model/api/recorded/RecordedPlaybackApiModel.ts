@@ -45,6 +45,7 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
         const playbackItems = await this.playbackDB.findHistory(userId, normalizedLimit);
         const records = await this.recordedDB.findIds(playbackItems.map(playback => playback.recordedId));
         const recordIndex = new Map(records.map(recorded => [recorded.id, recorded]));
+        await this.encodeManage.waitUntilReady();
         const encodeIndex = this.encodeManage.getRecordedIndex();
         const items = playbackItems.flatMap((playback): apid.RecordedPlaybackHistoryItem[] => {
             const recorded = recordIndex.get(playback.recordedId);

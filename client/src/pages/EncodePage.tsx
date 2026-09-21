@@ -1,9 +1,12 @@
 import ArrowDownwardOutlined from '@mui/icons-material/ArrowDownwardOutlined';
 import ArrowUpwardOutlined from '@mui/icons-material/ArrowUpwardOutlined';
 import CancelOutlined from '@mui/icons-material/CancelOutlined';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DragIndicatorOutlined from '@mui/icons-material/DragIndicatorOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
+import SaveOutlined from '@mui/icons-material/SaveOutlined';
+import SelectAllOutlined from '@mui/icons-material/SelectAllOutlined';
 import SwapVertOutlined from '@mui/icons-material/SwapVertOutlined';
 import {
     Alert,
@@ -21,6 +24,7 @@ import {
     IconButton,
     LinearProgress,
     Stack,
+    Tooltip,
     Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,6 +36,7 @@ import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { formatProgramDate, formatProgramTime, programDuration } from '../core/program';
 import { useSettings } from '../core/storage/settings';
+import { EncodeRecoverySection } from './EncodeRecoverySection';
 
 function EncodeCard({
     item,
@@ -110,11 +115,7 @@ function EncodeCard({
                         <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
                             {item.recorded.name}
                         </Typography>
-                        <Chip
-                            size="small"
-                            color={waiting ? 'default' : 'primary'}
-                            label={scheduled ? `${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit' }).format(new Date(item.scheduledAt!))}に解放` : item.mode}
-                        />
+                        <Chip size="small" color={waiting ? 'default' : 'primary'} label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode} />
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
                         {channel?.name ?? item.recorded.channelId}
@@ -243,7 +244,24 @@ export function EncodePage(): ReactNode {
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const encodes = useQuery({ queryKey: ['encode', settings.isHalfWidthDisplayed], queryFn: () => api.getEncodes(settings.isHalfWidthDisplayed) });
     const allItems = [...(encodes.data?.runningItems ?? []), ...(encodes.data?.waitItems ?? []), ...(encodes.data?.scheduledItems ?? [])];
+    const recoveryItems = encodes.data?.recoveryItems ?? [];
+    const currentItemIds = new Set(allItems.map(item => item.id));
+    const currentTargets = targets.filter(id => currentItemIds.has(id));
+    const singleCancelTarget = currentTargets.length === 1 ? allItems.find(item => item.id === currentTargets[0]) : undefined;
+    const isAllSelected = allItems.length > 0 && allItems.every(item => selected.has(item.id));
+    const selectAllLabel = isAllSelected ? 'すべて解除' : 'すべて選択';
     useDragScroll(draggedId !== null);
+
+    useEffect(() => {
+        setSelected(current => {
+            const next = new Set([...current].filter(id => currentItemIds.has(id)));
+            return next.size === current.size ? current : next;
+        });
+        setTargets(current => {
+            const next = current.filter(id => currentItemIds.has(id));
+            return next.length === current.length ? current : next;
+        });
+    }, [encodes.data]);
 
     useEffect(() => {
         if (!reordering && encodes.data !== undefined) {
@@ -307,7 +325,8 @@ export function EncodePage(): ReactNode {
             else next.add(id);
             return next;
         });
-    const selectAll = (): void => setSelected(current => (current.size === allItems.length ? new Set() : new Set(allItems.map(item => item.id))));
+    const selectAll = (): void =>
+        setSelected(current => (allItems.length > 0 && allItems.every(item => current.has(item.id)) ? new Set() : new Set(allItems.map(item => item.id))));
     const moveWaitingItem = (encodeId: EncodeId, destinationIndex: number): void => {
         setOrderedWaitItems(current => {
             const sourceIndex = current.findIndex(item => item.id === encodeId);
@@ -389,39 +408,102 @@ export function EncodePage(): ReactNode {
                     <Stack direction="row" spacing={0.5}>
                         {reordering ? (
                             <>
+                                <Tooltip title="順番を保存">
+                                    <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <IconButton
+                                            aria-label="順番を保存"
+                                            color="primary"
+                                            disabled={reorder.isPending || !orderChanged || queueChangedWhileReordering}
+                                            onClick={() => reorder.mutate(orderedWaitItems.map(item => item.id))}
+                                        >
+                                            <SaveOutlined />
+                                        </IconButton>
+                                    </Box>
+                                </Tooltip>
                                 <Button
                                     variant="contained"
                                     disabled={reorder.isPending || !orderChanged || queueChangedWhileReordering}
                                     onClick={() => reorder.mutate(orderedWaitItems.map(item => item.id))}
+                                    sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                                 >
                                     順番を保存
                                 </Button>
-                                <Button disabled={reorder.isPending} onClick={cancelReordering}>
+                                <Tooltip title="並べ替えをキャンセル">
+                                    <IconButton
+                                        aria-label="並べ替えをキャンセル"
+                                        disabled={reorder.isPending}
+                                        onClick={cancelReordering}
+                                        sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
+                                    >
+                                        <CloseOutlined />
+                                    </IconButton>
+                                </Tooltip>
+                                <Button disabled={reorder.isPending} onClick={cancelReordering} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
                                     キャンセル
                                 </Button>
                             </>
                         ) : editing ? (
                             <>
-                                <Button onClick={selectAll}>すべて選択</Button>
-                                <Button color="error" startIcon={<CancelOutlined />} disabled={selected.size === 0} onClick={() => setTargets([...selected])}>
+                                <Tooltip title={selectAllLabel}>
+                                    <IconButton aria-label={selectAllLabel} onClick={selectAll} sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <SelectAllOutlined />
+                                    </IconButton>
+                                </Tooltip>
+                                <Button onClick={selectAll} sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+                                    {selectAllLabel}
+                                </Button>
+                                <Tooltip title="キャンセル">
+                                    <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <IconButton aria-label="キャンセル" color="error" disabled={selected.size === 0} onClick={() => setTargets([...selected])}>
+                                            <CancelOutlined />
+                                        </IconButton>
+                                    </Box>
+                                </Tooltip>
+                                <Button
+                                    color="error"
+                                    startIcon={<CancelOutlined />}
+                                    disabled={selected.size === 0}
+                                    onClick={() => setTargets([...selected])}
+                                    sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
+                                >
                                     キャンセル
                                 </Button>
+                                <Tooltip title="選択を終了">
+                                    <IconButton
+                                        aria-label="選択を終了"
+                                        onClick={() => {
+                                            setEditing(false);
+                                            setSelected(new Set());
+                                        }}
+                                        sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
+                                    >
+                                        <CloseOutlined />
+                                    </IconButton>
+                                </Tooltip>
                                 <Button
                                     onClick={() => {
                                         setEditing(false);
                                         setSelected(new Set());
                                     }}
+                                    sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                                 >
                                     終了
                                 </Button>
                             </>
                         ) : (
                             <>
+                                <Tooltip title="並べ替え">
+                                    <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                        <IconButton aria-label="並べ替え" disabled={(encodes.data?.waitItems.length ?? 0) < 2} onClick={beginReordering}>
+                                            <SwapVertOutlined />
+                                        </IconButton>
+                                    </Box>
+                                </Tooltip>
                                 <Button
                                     startIcon={<SwapVertOutlined />}
                                     disabled={(encodes.data?.waitItems.length ?? 0) < 2}
                                     onClick={beginReordering}
-                                    sx={{ whiteSpace: 'nowrap' }}
+                                    sx={{ whiteSpace: 'nowrap', display: { xs: 'none', sm: 'inline-flex' } }}
                                 >
                                     並べ替え
                                 </Button>
@@ -437,18 +519,19 @@ export function EncodePage(): ReactNode {
                 }
             />
             <Box sx={{ width: 'min(900px, 100%)', mx: 'auto', p: { xs: 1.5, md: 3 } }}>
-                {encodes.isPending || channels.isPending ? (
+                {encodes.isPending ? (
                     <Box sx={{ minHeight: 300, display: 'grid', placeItems: 'center' }}>
                         <CircularProgress />
                     </Box>
-                ) : encodes.isError || channels.isError ? (
+                ) : encodes.isError ? (
                     <Typography color="error">エンコード情報を取得できませんでした</Typography>
-                ) : allItems.length === 0 ? (
+                ) : allItems.length === 0 && recoveryItems.length === 0 ? (
                     <Typography color="text.secondary" sx={{ py: 7, textAlign: 'center' }}>
                         実行中、待機中、または開始予約中のエンコードはありません
                     </Typography>
                 ) : (
                     <Stack spacing={3}>
+                        {channels.isError && allItems.length > 0 && <Alert severity="warning">放送局情報を取得できないため、放送局IDで表示しています。</Alert>}
                         {queueChangedWhileReordering && <Alert severity="warning">編集中に待機キューが更新されました。キャンセルして最新の順番からやり直してください。</Alert>}
                         {encodes.data.runningItems.length > 0 && (
                             <Box>
@@ -474,17 +557,24 @@ export function EncodePage(): ReactNode {
                                 {renderItems(encodes.data.scheduledItems, true)}
                             </Box>
                         )}
+                        <EncodeRecoverySection items={recoveryItems} />
                     </Stack>
                 )}
             </Box>
-            <Dialog open={targets.length > 0} onClose={() => setTargets([])}>
+            <Dialog open={currentTargets.length > 0} onClose={() => setTargets([])}>
                 <DialogTitle>エンコードをキャンセルしますか？</DialogTitle>
                 <DialogContent>
-                    <Typography>{targets.length}件のエンコードをキャンセルします。</Typography>
+                    {singleCancelTarget !== undefined ? (
+                        <Typography>
+                            ［{singleCancelTarget.mode}］{singleCancelTarget.recorded.name}を停止しますか？
+                        </Typography>
+                    ) : (
+                        <Typography>{currentTargets.length}件のエンコードをキャンセルします。</Typography>
+                    )}
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setTargets([])}>閉じる</Button>
-                    <Button color="error" variant="contained" disabled={cancel.isPending} onClick={() => cancel.mutate(targets)}>
+                    <Button color="error" variant="contained" disabled={cancel.isPending} onClick={() => cancel.mutate(currentTargets)}>
                         キャンセル実行
                     </Button>
                 </DialogActions>

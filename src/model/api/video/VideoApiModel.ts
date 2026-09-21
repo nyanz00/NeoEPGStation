@@ -530,6 +530,7 @@ export default class VideoApiModel implements IVideoApiModel {
             if (sourceRecorded.isRecording || targetRecorded.isRecording) {
                 throw new Error('SubtitleTransferRecordingIsRunning');
             }
+            await this.encodeManage.waitUntilReady();
             const encodeIndex = this.encodeManage.getRecordedIndex();
             if (
                 encodeIndex[sourceVideo.recordedId] !== undefined ||
@@ -632,6 +633,7 @@ export default class VideoApiModel implements IVideoApiModel {
             const recorded = await this.recordedDB.findId(video.recordedId);
             if (recorded === null) throw new Error('SubtitleTransferRecordedIsUndefined');
             if (recorded.isRecording) throw new Error('SubtitleTransferRecordingIsRunning');
+            await this.encodeManage.waitUntilReady();
             if (this.encodeManage.getRecordedIndex()[video.recordedId] !== undefined) {
                 throw new Error('SubtitleTransferEncodeIsRunning');
             }
@@ -708,6 +710,7 @@ export default class VideoApiModel implements IVideoApiModel {
             const recorded = await this.recordedDB.findId(video.recordedId);
             if (recorded === null) throw new Error('SubtitleTransferRecordedIsUndefined');
             if (recorded.isRecording) throw new Error('SubtitleTransferRecordingIsRunning');
+            await this.encodeManage.waitUntilReady();
             if (this.encodeManage.getRecordedIndex()[video.recordedId] !== undefined) {
                 throw new Error('SubtitleTransferEncodeIsRunning');
             }

@@ -58,7 +58,7 @@ class EncodeEvent implements IEncodeEvent {
     /**
      * エンコード更新イベント発行
      */
-    public emitupdateEncode(): void {
+    public emitUpdateEncode(): void {
         this.emitter.emit(EncodeEvent.UPDATE_ENCODE_EVENT);
     }
 

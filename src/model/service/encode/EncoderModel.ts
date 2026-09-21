@@ -41,6 +41,7 @@ interface AmatsukazePushStatus {
     isPending: boolean;
     pendingMessage: string | null;
     errorMessage: string | null;
+    isCanceled: boolean;
     requiresOutputReconcile: boolean;
     updatedAt: number;
 }
@@ -60,6 +61,25 @@ interface AmatsukazeRestQueueItem {
 interface AmatsukazeRestQueueView {
     items?: AmatsukazeRestQueueItem[];
     Items?: AmatsukazeRestQueueItem[];
+}
+
+interface AmatsukazePushQueueItem {
+    consoleId: number;
+    id: number;
+    srcPath?: string;
+    state: string;
+    stateLabel: string;
+    failReason: string;
+}
+
+const AMATSU_KAZE_CANCEL_CONFIRMATION_TIMEOUT_MS = 15_000;
+
+interface AmatsukazePendingCancel {
+    promise: Promise<number>;
+    resolve: (taskId: number) => void;
+    reject: (error: Error) => void;
+    timerId: NodeJS.Timeout;
+    sentTaskIds: Set<number>;
 }
 
 class AmatsukazePushConnection {
@@ -223,9 +243,12 @@ class AmatsukazePushConnection {
             return false;
         }
 
-        this.socket.write(frame);
-
-        return true;
+        try {
+            this.socket.write(frame);
+            return true;
+        } catch (_err) {
+            return false;
+        }
     }
 
     public createChangeItemFrame(itemId: number): Buffer {
@@ -413,6 +436,7 @@ class AmatsukazePushSubscription {
         isPending: false,
         pendingMessage: null,
         errorMessage: null,
+        isCanceled: false,
         requiresOutputReconcile: false,
         updatedAt: 0,
     };
@@ -420,6 +444,9 @@ class AmatsukazePushSubscription {
     private consoleTail: string = '';
     private consoleMatchSource: 'none' | 'persisted' | 'fallback' | 'queue' = 'none';
     private hasConnectedOnce: boolean = false;
+    private hasVerifiedTaskIdentity: boolean = false;
+    private matchedTaskState: string | null = null;
+    private pendingCancel: AmatsukazePendingCancel | null = null;
 
     constructor(
         public readonly id: number,
@@ -446,6 +473,7 @@ class AmatsukazePushSubscription {
 
     public stop(): void {
         this.flushConsoleTail();
+        this.rejectPendingCancel(new Error('AmatsukazePushSubscriptionStoppedBeforeCancelConfirmation'));
         this.connection.unsubscribe(this.id);
     }
 
@@ -477,25 +505,63 @@ class AmatsukazePushSubscription {
             percent: null,
             isReadyForOutputScan: false,
             errorMessage: null,
+            isCanceled: false,
             updatedAt: Date.now(),
         };
         this.onUpdate(this.getStatus());
     }
 
-    public cancelTask(): Promise<boolean> {
-        if (this.taskId === null) {
-            return Promise.resolve(false);
+    public cancelTask(timeoutMs: number = AMATSU_KAZE_CANCEL_CONFIRMATION_TIMEOUT_MS): Promise<number> {
+        if (this.pendingCancel !== null) {
+            return this.pendingCancel.promise;
         }
 
-        const taskId = this.taskId;
-        const isSent = this.connection.sendFrame(this.connection.createChangeItemFrame(taskId));
+        if (this.hasVerifiedTaskIdentity && this.matchedTaskState !== null) {
+            if (this.matchedTaskState === 'canceled' && this.taskId !== null) {
+                return Promise.resolve(this.taskId);
+            }
+            if (['complete', 'failed', 'prefailed'].includes(this.matchedTaskState)) {
+                return Promise.reject(new Error(`AmatsukazeTaskNotActive: ${this.matchedTaskState}`));
+            }
+        }
 
-        return Promise.resolve(isSent);
+        let resolveCancel!: (taskId: number) => void;
+        let rejectCancel!: (error: Error) => void;
+        const promise = new Promise<number>((resolve, reject) => {
+            resolveCancel = resolve;
+            rejectCancel = reject;
+        }).finally(() => {
+            if (this.pendingCancel?.promise === promise) {
+                clearTimeout(this.pendingCancel.timerId);
+                this.pendingCancel = null;
+            }
+        });
+        const timerId = setTimeout(() => {
+            this.rejectPendingCancel(new Error('AmatsukazeCancelConfirmationTimeoutError'));
+        }, timeoutMs);
+        this.pendingCancel = {
+            promise,
+            resolve: resolveCancel,
+            reject: rejectCancel,
+            timerId,
+            sentTaskIds: new Set(),
+        };
+
+        if (this.hasVerifiedTaskIdentity === true) {
+            this.sendCancelForMatchedTask();
+        }
+
+        return promise;
     }
 
     public handleConnectionStatus(isConnected: boolean): void {
         if (isConnected === false) {
             this.flushConsoleTail();
+            // Amatsukaze may assign new queue IDs after restarting. Revalidate
+            // the saved ID against a fresh queue snapshot before using it again.
+            this.hasVerifiedTaskIdentity = false;
+            this.matchedTaskState = null;
+            this.pendingCancel?.sentTaskIds.clear();
         }
         const isReconnect =
             isConnected && this.hasConnectedOnce && this.status.isConnected === false && this.status.isMatched;
@@ -528,6 +594,8 @@ class AmatsukazePushSubscription {
                 consoleId: index,
                 isPending: false,
                 pendingMessage: null,
+                errorMessage: null,
+                isCanceled: false,
                 updatedAt: Date.now(),
             };
             this.onLog(`amatsukaze push matched console: ${index}`);
@@ -555,13 +623,24 @@ class AmatsukazePushSubscription {
                 ...this.status,
                 percent: 1,
                 isReadyForOutputScan: true,
+                errorMessage: null,
+                isCanceled: false,
                 updatedAt: Date.now(),
             };
             this.onUpdate(this.getStatus());
-        } else if (stateChangeEvent === 'EncodeFailed' || stateChangeEvent === 'EncodeCanceled') {
+        } else if (stateChangeEvent === 'EncodeCanceled') {
+            this.status = {
+                ...this.status,
+                errorMessage: null,
+                isCanceled: true,
+                updatedAt: Date.now(),
+            };
+            this.onUpdate(this.getStatus());
+        } else if (stateChangeEvent === 'EncodeFailed') {
             this.status = {
                 ...this.status,
                 errorMessage: this.status.errorMessage || stateChangeEvent,
+                isCanceled: false,
                 updatedAt: Date.now(),
             };
             this.onUpdate(this.getStatus());
@@ -591,40 +670,45 @@ class AmatsukazePushSubscription {
             item => Number.isNaN(item.id) === false && this.connection.canClaimTask(this.id, item.id),
         );
         const exactPathMatches = availableItems.filter(
-            item => typeof item.srcPath === 'string' && this.isMatchingQueuePath(item.srcPath),
+            item =>
+                typeof item.srcPath === 'string' &&
+                this.isMatchingQueuePath(item.srcPath) &&
+                this.getQueueStatePriority(item.state, item.stateLabel) > 0,
         );
         const basenameMatches =
             this.allowRecoveryFallback && exactPathMatches.length === 0
                 ? availableItems.filter(
-                      item => typeof item.srcPath === 'string' && this.isMatchingQueueBasename(item.srcPath),
+                      item =>
+                          typeof item.srcPath === 'string' &&
+                          this.isMatchingQueueBasename(item.srcPath) &&
+                          this.getQueueStatePriority(item.state, item.stateLabel) > 0,
                   )
                 : [];
-        const taskIdMatch = this.taskId === null ? undefined : queueItems.find(item => item.id === this.taskId);
-        const recoveryPathMatch =
-            this.allowRecoveryFallback === true
-                ? (exactPathMatches.sort((a, b) => b.id - a.id)[0] ??
-                  (basenameMatches.length === 1 ? basenameMatches[0] : undefined))
-                : undefined;
-        const usedRecoveryFallback = typeof taskIdMatch === 'undefined' && typeof recoveryPathMatch !== 'undefined';
-        const matchedItem =
-            taskIdMatch ??
-            (this.taskId === null
-                ? (exactPathMatches.sort((a, b) => b.id - a.id)[0] ??
-                  (basenameMatches.length === 1 ? basenameMatches[0] : undefined))
-                : recoveryPathMatch);
+        const taskIdMatch = this.taskId === null ? undefined : exactPathMatches.find(item => item.id === this.taskId);
+        const pathMatch =
+            this.selectPreferredQueueItem(exactPathMatches) ??
+            (basenameMatches.length === 1 ? basenameMatches[0] : undefined);
+        // A persisted ID is authoritative only after both its source path and state have
+        // been verified. Once verified, keep following that exact task even if another
+        // active history entry has the same source path (especially while confirming cancel).
+        const matchedItem = taskIdMatch ?? pathMatch;
+        const usedPathFallback = typeof matchedItem !== 'undefined' && matchedItem.id !== this.taskId;
         if (typeof matchedItem === 'undefined') {
             return false;
         }
 
+        this.hasVerifiedTaskIdentity = true;
+        const normalizedState = matchedItem.state.trim().toLowerCase();
+        this.matchedTaskState = normalizedState;
+
         if (Number.isNaN(matchedItem.id) === false && this.taskId !== matchedItem.id) {
             this.taskId = matchedItem.id;
             this.onTaskMatched(matchedItem.id);
-            if (usedRecoveryFallback) {
-                this.onLog(`amatsukaze recovered task by unique source name: ${matchedItem.id.toString(10)}`);
+            if (usedPathFallback) {
+                this.onLog(`amatsukaze matched task by normalized source path: ${matchedItem.id.toString(10)}`);
             }
         }
 
-        const normalizedState = matchedItem.state.trim().toLowerCase();
         if (
             Number.isNaN(matchedItem.consoleId) === false &&
             matchedItem.consoleId >= 0 &&
@@ -640,6 +724,8 @@ class AmatsukazePushSubscription {
                 isMatched: true,
                 isPending: true,
                 pendingMessage: matchedItem.stateLabel || matchedItem.state || 'pending',
+                errorMessage: null,
+                isCanceled: false,
                 requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
@@ -651,10 +737,23 @@ class AmatsukazePushSubscription {
                 isReadyForOutputScan: true,
                 isPending: false,
                 pendingMessage: null,
+                errorMessage: null,
+                isCanceled: false,
                 requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
-        } else if (['failed', 'prefailed', 'canceled'].includes(normalizedState)) {
+        } else if (normalizedState === 'canceled') {
+            this.status = {
+                ...this.status,
+                isMatched: true,
+                isPending: false,
+                pendingMessage: null,
+                errorMessage: null,
+                isCanceled: true,
+                requiresOutputReconcile: false,
+                updatedAt: Date.now(),
+            };
+        } else if (['failed', 'prefailed'].includes(normalizedState)) {
             const failureMessage =
                 matchedItem.failReason.trim() || matchedItem.stateLabel.trim() || matchedItem.state.trim();
             this.status = {
@@ -663,6 +762,7 @@ class AmatsukazePushSubscription {
                 isPending: false,
                 pendingMessage: null,
                 errorMessage: failureMessage,
+                isCanceled: false,
                 requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
@@ -672,14 +772,73 @@ class AmatsukazePushSubscription {
                 isMatched: true,
                 isPending: false,
                 pendingMessage: null,
+                errorMessage: null,
+                isCanceled: false,
                 requiresOutputReconcile: false,
                 updatedAt: Date.now(),
             };
         }
 
         this.onUpdate(this.getStatus());
+        this.confirmPendingCancel(matchedItem.id, normalizedState);
 
         return true;
+    }
+
+    private selectPreferredQueueItem(items: AmatsukazePushQueueItem[]): AmatsukazePushQueueItem | undefined {
+        return items.sort((left, right) => {
+            const stateDiff =
+                this.getQueueStatePriority(right.state, right.stateLabel) -
+                this.getQueueStatePriority(left.state, left.stateLabel);
+            return stateDiff !== 0 ? stateDiff : right.id - left.id;
+        })[0];
+    }
+
+    private getQueueStatePriority(state: string, stateLabel: string): number {
+        const normalizedState = state.trim().toLowerCase();
+        if (normalizedState === 'encoding') return 4;
+        if (this.isPendingState(state, stateLabel)) return 3;
+        if (['complete', 'failed', 'prefailed', 'canceled'].includes(normalizedState)) return 1;
+        return 0;
+    }
+
+    private confirmPendingCancel(taskId: number, state: string): void {
+        const pendingCancel = this.pendingCancel;
+        if (pendingCancel === null) return;
+
+        if (state === 'canceled') {
+            pendingCancel.resolve(taskId);
+            return;
+        }
+        if (['complete', 'failed', 'prefailed'].includes(state)) {
+            pendingCancel.reject(new Error(`AmatsukazeTaskNotActive: ${state}`));
+            return;
+        }
+
+        this.sendCancelForMatchedTask();
+    }
+
+    private sendCancelForMatchedTask(): void {
+        const pendingCancel = this.pendingCancel;
+        const taskId = this.taskId;
+        if (
+            pendingCancel === null ||
+            this.hasVerifiedTaskIdentity === false ||
+            taskId === null ||
+            pendingCancel.sentTaskIds.has(taskId)
+        ) {
+            return;
+        }
+
+        const isSent = this.connection.sendFrame(this.connection.createChangeItemFrame(taskId));
+        if (isSent === true) {
+            pendingCancel.sentTaskIds.add(taskId);
+            this.onLog(`amatsukaze cancel requested for task: ${taskId.toString(10)}`);
+        }
+    }
+
+    private rejectPendingCancel(error: Error): void {
+        this.pendingCancel?.reject(error);
     }
 
     private matchConsoleFromQueue(consoleId: number): void {
@@ -784,15 +943,20 @@ class AmatsukazePushSubscription {
     }
 
     private isMatchingQueueBasename(srcPath: string): boolean {
-        const inputNames = this.getUnicodePathVariants(path.basename(this.inputFilePath));
+        const inputNames = this.getUnicodePathVariants(path.win32.basename(this.inputFilePath));
 
-        return this.getUnicodePathVariants(path.basename(srcPath)).some(value => inputNames.includes(value));
+        return this.getUnicodePathVariants(path.win32.basename(srcPath)).some(value => inputNames.includes(value));
     }
 
     private getUnicodePathVariants(value: string): string[] {
-        const normalized = path.normalize(value).toLowerCase();
+        const normalized = path.win32
+            .normalize(value)
+            .replace(/[\\/]+/g, '/')
+            .replace(/\/+$/, '')
+            .normalize('NFC')
+            .toLowerCase();
 
-        return [...new Set([normalized, normalized.normalize('NFC')])];
+        return [normalized];
     }
 
     private getMatchingTextVariants(text: string): string[] {
@@ -1725,6 +1889,10 @@ class EncoderModel implements IEncoderModel {
             const pushStatus = this.amatsukazePushSubscription?.getStatus();
             const requiresOutputReconcile = reconcileOutputImmediately || pushStatus?.requiresOutputReconcile === true;
             if (typeof pushStatus !== 'undefined') {
+                if (pushStatus.isCanceled === true) {
+                    this.isCanceld = true;
+                    throw new Error('AmatsukazeEncodeCanceled');
+                }
                 if (pushStatus.errorMessage !== null) {
                     const errorMessage = pushStatus.errorMessage.trim() || 'EncodeFailed';
                     this.amatsukazeErrorMessage = errorMessage;
@@ -1748,11 +1916,25 @@ class EncoderModel implements IEncoderModel {
                         this.log.encode.warn(
                             `cancel amatsukaze pending task: ${this.amatsukazePushSubscription?.getTaskId()}`,
                         );
-                        this.isCanceld = true;
-                        await this.cancelAmatsukazeTask().catch(err => {
-                            this.log.encode.warn(`cancel amatsukaze pending task failed: ${err.message || err}`);
-                        });
-                        throw new Error('AmatsukazeEncodeCanceled');
+                        let isCancellationConfirmed = false;
+                        try {
+                            await this.cancelAmatsukazeTask();
+                            isCancellationConfirmed = true;
+                        } catch (err: any) {
+                            // Push へ命令を書けただけではキャンセル成功とは限らない。
+                            // 確認できない場合はタスクを失敗終了させず、次の状態更新を
+                            // 待ちながら監視を継続する。
+                            this.log.encode.warn(
+                                `amatsukaze pending cancellation was not confirmed: ${err?.message || err}`,
+                            );
+                            pendingSince = Date.now();
+                            this.progressInfo = {
+                                percent: this.progressInfo?.percent ?? 0,
+                                log: 'Amatsukazeのキャンセル結果を確認できないため監視を継続中',
+                            };
+                            this.encodeEvent.emitUpdateEncodeProgress();
+                        }
+                        if (isCancellationConfirmed) throw new Error('AmatsukazeEncodeCanceled');
                     }
                 } else {
                     pendingSince = null;
@@ -2214,10 +2396,11 @@ class EncoderModel implements IEncoderModel {
         }
 
         this.log.encode.info(`cancel encode: ${this.encodeOption.encodeId}`);
+        const encodeCmd = this.configure.getConfig().encode.find(command => command.name === this.encodeOption?.mode);
+        if (encodeCmd?.type === 'amatsukaze' && typeof encodeCmd.suffix !== 'undefined') {
+            await this.cancelAmatsukazeTask();
+        }
         this.isCanceld = true;
-        await this.cancelAmatsukazeTask().catch(err => {
-            this.log.encode.warn(`cancel amatsukaze task failed: ${err.message || err}`);
-        });
 
         // プロセスが実行されていれば削除する
         if (this.childProcess === null || ProcessUtil.isExited(this.childProcess) === true) {
@@ -2254,17 +2437,18 @@ class EncoderModel implements IEncoderModel {
      * @returns EncodeOption | null
      */
     private async cancelAmatsukazeTask(): Promise<void> {
-        if (this.amatsukazePushSubscription === null) {
-            return;
+        const deadline = Date.now() + AMATSU_KAZE_CANCEL_CONFIRMATION_TIMEOUT_MS;
+        while (this.amatsukazePushSubscription === null && this.isFinished === false && Date.now() < deadline) {
+            await Util.sleep(100);
         }
 
-        const taskId = this.amatsukazePushSubscription.getTaskId();
-        const isCanceled = await this.amatsukazePushSubscription.cancelTask();
-        if (isCanceled === true) {
-            this.log.encode.info(`cancel amatsukaze task by push: ${taskId}`);
-        } else {
-            this.log.encode.warn('cancel amatsukaze task by push skipped: task id is not resolved');
+        if (this.amatsukazePushSubscription === null) {
+            throw new Error('AmatsukazePushSubscriptionNotReady');
         }
+
+        const taskId = await this.amatsukazePushSubscription.cancelTask(Math.max(1, deadline - Date.now()));
+        this.isCanceld = true;
+        this.log.encode.info(`Amatsukaze cancellation confirmed by push: ${taskId.toString(10)}`);
     }
 
     public getEncodeOption(): EncodeOption | null {

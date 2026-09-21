@@ -72,6 +72,7 @@ export default class RecordedApiModel implements IRecordedApiModel {
             isNeedTags: false,
         });
 
+        await this.encodeManage.waitUntilReady();
         const encodeIndex = this.encodeManage.getRecordedIndex();
 
         return {
@@ -91,6 +92,7 @@ export default class RecordedApiModel implements IRecordedApiModel {
     public async get(recordedId: apid.RecordedId, isHalfWidth: boolean): Promise<apid.RecordedItem | null> {
         const item = await this.recordedDB.findId(recordedId);
 
+        await this.encodeManage.waitUntilReady();
         const encodeIndex = this.encodeManage.getRecordedIndex();
 
         return item === null
@@ -279,6 +281,7 @@ export default class RecordedApiModel implements IRecordedApiModel {
         const recordedIds = this.parseRecordedIds(option.recordedIds);
         const subDirectory = this.normalizeSubDirectory(option.subDirectory);
         const records = await this.requireRecordedItems(recordedIds);
+        await this.encodeManage.waitUntilReady();
         const encodeIndex = this.encodeManage.getRecordedIndex();
         if (records.some(recorded => recorded.isRecording || typeof encodeIndex[recorded.id] !== 'undefined')) {
             throw new Error('RecordingOrEncodingCannotBeMoved');

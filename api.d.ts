@@ -1229,6 +1229,16 @@ export interface EncodeInfo {
     runningItems: EncodeProgramItem[]; // エンコード中
     waitItems: EncodeProgramItem[]; // エンコード待ち
     scheduledItems: EncodeProgramItem[]; // 開始時刻待ち
+    recoveryItems: EncodeRecoveryItem[]; // 要確認
+}
+
+export interface EncodeRecoveryItem {
+    id: EncodeId;
+    status: 'paused' | 'needs_attention';
+    mode: string | null;
+    recorded?: RecordedItem | null;
+    reason: string;
+    canRetry: boolean;
 }
 
 export interface EncodeQueueOrderOption {
@@ -1243,6 +1253,7 @@ export interface EncodeProgramItem {
     percent?: number;
     log?: string;
     scheduledAt?: UnixtimeMS;
+    scheduledAtLabel?: string;
 }
 
 /**

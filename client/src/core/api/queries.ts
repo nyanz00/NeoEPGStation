@@ -490,6 +490,9 @@ export const api = {
     async cancelEncode(encodeId: EncodeId): Promise<void> {
         await apiClient.delete(`/encode/${encodeId}`);
     },
+    async retryEncode(encodeId: EncodeId): Promise<void> {
+        await apiClient.post(`/encode/${encodeId}/retry`);
+    },
     async reorderEncodes(encodeIds: EncodeId[], expectedEncodeIds: EncodeId[]): Promise<void> {
         await apiClient.put('/encode/order', { encodeIds, expectedEncodeIds });
     },
