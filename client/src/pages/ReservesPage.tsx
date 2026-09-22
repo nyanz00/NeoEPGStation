@@ -371,23 +371,13 @@ export function ReservesPage(): ReactNode {
                             {editing ? '完了' : '選択'}
                         </Button>
                         {!editing && (
-                            <>
-                                <Tooltip title="予約情報更新">
-                                    <Box component="span" sx={{ display: { xs: 'inline-flex', md: 'none' } }}>
-                                        <IconButton disabled={updateReserves.isPending} onClick={() => updateReserves.mutate()} aria-label="予約情報更新">
-                                            <RefreshOutlined />
-                                        </IconButton>
-                                    </Box>
-                                </Tooltip>
-                                <Button
-                                    startIcon={<RefreshOutlined />}
-                                    disabled={updateReserves.isPending}
-                                    onClick={() => updateReserves.mutate()}
-                                    sx={{ display: { xs: 'none', md: 'inline-flex' } }}
-                                >
-                                    予約情報更新
-                                </Button>
-                            </>
+                            <Tooltip title="予約情報更新">
+                                <Box component="span" sx={{ display: 'inline-flex' }}>
+                                    <IconButton disabled={updateReserves.isPending} onClick={() => updateReserves.mutate()} aria-label="予約情報更新">
+                                        <RefreshOutlined />
+                                    </IconButton>
+                                </Box>
+                            </Tooltip>
                         )}
                     </Stack>
                 }
