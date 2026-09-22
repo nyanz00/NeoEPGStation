@@ -764,7 +764,18 @@ export function SearchPage(): ReactNode {
                                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
                                                 <FormControl size="small" sx={{ minWidth: 140 }}>
                                                     <InputLabel>開始時刻</InputLabel>
-                                                    <Select label="開始時刻" value={form.startHour} onChange={event => patch('startHour', event.target.value as number | '')}>
+                                                    <Select
+                                                        label="開始時刻"
+                                                        value={form.startHour}
+                                                        onChange={event => patch('startHour', event.target.value as number | '')}
+                                                        MenuProps={{
+                                                            slotProps: {
+                                                                paper: {
+                                                                    sx: { maxHeight: 360 },
+                                                                },
+                                                            },
+                                                        }}
+                                                    >
                                                         <MenuItem value="">指定なし</MenuItem>
                                                         {Array.from({ length: 24 }, (_, hour) => (
                                                             <MenuItem key={hour} value={hour}>
@@ -776,7 +787,18 @@ export function SearchPage(): ReactNode {
                                                 <Typography>～</Typography>
                                                 <FormControl size="small" sx={{ minWidth: 140 }}>
                                                     <InputLabel>範囲</InputLabel>
-                                                    <Select label="範囲" value={form.rangeHour} onChange={event => patch('rangeHour', event.target.value as number | '')}>
+                                                    <Select
+                                                        label="範囲"
+                                                        value={form.rangeHour}
+                                                        onChange={event => patch('rangeHour', event.target.value as number | '')}
+                                                        MenuProps={{
+                                                            slotProps: {
+                                                                paper: {
+                                                                    sx: { maxHeight: 360 },
+                                                                },
+                                                            },
+                                                        }}
+                                                    >
                                                         <MenuItem value="">指定なし</MenuItem>
                                                         {Array.from({ length: 23 }, (_, index) => index + 1).map(hour => (
                                                             <MenuItem key={hour} value={hour}>
