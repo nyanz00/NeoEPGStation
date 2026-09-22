@@ -132,7 +132,7 @@ function RuleCard({
                                 }}
                             >
                                 <SearchOutlined fontSize="small" sx={{ mr: 1 }} />
-                                このルールの録画
+                                録画済み
                             </MenuItem>
                             <MenuItem
                                 onClick={() => {
