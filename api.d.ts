@@ -211,6 +211,13 @@ export interface AnnictRuleLinkResult {
     statusUpdateError?: string;
 }
 
+/** ルール操作の結果。ルール操作自体は成功しAnnict同期のみ失敗した場合、警告内容を含む。 */
+export interface RuleMutationResult {
+    code: number;
+    annictStatusError?: string;
+    annictLinkError?: string;
+}
+
 export type AnnictRecordedEpisodeState = 'unlinked' | 'pending' | 'matched';
 
 export type AnnictRecordedEpisodePendingReason =

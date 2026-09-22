@@ -73,6 +73,7 @@ export default class RuleManageModel implements IRuleManageModel {
             } catch (err: any) {
                 this.log.system.error('insert rule error');
                 this.log.system.error(err);
+                throw err;
             }
 
             this.log.system.info(`rule added successfully: ${ruleId}`);

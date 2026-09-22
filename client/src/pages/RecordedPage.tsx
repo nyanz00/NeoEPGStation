@@ -960,8 +960,13 @@ export function RecordedPage(): ReactNode {
         staleTime: 60_000,
     });
     const ruleKeywords = useQuery({
-        queryKey: ['recorded-search-rule-keywords', debouncedRuleSearchInput],
-        queryFn: () => api.getRuleKeywords({ keyword: debouncedRuleSearchInput.length > 0 ? debouncedRuleSearchInput : undefined, limit: 1000 }),
+        queryKey: ['recorded-search-rule-keywords', debouncedRuleSearchInput, typeof userId === 'number' ? userId : 'all'],
+        queryFn: () =>
+            api.getRuleKeywords({
+                keyword: debouncedRuleSearchInput.length > 0 ? debouncedRuleSearchInput : undefined,
+                userId: typeof userId === 'number' ? userId : undefined,
+                limit: 1000,
+            }),
         enabled: searchAnchor !== null && !draftFilters.manualOnly,
         staleTime: 60_000,
     });

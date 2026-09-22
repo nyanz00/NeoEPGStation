@@ -64,9 +64,10 @@ export const del: Operation = async (req, res) => {
     try {
         const ruleId = parseInt(req.params.ruleId, 10);
         await ruleApiModel.delete(ruleId);
-        await container.get<IAnnictApiModel>('IAnnictApiModel').unlinkRule(ruleId);
+        const annictLinkError = await container.get<IAnnictApiModel>('IAnnictApiModel').unlinkRule(ruleId);
         api.responseJSON(res, 200, {
             code: 200,
+            ...(annictLinkError === undefined ? {} : { annictLinkError }),
         });
     } catch (err: any) {
         api.responseServerError(res, err.message);
@@ -85,6 +86,13 @@ del.apiDoc = {
     responses: {
         200: {
             description: 'ルールを削除しました',
+            content: {
+                'application/json': {
+                    schema: {
+                        $ref: '#/components/schemas/RuleMutationResult',
+                    },
+                },
+            },
         },
         default: {
             description: '予期しないエラー',
@@ -108,17 +116,19 @@ export const put: Operation = async (req, res) => {
     try {
         const previous = await ruleApiModel.get(ruleId);
         await ruleApiModel.update(rule);
+        let annictStatusError: string | undefined;
         if (
             previous?.reserveOption.enable === true &&
             rule.reserveOption?.enable === false &&
             req.query.syncAnnictStopWatching !== 'false'
         ) {
-            await container.get<IAnnictApiModel>('IAnnictApiModel').syncDisabledRule(ruleId);
+            annictStatusError = await container.get<IAnnictApiModel>('IAnnictApiModel').syncDisabledRule(ruleId);
         } else if (previous?.reserveOption.enable === false && rule.reserveOption?.enable === true) {
-            await container.get<IAnnictApiModel>('IAnnictApiModel').syncEnabledRule(ruleId);
+            annictStatusError = await container.get<IAnnictApiModel>('IAnnictApiModel').syncEnabledRule(ruleId);
         }
         api.responseJSON(res, 200, {
             code: 200,
+            ...(annictStatusError === undefined ? {} : { annictStatusError }),
         });
     } catch (err: any) {
         api.responseServerError(res, err.message);
@@ -154,6 +164,13 @@ put.apiDoc = {
     responses: {
         200: {
             description: 'ルールの更新に成功した',
+            content: {
+                'application/json': {
+                    schema: {
+                        $ref: '#/components/schemas/RuleMutationResult',
+                    },
+                },
+            },
         },
         default: {
             description: '予期しないエラー',

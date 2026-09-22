@@ -48,6 +48,7 @@ import type {
     RecordedCleanupPlanResult,
     Rule,
     RuleId,
+    RuleMutationResult,
     RuleKeywordItem,
     Rules,
     GetRuleOption,
@@ -589,16 +590,16 @@ export const api = {
     async addRule(option: AddRuleOption): Promise<RuleId> {
         return (await apiClient.post<{ ruleId: RuleId }>('/rules', option)).data.ruleId;
     },
-    async updateRule(ruleId: RuleId, option: AddRuleOption, syncAnnictStopWatching = true): Promise<void> {
-        await apiClient.put(`/rules/${ruleId}`, option, { params: { syncAnnictStopWatching } });
+    async updateRule(ruleId: RuleId, option: AddRuleOption, syncAnnictStopWatching = true): Promise<RuleMutationResult> {
+        return (await apiClient.put<RuleMutationResult>(`/rules/${ruleId}`, option, { params: { syncAnnictStopWatching } })).data;
     },
-    async deleteRule(ruleId: RuleId): Promise<void> {
-        await apiClient.delete(`/rules/${ruleId}`);
+    async deleteRule(ruleId: RuleId): Promise<RuleMutationResult> {
+        return (await apiClient.delete<RuleMutationResult>(`/rules/${ruleId}`)).data;
     },
-    async enableRule(ruleId: RuleId): Promise<void> {
-        await apiClient.put(`/rules/${ruleId}/enable`);
+    async enableRule(ruleId: RuleId): Promise<RuleMutationResult> {
+        return (await apiClient.put<RuleMutationResult>(`/rules/${ruleId}/enable`)).data;
     },
-    async disableRule(ruleId: RuleId, syncAnnictStopWatching = true): Promise<void> {
-        await apiClient.put(`/rules/${ruleId}/disable`, undefined, { params: { syncAnnictStopWatching } });
+    async disableRule(ruleId: RuleId, syncAnnictStopWatching = true): Promise<RuleMutationResult> {
+        return (await apiClient.put<RuleMutationResult>(`/rules/${ruleId}/disable`, undefined, { params: { syncAnnictStopWatching } })).data;
     },
 };

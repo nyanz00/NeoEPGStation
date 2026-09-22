@@ -22,9 +22,9 @@ export default interface IAnnictApiModel {
         annictId: number,
         viewerProfileId?: apid.ViewerProfileId,
     ): Promise<apid.AnnictRuleLinkResult>;
-    syncEnabledRule(ruleId: apid.RuleId): Promise<void>;
-    syncDisabledRule(ruleId: apid.RuleId): Promise<void>;
-    unlinkRule(ruleId: apid.RuleId): Promise<void>;
+    syncEnabledRule(ruleId: apid.RuleId): Promise<string | undefined>;
+    syncDisabledRule(ruleId: apid.RuleId): Promise<string | undefined>;
+    unlinkRule(ruleId: apid.RuleId): Promise<string | undefined>;
     getRecordedEpisode(
         recordedId: apid.RecordedId,
         viewerProfileId?: apid.ViewerProfileId,

@@ -10,11 +10,12 @@ export const put: Operation = async (req, res) => {
     try {
         const ruleId = parseInt(req.params.ruleId, 10);
         await ruleApiModel.disable(ruleId);
+        let annictStatusError: string | undefined;
         if (req.query.syncAnnictStopWatching !== 'false') {
-            await container.get<IAnnictApiModel>('IAnnictApiModel').syncDisabledRule(ruleId);
+            annictStatusError = await container.get<IAnnictApiModel>('IAnnictApiModel').syncDisabledRule(ruleId);
         }
 
-        api.responseJSON(res, 200, { code: 200 });
+        api.responseJSON(res, 200, { code: 200, ...(annictStatusError === undefined ? {} : { annictStatusError }) });
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
@@ -39,6 +40,13 @@ put.apiDoc = {
     responses: {
         200: {
             description: 'ルールを無効化しました',
+            content: {
+                'application/json': {
+                    schema: {
+                        $ref: '#/components/schemas/RuleMutationResult',
+                    },
+                },
+            },
         },
         default: {
             description: '予期しないエラー',

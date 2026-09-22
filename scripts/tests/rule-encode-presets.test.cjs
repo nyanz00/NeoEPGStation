@@ -44,6 +44,42 @@ function setup(rules = [rule()]) {
     return { model, items, config, db, checker, events, writes };
 }
 
+test('a failed rule insert rejects without logging success or emitting an added event', async () => {
+    const errors = [];
+    const infos = [];
+    const events = [];
+    const logger = {
+        getLogger: () => ({
+            system: {
+                info: message => infos.push(message),
+                error: message => errors.push(message),
+            },
+        }),
+    };
+    const db = {
+        insertOnce: async () => {
+            throw new Error('test insert failure');
+        },
+    };
+    const checker = { checkRuleOption: () => true };
+    const configure = { getConfig: () => ({}) };
+    const model = new RuleManageModel(logger, checker, db, { emitAdded: id => events.push(id) }, configure);
+    const option = rule();
+    delete option.id;
+
+    await assert.rejects(model.add(option), /test insert failure/);
+    assert.deepEqual(events, []);
+    assert.equal(
+        infos.some(message => message === 'rule added successfully: undefined'),
+        false,
+    );
+
+    db.insertOnce = async () => 42;
+    assert.equal(await model.add(option), 42);
+    assert.deepEqual(events, [42]);
+    assert.equal(errors.includes('insert rule error'), true);
+});
+
 test('a genre edit with channel selection succeeds after its preset has been removed', async () => {
     const state = setup();
     const edited = rule();

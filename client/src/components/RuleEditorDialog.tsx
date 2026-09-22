@@ -399,8 +399,8 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                 encodeOption: commonEncodeOption,
             };
             if (rule !== undefined) {
-                await api.updateRule(rule.id, option, settings.annictStopWatchingOnRuleDisable);
-                return { kind: 'single' as const, annictStatusError: undefined, annictLinkError: undefined };
+                const result = await api.updateRule(rule.id, option, settings.annictStopWatchingOnRuleDisable);
+                return { kind: 'single' as const, annictStatusError: result.annictStatusError, annictLinkError: result.annictLinkError };
             }
             const ruleId = await api.addRule(option);
             if (annictId === undefined) return { kind: 'single' as const, annictStatusError: undefined, annictLinkError: undefined };
@@ -430,7 +430,10 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
             }
             notify(rule === undefined ? 'ルールを追加しました' : 'ルールを更新しました', 'success');
             if (result.annictStatusError !== undefined) {
-                notify(`ルールは関連付けましたが、Annict視聴ステータスを更新できませんでした: ${result.annictStatusError}`, 'warning');
+                notify(
+                    `${rule === undefined ? 'ルールは作成しました' : 'ルールは更新しました'}が、Annict視聴ステータスを更新できませんでした: ${result.annictStatusError}`,
+                    'warning',
+                );
             }
             if (result.annictLinkError !== undefined) notify(`ルールは追加しましたが、Annict作品との関連付けに失敗しました: ${result.annictLinkError}`, 'warning');
             onSaved?.();

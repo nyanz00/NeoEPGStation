@@ -337,48 +337,57 @@ class AnnictApiModel implements IAnnictApiModel {
         }
     }
 
-    public async syncEnabledRule(ruleId: apid.RuleId): Promise<void> {
+    public async syncEnabledRule(ruleId: apid.RuleId): Promise<string | undefined> {
         try {
-            await this.ensureLegacyRuleLinksImported();
+            const legacyImportError = await this.ensureLegacyRuleLinksImported();
             const link = await this.annictRuleLinkDB.findRuleId(ruleId);
-            if (link === null) return;
-            if (link.viewerProfileId === null || link.viewerProfileId === undefined) return;
+            if (link === null) return legacyImportError;
+            if (link.viewerProfileId === null || link.viewerProfileId === undefined) return undefined;
             const viewerProfileId = link.viewerProfileId;
             const current = (await this.getViewerStatuses([link.annictId], viewerProfileId)).statuses.find(
                 status => status.annictId === link.annictId,
             );
-            if (current?.kind === 'watched' || current?.kind === 'watching') return;
+            if (current?.kind === 'watched' || current?.kind === 'watching') return undefined;
             await this.setViewerStatus(link.annictId, 'watching', viewerProfileId);
         } catch (err) {
-            this.log.system.warn(`Annict rule enable sync failed: ruleId=${ruleId}, error=${this.errorMessage(err)}`);
+            const message = this.errorMessage(err);
+            this.log.system.warn(`Annict rule enable sync failed: ruleId=${ruleId}, error=${message}`);
+            return message;
         }
+        return undefined;
     }
 
-    public async syncDisabledRule(ruleId: apid.RuleId): Promise<void> {
+    public async syncDisabledRule(ruleId: apid.RuleId): Promise<string | undefined> {
         try {
-            await this.ensureLegacyRuleLinksImported();
+            const legacyImportError = await this.ensureLegacyRuleLinksImported();
             const link = await this.annictRuleLinkDB.findRuleId(ruleId);
-            if (link === null) return;
-            if (link.viewerProfileId === null || link.viewerProfileId === undefined) return;
-            if (await this.hasAnotherEnabledLinkedRule(link.annictId, link.viewerProfileId, ruleId)) return;
+            if (link === null) return legacyImportError;
+            if (link.viewerProfileId === null || link.viewerProfileId === undefined) return undefined;
+            if (await this.hasAnotherEnabledLinkedRule(link.annictId, link.viewerProfileId, ruleId)) return undefined;
             const viewerProfileId = link.viewerProfileId;
             const current = (await this.getViewerStatuses([link.annictId], viewerProfileId)).statuses.find(
                 status => status.annictId === link.annictId,
             );
-            if (current?.kind === 'watched') return;
+            if (current?.kind === 'watched') return undefined;
             await this.setViewerStatus(link.annictId, 'stop_watching', viewerProfileId);
         } catch (err) {
-            this.log.system.warn(`Annict rule disable sync failed: ruleId=${ruleId}, error=${this.errorMessage(err)}`);
+            const message = this.errorMessage(err);
+            this.log.system.warn(`Annict rule disable sync failed: ruleId=${ruleId}, error=${message}`);
+            return message;
         }
+        return undefined;
     }
 
-    public async unlinkRule(ruleId: apid.RuleId): Promise<void> {
+    public async unlinkRule(ruleId: apid.RuleId): Promise<string | undefined> {
         try {
             await this.ensureLegacyRuleLinksImported();
             await this.annictRuleLinkDB.deleteRuleId(ruleId);
         } catch (err) {
-            this.log.system.warn(`Annict rule unlink failed: ruleId=${ruleId}, error=${this.errorMessage(err)}`);
+            const message = this.errorMessage(err);
+            this.log.system.warn(`Annict rule unlink failed: ruleId=${ruleId}, error=${message}`);
+            return message;
         }
+        return undefined;
     }
 
     public async getRecordedEpisode(
@@ -2751,17 +2760,20 @@ class AnnictApiModel implements IAnnictApiModel {
         return false;
     }
 
-    private async ensureLegacyRuleLinksImported(): Promise<void> {
-        if (this.legacyRuleLinksImported) return;
+    private async ensureLegacyRuleLinksImported(): Promise<string | undefined> {
+        if (this.legacyRuleLinksImported) return undefined;
         if (this.legacyRuleLinksImport === undefined) {
             this.legacyRuleLinksImport = this.importLegacyRuleLinks();
         }
         try {
             await this.legacyRuleLinksImport;
             this.legacyRuleLinksImported = true;
+            return undefined;
         } catch (err) {
-            this.log.system.warn(`Annict legacy rule link import failed: ${this.errorMessage(err)}`);
+            const message = this.errorMessage(err);
+            this.log.system.warn(`Annict legacy rule link import failed: ${message}`);
             this.legacyRuleLinksImport = undefined;
+            return message;
         }
     }
 

@@ -744,6 +744,21 @@ components:
                     items:
                         $ref: '#/components/schemas/RuleKeywordItem'
 
+        RuleMutationResult:
+            description: ルール操作結果。Annict同期だけが失敗した場合はその内容を含む
+            type: object
+            required:
+                - code
+            properties:
+                code:
+                    type: integer
+                annictStatusError:
+                    description: ルール操作は成功したがAnnict視聴ステータス同期に失敗した理由
+                    type: string
+                annictLinkError:
+                    description: ルール操作は成功したがAnnictとの関連解除に失敗した理由
+                    type: string
+
         User:
             description: ユーザー情報
             type: object
