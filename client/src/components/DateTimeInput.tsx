@@ -63,6 +63,10 @@ interface DateTextInputProps extends CommonInputProps {
     onValidityChange?: (isValid: boolean) => void;
 }
 
+interface TimeTextInputProps extends CommonInputProps {
+    onValidityChange?: (isValid: boolean) => void;
+}
+
 export function DateTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: DateTextInputProps): ReactNode {
     const theme = useTheme();
     const [text, setText] = useState(() => dateTextFromValue(value));
@@ -124,7 +128,7 @@ export function DateTextInput({ label, value, onChange, fullWidth = true, onVali
     );
 }
 
-export function TimeTextInput({ label, value, onChange, fullWidth = true }: CommonInputProps): ReactNode {
+export function TimeTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: TimeTextInputProps): ReactNode {
     const theme = useTheme();
     const [text, setText] = useState(value);
     const pickerRef = useRef<HTMLInputElement>(null);
@@ -139,6 +143,7 @@ export function TimeTextInput({ label, value, onChange, fullWidth = true }: Comm
         const next = raw.length < text.length ? raw : formatTimeText(raw);
         setText(next);
         onChange(isValidTime(next) ? next : '');
+        onValidityChange?.(next.length === 0 || isValidTime(next));
     };
 
     return (
@@ -171,6 +176,7 @@ export function TimeTextInput({ label, value, onChange, fullWidth = true }: Comm
                 onChange={event => {
                     setText(event.target.value);
                     onChange(event.target.value);
+                    onValidityChange?.(true);
                 }}
                 tabIndex={-1}
                 aria-hidden="true"

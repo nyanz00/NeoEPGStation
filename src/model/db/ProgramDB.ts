@@ -664,6 +664,13 @@ export default class ProgramDB implements IProgramDB {
         isIgnore: boolean,
         query: FindQuery,
     ): void {
+        // Keep keyword searches valid when every target flag is disabled.
+        // The search UI treats this state as the default name + description search.
+        if (option.name === false && option.description === false && option.extended === false) {
+            option.name = true;
+            option.description = true;
+        }
+
         const or: string[] = [];
 
         if (option.regexp === true) {

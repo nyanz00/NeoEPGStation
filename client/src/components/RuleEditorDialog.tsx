@@ -26,6 +26,7 @@ import type { AddRuleOption, ChannelId, ChannelItem, ReserveEncodedOption, Reser
 import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
+import { secondsToTime, timeRuleRangeSeconds } from '../core/search/timeRule';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 import { useAppLayout } from './AppLayout';
@@ -128,24 +129,6 @@ function initialState(rule: Rule | undefined, activeUser: ActiveUserId, settings
         encodeStartDelayMinutes: rule?.encodeOption?.startDelayMinutes?.toString(10) ?? '0',
         copyKeywordToDirectory: rule === undefined && settings.isEnableCopyKeywordToDirectory,
     };
-}
-
-function secondsToTime(value: number): string {
-    const normalized = ((value % 86_400) + 86_400) % 86_400;
-    return `${Math.floor(normalized / 3_600)
-        .toString()
-        .padStart(2, '0')}:${Math.floor((normalized % 3_600) / 60)
-        .toString()
-        .padStart(2, '0')}`;
-}
-
-function timeToSeconds(value: string): number {
-    const match = /^(\d{2}):(\d{2})$/.exec(value);
-    if (match === null) throw new Error('時刻を正しく入力してください');
-    const hour = Number(match[1]);
-    const minute = Number(match[2]);
-    if (hour > 23 || minute > 59) throw new Error('時刻を正しく入力してください');
-    return hour * 3_600 + minute * 60;
 }
 
 function buildSaveOption(state: RuleEditorState): ReserveSaveOption | undefined {
@@ -334,10 +317,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
                 if (state.timeName.trim().length === 0) throw new Error('番組名を入力してください');
                 if (state.timeChannelId === '') throw new Error('放送局を選択してください');
                 if (state.timeWeek === 0) throw new Error('曜日を1つ以上選択してください');
-                const start = timeToSeconds(state.timeStart);
-                const end = timeToSeconds(state.timeEnd);
-                const range = end > start ? end - start : 86_400 - start + end;
-                if (range <= 0) throw new Error('開始時刻と終了時刻を変えてください');
+                const { start, range } = timeRuleRangeSeconds(state.timeStart, state.timeEnd);
                 effectiveSearchOption = {
                     keyword: state.timeName.trim(),
                     channelIds: [state.timeChannelId],
