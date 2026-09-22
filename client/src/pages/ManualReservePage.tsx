@@ -19,13 +19,21 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { EditManualReserveOption, ManualReserveOption, ReserveEncodedOption, ReserveItem, ReserveSaveOption, ScheduleProgramItem } from '../../../api';
-import { type ReactNode, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
+import {
+    clearManualReserveHistory,
+    loadManualReserveHistory,
+    saveManualReserveHistory,
+    type ManualReserveDraftEditorState,
+    type ManualReserveDraftEncodeSetting,
+    type ManualReserveDraftTimeSpecifiedState,
+} from '../core/storage/manualReserve';
 import {
     channelName,
     formatProgramDate,
@@ -39,30 +47,9 @@ import {
 import { type ActiveUserId, useActiveUser } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
-interface EncodeSetting {
-    mode: string;
-    parentDirectoryName: string;
-    directory: string;
-}
-
-interface EditorState {
-    userId: ActiveUserId;
-    allowEndLack: boolean;
-    parentDirectoryName: string;
-    directory: string;
-    recordedFormat: string;
-    encodes: [EncodeSetting, EncodeSetting, EncodeSetting];
-    deleteOriginal: boolean;
-    updateThumbnail: boolean;
-}
-
-interface TimeSpecifiedState {
-    enabled: boolean;
-    name: string;
-    channelId: number | '';
-    startAt: string;
-    endAt: string;
-}
+type EditorState = ManualReserveDraftEditorState;
+type EncodeSetting = ManualReserveDraftEncodeSetting;
+type TimeSpecifiedState = ManualReserveDraftTimeSpecifiedState;
 
 function localDateTime(value: number): string {
     const date = new Date(value - new Date(value).getTimezoneOffset() * 60_000);
@@ -146,11 +133,14 @@ export function ManualReservePage(): ReactNode {
     const settings = useSettings();
     const activeUser = useActiveUser();
     const [params] = useSearchParams();
+    const location = useLocation();
+    const navigationType = useNavigationType();
     const reserveId = Number(params.get('reserveId'));
     const programId = Number(params.get('programId'));
     const validReserveId = params.has('reserveId') && Number.isSafeInteger(reserveId) && reserveId >= 0;
     const validProgramId = params.has('programId') && Number.isSafeInteger(programId) && programId >= 0;
     const validId = validReserveId || validProgramId;
+    const routeSignature = `${location.key}:${location.search}`;
     const goBack = useAppBack('/reserves');
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
@@ -174,15 +164,45 @@ export function ManualReservePage(): ReactNode {
     });
     const [state, setState] = useState<EditorState | null>(null);
     const [timeSpecified, setTimeSpecified] = useState<TimeSpecifiedState | null>(null);
+    const initializedRouteSignature = useRef<string | null>(null);
+    const historySnapshot = useRef<{ state: EditorState; timeSpecified: TimeSpecifiedState } | null>(null);
+    const creationCompleted = useRef(false);
+
+    historySnapshot.current = state !== null && timeSpecified !== null ? { state, timeSpecified } : null;
 
     useEffect(() => {
-        if (reserve.data !== undefined) setState(editorState(reserve.data));
-        else if (program.data !== undefined) setState(initialEditorState(activeUser));
-    }, [activeUser, program.data, reserve.data]);
+        if (initializedRouteSignature.current === routeSignature) return;
+        if (validReserveId && reserve.data === undefined) return;
+        if (!validReserveId && validProgramId && program.data === undefined) return;
+
+        initializedRouteSignature.current = routeSignature;
+        if (validReserveId && reserve.data !== undefined) {
+            setState(editorState(reserve.data));
+            setTimeSpecified(null);
+            historySnapshot.current = null;
+            return;
+        }
+        if (validProgramId && program.data !== undefined) {
+            const restored = navigationType === 'POP' ? loadManualReserveHistory(location.key, location.search, programId) : null;
+            const nextState = restored?.state ?? initialEditorState(activeUser);
+            const nextTimeSpecified = restored?.timeSpecified ?? initialTimeSpecifiedState(program.data);
+            setState(nextState);
+            setTimeSpecified(nextTimeSpecified);
+            historySnapshot.current = { state: nextState, timeSpecified: nextTimeSpecified };
+        }
+    }, [activeUser, location.key, location.search, navigationType, program.data, programId, reserve.data, routeSignature, validProgramId, validReserveId]);
 
     useEffect(() => {
-        if (program.data !== undefined) setTimeSpecified(initialTimeSpecifiedState(program.data));
-    }, [program.data]);
+        const locationKey = location.key;
+        const routeSearch = location.search;
+        const shouldSave = validProgramId && !validReserveId;
+        return () => {
+            const snapshot = historySnapshot.current;
+            if (shouldSave && !creationCompleted.current && snapshot !== null) {
+                saveManualReserveHistory(locationKey, { routeSearch, programId, ...snapshot });
+            }
+        };
+    }, [location.key, location.search, programId, validProgramId, validReserveId]);
 
     const save = useMutation({
         mutationFn: async () => {
@@ -222,6 +242,9 @@ export function ManualReservePage(): ReactNode {
                 queryClient.invalidateQueries({ queryKey: ['reserve-lists'] }),
                 queryClient.invalidateQueries({ queryKey: ['reserve-counts'] }),
             ]);
+            creationCompleted.current = true;
+            historySnapshot.current = null;
+            clearManualReserveHistory(location.key);
             notify(`予約を${action}しました`, 'success');
             goBack();
         },
