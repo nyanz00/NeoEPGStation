@@ -6,10 +6,10 @@ import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import SettingsInputAntennaOutlined from '@mui/icons-material/SettingsInputAntennaOutlined';
 import StorageOutlined from '@mui/icons-material/StorageOutlined';
 import SystemUpdateAltOutlined from '@mui/icons-material/SystemUpdateAltOutlined';
-import { Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Grid, IconButton, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Grid, IconButton, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
-import type { StorageItem, SystemGpuInfo, SystemResourceInfo, SystemStorageVolume, SystemStorageVolumeType } from '../../../api';
+import type { StorageItem, StorageItemError, SystemGpuInfo, SystemResourceInfo, SystemStorageVolume, SystemStorageVolumeType } from '../../../api';
 import { PageHeader } from '../components/PageHeader';
 import { VersionManagementDialog } from '../components/VersionManagementDialog';
 import { SystemLogsPanel } from '../components/SystemLogsPanel';
@@ -46,6 +46,7 @@ function VersionSection(): ReactNode {
     const [dialogOpen, setDialogOpen] = useState(false);
     const version = useQuery({ queryKey: ['version'], queryFn: api.getVersion, staleTime: 60_000 });
     const updateInfo = useQuery({ queryKey: ['system-update'], queryFn: () => api.getSystemUpdateInfo(false), staleTime: 60_000 });
+    const versionLabel = version.data?.version ?? updateInfo.data?.version;
     return (
         <>
             <Card variant="outlined">
@@ -57,7 +58,7 @@ function VersionSection(): ReactNode {
                                 バージョン
                             </Typography>
                             <Typography variant="h6" noWrap>
-                                v{version.data?.version ?? updateInfo.data?.version ?? '取得中…'}
+                                {versionLabel === undefined ? (version.isError && updateInfo.isError ? '取得失敗' : '取得中…') : `v${versionLabel}`}
                             </Typography>
                             {updateInfo.data?.commit !== null && updateInfo.data?.commit !== undefined && (
                                 <Typography variant="caption" color="text.secondary">
@@ -69,6 +70,12 @@ function VersionSection(): ReactNode {
                             バージョン管理
                         </Button>
                     </Stack>
+                    {(version.isError || updateInfo.isError) && (
+                        <Alert severity="warning" sx={{ mt: 1.5 }}>
+                            {version.isError && updateInfo.isError ? 'バージョン情報を取得できませんでした。' : 'バージョン情報の一部を取得できませんでした。'}
+                            右上の更新ボタンで再試行できます。
+                        </Alert>
+                    )}
                 </CardContent>
             </Card>
             <VersionManagementDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
@@ -132,22 +139,28 @@ function GpuUsageCard({ gpu }: { gpu: SystemGpuInfo }): ReactNode {
     return <UsageCard icon={<DeveloperBoardOutlined />} title="GPU" subtitle={gpu.name} value={gpu.usagePercent} detail={detail} />;
 }
 
-function PrimaryStorageSection({ items }: { items: StorageItem[] }): ReactNode {
+function PrimaryStorageSection({ items, errors }: { items: StorageItem[]; errors: StorageItemError[] }): ReactNode {
     return (
         <Box component="section">
             <Typography variant="h5" sx={{ mb: 1.5 }}>
                 プライマリストレージ
             </Typography>
-            {items.length === 0 ? (
+            {items.length === 0 && errors.length === 0 ? (
                 <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
                     録画先ストレージ情報はありません
                 </Typography>
             ) : (
                 <Stack spacing={2}>
+                    {errors.map((error, index) => (
+                        <Alert key={`${error.name}-${index}`} severity="error">
+                            {error.name} の容量情報を取得できませんでした。接続状態や保存先を確認してください。
+                        </Alert>
+                    ))}
                     {items.map(item => {
                         const rate = item.total > 0 ? Math.min(100, Math.max(0, (item.used / item.total) * 100)) : 0;
                         const breakdownPending = item.breakdownPending === true;
-                        const breakdownTotal = item.breakdown.recorded + item.breakdown.dropLogs + item.breakdown.thumbnails + item.breakdown.other;
+                        const breakdown = item.breakdown;
+                        const breakdownTotal = breakdown === undefined ? 0 : breakdown.recorded + breakdown.dropLogs + breakdown.thumbnails + breakdown.other;
                         const segmentWidth = (value: number): string => `${breakdownTotal > 0 ? (value / breakdownTotal) * 100 : 0}%`;
                         return (
                             <Card key={item.name} variant="outlined">
@@ -178,38 +191,51 @@ function PrimaryStorageSection({ items }: { items: StorageItem[] }): ReactNode {
                                             </Stack>
                                         )}
                                     </Stack>
-                                    <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>
-                                        <Box sx={{ width: segmentWidth(item.breakdown.recorded), bgcolor: 'primary.main' }} />
-                                        <Box sx={{ width: segmentWidth(item.breakdown.dropLogs), bgcolor: 'warning.main' }} />
-                                        <Box sx={{ width: segmentWidth(item.breakdown.thumbnails), bgcolor: 'secondary.main' }} />
-                                        <Box sx={{ width: segmentWidth(item.breakdown.other), bgcolor: 'text.disabled' }} />
-                                    </Box>
-                                    <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                録画データ
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.recorded)}</Typography>
-                                        </Grid>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                ドロップログ
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.dropLogs)}</Typography>
-                                        </Grid>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                サムネイル
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.thumbnails)}</Typography>
-                                        </Grid>
-                                        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                その他
-                                            </Typography>
-                                            <Typography>{fileSize(item.breakdown.other)}</Typography>
-                                        </Grid>
-                                    </Grid>
+                                    {item.breakdownError && (
+                                        <Alert severity="warning" sx={{ mb: 1.5 }}>
+                                            内訳の取得に失敗しました。{breakdown === undefined ? '容量の内訳は表示できません。' : '前回取得した内訳を表示しています。'}
+                                        </Alert>
+                                    )}
+                                    {breakdown === undefined ? (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {breakdownPending ? '容量の内訳を集計しています。' : '容量の内訳はまだ取得できていません。'}
+                                        </Typography>
+                                    ) : (
+                                        <>
+                                            <Box sx={{ display: 'flex', height: 14, overflow: 'hidden', borderRadius: 1, bgcolor: 'action.hover' }}>
+                                                <Box sx={{ width: segmentWidth(breakdown.recorded), bgcolor: 'primary.main' }} />
+                                                <Box sx={{ width: segmentWidth(breakdown.dropLogs), bgcolor: 'warning.main' }} />
+                                                <Box sx={{ width: segmentWidth(breakdown.thumbnails), bgcolor: 'secondary.main' }} />
+                                                <Box sx={{ width: segmentWidth(breakdown.other), bgcolor: 'text.disabled' }} />
+                                            </Box>
+                                            <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        録画データ
+                                                    </Typography>
+                                                    <Typography>{fileSize(breakdown.recorded)}</Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        ドロップログ
+                                                    </Typography>
+                                                    <Typography>{fileSize(breakdown.dropLogs)}</Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        サムネイル
+                                                    </Typography>
+                                                    <Typography>{fileSize(breakdown.thumbnails)}</Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        その他
+                                                    </Typography>
+                                                    <Typography>{fileSize(breakdown.other)}</Typography>
+                                                </Grid>
+                                            </Grid>
+                                        </>
+                                    )}
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
                                         録画データはNeoEPGStationが管理する動画ファイル、ドロップログとサムネイルはconfig.ymlの各保存先を集計しています。
                                     </Typography>
@@ -241,6 +267,11 @@ function ResourceSection({ system, gpuItems, gpuPending, gpuError }: ResourceSec
                     <Chip size="small" variant="outlined" label={`${system.platform} / ${system.arch}`} />
                 </Stack>
             </Stack>
+            {gpuError && gpuItems !== undefined && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    GPU情報の更新に失敗しました。前回取得した情報を表示しています。
+                </Alert>
+            )}
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
                     <UsageCard icon={<MemoryOutlined />} title="CPU" subtitle={`${system.cpu.model}（${system.cpu.logicalCores} 論理コア）`} value={system.cpu.usagePercent} />
@@ -263,7 +294,7 @@ function ResourceSection({ system, gpuItems, gpuPending, gpuError }: ResourceSec
                             </Stack>
                         </Card>
                     </Grid>
-                ) : gpuError || gpuItems === undefined || gpuItems.length === 0 ? (
+                ) : gpuItems === undefined || gpuItems.length === 0 ? (
                     <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
                         <UsageCard icon={<DeveloperBoardOutlined />} title="GPU" subtitle="GPU情報を取得できません" />
                     </Grid>
@@ -346,13 +377,16 @@ function OtherStorageSection({ items, pending, error }: OtherStorageSectionProps
             <Typography variant="h5" sx={{ mb: 1.5 }}>
                 ストレージ
             </Typography>
-            {pending ? (
+            {error && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    接続ストレージ情報の取得に失敗しました。{items === undefined ? '更新ボタンで再試行できます。' : '前回取得した情報を表示しています。'}
+                </Alert>
+            )}
+            {pending && items === undefined ? (
                 <Box sx={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>
                     <CircularProgress size={30} />
                 </Box>
-            ) : error ? (
-                <Typography color="error">接続ストレージ情報を取得できませんでした</Typography>
-            ) : items === undefined || items.length === 0 ? (
+            ) : items === undefined || (error && items.length === 0) ? null : items.length === 0 ? (
                 <Typography color="text.secondary">録画先以外の接続ストレージはありません。</Typography>
             ) : (
                 <Grid container spacing={2}>
@@ -415,6 +449,8 @@ export function StoragesPage(): ReactNode {
             queryClient.invalidateQueries({ queryKey: ['system-resources'] }),
             queryClient.invalidateQueries({ queryKey: ['system-gpus'] }),
             queryClient.invalidateQueries({ queryKey: ['system-volumes'] }),
+            queryClient.invalidateQueries({ queryKey: ['version'] }),
+            queryClient.invalidateQueries({ queryKey: ['system-update'] }),
         ]);
     };
 
@@ -483,10 +519,13 @@ export function StoragesPage(): ReactNode {
                                     <Typography variant="body2">プライマリストレージ情報を取得中</Typography>
                                 </Stack>
                             </Box>
-                        ) : storageInfo.isError ? (
-                            <Typography color="error">ストレージ情報を取得できませんでした: {storageInfo.error.message}</Typography>
+                        ) : storageInfo.data === undefined ? (
+                            <Alert severity="error">ストレージ情報を取得できませんでした。更新ボタンで再試行してください。</Alert>
                         ) : (
-                            <PrimaryStorageSection items={storageInfo.data.items} />
+                            <>
+                                {storageInfo.isError && <Alert severity="warning">ストレージ情報の更新に失敗しました。前回取得した情報を表示しています。</Alert>}
+                                <PrimaryStorageSection items={storageInfo.data.items} errors={storageInfo.data.errors ?? []} />
+                            </>
                         )}
                         {systemInfo.isPending ? (
                             <Box sx={{ minHeight: 180, display: 'grid', placeItems: 'center' }}>
@@ -495,10 +534,13 @@ export function StoragesPage(): ReactNode {
                                     <Typography variant="body2">システムリソース情報を取得中</Typography>
                                 </Stack>
                             </Box>
-                        ) : systemInfo.isError ? (
-                            <Typography color="error">システムリソース情報を取得できませんでした: {systemInfo.error.message}</Typography>
+                        ) : systemInfo.data === undefined ? (
+                            <Alert severity="error">システムリソース情報を取得できませんでした。更新ボタンで再試行してください。</Alert>
                         ) : (
-                            <ResourceSection system={systemInfo.data} gpuItems={gpuInfo.data?.items} gpuPending={gpuInfo.isPending} gpuError={gpuInfo.isError} />
+                            <>
+                                {systemInfo.isError && <Alert severity="warning">システムリソース情報の更新に失敗しました。前回取得した情報を表示しています。</Alert>}
+                                <ResourceSection system={systemInfo.data} gpuItems={gpuInfo.data?.items} gpuPending={gpuInfo.isPending} gpuError={gpuInfo.isError} />
+                            </>
                         )}
                         <OtherStorageSection items={storageVolumes.data?.items} pending={storageVolumes.isPending} error={storageVolumes.isError} />
                     </Stack>

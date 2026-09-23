@@ -165,10 +165,33 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
             <DialogContent dividers sx={{ minHeight: 0 }}>
                 {info.isPending ? (
                     <LinearProgress />
-                ) : info.isError ? (
-                    <Alert severity="error">更新情報を取得できませんでした: {info.error.message}</Alert>
-                ) : info.data !== undefined ? (
+                ) : info.data === undefined ? (
+                    info.isError ? (
+                        <Alert
+                            severity="error"
+                            action={
+                                <Button color="inherit" size="small" onClick={() => void info.refetch()} disabled={info.isFetching}>
+                                    再試行
+                                </Button>
+                            }
+                        >
+                            更新情報を取得できませんでした: {info.error.message}
+                        </Alert>
+                    ) : null
+                ) : (
                     <Stack spacing={2.5}>
+                        {info.isError && (
+                            <Alert
+                                severity="warning"
+                                action={
+                                    <Button color="inherit" size="small" onClick={() => void info.refetch()} disabled={info.isFetching}>
+                                        再試行
+                                    </Button>
+                                }
+                            >
+                                更新情報の再取得に失敗しました。前回の情報を表示しています: {info.error.message}
+                            </Alert>
+                        )}
                         {info.data.gitError !== null && <Alert severity="error">Gitを実行できませんでした: {info.data.gitError}</Alert>}
                         {info.data.gitError === null && !info.data.isGitRepository && <Alert severity="warning">Git clone環境ではないためWeb UIから更新できません。</Alert>}
                         {info.data.gitError === null && info.data.isGitRepository && !info.data.isClean && (
@@ -314,7 +337,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             </Stack>
                         )}
                     </Stack>
-                ) : null}
+                )}
             </DialogContent>
             <DialogActions>
                 <Button onClick={onClose} disabled={running}>

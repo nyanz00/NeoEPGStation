@@ -2715,7 +2715,6 @@ components:
                 - available
                 - used
                 - total
-                - breakdown
             properties:
                 name:
                     description: ディスク名
@@ -2732,8 +2731,20 @@ components:
                 breakdownPending:
                     description: 使用済み容量の内訳をバックグラウンドで集計中かどうか
                     type: boolean
+                breakdownError:
+                    description: 使用済み容量の内訳の取得に失敗したかどうか
+                    type: boolean
                 breakdown:
                     $ref: '#/components/schemas/StorageBreakdown'
+
+        StorageItemError:
+            description: 容量を取得できなかった録画先
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
 
         StorageBreakdown:
             description: ディスク使用量の内訳
@@ -2959,6 +2970,9 @@ components:
                     $ref: '#/components/schemas/SystemLogLevel'
                 fileName:
                     type: string
+                fileOutputConfigured:
+                    description: 選択したログ種別にファイル出力が設定されているかどうか
+                    type: boolean
                 exists:
                     type: boolean
                 size:
@@ -3175,6 +3189,10 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/StorageItem'
+                errors:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/StorageItemError'
                 system:
                     $ref: '#/components/schemas/SystemResourceInfo'
 

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import * as path from 'path';
 import * as apid from '../../api';
+import { getLogConfigPath } from '../util/LogConfig';
 
 export const runtimeLogLevelPath = path.join(__dirname, '..', '..', 'data', 'runtime-log-levels.json');
 
@@ -31,8 +32,7 @@ export function getRuntimeLogLevel(
     const override = readRuntimeLogLevels()[source]?.[category];
     if (isSystemLogLevel(override)) return override;
 
-    const configName = `${source.charAt(0).toLowerCase()}${source.slice(1)}LogConfig.yml`;
-    const configPath = path.join(__dirname, '..', '..', 'config', configName);
+    const configPath = getLogConfigPath(source);
     try {
         const config = yaml.load(fs.readFileSync(configPath, 'utf8')) as {
             categories?: Record<string, { level?: unknown }>;

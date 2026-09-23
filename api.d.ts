@@ -1407,7 +1407,12 @@ export interface DiskUsage {
 export interface StorageItem extends DiskUsage {
     name: string;
     breakdownPending?: boolean;
-    breakdown: StorageBreakdown;
+    breakdownError?: boolean;
+    breakdown?: StorageBreakdown;
+}
+
+export interface StorageItemError {
+    name: string;
 }
 
 export interface StorageBreakdown {
@@ -1486,6 +1491,7 @@ export interface SystemLogInfo {
     category: SystemLogCategory;
     level: SystemLogLevel;
     fileName: string;
+    fileOutputConfigured?: boolean;
     exists: boolean;
     size: number;
     updatedAt?: number;
@@ -1555,6 +1561,7 @@ export interface SystemMirakurunInfo {
  */
 export interface StorageInfo {
     items: StorageItem[];
+    errors?: StorageItemError[];
     system: SystemResourceInfo;
 }
 
