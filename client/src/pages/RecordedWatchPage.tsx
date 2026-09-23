@@ -181,6 +181,7 @@ function RecordedPlayer({
     const [paused, setPaused] = useState(true);
     const [state, setState] = useState<RecordedPlayerState>({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' });
     const playbackBlockedRef = useRef(playbackBlocked);
+    const playbackResumeRef = useRef(resumePlaying);
     playbackBlockedRef.current = playbackBlocked;
     const pointerInPersistentBottomControlsRef = useRef(false);
     const showPlayerControls = useCallback((): void => {
@@ -256,14 +257,15 @@ function RecordedPlayer({
             selectedQualityIndex,
             onQualityChange,
             autoplay: resumePlaying && !playbackBlockedRef.current,
-            onReady: nextVideo => {
+            onReady: (nextVideo, restartState) => {
+                const position = restartState?.position ?? startPosition;
+                playbackResumeRef.current = restartState === undefined ? resumePlaying : !restartState.paused;
                 setVideo(nextVideo);
                 setPaused(nextVideo.paused);
                 onVideoReady(nextVideo);
                 const restorePlayback = (): void => {
-                    if (startPosition === null) return;
-                    if (Number.isFinite(nextVideo.duration)) nextVideo.currentTime = Math.min(startPosition, nextVideo.duration);
-                    if (!resumePlaying || playbackBlockedRef.current) nextVideo.pause();
+                    if (position !== null && Number.isFinite(position) && Number.isFinite(nextVideo.duration)) nextVideo.currentTime = Math.min(position, nextVideo.duration);
+                    if (!playbackResumeRef.current || playbackBlockedRef.current) nextVideo.pause();
                 };
                 if (nextVideo.readyState >= HTMLMediaElement.HAVE_METADATA) restorePlayback();
                 else nextVideo.addEventListener('loadedmetadata', restorePlayback, { once: true });
@@ -332,7 +334,7 @@ function RecordedPlayer({
             video.addEventListener('play', keepPaused);
             return () => video.removeEventListener('play', keepPaused);
         }
-        if (resumePlaying) void video.play().catch(error => console.error('[RecordedWatch:play]', error));
+        if (playbackResumeRef.current) void video.play().catch(error => console.error('[RecordedWatch:play]', error));
     }, [playbackBlocked, resumePlaying, video]);
 
     useEffect(() => {

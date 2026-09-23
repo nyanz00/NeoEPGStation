@@ -80,7 +80,7 @@ export interface RecordedPlayerCoreOption {
     qualityOptions?: DPlayerQualityOption[];
     selectedQualityIndex?: number;
     onQualityChange?: (index: number) => void;
-    onReady?: (video: HTMLVideoElement) => void;
+    onReady?: (video: HTMLVideoElement, restartState?: { position: number; paused: boolean }) => void;
     onStateChange?: (state: RecordedPlayerState) => void;
     onComment?: (comment: JikkyoComment) => void;
     onCommentsChange?: (comments: JikkyoComment[]) => void;
@@ -185,12 +185,14 @@ export class RecordedPlayerCore {
 
     public restart(): void {
         if (this.destroyed || this.restarting) return;
+        const video = this.player?.video;
+        const restartState = video === undefined ? undefined : { position: video.currentTime, paused: video.paused };
         this.restarting = true;
         this.setState({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを再読み込みしています...' });
         this.destroyPlayer();
         window.setTimeout(() => {
             this.restarting = false;
-            if (!this.destroyed) void this.initPlayer().catch(error => this.handleError(error));
+            if (!this.destroyed) void this.initPlayer(restartState).catch(error => this.handleError(error));
         }, 250);
     }
 
@@ -199,7 +201,7 @@ export class RecordedPlayerCore {
         this.destroyPlayer();
     }
 
-    private async initPlayer(): Promise<void> {
+    private async initPlayer(restartState?: { position: number; paused: boolean }): Promise<void> {
         if (this.destroyed) return;
         this.setState({ isLoading: true, isBuffering: false, loadingText: '動画を準備中...' });
         this.tsHlsSourceStartPosition = this.getSourceStartPosition(this.option.src);
@@ -224,7 +226,7 @@ export class RecordedPlayerCore {
             const selectedPosition = this.option.qualityOptions.findIndex(option => option.index === this.option.selectedQualityIndex);
             video.defaultQuality = selectedPosition >= 0 ? selectedPosition : 0;
         }
-        const autoplay = this.option.autoplay && !(isAppleMobileWebKit() && this.option.webkitPlaybackMode === 'ios26');
+        const autoplay = (restartState === undefined ? this.option.autoplay : !restartState.paused) && !(isAppleMobileWebKit() && this.option.webkitPlaybackMode === 'ios26');
         const options: any = {
             container: this.option.container,
             theme: this.option.themeColor,
@@ -332,7 +334,7 @@ export class RecordedPlayerCore {
         if (storedMuted) this.player.muted(true);
         updateDPlayerMobileVolumeControl(this.option.container, this.player.video.muted);
         this.bindEvents();
-        this.option.onReady?.(this.player.video);
+        this.option.onReady?.(this.player.video, restartState);
         this.initJikkyoCore();
         if (autoplay && isAppleMobileWebKit()) {
             this.player.play();
