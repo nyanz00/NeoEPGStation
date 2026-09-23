@@ -1774,8 +1774,19 @@ components:
             required:
                 - position
                 - duration
-                - watchedSecondsDelta
                 - observedAt
+            oneOf:
+                - required:
+                      - watchedSecondsDelta
+                  not:
+                      anyOf:
+                          - required: [sessionId]
+                          - required: [sessionWatchedSeconds]
+                - required:
+                      - sessionId
+                      - sessionWatchedSeconds
+                  not:
+                      required: [watchedSecondsDelta]
             properties:
                 position:
                     type: number
@@ -1784,17 +1795,21 @@ components:
                     type: number
                     exclusiveMinimum: 0
                 watchedSecondsDelta:
-                    description: 前回通知以降にシークせず再生した秒数
+                    description: 旧クライアント用。前回通知以降にシークせず再生した秒数
                     type: number
                     minimum: 0
                     maximum: 30
+                sessionId:
+                    description: 再生セッションの識別子。sessionWatchedSecondsと組み合わせて送る
+                    type: string
+                    pattern: '^[a-zA-Z0-9-]{16,64}$'
+                sessionWatchedSeconds:
+                    description: この再生セッション内で実際に再生した累計秒数
+                    type: number
+                    minimum: 0
+                    maximum: 2592000
                 observedAt:
                     $ref: '#/components/schemas/UnixtimeMS'
-                historyLimit:
-                    description: ユーザーごとに保持する視聴履歴の最大件数
-                    type: integer
-                    minimum: 1
-                    maximum: 200
 
         RecordedPlaybackHistoryItem:
             description: ユーザーごとの録画視聴履歴
@@ -1824,9 +1839,27 @@ components:
             type: object
             required:
                 - enabled
+                - limit
             properties:
                 enabled:
                     type: boolean
+                limit:
+                    description: ユーザーごとに保持する視聴履歴の最大件数
+                    type: integer
+                    minimum: 1
+                    maximum: 200
+
+        UpdateRecordedPlaybackHistorySettingsOption:
+            description: アクティブユーザーの視聴履歴保存設定の変更
+            type: object
+            minProperties: 1
+            properties:
+                enabled:
+                    type: boolean
+                limit:
+                    type: integer
+                    minimum: 1
+                    maximum: 200
 
         RecordedListPosition:
             description: 録画済み一覧における対象録画のページ位置

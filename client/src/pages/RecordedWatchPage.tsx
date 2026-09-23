@@ -80,7 +80,7 @@ interface PlayerSource {
     vodSessionId?: string;
 }
 
-function createVodSessionId(): string {
+function createSessionId(): string {
     if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
@@ -1343,7 +1343,10 @@ export function RecordedWatchPage(): ReactNode {
 
     useEffect(() => {
         if (progressVideo === null || playbackUserId === null) return;
-        let pending: RecordedPlaybackSample | null = null;
+        const sessionId = createSessionId();
+        let pending: { sample: RecordedPlaybackSample; total: number } | null = null;
+        let accumulatedTotal = 0;
+        let acknowledgedTotal = 0;
         let sending = false;
         let retryTimer: number | null = null;
         let disposed = false;
@@ -1352,21 +1355,22 @@ export function RecordedWatchPage(): ReactNode {
             if (sending || pending === null) return;
             sending = true;
             while (pending !== null) {
-                const latest: RecordedPlaybackSample = pending;
-                const delta = Math.min(latest.watchedSecondsDelta, 30);
-                pending = latest.watchedSecondsDelta > delta ? { ...latest, watchedSecondsDelta: latest.watchedSecondsDelta - delta } : null;
+                const latest: { sample: RecordedPlaybackSample; total: number } = pending;
+                const targetTotal = Math.min(latest.total, acknowledgedTotal + 30);
+                pending = latest.total > targetTotal ? latest : null;
                 try {
                     const result = await api.updateRecordedPlayback(
                         recordedId,
                         {
-                            position: latest.position,
-                            duration: latest.duration,
-                            watchedSecondsDelta: delta,
-                            observedAt: latest.observedAt,
-                            historyLimit: settingsRef.current.watchHistoryLength,
+                            position: latest.sample.position,
+                            duration: latest.sample.duration,
+                            sessionId,
+                            sessionWatchedSeconds: targetTotal,
+                            observedAt: latest.sample.observedAt,
                         },
                         playbackUserId,
                     );
+                    acknowledgedTotal = targetTotal;
                     if (
                         settingsRef.current.annictAutoWatchMode === 'progress' &&
                         result.duration > 0 &&
@@ -1376,13 +1380,7 @@ export function RecordedWatchPage(): ReactNode {
                     }
                 } catch (error) {
                     const newer = pending;
-                    pending =
-                        newer === null
-                            ? { ...latest, watchedSecondsDelta: delta }
-                            : {
-                                  ...newer,
-                                  watchedSecondsDelta: newer.watchedSecondsDelta + delta,
-                              };
+                    pending = newer ?? latest;
                     console.warn('[RecordedWatch:playback-progress]', error);
                     if (!disposed && retryTimer === null) {
                         retryTimer = window.setTimeout(() => {
@@ -1396,13 +1394,8 @@ export function RecordedWatchPage(): ReactNode {
             sending = false;
         };
         const queue = (sample: RecordedPlaybackSample): void => {
-            pending =
-                pending === null
-                    ? sample
-                    : {
-                          ...sample,
-                          watchedSecondsDelta: pending.watchedSecondsDelta + sample.watchedSecondsDelta,
-                      };
+            accumulatedTotal += sample.watchedSecondsDelta;
+            pending = { sample, total: accumulatedTotal };
             void drain();
         };
         const tracker = new RecordedPlaybackTracker({
@@ -1535,7 +1528,7 @@ export function RecordedWatchPage(): ReactNode {
         if (!valid) return null;
         if (!streaming) return { src: getRecordedVideoPlayURL(videoFileId), type: 'normal', enableAribSubtitle: false };
         if (selectedVideo === undefined) return null;
-        const vodSessionId = createVodSessionId();
+        const vodSessionId = createSessionId();
         return {
             src: getRecordedStreamURL(
                 videoFileId,

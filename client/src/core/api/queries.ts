@@ -39,6 +39,7 @@ import type {
     RecordedPlayback,
     RecordedPlaybackHistory,
     RecordedPlaybackHistorySettings,
+    UpdateRecordedPlaybackHistorySettingsOption,
     RecordedListPosition,
     RecordingDropLogStatus,
     RecordedSearchOptions,
@@ -299,10 +300,10 @@ export const api = {
             })
         ).data;
     },
-    async getRecordedPlaybackHistory(userId: number, isHalfWidth: boolean, limit: number): Promise<RecordedPlaybackHistory> {
+    async getRecordedPlaybackHistory(userId: number, isHalfWidth: boolean): Promise<RecordedPlaybackHistory> {
         return (
             await apiClient.get<RecordedPlaybackHistory>('/recorded/playbackHistory', {
-                params: { isHalfWidth, limit },
+                params: { isHalfWidth },
                 headers: playbackUserHeader(userId),
                 timeout: 10_000,
             })
@@ -315,8 +316,8 @@ export const api = {
             })
         ).data;
     },
-    async updateRecordedPlaybackHistorySettings(userId: number, enabled: boolean): Promise<RecordedPlaybackHistorySettings> {
-        return (await apiClient.put<RecordedPlaybackHistorySettings>('/recorded/playbackHistory/settings', { enabled }, { headers: playbackUserHeader(userId) })).data;
+    async updateRecordedPlaybackHistorySettings(userId: number, option: UpdateRecordedPlaybackHistorySettingsOption): Promise<RecordedPlaybackHistorySettings> {
+        return (await apiClient.put<RecordedPlaybackHistorySettings>('/recorded/playbackHistory/settings', option, { headers: playbackUserHeader(userId) })).data;
     },
     async removeRecordedPlaybackHistory(recordedId: RecordedId, userId: number): Promise<void> {
         await apiClient.delete(`/recorded/${recordedId}/playback`, { headers: playbackUserHeader(userId) });

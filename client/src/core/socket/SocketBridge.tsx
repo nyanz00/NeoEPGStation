@@ -30,7 +30,20 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
         const target = socketUrl(socketIOPort);
         let socket: Socket = target === undefined ? io(options) : io(target, options);
 
-        const statusRoots = new Set(['onair', 'recording', 'recorded', 'recorded-detail', 'reserves', 'reserve-counts', 'reserve-lists', 'rules', 'encode', 'storages', 'system']);
+        const statusRoots = new Set([
+            'onair',
+            'recording',
+            'recorded',
+            'recorded-detail',
+            'recorded-playback-history',
+            'reserves',
+            'reserve-counts',
+            'reserve-lists',
+            'rules',
+            'encode',
+            'storages',
+            'system',
+        ]);
         let scheduleSearchTimer: ReturnType<typeof setTimeout> | undefined;
         const invalidateStatus = (): void => {
             void queryClient.invalidateQueries({

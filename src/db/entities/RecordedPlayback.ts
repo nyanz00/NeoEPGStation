@@ -27,6 +27,10 @@ export default class RecordedPlayback extends BaseEntity {
     @Column({ type: 'double' })
     public watchedSeconds!: number;
 
+    /** Recently used playback sessions and their cumulative watched time, for retry deduplication. */
+    @Column({ type: 'text', nullable: true })
+    public watchedSessions!: string | null;
+
     @Column({ type: 'bigint' })
     public lastObservedAt!: number;
 

@@ -51,7 +51,6 @@ export interface AppSettings {
     watchVolumeBoostEnabled: boolean;
     watchVolumeBoostMaxPercent: number;
     watchResumePlayback: boolean;
-    watchHistoryLength: number;
     annictAutoWatchMode: AnnictAutoWatchMode;
     annictAutoWatchThresholdPercent: number;
     annictAutoWatchOnDownload: boolean;
@@ -136,7 +135,6 @@ export const defaultSettings: AppSettings = {
     watchVolumeBoostEnabled: false,
     watchVolumeBoostMaxPercent: 150,
     watchResumePlayback: true,
-    watchHistoryLength: 50,
     annictAutoWatchMode: 'disabled',
     annictAutoWatchThresholdPercent: 90,
     annictAutoWatchOnDownload: false,
@@ -185,6 +183,7 @@ function loadSettings(): AppSettings {
                       watchSubtitlePreferredKeyword?: unknown;
                       watchPlaySubtitlePreferredKeyword?: unknown;
                   });
+        delete (parsed as typeof parsed & { watchHistoryLength?: unknown }).watchHistoryLength;
         let showInformationalChannels = parsed.isShowInformationalChannels;
         if (typeof showInformationalChannels !== 'boolean') {
             try {
@@ -198,7 +197,6 @@ function loadSettings(): AppSettings {
             ? (parsed.annictAutoWatchMode as AnnictAutoWatchMode)
             : defaultSettings.annictAutoWatchMode;
         const threshold = Number(parsed.annictAutoWatchThresholdPercent);
-        const historyLength = Number(parsed.watchHistoryLength);
         let shouldUseRecordedDownloadURLScheme = parsed.shouldUseRecordedDownloadURLScheme ?? defaultSettings.shouldUseRecordedDownloadURLScheme;
         if (isAppleMobile && parsed.recordedDownloadURLScheme == null && localStorage.getItem(iosDownloadSchemeOptInMigrationKey) !== '1') {
             shouldUseRecordedDownloadURLScheme = false;
@@ -250,7 +248,6 @@ function loadSettings(): AppSettings {
             annictAutoWatchMode,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
-            watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
             shouldUseRecordedDownloadURLScheme,
             reservesLength: normalizeListLength(parsed.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(parsed.recordingLength, defaultSettings.recordingLength, 1_000),
@@ -274,7 +271,6 @@ export const settingsStore = {
     },
     save(value: AppSettings): void {
         const threshold = Number(value.annictAutoWatchThresholdPercent);
-        const historyLength = Number(value.watchHistoryLength);
         snapshot = {
             ...value,
             appIconSet: isAppIconSetId(value.appIconSet) ? value.appIconSet : defaultSettings.appIconSet,
@@ -308,7 +304,6 @@ export const settingsStore = {
             annictExcludePaidChannels: value.annictExcludePaidChannels === true,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
-            watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
             reservesLength: normalizeListLength(value.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(value.recordingLength, defaultSettings.recordingLength, 1_000),
             recordedLength: normalizeListLength(value.recordedLength, defaultSettings.recordedLength, 1_000),

@@ -35,14 +35,9 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
               };
     }
 
-    public async getHistory(
-        userId: number,
-        isHalfWidth: boolean,
-        limit: number,
-    ): Promise<apid.RecordedPlaybackHistory> {
-        this.validateIds(1, userId);
-        const normalizedLimit = this.historyLimit(limit);
-        const playbackItems = await this.playbackDB.findHistory(userId, normalizedLimit);
+    public async getHistory(userId: number, isHalfWidth: boolean): Promise<apid.RecordedPlaybackHistory> {
+        const user = await this.getUser(userId);
+        const playbackItems = await this.playbackDB.findHistory(userId, user.recordedHistoryLimit);
         const records = await this.recordedDB.findIds(playbackItems.map(playback => playback.recordedId));
         const recordIndex = new Map(records.map(recorded => [recorded.id, recorded]));
         await this.encodeManage.waitUntilReady();
@@ -67,17 +62,28 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
 
     public async getHistorySettings(userId: number): Promise<apid.RecordedPlaybackHistorySettings> {
         const user = await this.getUser(userId);
-        return { enabled: user.isRecordedHistoryEnabled };
+        return { enabled: user.isRecordedHistoryEnabled, limit: user.recordedHistoryLimit };
     }
 
     public async updateHistorySettings(
         userId: number,
-        option: apid.RecordedPlaybackHistorySettings,
+        option: apid.UpdateRecordedPlaybackHistorySettingsOption,
     ): Promise<apid.RecordedPlaybackHistorySettings> {
-        await this.getUser(userId);
-        if (typeof option.enabled !== 'boolean') throw new Error('視聴履歴設定が不正です');
-        await this.userDB.updateRecordedHistoryEnabled(userId, option.enabled);
-        return { enabled: option.enabled };
+        const user = await this.getUser(userId);
+        if (
+            option === null ||
+            typeof option !== 'object' ||
+            (option.enabled === undefined && option.limit === undefined)
+        ) {
+            throw new Error('視聴履歴設定が不正です');
+        }
+        if (option.enabled !== undefined && typeof option.enabled !== 'boolean')
+            throw new Error('視聴履歴設定が不正です');
+        if (option.limit !== undefined) this.historyLimit(option.limit);
+        await this.userDB.updateRecordedHistorySettings(userId, option);
+        if (option.limit !== undefined && option.limit < user.recordedHistoryLimit)
+            await this.playbackDB.trimHistory(userId, option.limit);
+        return this.getHistorySettings(userId);
     }
 
     public async removeFromHistory(recordedId: apid.RecordedId, userId: number): Promise<void> {
@@ -96,17 +102,29 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
         const duration = this.finiteNumber(option.duration, '再生時間');
         if (duration <= 0 || duration > 24 * 60 * 60) throw new Error('再生時間が不正です');
         const position = Math.min(Math.max(this.finiteNumber(option.position, '再生位置'), 0), duration);
-        const watchedSecondsDelta = Math.min(
-            Math.max(this.finiteNumber(option.watchedSecondsDelta, '視聴時間'), 0),
-            30,
-        );
+        const hasSession = option.sessionId !== undefined || option.sessionWatchedSeconds !== undefined;
+        let sessionId: string | undefined;
+        let sessionWatchedSeconds: number | undefined;
+        if (hasSession) {
+            if (typeof option.sessionId !== 'string' || !/^[a-z0-9-]{16,64}$/i.test(option.sessionId))
+                throw new Error('視聴セッションIDが不正です');
+            sessionId = option.sessionId;
+            sessionWatchedSeconds = this.finiteNumber(option.sessionWatchedSeconds, '視聴時間');
+            if (sessionWatchedSeconds < 0 || sessionWatchedSeconds > 30 * 24 * 60 * 60)
+                throw new Error('視聴時間が不正です');
+        }
+        const watchedSecondsDelta = hasSession
+            ? 0
+            : Math.min(Math.max(this.finiteNumber(option.watchedSecondsDelta, '視聴時間'), 0), 30);
         const value = await this.playbackDB.update(recordedId, userId, {
             position,
             duration,
             watchedSecondsDelta,
+            sessionId,
+            sessionWatchedSeconds,
             // Ordering is intentionally based on the server receipt time. A device clock must not poison resume data.
             observedAt: Date.now(),
-            historyLimit: this.historyLimit(option.historyLimit),
+            historyLimit: user.recordedHistoryLimit,
             historyEnabled: user.isRecordedHistoryEnabled,
         });
         return {
@@ -118,9 +136,9 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
     }
 
     private historyLimit(value: unknown): number {
-        const limit = Number(value ?? 50);
-        if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('視聴履歴の保存件数が不正です');
-        return limit;
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 200)
+            throw new Error('視聴履歴の保存件数が不正です');
+        return value;
     }
 
     private validateIds(recordedId: number, userId: number): void {

@@ -11,7 +11,7 @@ export const get: Operation = async (req, res) => {
             200,
             await container
                 .get<IRecordedPlaybackApiModel>('IRecordedPlaybackApiModel')
-                .getHistory(getActiveUserId(req), req.query.isHalfWidth === 'true', Number(req.query.limit ?? 50)),
+                .getHistory(getActiveUserId(req), req.query.isHalfWidth === 'true'),
         );
     } catch (err: any) {
         api.responseServerError(res, err.message);
@@ -21,10 +21,7 @@ export const get: Operation = async (req, res) => {
 get.apiDoc = {
     summary: 'アクティブユーザーの録画視聴履歴を取得',
     tags: ['recorded'],
-    parameters: [
-        { in: 'query', name: 'isHalfWidth', schema: { type: 'boolean', default: false } },
-        { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
-    ],
+    parameters: [{ in: 'query', name: 'isHalfWidth', schema: { type: 'boolean', default: false } }],
     responses: {
         200: {
             description: '取得しました',

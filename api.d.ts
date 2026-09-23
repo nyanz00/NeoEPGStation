@@ -254,9 +254,11 @@ export interface RecordedPlayback {
 export interface UpdateRecordedPlaybackOption {
     position: number;
     duration: number;
-    watchedSecondsDelta: number;
+    /** Legacy clients send a delta; new clients send a cumulative total for an idempotent session. */
+    watchedSecondsDelta?: number;
+    sessionId?: string;
+    sessionWatchedSeconds?: number;
     observedAt: UnixtimeMS;
-    historyLimit?: number;
 }
 
 export interface RecordedPlaybackHistoryItem {
@@ -270,6 +272,12 @@ export interface RecordedPlaybackHistory {
 
 export interface RecordedPlaybackHistorySettings {
     enabled: boolean;
+    limit: number;
+}
+
+export interface UpdateRecordedPlaybackHistorySettingsOption {
+    enabled?: boolean;
+    limit?: number;
 }
 
 export interface RecordedListPosition {

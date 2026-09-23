@@ -1,10 +1,10 @@
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import ViewListOutlined from '@mui/icons-material/ViewListOutlined';
-import { Alert, Box, Card, CardActionArea, CircularProgress, IconButton, LinearProgress, Stack, Switch, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardActionArea, CircularProgress, IconButton, LinearProgress, Stack, Switch, Tooltip, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecordedPlaybackHistoryItem } from '../../../api';
-import { type ReactNode } from 'react';
+import { type ReactNode, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
@@ -119,10 +119,11 @@ export function WatchHistoryPage(): ReactNode {
     const { notify } = useNotifications();
     const activeUser = useActiveUser();
     const settings = useSettings();
+    const latestLocateRequest = useRef(0);
     const userId = typeof activeUser === 'number' ? activeUser : null;
     const history = useQuery({
-        queryKey: ['recorded-playback-history', userId, settings.isHalfWidthDisplayed, settings.watchHistoryLength],
-        queryFn: () => api.getRecordedPlaybackHistory(userId!, settings.isHalfWidthDisplayed, settings.watchHistoryLength),
+        queryKey: ['recorded-playback-history', userId, settings.isHalfWidthDisplayed],
+        queryFn: () => api.getRecordedPlaybackHistory(userId!, settings.isHalfWidthDisplayed),
         enabled: userId !== null,
         retry: false,
     });
@@ -133,7 +134,7 @@ export function WatchHistoryPage(): ReactNode {
         retry: false,
     });
     const updateHistorySettings = useMutation({
-        mutationFn: (enabled: boolean) => api.updateRecordedPlaybackHistorySettings(userId!, enabled),
+        mutationFn: (enabled: boolean) => api.updateRecordedPlaybackHistorySettings(userId!, { enabled }),
         onSuccess: result => {
             queryClient.setQueryData(['recorded-playback-history-settings', userId], result);
             notify(result.enabled ? 'このユーザーの視聴履歴保存を有効にしました' : 'このユーザーの視聴履歴保存を無効にしました', 'success');
@@ -149,8 +150,9 @@ export function WatchHistoryPage(): ReactNode {
         onError: error => notify(`視聴履歴から削除できませんでした: ${error.message}`, 'error'),
     });
     const locateRecorded = useMutation({
-        mutationFn: (recordedId: number) => api.getRecordedListPosition(recordedId, settings.recordedLength),
-        onSuccess: (position, recordedId) => {
+        mutationFn: ({ recordedId }: { recordedId: number; requestId: number }) => api.getRecordedListPosition(recordedId, settings.recordedLength),
+        onSuccess: (position, { recordedId, requestId }) => {
+            if (requestId !== latestLocateRequest.current) return;
             const params = new URLSearchParams({
                 page: position.page.toString(10),
                 userId: position.userId?.toString(10) ?? 'master',
@@ -158,17 +160,24 @@ export function WatchHistoryPage(): ReactNode {
             });
             void navigate(`/recorded?${params.toString()}`);
         },
-        onError: error => notify(`録画済み一覧のページを特定できませんでした: ${error.message}`, 'error'),
+        onError: (error, { requestId }) => {
+            if (requestId === latestLocateRequest.current) {
+                notify(`録画済み一覧のページを特定できませんでした: ${error.message}`, 'error');
+            }
+        },
     });
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const channelNames = new Map((channels.data ?? []).map(channel => [channel.id, channel.name]));
+    const refreshHistory = () => {
+        void Promise.all([history.refetch(), historySettings.refetch()]);
+    };
 
     return (
         <>
             <PageHeader
                 title="視聴履歴"
                 actions={
-                    <IconButton aria-label="視聴履歴を更新" disabled={userId === null || history.isFetching} onClick={() => void history.refetch()}>
+                    <IconButton aria-label="視聴履歴を更新" disabled={userId === null || history.isFetching || historySettings.isFetching} onClick={refreshHistory}>
                         <RefreshOutlined />
                     </IconButton>
                 }
@@ -187,36 +196,53 @@ export function WatchHistoryPage(): ReactNode {
                                     </Typography>
                                 </Box>
                                 <Switch
-                                    checked={historySettings.data?.enabled ?? true}
-                                    disabled={historySettings.isPending || updateHistorySettings.isPending}
+                                    checked={historySettings.data?.enabled ?? false}
+                                    disabled={historySettings.data === undefined || updateHistorySettings.isPending}
                                     onChange={event => updateHistorySettings.mutate(event.target.checked)}
                                     slotProps={{ input: { 'aria-label': '視聴履歴を保存' } }}
                                 />
                             </Stack>
                         </Card>
                         {historySettings.error !== null && <Alert severity="warning">視聴履歴設定を取得できませんでした: {historySettings.error.message}</Alert>}
-                        {history.isPending ? (
+                        {history.data === undefined && history.isPending ? (
                             <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}>
                                 <CircularProgress />
                             </Box>
-                        ) : history.error !== null ? (
+                        ) : history.data === undefined ? (
                             <Alert severity="error">視聴履歴を取得できませんでした: {history.error.message}</Alert>
-                        ) : history.data.items.length === 0 ? (
-                            <Alert severity="info">このユーザーの視聴履歴はありません。</Alert>
                         ) : (
                             <Stack spacing={1.5}>
-                                {history.data.items.map(item => (
-                                    <HistoryItem
-                                        key={item.recorded.id}
-                                        item={item}
-                                        channelName={channelNames.get(item.recorded.channelId) ?? `チャンネル ${item.recorded.channelId}`}
-                                        deleting={removeHistory.isPending && removeHistory.variables === item.recorded.id}
-                                        locating={locateRecorded.isPending && locateRecorded.variables === item.recorded.id}
-                                        onOpen={() => void navigate(`/recorded/detail/${item.recorded.id}`)}
-                                        onDelete={() => removeHistory.mutate(item.recorded.id)}
-                                        onLocate={() => locateRecorded.mutate(item.recorded.id)}
-                                    />
-                                ))}
+                                {history.error !== null && (
+                                    <Alert
+                                        severity="warning"
+                                        action={
+                                            <Button size="small" onClick={() => void history.refetch()}>
+                                                再試行
+                                            </Button>
+                                        }
+                                    >
+                                        視聴履歴を更新できませんでした。表示中の履歴を保持しています: {history.error.message}
+                                    </Alert>
+                                )}
+                                {history.data.items.length === 0 ? (
+                                    <Alert severity="info">このユーザーの視聴履歴はありません。</Alert>
+                                ) : (
+                                    history.data.items.map(item => (
+                                        <HistoryItem
+                                            key={item.recorded.id}
+                                            item={item}
+                                            channelName={channelNames.get(item.recorded.channelId) ?? `チャンネル ${item.recorded.channelId}`}
+                                            deleting={removeHistory.isPending && removeHistory.variables === item.recorded.id}
+                                            locating={locateRecorded.isPending && locateRecorded.variables?.recordedId === item.recorded.id}
+                                            onOpen={() => void navigate(`/recorded/detail/${item.recorded.id}`, { state: { fromWatchHistory: true, appBack: '/history' } })}
+                                            onDelete={() => removeHistory.mutate(item.recorded.id)}
+                                            onLocate={() => {
+                                                const requestId = ++latestLocateRequest.current;
+                                                locateRecorded.mutate({ recordedId: item.recorded.id, requestId });
+                                            }}
+                                        />
+                                    ))
+                                )}
                             </Stack>
                         )}
                     </Stack>

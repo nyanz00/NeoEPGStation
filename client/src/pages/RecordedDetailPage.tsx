@@ -36,7 +36,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AddManualEncodeProgramOption, AnnictRecordedEpisodeInfo, RecordedItem, VideoFile, VideoFileId } from '../../../api';
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { RecordedItemActions } from '../components/RecordedItemActions';
@@ -333,8 +333,10 @@ function AnnictHeaderControl({
 export function RecordedDetailPage(): ReactNode {
     const { id } = useParams();
     const recordedId = Number(id);
+    const location = useLocation();
     const navigate = useNavigate();
     const goBack = useAppBack('/recorded');
+    const backTooltip = (location.state as { fromWatchHistory?: boolean } | null)?.fromWatchHistory === true ? '視聴履歴に戻る' : '録画済みに戻る';
     const settings = useSettings();
     const viewerProfile = useViewerProfile();
     const queryClient = useQueryClient();
@@ -533,7 +535,7 @@ export function RecordedDetailPage(): ReactNode {
             <PageHeader
                 title="録画詳細"
                 leading={
-                    <Tooltip title="録画済みに戻る">
+                    <Tooltip title={backTooltip}>
                         <IconButton onClick={goBack}>
                             <ArrowBackOutlined />
                         </IconButton>

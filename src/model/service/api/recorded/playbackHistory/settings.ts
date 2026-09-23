@@ -26,7 +26,10 @@ export const put: Operation = async (req, res) => {
             200,
             await container
                 .get<IRecordedPlaybackApiModel>('IRecordedPlaybackApiModel')
-                .updateHistorySettings(getActiveUserId(req), req.body as apid.RecordedPlaybackHistorySettings),
+                .updateHistorySettings(
+                    getActiveUserId(req),
+                    req.body as apid.UpdateRecordedPlaybackHistorySettingsOption,
+                ),
         );
     } catch (err: any) {
         api.responseServerError(res, err.message);
@@ -49,7 +52,11 @@ put.apiDoc = {
     tags: ['recorded'],
     requestBody: {
         required: true,
-        content: { 'application/json': { schema: { $ref: '#/components/schemas/RecordedPlaybackHistorySettings' } } },
+        content: {
+            'application/json': {
+                schema: { $ref: '#/components/schemas/UpdateRecordedPlaybackHistorySettingsOption' },
+            },
+        },
     },
     responses: { 200: response, default: { description: '予期しないエラー' } },
 };

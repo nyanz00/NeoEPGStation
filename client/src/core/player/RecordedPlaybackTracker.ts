@@ -79,7 +79,7 @@ export class RecordedPlaybackTracker {
 
     private readonly handleEnded = (): void => {
         this.collect();
-        this.flush(true, 0);
+        this.flush(true);
     };
 
     private readonly handlePageHide = (): void => {
