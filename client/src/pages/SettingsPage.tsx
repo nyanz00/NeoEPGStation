@@ -52,7 +52,7 @@ import { api } from '../core/api/queries';
 import { isAppleMobileWebKit } from '../core/platform/webkit';
 import { appIconAssetUrl, appIconSets, getAppIconSet, type AppIconSetId } from '../core/icons/appIcons';
 import { activeUserStore, useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
-import { type AppSettings, type WatchStreamEncoderSetting, settingsStore, useSettings } from '../core/storage/settings';
+import { type AppSettings, type WatchStreamEncoderSetting, defaultSettings, settingsStore, useSettings } from '../core/storage/settings';
 import { appThemePresets, type AppThemePresetId } from '../core/theme/themePresets';
 import { customCssPreviewStore, isCustomCssDisabledByUrl } from '../core/theme/customCss';
 import { themePreviewStore } from '../core/theme/themePreview';
@@ -353,11 +353,25 @@ export function SettingsPage(): ReactNode {
         if (viewerProfiles.data !== undefined) viewerProfileStore.syncProfiles(viewerProfiles.data.profiles);
     }, [viewerProfiles.data]);
     useEffect(() => {
+        setAnnictWriteToken('');
+        setTwitterCookies('');
+        setBlueskyHandle('');
+        setBlueskyAppPassword('');
+        setNewViewerProfilePassword('');
+        setNewViewerProfileUseLock(false);
         setViewerProfilePassword('');
         setUnlockPassword('');
+        setActiveUserPassword('');
+        setPendingActiveUser(null);
+        setDeleteUserPassword('');
+        setDeleteUserConfirmOpen(false);
+        setRecoveryRotateConfirmOpen(false);
+        setPasteTarget(null);
+        setPasteValue('');
         setMisskeyAuthorization(null);
         setNiconicoCookies('');
-    }, [linkedViewerProfile?.id]);
+    }, [activeUser, linkedViewerProfile?.id]);
+    useEffect(() => setRecoveryCode(null), [activeUser]);
 
     const addUser = useMutation({
         mutationFn: api.addUser,
@@ -932,6 +946,13 @@ export function SettingsPage(): ReactNode {
                                         </Button>
                                     </Stack>
                                 </SettingSection>
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                    <Tooltip title="全ての設定をリセットする">
+                                        <Button color="inherit" onClick={() => setDraft(structuredClone(defaultSettings))}>
+                                            リセット
+                                        </Button>
+                                    </Tooltip>
+                                </Box>
                             </>
                         )}
 
@@ -2363,7 +2384,9 @@ export function SettingsPage(): ReactNode {
                                 />
                             </SettingSection>
                         )}
-                        {activeSettingsTab === 'discord' && <DiscordSettingsPanel ref={discordSettingsRef} />}
+                        <Box hidden={activeSettingsTab !== 'discord'}>
+                            <DiscordSettingsPanel ref={discordSettingsRef} active={activeSettingsTab === 'discord'} />
+                        </Box>
                     </Stack>
                 </Box>
             </Box>
