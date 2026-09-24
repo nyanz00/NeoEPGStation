@@ -95,8 +95,14 @@ export function RecordedItemActions({
     useEffect(() => setSelectedUserId(item.userId ?? null), [item.userId]);
     useEffect(() => {
         if (!deleteOpen) return;
+        const availableIds = new Set(files.map(file => file.id));
+        setDeleteIds(current => new Set([...current].filter(id => availableIds.has(id))));
+    }, [deleteOpen, files]);
+
+    const openDeleteDialog = (): void => {
         setDeleteIds(new Set(settings.deleteRecordedDefaultValue ? files.map(file => file.id) : []));
-    }, [deleteOpen, files, settings.deleteRecordedDefaultValue]);
+        setDeleteOpen(true);
+    };
 
     const protect = useMutation({
         mutationFn: () => (item.isProtected ? api.unprotectRecorded(item.id) : api.protectRecorded(item.id)),
@@ -228,7 +234,7 @@ export function RecordedItemActions({
                         subtitle
                     </MenuItem>
                 )}
-                <MenuItem onClick={() => closeThen(() => setDeleteOpen(true))}>
+                <MenuItem onClick={() => closeThen(openDeleteDialog)}>
                     <DeleteOutlineOutlined fontSize="small" sx={{ mr: 1.5 }} />
                     delete
                 </MenuItem>

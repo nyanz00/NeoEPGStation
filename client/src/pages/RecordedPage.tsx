@@ -609,7 +609,7 @@ function RecordedTableRow({
             </TableCell>
             <TableCell sx={{ minWidth: 150 }}>{channel}</TableCell>
             <TableCell sx={{ minWidth: 220, whiteSpace: 'nowrap' }}>{recordedTime(item)}</TableCell>
-            <TableCell align="right" sx={{ width: 60 }}>
+            <TableCell align="right" sx={{ width: 60 }} onClick={event => event.stopPropagation()}>
                 {!editMode && (
                     <IconButton
                         size="small"
