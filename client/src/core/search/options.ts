@@ -53,9 +53,9 @@ export function createDefaultSearchForm(): SearchFormState {
         durationMin: '',
         durationMax: '',
         startDate: '',
-        startTime: '00:00',
+        startTime: '',
         endDate: '',
-        endTime: '23:59',
+        endTime: '',
         isFree: false,
     };
 }
@@ -111,8 +111,8 @@ export function jstDateTimeToEpoch(dateValue: string, timeValue: string): number
 }
 
 export function searchPeriodError(form: SearchFormState): string | null {
-    const startAt = form.startDate.length === 0 ? undefined : jstDateTimeToEpoch(form.startDate, form.startTime);
-    const endAt = form.endDate.length === 0 ? undefined : jstDateTimeToEpoch(form.endDate, form.endTime);
+    const startAt = form.startDate.length === 0 ? undefined : jstDateTimeToEpoch(form.startDate, form.startTime || '00:00');
+    const endAt = form.endDate.length === 0 ? undefined : jstDateTimeToEpoch(form.endDate, form.endTime || '23:59');
     if (form.startDate.length > 0 && startAt === undefined) return '開始日時を正しく入力してください';
     if (form.endDate.length > 0 && endAt === undefined) return '終了日時を正しく入力してください';
     if (startAt !== undefined && endAt !== undefined && startAt > endAt) return '開始日時は終了日時以前にしてください';
@@ -156,8 +156,8 @@ export function toSearchOption(source: SearchFormState): RuleSearchOption {
     }
     if (form.durationMin.length > 0) option.durationMin = Number(form.durationMin) * 60;
     if (form.durationMax.length > 0) option.durationMax = Number(form.durationMax) * 60;
-    const startAt = form.startDate.length === 0 ? undefined : jstDateTimeToEpoch(form.startDate, form.startTime);
-    const endAt = form.endDate.length === 0 ? undefined : jstDateTimeToEpoch(form.endDate, form.endTime);
+    const startAt = form.startDate.length === 0 ? undefined : jstDateTimeToEpoch(form.startDate, form.startTime || '00:00');
+    const endAt = form.endDate.length === 0 ? undefined : jstDateTimeToEpoch(form.endDate, form.endTime || '23:59');
     if (startAt !== undefined || endAt !== undefined) {
         option.searchPeriods = [{ startAt: startAt ?? openSearchPeriodStartAt, endAt: endAt ?? openSearchPeriodEndAt }];
     }
@@ -206,9 +206,9 @@ export function fromSearchOption(option: RuleSearchOption): SearchFormState {
         durationMin: option.durationMin === undefined ? '' : (option.durationMin / 60).toString(10),
         durationMax: option.durationMax === undefined ? '' : (option.durationMax / 60).toString(10),
         startDate: start?.date ?? '',
-        startTime: start?.time ?? '00:00',
+        startTime: start?.time ?? '',
         endDate: end?.date ?? '',
-        endTime: end?.time ?? '23:59',
+        endTime: end?.time ?? '',
         isFree: option.isFree === true,
     };
 }

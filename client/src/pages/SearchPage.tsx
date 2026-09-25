@@ -134,9 +134,9 @@ function subGenresFromParams(params: URLSearchParams, genres: number[]): string[
     ];
 }
 
-function timeFromParams(params: URLSearchParams, key: string, fallback: string): string {
+function timeFromParams(params: URLSearchParams, key: string): string {
     const value = params.get(key);
-    return value !== null && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback;
+    return value !== null && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : '';
 }
 
 function formFromParams(params: URLSearchParams): SearchFormState {
@@ -150,9 +150,9 @@ function formFromParams(params: URLSearchParams): SearchFormState {
         genres,
         subGenres: subGenresFromParams(params, genres),
         startDate: dateFromParams(params, 'startDate'),
-        startTime: timeFromParams(params, 'startTime', '00:00'),
+        startTime: timeFromParams(params, 'startTime'),
         endDate: dateFromParams(params, 'endDate'),
-        endTime: timeFromParams(params, 'endTime', '23:59'),
+        endTime: timeFromParams(params, 'endTime'),
     };
 }
 

@@ -72,12 +72,32 @@ test('search periods preserve minute precision in JST', () => {
     assert.equal(restored.endTime, form.endTime);
 });
 
+test('search period times start empty and default to day boundaries only when dates are selected', () => {
+    const form = options.createDefaultSearchForm();
+    assert.equal(form.startTime, '');
+    assert.equal(form.endTime, '');
+    assert.equal(options.toSearchOption(form).searchPeriods, undefined);
+
+    form.startDate = '2026-09-22';
+    form.endDate = '2026-09-23';
+    assert.equal(options.searchPeriodError(form), null);
+    assert.deepEqual(options.toSearchOption(form).searchPeriods, [
+        {
+            startAt: Date.UTC(2026, 8, 21, 15),
+            endAt: Date.UTC(2026, 8, 23, 14, 59),
+        },
+    ]);
+    const restored = options.fromSearchOption({});
+    assert.equal(restored.startTime, '');
+    assert.equal(restored.endTime, '');
+});
+
 test('an invalid or reversed search period is rejected before searching', () => {
     const form = options.createDefaultSearchForm();
     form.startDate = '2026-02-30';
     assert.equal(options.searchPeriodError(form), '開始日時を正しく入力してください');
     form.startDate = '2026-09-22';
-    form.startTime = '';
+    form.startTime = '99:00';
     assert.equal(options.searchPeriodError(form), '開始日時を正しく入力してください');
     form.startDate = '2026-09-23';
     form.startTime = '03:00';
