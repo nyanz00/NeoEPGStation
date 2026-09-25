@@ -253,12 +253,15 @@ export function SearchPage(): ReactNode {
     const [inputValidity, setInputValidity] = useState({ startDate: true, startTime: true, endDate: true, endTime: true });
     const [inputResetVersion, setInputResetVersion] = useState(0);
     const [readyRouteSignature, setReadyRouteSignature] = useState<string | null>(null);
+    const [readyRuleRouteSignature, setReadyRuleRouteSignature] = useState<string | null>(null);
+    const [ruleRetryVersion, setRuleRetryVersion] = useState(0);
     const autoSearchStarted = useRef(false);
-    const initializedRuleId = useRef<number | null>(null);
     const initializedRouteSignature = useRef<string | null>(null);
     const channelTypesInitialized = useRef(false);
     const restoredSearchNeedsRefresh = useRef(false);
     const shouldScrollToResults = useRef(false);
+    const autoScrollEditingRule = useRef(settings.isEnableAutoScrollWhenEditingRule);
+    autoScrollEditingRule.current = settings.isEnableAutoScrollWhenEditingRule;
     const historySnapshot = useRef({ form, submittedOption });
     const keywordInputRef = useRef<HTMLInputElement | null>(null);
     const resultsRef = useRef<HTMLDivElement | null>(null);
@@ -267,7 +270,8 @@ export function SearchPage(): ReactNode {
     const [topRuleButtonVisible, setTopRuleButtonVisible] = useState(true);
     const [bottomRuleButtonVisible, setBottomRuleButtonVisible] = useState(false);
     const { notify } = useNotifications();
-    const isTimeRule = rule.data?.isTimeSpecification === true;
+    const isRuleReady = ruleId !== null && readyRuleRouteSignature === routeSignature && rule.data !== undefined;
+    const isTimeRule = isRuleReady && rule.data.isTimeSpecification === true;
 
     const historyForm = submittedOption === null ? form : normalizeSearchForm(form);
     historySnapshot.current = {
@@ -316,7 +320,7 @@ export function SearchPage(): ReactNode {
         setInputResetVersion(current => current + 1);
         autoSearchStarted.current = restored?.submittedOption !== null && restored?.submittedOption !== undefined;
         restoredSearchNeedsRefresh.current = restored?.submittedOption !== null && restored?.submittedOption !== undefined;
-        initializedRuleId.current = null;
+        setReadyRuleRouteSignature(null);
         channelTypesInitialized.current = restored !== null || nextForm.channelIds.length > 0 || nextForm.channelTypes.length > 0;
         shouldScrollToResults.current = false;
         setReadyRouteSignature(routeSignature);
@@ -338,8 +342,23 @@ export function SearchPage(): ReactNode {
         return () => window.cancelAnimationFrame(frame);
     }, [location.key, ruleId]);
 
+    const reserveRange = useMemo(() => {
+        if (programs === null || programs.length === 0) return null;
+        return { startAt: Math.min(...programs.map(program => program.startAt)), endAt: Math.max(...programs.map(program => program.endAt)) };
+    }, [programs]);
+    const reserveLists = useQuery({
+        queryKey: ['reserve-lists', reserveRange?.startAt, reserveRange?.endAt],
+        queryFn: () => api.getReserveLists(reserveRange!),
+        enabled: reserveRange !== null,
+    });
+    const reserves = useMemo(() => reserveIndex(reserveLists.data), [reserveLists.data]);
+    const reserveStatusReady = programs !== null && (programs.length === 0 || (reserveLists.data !== undefined && reserveLists.error === null));
     useEffect(() => {
-        if (programs === null) {
+        if (reserveLists.error !== null) setSelectedProgram(null);
+    }, [reserveLists.error]);
+
+    useEffect(() => {
+        if (!reserveStatusReady) {
             setTopRuleButtonVisible(true);
             setBottomRuleButtonVisible(false);
             return;
@@ -365,7 +384,7 @@ export function SearchPage(): ReactNode {
         observer.observe(topButton);
         observer.observe(bottomButton);
         return () => observer.disconnect();
-    }, [programs]);
+    }, [reserveStatusReady, programs]);
 
     const availableTypes = useMemo(() => {
         if (channels.data === undefined || config.data === undefined) return [];
@@ -392,17 +411,21 @@ export function SearchPage(): ReactNode {
     }, []);
 
     useEffect(() => {
-        if (readyRouteSignature !== routeSignature || ruleId === null || rule.data === undefined || initializedRuleId.current === ruleId) return;
-        const nextForm = fromSearchOption(rule.data.searchOption);
-        setForm(nextForm);
-        channelTypesInitialized.current = true;
-        initializedRuleId.current = ruleId;
-        if (rule.data.isTimeSpecification) {
-            setSubmittedOption(null);
-            return;
-        }
-        runSearch(nextForm, settings.isEnableAutoScrollWhenEditingRule);
-    }, [readyRouteSignature, routeSignature, rule.data, ruleId, runSearch, settings.isEnableAutoScrollWhenEditingRule]);
+        if (readyRouteSignature !== routeSignature || ruleId === null) return;
+        let cancelled = false;
+        void rule.refetch({ cancelRefetch: false }).then(result => {
+            if (cancelled || result.error !== null || result.data === undefined) return;
+            const nextForm = fromSearchOption(result.data.searchOption);
+            setForm(nextForm);
+            channelTypesInitialized.current = true;
+            if (result.data.isTimeSpecification) setSubmittedOption(null);
+            else runSearch(nextForm, autoScrollEditingRule.current);
+            setReadyRuleRouteSignature(routeSignature);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [readyRouteSignature, routeSignature, ruleId, rule.refetch, ruleRetryVersion, runSearch]);
 
     useEffect(() => {
         if (
@@ -420,22 +443,11 @@ export function SearchPage(): ReactNode {
     }, [channels.data, config.data, form, params, readyRouteSignature, routeSignature, ruleId, runSearch]);
 
     useEffect(() => {
-        if (searchPrograms.dataUpdatedAt === 0 || !shouldScrollToResults.current) return;
+        if (!reserveStatusReady || searchPrograms.dataUpdatedAt === 0 || !shouldScrollToResults.current) return;
         shouldScrollToResults.current = false;
         const frame = window.requestAnimationFrame(() => window.requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })));
         return () => window.cancelAnimationFrame(frame);
-    }, [searchPrograms.dataUpdatedAt]);
-
-    const reserveRange = useMemo(() => {
-        if (programs === null || programs.length === 0) return null;
-        return { startAt: Math.min(...programs.map(program => program.startAt)), endAt: Math.max(...programs.map(program => program.endAt)) };
-    }, [programs]);
-    const reserveLists = useQuery({
-        queryKey: ['reserve-lists', reserveRange?.startAt, reserveRange?.endAt],
-        queryFn: () => api.getReserveLists(reserveRange!),
-        enabled: reserveRange !== null,
-    });
-    const reserves = useMemo(() => reserveIndex(reserveLists.data), [reserveLists.data]);
+    }, [reserveStatusReady, searchPrograms.dataUpdatedAt]);
     const channelOptions = useMemo(
         () => (channels.data ?? []).map(channel => ({ id: channel.id, label: channel.name, searchText: `${channel.name} ${channel.halfWidthName}` })),
         [channels.data],
@@ -487,7 +499,6 @@ export function SearchPage(): ReactNode {
 
     const resetSearchState = useCallback((): void => {
         autoSearchStarted.current = false;
-        initializedRuleId.current = null;
         clearSearchForm();
     }, [clearSearchForm]);
 
@@ -521,7 +532,7 @@ export function SearchPage(): ReactNode {
         }
     };
 
-    const showNormalSearch = ruleId === null || (rule.data !== undefined && !rule.data.isTimeSpecification);
+    const showNormalSearch = ruleId === null || (isRuleReady && !isTimeRule);
     const normalDependenciesPending = config.isPending || channels.isPending;
     const normalDependencyError = config.data === undefined ? config.error : channels.data === undefined ? channels.error : null;
 
@@ -537,7 +548,7 @@ export function SearchPage(): ReactNode {
                     ) : undefined
                 }
             />
-            {ruleId !== null && rule.isPending && (
+            {ruleId !== null && !isRuleReady && rule.error === null && (
                 <Box sx={{ minHeight: 320, display: 'grid', placeItems: 'center' }}>
                     <CircularProgress />
                 </Box>
@@ -548,7 +559,16 @@ export function SearchPage(): ReactNode {
                     sx={{ m: { xs: 1.5, md: 3 } }}
                     action={
                         <Stack direction="row" spacing={1}>
-                            <Button color="inherit" size="small" startIcon={<RefreshOutlined />} onClick={() => void rule.refetch()}>
+                            <Button
+                                color="inherit"
+                                size="small"
+                                startIcon={<RefreshOutlined />}
+                                disabled={rule.isFetching}
+                                onClick={() => {
+                                    if (isRuleReady) void rule.refetch();
+                                    else setRuleRetryVersion(current => current + 1);
+                                }}
+                            >
                                 再試行
                             </Button>
                             <Button color="inherit" size="small" onClick={leaveRuleEditor}>
@@ -918,7 +938,25 @@ export function SearchPage(): ReactNode {
                             検索に失敗しました: {searchPrograms.error.message}
                         </Alert>
                     )}
-                    {programs !== null && (
+                    {programs !== null && programs.length > 0 && reserveLists.isPending && (
+                        <Box sx={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
+                            <CircularProgress />
+                        </Box>
+                    )}
+                    {programs !== null && programs.length > 0 && reserveLists.error !== null && (
+                        <Alert
+                            severity="error"
+                            sx={{ mt: 3 }}
+                            action={
+                                <Button color="inherit" size="small" startIcon={<RefreshOutlined />} onClick={() => void reserveLists.refetch()}>
+                                    再試行
+                                </Button>
+                            }
+                        >
+                            予約情報の取得に失敗しました: {reserveLists.error.message}
+                        </Alert>
+                    )}
+                    {reserveStatusReady && (
                         <Stack ref={resultsRef} spacing={1.25} sx={{ mt: 3, scrollMarginTop: 72 }}>
                             <Typography color="text.secondary" sx={{ textAlign: 'right' }}>
                                 {programs.length}件ヒット
@@ -1022,7 +1060,7 @@ export function SearchPage(): ReactNode {
                     )}
                 </Box>
             )}
-            {showNormalSearch && programs !== null && !topRuleButtonVisible && !bottomRuleButtonVisible && (
+            {showNormalSearch && reserveStatusReady && !topRuleButtonVisible && !bottomRuleButtonVisible && (
                 <Button
                     variant="contained"
                     startIcon={<PlaylistAddOutlined />}
@@ -1040,7 +1078,7 @@ export function SearchPage(): ReactNode {
                 </Button>
             )}
             <GuideProgramDialog
-                program={selectedProgram}
+                program={reserveStatusReady ? selectedProgram : null}
                 channel={selectedProgram === null ? null : (channels.data?.find(channel => channel.id === selectedProgram.channelId) ?? null)}
                 reserve={selectedProgram === null ? undefined : reserves.get(selectedProgram.id)}
                 onClose={() => setSelectedProgram(null)}
@@ -1050,7 +1088,7 @@ export function SearchPage(): ReactNode {
                 channel={selectedTimeReserve === null ? undefined : channels.data?.find(channel => channel.id === selectedTimeReserve.channelId)}
                 onClose={() => setSelectedTimeReserve(null)}
             />
-            {(ruleId === null || rule.data !== undefined) && (
+            {(ruleId === null || isRuleReady) && (
                 <RuleEditorDialog
                     open={ruleEditorOpen}
                     searchOption={isTimeRule && rule.data !== undefined ? rule.data.searchOption : toSearchOption(form)}
