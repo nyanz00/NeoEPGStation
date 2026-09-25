@@ -1126,7 +1126,7 @@ class AnnictApiModel implements IAnnictApiModel {
     }
 
     public async getWork(annictId: number, refresh: boolean): Promise<apid.AnnictWorkDetail> {
-        const file = path.join(this.root, 'cache', `work-v17-${annictId}.json`);
+        const file = path.join(this.root, 'cache', `work-v18-${annictId}.json`);
         const cached = await this.readCache<Omit<apid.AnnictWorkDetail, 'cachedAt' | 'stale'>>(file);
         if (!refresh && cached !== null && Date.now() - cached.cachedAt < 6 * 60 * 60 * 1000) {
             return {
@@ -1170,7 +1170,7 @@ class AnnictApiModel implements IAnnictApiModel {
                 this.getRestStaffs(annictId),
             ]);
             const imageUrl =
-                (await this.resolveWorkImageUrl([base.imageUrl, restWork?.imageUrl, pageMetadata.imageUrl])) ??
+                (await this.resolveWorkImageUrl([pageMetadata.imageUrl, base.imageUrl, restWork?.imageUrl])) ??
                 (base.malAnimeId !== undefined ? await this.getJikanImageUrl(base.malAnimeId) : undefined) ??
                 pageMetadata.imageUrl;
             const value: Omit<apid.AnnictWorkDetail, 'cachedAt' | 'stale'> = {
@@ -1207,6 +1207,12 @@ class AnnictApiModel implements IAnnictApiModel {
                 };
             throw err;
         }
+    }
+
+    public async getWorkImage(annictId: number, refresh: boolean): Promise<{ imageUrl?: string }> {
+        if (!Number.isInteger(annictId) || annictId <= 0) throw new Error('annictIdが不正です');
+        const metadata = await this.getAnnictPageMetadata(annictId, refresh);
+        return { imageUrl: metadata.imageUrl };
     }
 
     private async getRerunWorks(
@@ -2397,10 +2403,11 @@ class AnnictApiModel implements IAnnictApiModel {
         }
     }
 
-    private async getAnnictPageMetadata(annictId: number): Promise<AnnictPageMetadata> {
-        const file = path.join(this.root, 'cache', `work-page-v4-${annictId}.json`);
+    private async getAnnictPageMetadata(annictId: number, refresh = false): Promise<AnnictPageMetadata> {
+        const file = path.join(this.root, 'cache', `work-page-v5-${annictId}.json`);
         const cached = await this.readCache<AnnictPageMetadata>(file);
-        if (cached !== null && Date.now() - cached.cachedAt < 30 * 24 * 60 * 60 * 1000) return cached.value;
+        const maxAge = cached?.value.imageUrl === undefined ? 60 * 60 * 1000 : 6 * 60 * 60 * 1000;
+        if (!refresh && cached !== null && Date.now() - cached.cachedAt < maxAge) return cached.value;
 
         const metadata: AnnictPageMetadata = {};
         try {

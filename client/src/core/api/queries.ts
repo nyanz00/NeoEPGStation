@@ -328,6 +328,9 @@ export const api = {
     async getAnnictWork(annictId: number, refresh = false): Promise<AnnictWorkDetail> {
         return (await apiClient.get<AnnictWorkDetail>(`/annict/works/${annictId}`, { params: { refresh } })).data;
     },
+    async getAnnictWorkImage(annictId: number, refresh = false): Promise<{ imageUrl?: string }> {
+        return (await apiClient.get<{ imageUrl?: string }>(`/annict/works/${annictId}/image`, { params: { refresh } })).data;
+    },
     async getConfig(): Promise<Config> {
         const config = (await apiClient.get<Config>('/config')).data;
         const encode = Array.isArray(config.encode) ? config.encode.filter((mode): mode is string => typeof mode === 'string' && mode.trim().length > 0) : [];

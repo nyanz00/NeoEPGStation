@@ -48,4 +48,5 @@ export default interface IAnnictApiModel {
         excludePaidChannels?: boolean,
     ): Promise<apid.AnnictWorkList>;
     getWork(annictId: number, refresh: boolean): Promise<apid.AnnictWorkDetail>;
+    getWorkImage(annictId: number, refresh: boolean): Promise<{ imageUrl?: string }>;
 }

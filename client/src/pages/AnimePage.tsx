@@ -36,7 +36,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import type { AnnictProgram, AnnictWorkDetail, AnnictWorkSummary, RuleSearchOption } from '../../../api';
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
@@ -163,38 +163,70 @@ function AnimeWorkImage({
     const [activeImageUrl, setActiveImageUrl] = useState(imageUrl);
     const [failed, setFailed] = useState(false);
     const [loaded, setLoaded] = useState(false);
-    const fallbackRequested = useRef(false);
+    const fallbackAttempt = useRef(0);
+    const imageVersion = useRef(0);
+    const fallbackInFlightVersion = useRef<number | null>(null);
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const onResolvedImageUrlRef = useRef(onResolvedImageUrl);
+    onResolvedImageUrlRef.current = onResolvedImageUrl;
     useEffect(() => {
+        imageVersion.current += 1;
         setActiveImageUrl(imageUrl);
         setFailed(false);
         setLoaded(false);
-        fallbackRequested.current = false;
+        fallbackAttempt.current = 0;
     }, [imageUrl]);
-    const handleError = async (): Promise<void> => {
-        if (fallbackAnnictId === undefined || fallbackRequested.current) {
-            setLoaded(false);
-            setFailed(true);
-            return;
-        }
-        fallbackRequested.current = true;
+    const handleError = useCallback(async (): Promise<void> => {
+        const version = imageVersion.current;
+        if (fallbackInFlightVersion.current === version) return;
+        fallbackInFlightVersion.current = version;
         try {
-            const detail = await api.getAnnictWork(fallbackAnnictId);
-            if (detail.imageUrl !== undefined && detail.imageUrl !== activeImageUrl) {
-                setLoaded(false);
-                setActiveImageUrl(detail.imageUrl);
-                onResolvedImageUrl?.(detail.imageUrl);
-                setFailed(false);
-                return;
+            if (fallbackAnnictId !== undefined) {
+                while (fallbackAttempt.current < 2) {
+                    const refresh = fallbackAttempt.current === 1;
+                    fallbackAttempt.current += 1;
+                    try {
+                        const result = await api.getAnnictWorkImage(fallbackAnnictId, refresh);
+                        if (version !== imageVersion.current) return;
+                        if (result.imageUrl !== undefined && result.imageUrl !== activeImageUrl) {
+                            setLoaded(false);
+                            setActiveImageUrl(result.imageUrl);
+                            onResolvedImageUrlRef.current?.(result.imageUrl);
+                            setFailed(false);
+                            return;
+                        }
+                    } catch {
+                        if (version !== imageVersion.current) return;
+                    }
+                }
             }
-        } catch {
-            // 画像の代替取得失敗はプレースホルダー表示へフォールバックする。
+            if (version === imageVersion.current) {
+                setLoaded(false);
+                setFailed(true);
+            }
+        } finally {
+            if (fallbackInFlightVersion.current === version) fallbackInFlightVersion.current = null;
         }
-        setLoaded(false);
-        setFailed(true);
-    };
+    }, [activeImageUrl, fallbackAnnictId]);
+    useEffect(() => {
+        if (imageUrl !== undefined || activeImageUrl !== undefined || failed || fallbackAnnictId === undefined || containerRef.current === null) return;
+        const observer = new IntersectionObserver(
+            entries => {
+                if (!entries.some(entry => entry.isIntersecting)) return;
+                observer.disconnect();
+                void handleError();
+            },
+            { rootMargin: '200px' },
+        );
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, [activeImageUrl, failed, fallbackAnnictId, handleError, imageUrl]);
     const visible = activeImageUrl !== undefined && !failed;
     return (
-        <Box sx={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', bgcolor: 'action.hover', display: 'grid', placeItems: 'center' }}>
+        <Box
+            ref={containerRef}
+            sx={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', bgcolor: 'action.hover', display: 'grid', placeItems: 'center' }}
+        >
             {!visible && <BrokenImageOutlined color="disabled" sx={{ fontSize: 48 }} />}
             {visible && (
                 <Box
@@ -202,6 +234,7 @@ function AnimeWorkImage({
                     src={activeImageUrl}
                     alt={`${title}の画像`}
                     draggable={false}
+                    loading="lazy"
                     onLoad={() => setLoaded(true)}
                     onError={() => void handleError()}
                     sx={{
