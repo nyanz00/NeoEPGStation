@@ -1,8 +1,9 @@
 import CloudOffOutlined from '@mui/icons-material/CloudOffOutlined';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
+import { Box, Button, CircularProgress, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, type ReactNode, useCallback, useEffect, useState } from 'react';
-import { createHashRouter, Navigate, RouterProvider, useLocation, useParams } from 'react-router-dom';
+import { createHashRouter, Navigate, RouterProvider, useLocation, useParams, useRouteError } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
 import { ViewerProfileUnlockDialog } from './components/ViewerProfileUnlockDialog';
 import { api } from './core/api/queries';
@@ -48,6 +49,60 @@ function LegacyRecordedStreamingRedirect(): ReactNode {
     params.delete('videoFileType');
 
     return <Navigate to={`/recorded/streaming?${params.toString()}`} replace />;
+}
+
+function AppRouteErrorPage(): ReactNode {
+    const error = useRouteError();
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+    const isChunkLoadError =
+        /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk .+ failed|ChunkLoadError/i.test(
+            message,
+        );
+
+    return (
+        <Box
+            sx={{
+                position: 'relative',
+                minHeight: '100dvh',
+                display: 'grid',
+                placeItems: 'center',
+                overflow: 'hidden',
+                bgcolor: 'background.default',
+                color: 'text.primary',
+                p: { xs: 3, sm: 4 },
+                pb: { xs: 'min(24dvh, 170px)', sm: 4 },
+            }}
+        >
+            <Box sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 520, textAlign: 'center' }}>
+                <Typography component="h1" variant="h4" sx={{ fontWeight: 700, mb: 2 }}>
+                    画面を読み込めませんでした
+                </Typography>
+                <Typography color="text.secondary">
+                    {isChunkLoadError
+                        ? 'アプリの更新後などに、開いていた画面が古くなった可能性があります。再読み込みしてお試しください。'
+                        : '予期しないエラーが発生しました。再読み込みしてもう一度お試しください。'}
+                </Typography>
+                <Button variant="contained" size="large" startIcon={<RefreshOutlined />} onClick={() => window.location.reload()} sx={{ mt: 3, minWidth: 180 }}>
+                    再読み込み
+                </Button>
+            </Box>
+            <Box
+                component="img"
+                src={withBasePath('/images/error-nyanz.png')}
+                alt=""
+                aria-hidden="true"
+                sx={{
+                    position: 'absolute',
+                    right: { xs: -28, sm: -50 },
+                    bottom: { xs: -10, sm: -18 },
+                    width: { xs: 320, sm: 420, md: 500 },
+                    maxWidth: 'none',
+                    pointerEvents: 'none',
+                    userSelect: 'none',
+                }}
+            />
+        </Box>
+    );
 }
 
 function Bootstrap(): ReactNode {
@@ -148,6 +203,7 @@ function Bootstrap(): ReactNode {
 const router = createHashRouter([
     {
         element: <Bootstrap />,
+        errorElement: <AppRouteErrorPage />,
         children: [
             { index: true, element: <DashboardPage /> },
             { path: 'settings', element: <SettingsPage /> },
