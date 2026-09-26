@@ -21,10 +21,12 @@ async function fetchFont(path: string): Promise<Uint8Array> {
 }
 
 async function loadFontData(): Promise<JassubFontData> {
-    fontDataPromise ??= Promise.all([fetchFont('/fonts/noto-sans-jp-bold.ttf'), fetchFont('/fonts/noto-sans-symbols-2-regular.ttf')]).then(([bold, symbols]) => ({
-        bold,
-        symbols,
-    }));
+    fontDataPromise ??= Promise.all([fetchFont('/fonts/noto-sans-jp-bold.ttf'), fetchFont('/fonts/noto-sans-symbols-2-regular.ttf')])
+        .then(([bold, symbols]) => ({ bold, symbols }))
+        .catch(error => {
+            fontDataPromise = null;
+            throw error;
+        });
     return fontDataPromise;
 }
 

@@ -1231,8 +1231,25 @@ export default class StreamApiModel implements IStreamApiModel {
         option: apid.LiveStreamOption,
     ): Promise<StreamConfig> {
         const config = this.configure.getConfig();
+        const isWatchEnabled = WatchStreamProfileUtil.isEnabled(config);
+        const isLiveTsEnabled = isWatchEnabled || typeof config.stream?.live?.ts !== 'undefined';
+        const configuredM2Ts = config.stream?.live?.ts?.m2ts ?? [];
+        const hasConfiguredUnconverted = configuredM2Ts.some(item => typeof item.cmd === 'undefined');
+        const unconvertedMode = isWatchEnabled
+            ? WatchStreamProfileUtil.getLiveDisplayQualityNames(config).length
+            : configuredM2Ts.length;
+        const isUnconverted =
+            isLiveTsEnabled &&
+            type === 'm2ts' &&
+            (option.quality === WatchStreamProfileUtil.UNCONVERTED_QUALITY_NAME ||
+                (typeof option.quality === 'undefined' &&
+                    option.mode === unconvertedMode &&
+                    (isWatchEnabled || hasConfiguredUnconverted === false)));
+        if (isUnconverted) {
+            return {};
+        }
 
-        if (WatchStreamProfileUtil.isEnabled(config) && (type === 'm2ts' || type === 'm2tsll')) {
+        if (isWatchEnabled && (type === 'm2ts' || type === 'm2tsll')) {
             const channel = await this.channelDB.findId(option.channelId);
             return {
                 cmd: WatchStreamProfileUtil.buildLiveMpegTsCommand(config, {
@@ -1859,11 +1876,7 @@ export default class StreamApiModel implements IStreamApiModel {
     ): Promise<RecordedStreamConfig> {
         const isEncodedVideo = await this.isEncodedVideo(option.videoFileId);
 
-        // config が存在するか
         const config = this.configure.getConfig();
-        if (typeof config.stream === 'undefined' || typeof config.stream.recorded === 'undefined') {
-            throw new Error('ConfigIsUndefined');
-        }
 
         let cmd: string;
         if (
@@ -1881,6 +1894,8 @@ export default class StreamApiModel implements IStreamApiModel {
                 isEncodedVideo: isEncodedVideo,
             });
         } else if (type === 'm2tsll') {
+            throw new Error('ConfigIsUndefined');
+        } else if (typeof config.stream === 'undefined' || typeof config.stream.recorded === 'undefined') {
             throw new Error('ConfigIsUndefined');
         } else if (isEncodedVideo === true) {
             if (

@@ -11,6 +11,7 @@ import {
     type LiveStreamType,
 } from '../core/media/live';
 import type { AppSettings } from '../core/storage/settings';
+import { programDialogPaper } from './programDialogStyles';
 
 interface OnAirSelectStreamDialogProps {
     channel: ScheduleChannleItem | null;
@@ -78,13 +79,30 @@ export function OnAirSelectStreamDialog({ channel, config, settings, onClose, on
     };
 
     return (
-        <Dialog open={channel !== null} onClose={close} fullWidth maxWidth="xs">
-            <DialogTitle>{channel?.name ?? ''}</DialogTitle>
-            <DialogContent>
-                {options.length === 0 ? (
-                    <Typography color="text.secondary">利用できる視聴設定がありません。</Typography>
-                ) : (
-                    <Stack spacing={2} sx={{ pt: 1 }}>
+        <Dialog
+            open={channel !== null}
+            onClose={close}
+            fullWidth
+            maxWidth="xs"
+            aria-labelledby="on-air-stream-title"
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...programDialogPaper(theme),
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
+                        '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
+                        '& .MuiDialogContent-root .MuiInputLabel-root': { mb: 0.25 },
+                        '& .MuiDialogContent-root .MuiInputBase-root': { mt: '0 !important' },
+                    }),
+                },
+            }}
+        >
+            <DialogTitle id="on-air-stream-title">{channel?.name ?? ''}</DialogTitle>
+            <DialogContent dividers sx={{ bgcolor: 'action.hover' }}>
+                <Stack spacing={2} sx={{ pt: 1 }}>
+                    {options.length === 0 ? (
+                        <Typography color="text.secondary">利用できる視聴設定がありません。</Typography>
+                    ) : (
                         <Stack direction="row" spacing={1.5}>
                             <FormControl variant="standard" sx={{ flex: 1 }}>
                                 <InputLabel>ストリーム</InputLabel>
@@ -107,13 +125,14 @@ export function OnAirSelectStreamDialog({ channel, config, settings, onClose, on
                                 </Select>
                             </FormControl>
                         </Stack>
-                        <FormControlLabel control={<Switch checked={useURLScheme} onChange={event => changeExternal(event.target.checked)} />} label="外部アプリで開く" />
-                    </Stack>
-                )}
+                    )}
+                    <FormControlLabel control={<Switch checked={useURLScheme} onChange={event => changeExternal(event.target.checked)} />} label="外部アプリで開く" />
+                </Stack>
             </DialogContent>
             <DialogActions>
                 {onGuide !== undefined && channel !== null && (
                     <Button
+                        sx={{ mr: 'auto' }}
                         onClick={() => {
                             onGuide(channel.id);
                             onClose();
@@ -122,10 +141,10 @@ export function OnAirSelectStreamDialog({ channel, config, settings, onClose, on
                         番組表
                     </Button>
                 )}
-                <Button color="inherit" onClick={close}>
+                <Button color="inherit" variant="outlined" onClick={close}>
                     キャンセル
                 </Button>
-                <Button disabled={selectedOption === undefined} onClick={watch}>
+                <Button variant="contained" disabled={selectedOption === undefined} onClick={watch}>
                     視聴
                 </Button>
             </DialogActions>

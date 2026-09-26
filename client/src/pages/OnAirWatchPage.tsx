@@ -44,7 +44,7 @@ import { withBasePath } from '../core/path';
 import { LiveMpegTsPlayerCore, type LiveMpegTsPlayerState } from '../core/player/LiveMpegTsPlayerCore';
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
-import { channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, isLikelyBroadcastPauseTime, programDuration } from '../core/program';
+import { channelTypeLabel, formatProgramDate, formatProgramTime, isLikelyBroadcastPauseTime, programDuration, programGenrePathLabels } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
 import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -251,6 +251,9 @@ function LivePlayer({
                     {
                         zIndex: 4,
                     },
+                '& .onair-dplayer .dplayer-setting-box, & .onair-dplayer .dplayer-comment-setting-box': {
+                    zIndex: 8,
+                },
                 '& .onair-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
                     background: 'linear-gradient(to top, rgba(0,0,0,.86), transparent) !important',
@@ -315,6 +318,34 @@ function LivePlayer({
                 },
                 '& .onair-dplayer .dplayer-volume': {
                     marginLeft: showVolumePercent ? '-13px' : 0,
+                },
+                '@media (max-width: 600px) and (orientation: portrait)': {
+                    '& .onair-dplayer.dplayer-mobile .dplayer-controller': {
+                        paddingLeft: '6px !important',
+                        paddingRight: '6px !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-icons-right': {
+                        right: '4px !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-bar-wrap': {
+                        left: '6px !important',
+                        right: '6px !important',
+                        width: 'auto !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-icons-left .dplayer-icon, & .onair-dplayer.dplayer-mobile .dplayer-icons-right .dplayer-icon': {
+                        width: 'clamp(29px, 8.6vw, 34px) !important',
+                        padding: 'clamp(4px, 1.5vw, 6px) !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-time': {
+                        fontSize: 'clamp(10px, 3vw, 12px)',
+                        whiteSpace: 'nowrap',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .neo-player-volume-percent': {
+                        display: 'none !important',
+                    },
+                    '& .onair-dplayer.dplayer-mobile .dplayer-volume': {
+                        marginLeft: '0 !important',
+                    },
                 },
             }}
         >
@@ -408,7 +439,7 @@ function ProgramPanel({
         );
     }
 
-    const genre = program.genre1 === undefined ? undefined : genreNames[program.genre1];
+    const genres = programGenrePathLabels(program);
     return (
         <Stack spacing={1.5} sx={{ p: { xs: 1.75, sm: 2 } }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -449,12 +480,16 @@ function ProgramPanel({
                     {program.description}
                 </Typography>
             )}
-            {genre !== undefined && (
-                <Box sx={{ alignSelf: 'flex-start', px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                        {genre}
-                    </Typography>
-                </Box>
+            {genres.length > 0 && (
+                <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+                    {genres.map((genre, index) => (
+                        <Box key={`${index.toString(10)}-${genre}`} sx={{ px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                {genre}
+                            </Typography>
+                        </Box>
+                    ))}
+                </Stack>
             )}
             {program.extended !== undefined && (
                 <Box sx={{ pt: 0.5 }}>
@@ -1062,6 +1097,9 @@ export function OnAirWatchPage(): ReactNode {
                                     easing: theme.transitions.easing.easeInOut,
                                 }),
                             '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                            '@media (max-width: 600px) and (orientation: portrait)': {
+                                height: panelOpen ? (settings.watchPersistentBottomControls ? 'calc(100dvh - 56.25vw - 56px)' : 'calc(100dvh - 56.25vw)') : 0,
+                            },
                         }}
                     >
                         {(panelOpen || panelMounted) && (

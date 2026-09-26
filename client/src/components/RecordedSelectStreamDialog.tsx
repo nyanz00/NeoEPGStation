@@ -4,6 +4,7 @@ import type { Config, VideoFile, VideoSubtitle } from '../../../api';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
+import { programDialogPaper } from './programDialogStyles';
 import {
     getRecordedStreamOptions,
     getRecordedStreamWatchPath,
@@ -120,59 +121,76 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
     };
 
     return (
-        <Dialog open={video !== null} onClose={close} fullWidth maxWidth="xs">
+        <Dialog
+            open={video !== null}
+            onClose={close}
+            fullWidth
+            maxWidth="xs"
+            slotProps={{
+                paper: {
+                    sx: theme => ({
+                        ...programDialogPaper(theme),
+                        '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
+                        '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
+                        '& .MuiDialogContent-root .MuiInputLabel-root': { mb: 0.25 },
+                        '& .MuiDialogContent-root .MuiInputBase-root': { mt: '0 !important' },
+                    }),
+                },
+            }}
+        >
             <DialogTitle>{video?.name ?? ''} - STREAMING</DialogTitle>
-            <DialogContent>
-                {options.length === 0 ? (
-                    <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
-                ) : (
-                    <Stack spacing={2} sx={{ pt: 1 }}>
-                        <Stack direction="row" spacing={1.5}>
-                            <FormControl variant="standard" sx={{ flex: 1 }}>
-                                <InputLabel>ストリーム</InputLabel>
-                                <Select value={selectedOption?.type ?? ''} onChange={event => changeType(event.target.value as RecordedStreamType)}>
-                                    {options.map(option => (
-                                        <MenuItem key={option.type} value={option.type}>
-                                            {option.type}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <FormControl variant="standard" sx={{ flex: 1 }}>
-                                <InputLabel>画質</InputLabel>
-                                <Select value={mode} onChange={event => setMode(Number(event.target.value))}>
-                                    {(selectedOption?.qualities ?? []).map((quality, index) => (
-                                        <MenuItem key={`${quality}-${index.toString(10)}`} value={index}>
-                                            {quality}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
+            <DialogContent dividers sx={{ ...(video?.type === 'encoded' ? { py: 1.5 } : {}), bgcolor: 'action.hover' }}>
+                {video !== null &&
+                    (options.length === 0 ? (
+                        <Typography color="text.secondary">この録画ファイルで利用できるストリーム設定がありません。</Typography>
+                    ) : (
+                        <Stack spacing={video.type === 'encoded' ? 1.25 : 2} sx={{ pt: video.type === 'encoded' ? 0.5 : 1 }}>
+                            <Stack direction="row" spacing={1.5}>
+                                <FormControl variant="standard" sx={{ flex: 1 }}>
+                                    <InputLabel>ストリーム</InputLabel>
+                                    <Select value={selectedOption?.type ?? ''} onChange={event => changeType(event.target.value as RecordedStreamType)}>
+                                        {options.map(option => (
+                                            <MenuItem key={option.type} value={option.type}>
+                                                {option.type}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                                <FormControl variant="standard" sx={{ flex: 1 }}>
+                                    <InputLabel>画質</InputLabel>
+                                    <Select value={mode} onChange={event => setMode(Number(event.target.value))}>
+                                        {(selectedOption?.qualities ?? []).map((quality, index) => (
+                                            <MenuItem key={`${quality}-${index.toString(10)}`} value={index}>
+                                                {quality}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                            </Stack>
+                            {video.type === 'encoded' && (
+                                <FormControl variant="standard" fullWidth>
+                                    <InputLabel>字幕</InputLabel>
+                                    <Select
+                                        value={subtitleIndex === null ? 'none' : subtitleIndex}
+                                        onChange={event => setSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
+                                    >
+                                        <MenuItem value="none">字幕なし</MenuItem>
+                                        {(subtitles.data?.items ?? []).map(subtitle => (
+                                            <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
+                                                {subtitle.displayName}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </FormControl>
+                            )}
                         </Stack>
-                        {video?.type === 'encoded' && (
-                            <FormControl variant="standard" fullWidth>
-                                <InputLabel>字幕</InputLabel>
-                                <Select
-                                    value={subtitleIndex === null ? 'none' : subtitleIndex}
-                                    onChange={event => setSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
-                                >
-                                    <MenuItem value="none">字幕なし</MenuItem>
-                                    {(subtitles.data?.items ?? []).map(subtitle => (
-                                        <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
-                                            {subtitle.displayName}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                        )}
-                    </Stack>
-                )}
+                    ))}
             </DialogContent>
             <DialogActions>
-                <Button color="inherit" onClick={close}>
+                <Button color="inherit" variant="outlined" onClick={close}>
                     キャンセル
                 </Button>
-                <Button disabled={preparing || selectedOption === undefined || (video?.type === 'encoded' && subtitles.isPending)} onClick={() => void watch()}>
+                <Button variant="contained" disabled={preparing || selectedOption === undefined || (video?.type === 'encoded' && subtitles.isPending)} onClick={() => void watch()}>
                     {preparing ? '字幕を準備中…' : '視聴'}
                 </Button>
             </DialogActions>

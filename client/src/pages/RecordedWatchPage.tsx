@@ -47,12 +47,13 @@ import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { AssCommentCore } from '../core/player/AssCommentCore';
+import { type DPlayerTrackSetting, updateDPlayerTrackSettings } from '../core/player/DPlayerUi';
 import { JassubSubtitleRenderer } from '../core/player/JassubSubtitleRenderer';
 import { RecordedPlayerCore, type RecordedPlayerSourceType, type RecordedPlayerState } from '../core/player/RecordedPlayerCore';
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/player/RecordedPlaybackTracker';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
-import { formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
+import { formatProgramDate, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
 import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -79,7 +80,7 @@ interface PlayerSource {
     vodSessionId?: string;
 }
 
-function createVodSessionId(): string {
+function createSessionId(): string {
     if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
@@ -120,6 +121,7 @@ function RecordedPlayer({
     webkitPlaybackMode,
     persistentBottomControls,
     showVolumePercent,
+    trackSettings,
     volumeBoostEnabled,
     volumeBoostMaxPercent,
     onCommentsChange,
@@ -148,6 +150,7 @@ function RecordedPlayer({
     webkitPlaybackMode: WebKitPlaybackMode;
     persistentBottomControls: boolean;
     showVolumePercent: boolean;
+    trackSettings: DPlayerTrackSetting[];
     volumeBoostEnabled: boolean;
     volumeBoostMaxPercent: number;
     onCommentsChange: (comments: JikkyoComment[]) => void;
@@ -178,6 +181,7 @@ function RecordedPlayer({
     const [paused, setPaused] = useState(true);
     const [state, setState] = useState<RecordedPlayerState>({ isLoading: true, isBuffering: false, loadingText: 'プレイヤーを初期化中...' });
     const playbackBlockedRef = useRef(playbackBlocked);
+    const playbackResumeRef = useRef(resumePlaying);
     playbackBlockedRef.current = playbackBlocked;
     const pointerInPersistentBottomControlsRef = useRef(false);
     const showPlayerControls = useCallback((): void => {
@@ -253,14 +257,15 @@ function RecordedPlayer({
             selectedQualityIndex,
             onQualityChange,
             autoplay: resumePlaying && !playbackBlockedRef.current,
-            onReady: nextVideo => {
+            onReady: (nextVideo, restartState) => {
+                const position = restartState?.position ?? startPosition;
+                playbackResumeRef.current = restartState === undefined ? resumePlaying : !restartState.paused;
                 setVideo(nextVideo);
                 setPaused(nextVideo.paused);
                 onVideoReady(nextVideo);
                 const restorePlayback = (): void => {
-                    if (startPosition === null) return;
-                    if (Number.isFinite(nextVideo.duration)) nextVideo.currentTime = Math.min(startPosition, nextVideo.duration);
-                    if (!resumePlaying || playbackBlockedRef.current) nextVideo.pause();
+                    if (position !== null && Number.isFinite(position) && Number.isFinite(nextVideo.duration)) nextVideo.currentTime = Math.min(position, nextVideo.duration);
+                    if (!playbackResumeRef.current || playbackBlockedRef.current) nextVideo.pause();
                 };
                 if (nextVideo.readyState >= HTMLMediaElement.HAVE_METADATA) restorePlayback();
                 else nextVideo.addEventListener('loadedmetadata', restorePlayback, { once: true });
@@ -317,6 +322,11 @@ function RecordedPlayer({
     ]);
 
     useEffect(() => {
+        if (container.current === null || controlsPortal === null) return;
+        updateDPlayerTrackSettings(container.current, trackSettings);
+    }, [controlsPortal, trackSettings]);
+
+    useEffect(() => {
         if (video === null) return;
         if (playbackBlocked) {
             const keepPaused = (): void => video.pause();
@@ -324,7 +334,7 @@ function RecordedPlayer({
             video.addEventListener('play', keepPaused);
             return () => video.removeEventListener('play', keepPaused);
         }
-        if (resumePlaying) void video.play().catch(error => console.error('[RecordedWatch:play]', error));
+        if (playbackResumeRef.current) void video.play().catch(error => console.error('[RecordedWatch:play]', error));
     }, [playbackBlocked, resumePlaying, video]);
 
     useEffect(() => {
@@ -450,6 +460,41 @@ function RecordedPlayer({
                     {
                         zIndex: 4,
                     },
+                '& .recorded-dplayer .dplayer-setting-box, & .recorded-dplayer .dplayer-comment-setting-box': {
+                    zIndex: 8,
+                },
+                '& .recorded-dplayer .neo-player-track-settings': {
+                    borderBottom: '1px solid rgba(255,255,255,.15)',
+                    pb: 0.5,
+                    mb: 0.5,
+                },
+                '& .recorded-dplayer .neo-player-track-setting': {
+                    display: 'block',
+                    px: 1.25,
+                    py: 0.5,
+                    color: '#eee',
+                },
+                '& .recorded-dplayer .neo-player-track-setting-label': {
+                    display: 'block',
+                    mb: 0.35,
+                    fontSize: 12,
+                    lineHeight: 1.2,
+                },
+                '& .recorded-dplayer .neo-player-track-setting-select': {
+                    width: '100%',
+                    height: 32,
+                    px: 0.75,
+                    border: '1px solid rgba(255,255,255,.35)',
+                    borderRadius: 0.75,
+                    color: '#eee',
+                    bgcolor: 'rgba(0,0,0,.38)',
+                    font: 'inherit',
+                    fontSize: 12,
+                },
+                '& .recorded-dplayer .neo-player-track-setting-select option': {
+                    color: '#fff',
+                    bgcolor: '#1c1c1c',
+                },
                 '& .recorded-dplayer .dplayer-controller-mask': {
                     height: '82px !important',
                     background: 'linear-gradient(to top, rgba(0,0,0,.86), transparent) !important',
@@ -510,6 +555,34 @@ function RecordedPlayer({
                 },
                 '& .recorded-dplayer .dplayer-volume': {
                     marginLeft: showVolumePercent ? '-13px' : 0,
+                },
+                '@media (max-width: 600px) and (orientation: portrait)': {
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-controller': {
+                        paddingLeft: '6px !important',
+                        paddingRight: '6px !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-icons-right': {
+                        right: '4px !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-bar-wrap': {
+                        left: '6px !important',
+                        right: '6px !important',
+                        width: 'auto !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-icons-left .dplayer-icon, & .recorded-dplayer.dplayer-mobile .dplayer-icons-right .dplayer-icon': {
+                        width: 'clamp(29px, 8.6vw, 34px) !important',
+                        padding: 'clamp(4px, 1.5vw, 6px) !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-time': {
+                        fontSize: 'clamp(10px, 3vw, 12px)',
+                        whiteSpace: 'nowrap',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .neo-player-volume-percent': {
+                        display: 'none !important',
+                    },
+                    '& .recorded-dplayer.dplayer-mobile .dplayer-volume': {
+                        marginLeft: '0 !important',
+                    },
                 },
             }}
         >
@@ -596,7 +669,7 @@ function RecordedPlayer({
 }
 
 function ProgramPanel({ item, channel }: { item: RecordedItem; channel: ChannelItem | undefined }): ReactNode {
-    const genre = item.genre1 === undefined ? undefined : genreNames[item.genre1];
+    const genres = programGenrePathLabels(item);
     return (
         <Stack spacing={1.5} sx={{ p: { xs: 1.75, sm: 2 } }}>
             <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
@@ -623,12 +696,16 @@ function ProgramPanel({ item, channel }: { item: RecordedItem; channel: ChannelI
                     {item.description}
                 </Typography>
             )}
-            {genre !== undefined && (
-                <Box sx={{ alignSelf: 'flex-start', px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                        {genre}
-                    </Typography>
-                </Box>
+            {genres.length > 0 && (
+                <Stack direction="row" spacing={0.75} useFlexGap sx={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+                    {genres.map((genre, index) => (
+                        <Box key={`${index.toString(10)}-${genre}`} sx={{ px: 1, py: 0.35, borderRadius: 1, bgcolor: 'action.selected' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                {genre}
+                            </Typography>
+                        </Box>
+                    ))}
+                </Stack>
             )}
             {item.extended !== undefined && (
                 <Box sx={{ pt: 0.5 }}>
@@ -1007,6 +1084,48 @@ export function RecordedWatchPage(): ReactNode {
         () => (settings.watchPlaySubtitleDanmaku && !streaming ? subtitleItems.filter(subtitle => !isDanmakuSubtitle(subtitle)) : subtitleItems),
         [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
     );
+    const playerTrackSettings = useMemo<DPlayerTrackSetting[]>(() => {
+        if (!settings.watchSelectSubtitleInPlayerSettings || streaming) return [];
+
+        const controls: DPlayerTrackSetting[] = [];
+        if (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0) {
+            controls.push({
+                id: 'danmaku',
+                label: '弾幕',
+                value: selectedDanmakuSubtitleIndex?.toString(10) ?? 'none',
+                options: [
+                    { value: 'none', label: '弾幕なし' },
+                    ...danmakuSubtitleItems.map(subtitle => ({ value: subtitle.subtitleIndex.toString(10), label: subtitle.displayName })),
+                ],
+                onChange: value => setSelectedDanmakuSubtitleIndex(value === 'none' ? null : Number(value)),
+            });
+        }
+        if (selectableSubtitleItems.length > 0) {
+            controls.push({
+                id: 'subtitle',
+                label: '字幕',
+                value: selectedSubtitleIndex?.toString(10) ?? 'none',
+                options: [
+                    { value: 'none', label: '字幕なし' },
+                    ...selectableSubtitleItems.map(subtitle => ({ value: subtitle.subtitleIndex.toString(10), label: subtitle.displayName })),
+                ],
+                onChange: value => setSelectedSubtitleIndex(value === 'none' ? null : Number(value)),
+            });
+        }
+        return controls;
+    }, [
+        danmakuSubtitleItems,
+        selectableSubtitleItems,
+        selectedDanmakuSubtitleIndex,
+        selectedSubtitleIndex,
+        settings.watchPlaySubtitleDanmaku,
+        settings.watchSelectSubtitleInPlayerSettings,
+        streaming,
+    ]);
+    const showOverlayTrackSettings =
+        !streaming &&
+        !settings.watchSelectSubtitleInPlayerSettings &&
+        (selectableSubtitleItems.length > 0 || (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0));
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
     const selectedDanmakuSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedDanmakuSubtitleIndex);
     const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${settings.watchPlaySubtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
@@ -1226,7 +1345,10 @@ export function RecordedWatchPage(): ReactNode {
 
     useEffect(() => {
         if (progressVideo === null || playbackUserId === null) return;
-        let pending: RecordedPlaybackSample | null = null;
+        const sessionId = createSessionId();
+        let pending: { sample: RecordedPlaybackSample; total: number } | null = null;
+        let accumulatedTotal = 0;
+        let acknowledgedTotal = 0;
         let sending = false;
         let retryTimer: number | null = null;
         let disposed = false;
@@ -1235,21 +1357,22 @@ export function RecordedWatchPage(): ReactNode {
             if (sending || pending === null) return;
             sending = true;
             while (pending !== null) {
-                const latest: RecordedPlaybackSample = pending;
-                const delta = Math.min(latest.watchedSecondsDelta, 30);
-                pending = latest.watchedSecondsDelta > delta ? { ...latest, watchedSecondsDelta: latest.watchedSecondsDelta - delta } : null;
+                const latest: { sample: RecordedPlaybackSample; total: number } = pending;
+                const targetTotal = Math.min(latest.total, acknowledgedTotal + 30);
+                pending = latest.total > targetTotal ? latest : null;
                 try {
                     const result = await api.updateRecordedPlayback(
                         recordedId,
                         {
-                            position: latest.position,
-                            duration: latest.duration,
-                            watchedSecondsDelta: delta,
-                            observedAt: latest.observedAt,
-                            historyLimit: settingsRef.current.watchHistoryLength,
+                            position: latest.sample.position,
+                            duration: latest.sample.duration,
+                            sessionId,
+                            sessionWatchedSeconds: targetTotal,
+                            observedAt: latest.sample.observedAt,
                         },
                         playbackUserId,
                     );
+                    acknowledgedTotal = targetTotal;
                     if (
                         settingsRef.current.annictAutoWatchMode === 'progress' &&
                         result.duration > 0 &&
@@ -1259,13 +1382,7 @@ export function RecordedWatchPage(): ReactNode {
                     }
                 } catch (error) {
                     const newer = pending;
-                    pending =
-                        newer === null
-                            ? { ...latest, watchedSecondsDelta: delta }
-                            : {
-                                  ...newer,
-                                  watchedSecondsDelta: newer.watchedSecondsDelta + delta,
-                              };
+                    pending = newer ?? latest;
                     console.warn('[RecordedWatch:playback-progress]', error);
                     if (!disposed && retryTimer === null) {
                         retryTimer = window.setTimeout(() => {
@@ -1279,13 +1396,8 @@ export function RecordedWatchPage(): ReactNode {
             sending = false;
         };
         const queue = (sample: RecordedPlaybackSample): void => {
-            pending =
-                pending === null
-                    ? sample
-                    : {
-                          ...sample,
-                          watchedSecondsDelta: pending.watchedSecondsDelta + sample.watchedSecondsDelta,
-                      };
+            accumulatedTotal += sample.watchedSecondsDelta;
+            pending = { sample, total: accumulatedTotal };
             void drain();
         };
         const tracker = new RecordedPlaybackTracker({
@@ -1418,7 +1530,7 @@ export function RecordedWatchPage(): ReactNode {
         if (!valid) return null;
         if (!streaming) return { src: getRecordedVideoPlayURL(videoFileId), type: 'normal', enableAribSubtitle: false };
         if (selectedVideo === undefined) return null;
-        const vodSessionId = createVodSessionId();
+        const vodSessionId = createSessionId();
         return {
             src: getRecordedStreamURL(
                 videoFileId,
@@ -1554,6 +1666,7 @@ export function RecordedWatchPage(): ReactNode {
                             webkitPlaybackMode={settings.webkitPlaybackMode}
                             persistentBottomControls={settings.watchPersistentBottomControls}
                             showVolumePercent={settings.watchShowVolumePercent}
+                            trackSettings={playerTrackSettings}
                             volumeBoostEnabled={settings.watchVolumeBoostEnabled}
                             volumeBoostMaxPercent={settings.watchVolumeBoostMaxPercent}
                             onCommentsChange={replaceComments}
@@ -1614,7 +1727,7 @@ export function RecordedWatchPage(): ReactNode {
                                         {item?.name ?? '録画情報を取得中...'}
                                     </Typography>
                                 </Box>
-                                {!streaming && (selectableSubtitleItems.length > 0 || (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0)) && (
+                                {showOverlayTrackSettings && (
                                     <Stack direction="column" spacing={0.15} sx={{ width: { xs: 112, sm: 170 }, flex: '0 0 auto' }}>
                                         {settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0 && (
                                             <FormControl variant="filled" size="small" sx={{ bgcolor: 'rgba(0,0,0,.38)', borderRadius: 1 }}>
@@ -1693,6 +1806,9 @@ export function RecordedWatchPage(): ReactNode {
                                     easing: theme.transitions.easing.easeInOut,
                                 }),
                             '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                            '@media (max-width: 600px) and (orientation: portrait)': {
+                                height: panelOpen ? (settings.watchPersistentBottomControls ? 'calc(100dvh - 56.25vw - 56px)' : 'calc(100dvh - 56.25vw)') : 0,
+                            },
                         }}
                     >
                         {(panelOpen || panelMounted) && (
