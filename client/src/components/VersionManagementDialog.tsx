@@ -50,12 +50,14 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     const queryClient = useQueryClient();
     const [packageManager, setPackageManager] = useState<SystemUpdatePackageManager>('auto');
     const [preserveLocalChanges, setPreserveLocalChanges] = useState(false);
+    const [restartRequested, setRestartRequested] = useState(false);
     const logRef = useRef<HTMLPreElement>(null);
     const followLogsRef = useRef(true);
     const info = useQuery({
         queryKey: ['system-update'],
         queryFn: () => api.getSystemUpdateInfo(false),
         enabled: open,
+        refetchOnMount: 'always',
         refetchInterval: query => (query.state.data?.job?.status === 'running' ? 2_000 : false),
     });
     const job = info.data?.job;
@@ -93,6 +95,30 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
             setPackageManager(info.data.rememberedPackageManager);
         }
     }, [info.data?.rememberedPackageManager]);
+    useEffect(() => {
+        if (!restartRequested) return;
+        let cancelled = false;
+        let timer: number | undefined;
+        const pollRestart = async (): Promise<void> => {
+            try {
+                const data = await api.getSystemUpdateInfo(false);
+                if (cancelled) return;
+                queryClient.setQueryData<SystemUpdateInfo>(['system-update'], data);
+                if (data.job?.restartRequired !== true) {
+                    setRestartRequested(false);
+                    return;
+                }
+            } catch {
+                // The service is expected to be temporarily unavailable while restarting.
+            }
+            if (!cancelled) timer = window.setTimeout(() => void pollRestart(), 2_000);
+        };
+        timer = window.setTimeout(() => void pollRestart(), 1_500);
+        return () => {
+            cancelled = true;
+            if (timer !== undefined) window.clearTimeout(timer);
+        };
+    }, [queryClient, restartRequested]);
 
     const start = useMutation({
         mutationFn: (target: SystemUpdateTarget) => api.startSystemUpdate({ target, packageManager, preserveLocalChanges }),
@@ -104,7 +130,10 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     });
     const restart = useMutation({
         mutationFn: api.restartAfterSystemUpdate,
-        onSuccess: () => notify('再起動を要求しました。しばらくしてから画面を再読み込みしてください', 'info'),
+        onSuccess: () => {
+            setRestartRequested(true);
+            notify('再起動を要求しました。完了を確認しています', 'info');
+        },
         onError: error => notify(`再起動できませんでした: ${error.message}`, 'error'),
     });
     const refresh = useMutation({
@@ -136,10 +165,33 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
             <DialogContent dividers sx={{ minHeight: 0 }}>
                 {info.isPending ? (
                     <LinearProgress />
-                ) : info.isError ? (
-                    <Alert severity="error">更新情報を取得できませんでした: {info.error.message}</Alert>
-                ) : info.data !== undefined ? (
+                ) : info.data === undefined ? (
+                    info.isError ? (
+                        <Alert
+                            severity="error"
+                            action={
+                                <Button color="inherit" size="small" onClick={() => void info.refetch()} disabled={info.isFetching}>
+                                    再試行
+                                </Button>
+                            }
+                        >
+                            更新情報を取得できませんでした: {info.error.message}
+                        </Alert>
+                    ) : null
+                ) : (
                     <Stack spacing={2.5}>
+                        {info.isError && (
+                            <Alert
+                                severity="warning"
+                                action={
+                                    <Button color="inherit" size="small" onClick={() => void info.refetch()} disabled={info.isFetching}>
+                                        再試行
+                                    </Button>
+                                }
+                            >
+                                更新情報の再取得に失敗しました。前回の情報を表示しています: {info.error.message}
+                            </Alert>
+                        )}
                         {info.data.gitError !== null && <Alert severity="error">Gitを実行できませんでした: {info.data.gitError}</Alert>}
                         {info.data.gitError === null && !info.data.isGitRepository && <Alert severity="warning">Git clone環境ではないためWeb UIから更新できません。</Alert>}
                         {info.data.gitError === null && info.data.isGitRepository && !info.data.isClean && (
@@ -271,11 +323,11 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                             <Button
                                                 color="inherit"
                                                 startIcon={<RestartAltOutlined />}
-                                                disabled={restart.isPending}
+                                                disabled={restart.isPending || restartRequested}
                                                 onClick={() => restart.mutate()}
                                                 sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
                                             >
-                                                再起動
+                                                {restartRequested ? '再起動中…' : '再起動'}
                                             </Button>
                                         }
                                     >
@@ -285,7 +337,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             </Stack>
                         )}
                     </Stack>
-                ) : null}
+                )}
             </DialogContent>
             <DialogActions>
                 <Button onClick={onClose} disabled={running}>

@@ -12,7 +12,12 @@ import type {
     SystemUpdateRemoteTarget,
     SystemUpdateTarget,
 } from '../../../api';
-import { isExpectedUpdateRepository, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
+import {
+    isExpectedUpdateRepository,
+    isSupportedStableUpdateTarget,
+    REACT_RELEASE_BASE_COMMIT,
+    STABLE_UPDATE_TAG_PATTERN,
+} from './UpdateValidation';
 import {
     createUpdateCommandInvocation,
     createUpdatePackageEnvironment,
@@ -255,6 +260,9 @@ export default class UpdateManager {
                 if (remoteTarget.tag === null || STABLE_UPDATE_TAG_PATTERN.test(remoteTarget.tag) === false) {
                     throw new Error('安定版タグが不正です');
                 }
+                if ((await this.isAncestor(REACT_RELEASE_BASE_COMMIT, targetCommit)) !== true) {
+                    throw new Error('React版以前のバージョンへは戻せません');
+                }
                 await this.git(['merge-base', '--is-ancestor', targetCommit, 'refs/remotes/neoe-update/nyanz-master']);
             } else {
                 const fetchedDevelop = (
@@ -445,7 +453,13 @@ export default class UpdateManager {
             let stableTag: string | undefined;
             for (const candidate of stableCandidates) {
                 const commit = tagCommits.get(candidate)!;
-                if ((await this.isAncestor(commit, 'refs/remotes/neoe-update/nyanz-master')) === true) {
+                if (
+                    isSupportedStableUpdateTarget(
+                        candidate,
+                        (await this.isAncestor(REACT_RELEASE_BASE_COMMIT, commit)) === true,
+                    ) &&
+                    (await this.isAncestor(commit, 'refs/remotes/neoe-update/nyanz-master')) === true
+                ) {
                     stableTag = candidate;
                     break;
                 }
@@ -527,6 +541,9 @@ export default class UpdateManager {
         currentCommit: string,
         targetCommit: string,
     ): Promise<TargetApplicability> {
+        if (target === 'stable' && (await this.isAncestor(REACT_RELEASE_BASE_COMMIT, targetCommit)) !== true) {
+            return { canApply: false, blockedReason: 'React版以前のバージョンへは戻せません' };
+        }
         if (relation === 'ahead') return { canApply: true, blockedReason: null };
         if (relation === 'same') return { canApply: false, blockedReason: '既に選択したバージョンです' };
         if (relation === 'behind') {

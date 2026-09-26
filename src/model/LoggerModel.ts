@@ -6,6 +6,7 @@ import * as path from 'path';
 import ILogger from './ILogger';
 import ILoggerModel from './ILoggerModel';
 import { isSystemLogLevel, readRuntimeLogLevels, runtimeLogLevelPath } from './RuntimeLogLevel';
+import { expandLogConfigPaths } from '../util/LogConfig';
 
 /**
  * Logger
@@ -108,20 +109,7 @@ export default class LoggerModel implements ILoggerModel {
             process.exit(1);
         }
 
-        // replace path
-        return str
-            .replace('%OperatorSystem%', this.createDefaultLogPath('Operator', 'system.log'))
-            .replace('%OperatorAccess%', this.createDefaultLogPath('Operator', 'access.log'))
-            .replace('%OperatorStream%', this.createDefaultLogPath('Operator', 'stream.log'))
-            .replace('%OperatorEncode%', this.createDefaultLogPath('Operator', 'encode.log'))
-            .replace('%ServiceSystem%', this.createDefaultLogPath('Service', 'system.log'))
-            .replace('%ServiceAccess%', this.createDefaultLogPath('Service', 'access.log'))
-            .replace('%ServiceStream%', this.createDefaultLogPath('Service', 'stream.log'))
-            .replace('%ServiceEncode%', this.createDefaultLogPath('Service', 'encode.log'))
-            .replace('%EPGUpdaterSystem%', this.createDefaultLogPath('EPGUpdater', 'system.log'))
-            .replace('%EPGUpdaterAccess%', this.createDefaultLogPath('EPGUpdater', 'access.log'))
-            .replace('%EPGUpdaterStream%', this.createDefaultLogPath('EPGUpdater', 'stream.log'))
-            .replace('%EPGUpdaterEncode%', this.createDefaultLogPath('EPGUpdater', 'encode.log'));
+        return expandLogConfigPaths(str);
     }
 
     private getSource(filePath?: string): 'Operator' | 'Service' | 'EPGUpdater' | null {
@@ -143,16 +131,5 @@ export default class LoggerModel implements ILoggerModel {
 
     private getLevelName(level: string | log4js.Level): string {
         return (typeof level === 'string' ? level : level.levelStr).toLowerCase();
-    }
-    /**
-     * ログファイルのファイルパスを生成する
-     * @param dir: dir
-     * @param filename: file name
-     * @return file path
-     */
-    private createDefaultLogPath(dir: string, filename: string): string {
-        const logFileFullPath = path.join(__dirname, '..', '..', 'logs', dir, filename);
-
-        return process.platform === 'win32' ? logFileFullPath.replace(/\\/g, '\\\\') : logFileFullPath;
     }
 }

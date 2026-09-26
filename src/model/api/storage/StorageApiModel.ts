@@ -1,10 +1,11 @@
 import { execFile } from 'child_process';
-import diskusage from 'diskusage-ng';
+import { getDiskUsage } from '../../../util/DiskUsage';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
 import * as path from 'path';
 import * as apid from '../../../../api';
+import { getConfiguredLogFile, resolveCurrentLogFile } from '../../../util/LogConfig';
 import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
 import IVideoFileDB from '../../db/IVideoFileDB';
@@ -40,6 +41,7 @@ export default class StorageApiModel implements IStorageApiModel {
     private sizeSummaryPromise: Promise<{ parentDirectoryName: string; size: number }[]> | null = null;
     private storageBreakdownCache: { expiresAt: number; value: StorageBreakdownSummary } | null = null;
     private storageBreakdownPromise: Promise<StorageBreakdownSummary> | null = null;
+    private storageBreakdownError = false;
     private systemInfoCache: { expiresAt: number; info: apid.SystemResourceInfo } | null = null;
     private systemInfoPromise: Promise<apid.SystemResourceInfo> | null = null;
     private gpuCache: { expiresAt: number; items: apid.SystemGpuInfo[] } | null = null;
@@ -58,8 +60,6 @@ export default class StorageApiModel implements IStorageApiModel {
     };
     private gpuDescriptors: Pick<apid.SystemGpuInfo, 'name' | 'memoryTotal'>[] | null = null;
     private linuxGpuDescriptors: LinuxGpuDescriptor[] | null = null;
-    private storageVolumeDescriptors:
-        Pick<apid.SystemStorageVolume, 'id' | 'name' | 'path' | 'type' | 'total'>[] | null = null;
 
     constructor(
         @inject('IConfiguration') configuration: IConfiguration,
@@ -89,18 +89,21 @@ export default class StorageApiModel implements IStorageApiModel {
      */
     public async getInfo(): Promise<apid.StorageInfo> {
         const items: apid.StorageItem[] = [];
-        const [diskInfos, system] = await Promise.all([
-            Promise.all(this.config.recorded.map(recorded => this.getDiskInfo(recorded.path))),
+        const errors: apid.StorageItemError[] = [];
+        const [diskResults, system] = await Promise.all([
+            Promise.allSettled(this.config.recorded.map(recorded => this.getDiskInfo(recorded.path))),
             this.getSystemInfo(),
         ]);
         const now = Date.now();
         const breakdown = this.storageBreakdownCache?.value;
-        const breakdownPending = this.storageBreakdownCache === null || this.storageBreakdownCache.expiresAt <= now;
-        if (breakdownPending) {
+        const breakdownNeedsRefresh =
+            this.storageBreakdownCache === null || this.storageBreakdownCache.expiresAt <= now;
+        if (breakdownNeedsRefresh) {
             // Capacity and system cards must not wait for a full directory walk.
             // The next 5-second refresh will pick up the completed breakdown.
             void this.getStorageBreakdown().catch(() => undefined);
         }
+        const breakdownPending = breakdownNeedsRefresh && !this.storageBreakdownError;
         const sizeByDirectory = breakdown?.sizeByDirectory;
         const recordedSizeByVolume = new Map<string, number>();
 
@@ -115,7 +118,12 @@ export default class StorageApiModel implements IStorageApiModel {
         const thumbnailVolume = breakdown === undefined ? undefined : this.getVolumeKey(this.config.thumbnail);
 
         for (const [index, r] of this.config.recorded.entries()) {
-            const info = diskInfos[index];
+            const result = diskResults[index];
+            if (result.status === 'rejected') {
+                errors.push({ name: r.name });
+                continue;
+            }
+            const info = result.value;
             const volume = this.getVolumeKey(r.path);
             const recorded = recordedSizeByVolume.get(volume) ?? 0;
             const dropLogs = volume === dropLogVolume ? (breakdown?.dropLogSize ?? 0) : 0;
@@ -124,18 +132,23 @@ export default class StorageApiModel implements IStorageApiModel {
                 ...info,
                 name: r.name,
                 ...(breakdownPending ? { breakdownPending: true } : {}),
-                breakdown: {
-                    recorded,
-                    dropLogs,
-                    thumbnails,
-                    other:
-                        breakdown === undefined ? info.used : Math.max(0, info.used - recorded - dropLogs - thumbnails),
-                },
+                ...(this.storageBreakdownError ? { breakdownError: true } : {}),
+                ...(breakdown === undefined
+                    ? {}
+                    : {
+                          breakdown: {
+                              recorded,
+                              dropLogs,
+                              thumbnails,
+                              other: Math.max(0, info.used - recorded - dropLogs - thumbnails),
+                          },
+                      }),
             });
         }
 
         return {
             items,
+            errors,
             system,
         };
     }
@@ -159,7 +172,12 @@ export default class StorageApiModel implements IStorageApiModel {
                     thumbnailSize,
                 };
                 this.storageBreakdownCache = { expiresAt: Date.now() + 15_000, value };
+                this.storageBreakdownError = false;
                 return value;
+            })
+            .catch(error => {
+                this.storageBreakdownError = true;
+                throw error;
             })
             .finally(() => {
                 if (this.storageBreakdownPromise === loadPromise) this.storageBreakdownPromise = null;
@@ -173,8 +191,22 @@ export default class StorageApiModel implements IStorageApiModel {
         category: apid.SystemLogCategory,
         lineLimit: number,
     ): Promise<apid.SystemLogInfo> {
-        const fileName = `${category}.log`;
-        const logPath = path.join(this.getDefaultLogDirectory(), source, fileName);
+        const configured = getConfiguredLogFile(source, category);
+        if (configured === null) {
+            return {
+                source,
+                category,
+                level: getRuntimeLogLevel(source, category),
+                fileName: '',
+                fileOutputConfigured: false,
+                exists: false,
+                size: 0,
+                lines: [],
+                truncated: false,
+            };
+        }
+        const logPath = await resolveCurrentLogFile(configured);
+        const fileName = path.basename(logPath);
         const limit = Math.min(2_000, Math.max(50, Math.floor(lineLimit)));
         let stat: fs.Stats;
         try {
@@ -186,6 +218,7 @@ export default class StorageApiModel implements IStorageApiModel {
                     category,
                     level: getRuntimeLogLevel(source, category),
                     fileName,
+                    fileOutputConfigured: true,
                     exists: false,
                     size: 0,
                     lines: [],
@@ -212,6 +245,7 @@ export default class StorageApiModel implements IStorageApiModel {
                 category,
                 level: getRuntimeLogLevel(source, category),
                 fileName,
+                fileOutputConfigured: true,
                 exists: true,
                 size: stat.size,
                 updatedAt: stat.mtimeMs,
@@ -256,18 +290,9 @@ export default class StorageApiModel implements IStorageApiModel {
         )
             .then(allVolumes => {
                 const primaryVolumes = new Set(this.config.recorded.map(recorded => this.getVolumeKey(recorded.path)));
-                const sampledItems = allVolumes.filter(volume => !primaryVolumes.has(this.getVolumeKey(volume.path)));
-                if (this.storageVolumeDescriptors === null && sampledItems.length > 0) {
-                    this.storageVolumeDescriptors = sampledItems.map(({ id, name, path: volumePath, type, total }) => ({
-                        id,
-                        name,
-                        path: volumePath,
-                        type,
-                        total,
-                    }));
-                }
-                const items = this.mergeStorageVolumeSamples(sampledItems);
-                this.storageVolumeCache = { expiresAt: Date.now() + 30_000, items };
+                const items = allVolumes.filter(volume => !primaryVolumes.has(this.getVolumeKey(volume.path)));
+                // Expire before the UI's 30-second poll so each poll can see a fresh sample.
+                this.storageVolumeCache = { expiresAt: Date.now() + 25_000, items };
                 return items;
             })
             .finally(() => {
@@ -426,98 +451,78 @@ export default class StorageApiModel implements IStorageApiModel {
     private async getWindowsStorageVolumes(): Promise<apid.SystemStorageVolume[]> {
         const script =
             '$OutputEncoding=[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);' +
-            "$volumes=@(Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue | Where-Object {$null -ne $_.Size -and $_.Size -gt 0 -and $_.DriveType -in 2,3,4} | ForEach-Object {$type=switch($_.DriveType){2{'removable'}3{'fixed'}4{'network'}default{'other'}};$label=if([string]::IsNullOrWhiteSpace($_.VolumeName)){$_.DeviceID}else{$_.DeviceID+' '+$_.VolumeName};[pscustomobject]@{id=$_.DeviceID;name=$label;path=$_.DeviceID+'\\';type=$type;available=[double]$_.FreeSpace;used=[double]($_.Size-$_.FreeSpace);total=[double]$_.Size}});" +
+            "$volumes=@(Get-CimInstance Win32_LogicalDisk -ErrorAction Stop | Where-Object {$null -ne $_.Size -and $_.Size -gt 0 -and $_.DriveType -in 2,3,4} | ForEach-Object {$type=switch($_.DriveType){2{'removable'}3{'fixed'}4{'network'}default{'other'}};$label=if([string]::IsNullOrWhiteSpace($_.VolumeName)){$_.DeviceID}else{$_.DeviceID+' '+$_.VolumeName};[pscustomobject]@{id=$_.DeviceID;name=$label;path=$_.DeviceID+'\\';type=$type;available=[double]$_.FreeSpace;used=[double]($_.Size-$_.FreeSpace);total=[double]$_.Size}});" +
             '[pscustomobject]@{volumes=$volumes}|ConvertTo-Json -Depth 4 -Compress';
-        try {
-            const output = await this.runCommand('powershell.exe', [
-                '-NoLogo',
-                '-NoProfile',
-                '-NonInteractive',
-                '-Command',
-                script,
-            ]);
-            const parsed = JSON.parse(output) as {
-                volumes?: {
-                    id?: string;
-                    name?: string;
-                    path?: string;
-                    type?: apid.SystemStorageVolumeType;
-                    available?: number;
-                    used?: number;
-                    total?: number;
-                }[];
-            };
-            return (parsed.volumes ?? []).flatMap(volume => {
-                if (
-                    typeof volume.id !== 'string' ||
-                    typeof volume.name !== 'string' ||
-                    typeof volume.path !== 'string' ||
-                    !this.isStorageVolumeType(volume.type)
-                ) {
-                    return [];
-                }
-                return [
-                    {
-                        id: volume.id,
-                        name: volume.name,
-                        path: volume.path,
-                        type: volume.type,
-                        available: Math.max(0, Number(volume.available) || 0),
-                        used: Math.max(0, Number(volume.used) || 0),
-                        total: Math.max(0, Number(volume.total) || 0),
-                    },
-                ];
-            });
-        } catch (_err: any) {
-            return [];
-        }
+        const output = await this.runCommand('powershell.exe', [
+            '-NoLogo',
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            script,
+        ]);
+        const parsed = JSON.parse(output) as {
+            volumes?: {
+                id?: string;
+                name?: string;
+                path?: string;
+                type?: apid.SystemStorageVolumeType;
+                available?: number;
+                used?: number;
+                total?: number;
+            }[];
+        };
+        if (!Array.isArray(parsed.volumes)) throw new Error('Storage volume enumeration returned invalid data');
+        return parsed.volumes.flatMap(volume => {
+            if (
+                typeof volume.id !== 'string' ||
+                typeof volume.name !== 'string' ||
+                typeof volume.path !== 'string' ||
+                !this.isStorageVolumeType(volume.type)
+            ) {
+                return [];
+            }
+            return [
+                {
+                    id: volume.id,
+                    name: volume.name,
+                    path: volume.path,
+                    type: volume.type,
+                    available: Math.max(0, Number(volume.available) || 0),
+                    used: Math.max(0, Number(volume.used) || 0),
+                    total: Math.max(0, Number(volume.total) || 0),
+                },
+            ];
+        });
     }
 
     private async getUnixStorageVolumes(): Promise<apid.SystemStorageVolume[]> {
-        try {
-            const output = await this.runCommand('df', ['-kP']);
-            return output
-                .split(/\r?\n/)
-                .slice(1)
-                .flatMap(line => {
-                    const columns = line.trim().split(/\s+/);
-                    if (columns.length < 6) return [];
-                    const [device, total, used, available] = columns;
-                    const mountPath = columns.slice(5).join(' ').replace(/\\040/g, ' ');
-                    if (!mountPath.startsWith('/') || /^(tmpfs|devtmpfs|overlay)$/i.test(device)) return [];
-                    return [
-                        {
-                            id: device,
-                            name: mountPath,
-                            path: mountPath,
-                            type: 'fixed' as const,
-                            available: Math.max(0, Number(available) || 0) * 1024,
-                            used: Math.max(0, Number(used) || 0) * 1024,
-                            total: Math.max(0, Number(total) || 0) * 1024,
-                        },
-                    ];
-                });
-        } catch (_err: any) {
-            return [];
-        }
+        const output = await this.runCommand('df', ['-kP']);
+        if (output.length === 0) throw new Error('Storage volume enumeration returned no data');
+        return output
+            .split(/\r?\n/)
+            .slice(1)
+            .flatMap(line => {
+                const columns = line.trim().split(/\s+/);
+                if (columns.length < 6) return [];
+                const [device, total, used, available] = columns;
+                const mountPath = columns.slice(5).join(' ').replace(/\\040/g, ' ');
+                if (!mountPath.startsWith('/') || /^(tmpfs|devtmpfs|overlay)$/i.test(device)) return [];
+                return [
+                    {
+                        id: device,
+                        name: mountPath,
+                        path: mountPath,
+                        type: 'fixed' as const,
+                        available: Math.max(0, Number(available) || 0) * 1024,
+                        used: Math.max(0, Number(used) || 0) * 1024,
+                        total: Math.max(0, Number(total) || 0) * 1024,
+                    },
+                ];
+            });
     }
 
     private isStorageVolumeType(value: unknown): value is apid.SystemStorageVolumeType {
         return value === 'fixed' || value === 'removable' || value === 'network' || value === 'other';
-    }
-
-    private mergeStorageVolumeSamples(sampledItems: apid.SystemStorageVolume[]): apid.SystemStorageVolume[] {
-        if (this.storageVolumeDescriptors === null) return sampledItems;
-        const previousItems = this.storageVolumeCache?.items ?? [];
-        return this.storageVolumeDescriptors.map(descriptor => {
-            const sample = sampledItems.find(item => item.id === descriptor.id);
-            const previous = previousItems.find(item => item.id === descriptor.id);
-            return {
-                ...descriptor,
-                available: sample?.available ?? previous?.available ?? descriptor.total,
-                used: sample?.used ?? previous?.used ?? 0,
-            };
-        });
     }
 
     private mergeGpuInfo(nvidiaItems: apid.SystemGpuInfo[], platformItems: apid.SystemGpuInfo[]): apid.SystemGpuInfo[] {
@@ -838,10 +843,6 @@ export default class StorageApiModel implements IStorageApiModel {
         return loadPromise;
     }
 
-    private getDefaultLogDirectory(): string {
-        return path.join(__dirname, '..', '..', '..', '..', 'logs');
-    }
-
     private async getCachedDirectorySize(root: string): Promise<number> {
         const cacheKey = path.resolve(root);
         const now = Date.now();
@@ -894,18 +895,6 @@ export default class StorageApiModel implements IStorageApiModel {
      * @param dirPath ディスクディレクトリ
      */
     private getDiskInfo(dirPath: string): Promise<apid.DiskUsage> {
-        return new Promise<apid.DiskUsage>((resolve, reject) => {
-            diskusage(dirPath, (err, usage) => {
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve({
-                        available: usage.available,
-                        used: usage.used,
-                        total: usage.total,
-                    });
-                }
-            });
-        });
+        return getDiskUsage(dirPath);
     }
 }

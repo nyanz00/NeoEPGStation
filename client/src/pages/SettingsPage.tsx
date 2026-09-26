@@ -52,7 +52,7 @@ import { api } from '../core/api/queries';
 import { isAppleMobileWebKit } from '../core/platform/webkit';
 import { appIconAssetUrl, appIconSets, getAppIconSet, type AppIconSetId } from '../core/icons/appIcons';
 import { activeUserStore, useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
-import { type AppSettings, type WatchStreamEncoderSetting, settingsStore, useSettings } from '../core/storage/settings';
+import { type AppSettings, type WatchStreamEncoderSetting, defaultSettings, settingsStore, useSettings } from '../core/storage/settings';
 import { appThemePresets, type AppThemePresetId } from '../core/theme/themePresets';
 import { customCssPreviewStore, isCustomCssDisabledByUrl } from '../core/theme/customCss';
 import { themePreviewStore } from '../core/theme/themePreview';
@@ -260,6 +260,8 @@ export function SettingsPage(): ReactNode {
     const [pasteValue, setPasteValue] = useState('');
     const [pasteFallbackReason, setPasteFallbackReason] = useState<PasteFallbackReason>('failed');
     const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general');
+    const [historyLimitDraft, setHistoryLimitDraft] = useState<{ userId: number; value: number } | null>(null);
+    const [savingSettings, setSavingSettings] = useState(false);
     const discordSettingsRef = useRef<DiscordSettingsPanelHandle>(null);
     const { notify } = useNotifications();
     const queryClient = useQueryClient();
@@ -271,6 +273,18 @@ export function SettingsPage(): ReactNode {
     });
     const users = useQuery({ queryKey: ['users'], queryFn: api.getUsers });
     const viewerProfiles = useQuery({ queryKey: ['viewer-profiles'], queryFn: api.getViewerProfiles });
+    const historySettings = useQuery({
+        queryKey: ['recorded-playback-history-settings', activeUser],
+        queryFn: () => api.getRecordedPlaybackHistorySettings(activeUser as number),
+        enabled: typeof activeUser === 'number' && activeSettingsTab === 'display',
+        retry: false,
+    });
+    const visibleHistoryLimit =
+        typeof activeUser === 'number' && historySettings.data !== undefined
+            ? historyLimitDraft?.userId === activeUser
+                ? historyLimitDraft.value
+                : historySettings.data.limit
+            : null;
     const linkedViewerProfile = typeof activeUser === 'number' ? viewerProfiles.data?.profiles.find(profile => profile.tvUserId === activeUser) : undefined;
     const linkedViewerProfileStatus = viewerProfiles.isPending
         ? '確認中…'
@@ -339,11 +353,25 @@ export function SettingsPage(): ReactNode {
         if (viewerProfiles.data !== undefined) viewerProfileStore.syncProfiles(viewerProfiles.data.profiles);
     }, [viewerProfiles.data]);
     useEffect(() => {
+        setAnnictWriteToken('');
+        setTwitterCookies('');
+        setBlueskyHandle('');
+        setBlueskyAppPassword('');
+        setNewViewerProfilePassword('');
+        setNewViewerProfileUseLock(false);
         setViewerProfilePassword('');
         setUnlockPassword('');
+        setActiveUserPassword('');
+        setPendingActiveUser(null);
+        setDeleteUserPassword('');
+        setDeleteUserConfirmOpen(false);
+        setRecoveryRotateConfirmOpen(false);
+        setPasteTarget(null);
+        setPasteValue('');
         setMisskeyAuthorization(null);
         setNiconicoCookies('');
-    }, [linkedViewerProfile?.id]);
+    }, [activeUser, linkedViewerProfile?.id]);
+    useEffect(() => setRecoveryCode(null), [activeUser]);
 
     const addUser = useMutation({
         mutationFn: api.addUser,
@@ -646,9 +674,27 @@ export function SettingsPage(): ReactNode {
     const patch = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
         setDraft(current => ({ ...current, [key]: value }));
     };
-    const save = (): void => {
-        settingsStore.save(draft);
-        notify('設定を保存しました', 'success');
+    const save = async (): Promise<void> => {
+        if (savingSettings) return;
+        if (visibleHistoryLimit !== null && (!Number.isInteger(visibleHistoryLimit) || visibleHistoryLimit < 1 || visibleHistoryLimit > 200)) {
+            notify('視聴履歴の保存件数は1～200件で指定してください', 'error');
+            return;
+        }
+        setSavingSettings(true);
+        try {
+            if (typeof activeUser === 'number' && visibleHistoryLimit !== null && historySettings.data !== undefined && visibleHistoryLimit !== historySettings.data.limit) {
+                const result = await api.updateRecordedPlaybackHistorySettings(activeUser, { limit: visibleHistoryLimit });
+                queryClient.setQueryData(['recorded-playback-history-settings', activeUser], result);
+                await queryClient.invalidateQueries({ queryKey: ['recorded-playback-history', activeUser] });
+            }
+            setHistoryLimitDraft(current => (current?.userId === activeUser ? null : current));
+            settingsStore.save(draft);
+            notify('設定を保存しました', 'success');
+        } catch (error) {
+            notify(`視聴履歴の保存件数を更新できませんでした: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        } finally {
+            setSavingSettings(false);
+        }
     };
     const encoderItems: WatchStreamEncoderSetting[] = ['Config', ...(config.data?.watchConfig?.availableEncoders ?? [])].filter(
         (value, index, array) => array.indexOf(value) === index,
@@ -663,9 +709,10 @@ export function SettingsPage(): ReactNode {
                     <Button
                         variant="contained"
                         startIcon={<SaveOutlined />}
+                        disabled={savingSettings}
                         onClick={() => {
                             if (activeSettingsTab === 'discord') discordSettingsRef.current?.save();
-                            else save();
+                            else void save();
                         }}
                     >
                         保存
@@ -899,6 +946,13 @@ export function SettingsPage(): ReactNode {
                                         </Button>
                                     </Stack>
                                 </SettingSection>
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                    <Tooltip title="全ての設定をリセットする">
+                                        <Button color="inherit" onClick={() => setDraft(structuredClone(defaultSettings))}>
+                                            リセット
+                                        </Button>
+                                    </Tooltip>
+                                </Box>
                             </>
                         )}
 
@@ -1058,6 +1112,16 @@ export function SettingsPage(): ReactNode {
                                         title="PLAY字幕をdanmakuで表示"
                                         description="オンにするとPLAYの字幕をDPlayerのdanmakuで表示し、オフにするとlibassで表示します。"
                                         control={<Switch checked={draft.watchPlaySubtitleDanmaku} onChange={event => patch('watchPlaySubtitleDanmaku', event.target.checked)} />}
+                                    />
+                                    <SettingRow
+                                        title="弾幕と字幕をプレイヤー設定欄から選択する"
+                                        description="PLAY再生の選択欄を映像上部から歯車の設定パネルへ移動します。danmaku表示が有効な場合は、弾幕と字幕を個別に選択できます。"
+                                        control={
+                                            <Switch
+                                                checked={draft.watchSelectSubtitleInPlayerSettings}
+                                                onChange={event => patch('watchSelectSubtitleInPlayerSettings', event.target.checked)}
+                                            />
+                                        }
                                     />
                                     <SettingRow
                                         title="danmakuを高リフレッシュレートで描画（実験的機能）"
@@ -1269,6 +1333,13 @@ export function SettingsPage(): ReactNode {
                                     control={<Switch checked={draft.isShowInformationalChannels} onChange={event => patch('isShowInformationalChannels', event.target.checked)} />}
                                 />
                                 <SettingRow
+                                    title="放送詳細を常に表示する"
+                                    description="番組ダイアログを開いたとき、ジャンルと映像・音声情報を展開して表示する"
+                                    control={
+                                        <Switch checked={draft.isAlwaysShowBroadcastDetails} onChange={event => patch('isAlwaysShowBroadcastDetails', event.target.checked)} />
+                                    }
+                                />
+                                <SettingRow
                                     title="放送波種別表示"
                                     description="ナビゲーションの表示を放送波別に分ける"
                                     control={
@@ -1301,6 +1372,13 @@ export function SettingsPage(): ReactNode {
                                     title="録画済みへ戻った番組を強調表示"
                                     description="録画詳細から一覧へ戻った際、元の録画を約1秒間ハイライトします。"
                                     control={<Switch checked={draft.isHighlightRecordedOnReturn} onChange={event => patch('isHighlightRecordedOnReturn', event.target.checked)} />}
+                                />
+                                <SettingRow
+                                    title="THUMBボタンを表示しない"
+                                    description="サムネイル再生成は録画詳細のメニューから実行できます"
+                                    control={
+                                        <Switch checked={draft.isHideRecordedThumbnailButton} onChange={event => patch('isHideRecordedThumbnailButton', event.target.checked)} />
+                                    }
                                 />
                                 <SettingRow
                                     title="録画済み表示件数"
@@ -1369,18 +1447,28 @@ export function SettingsPage(): ReactNode {
                                 />
                                 <SettingRow
                                     title="視聴履歴の保存件数"
-                                    description="EPGStationユーザーごとに保持する録画番組の視聴履歴件数"
+                                    description="選択中のユーザーに適用し、すべての端末で共有する視聴履歴件数"
                                     control={
                                         <TextField
                                             type="number"
                                             size="small"
-                                            value={draft.watchHistoryLength}
-                                            onChange={event => patch('watchHistoryLength', Number(event.target.value))}
+                                            value={visibleHistoryLimit ?? ''}
+                                            disabled={visibleHistoryLimit === null || savingSettings}
+                                            onChange={event => {
+                                                if (typeof activeUser === 'number') {
+                                                    const value = Number(event.target.value);
+                                                    setHistoryLimitDraft(value === historySettings.data?.limit ? null : { userId: activeUser, value });
+                                                }
+                                            }}
                                             slotProps={{ htmlInput: { min: 1, max: 200, step: 1 } }}
                                             sx={{ width: 120 }}
                                         />
                                     }
                                 />
+                                {typeof activeUser !== 'number' && <Alert severity="info">保存件数を変更するには通常ユーザーを選択してください。</Alert>}
+                                {historySettings.error !== null && (
+                                    <QueryLoadError label="視聴履歴設定" error={historySettings.error} onRetry={() => void historySettings.refetch()} />
+                                )}
                                 <SettingRow
                                     title="録画済み一覧にドロップ情報を表示"
                                     description="概要の代わりにdrop・error・scramblingを表示する"
@@ -2296,7 +2384,9 @@ export function SettingsPage(): ReactNode {
                                 />
                             </SettingSection>
                         )}
-                        {activeSettingsTab === 'discord' && <DiscordSettingsPanel ref={discordSettingsRef} />}
+                        <Box hidden={activeSettingsTab !== 'discord'}>
+                            <DiscordSettingsPanel ref={discordSettingsRef} active={activeSettingsTab === 'discord'} />
+                        </Box>
                     </Stack>
                 </Box>
             </Box>

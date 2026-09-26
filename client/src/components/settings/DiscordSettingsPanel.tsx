@@ -3,11 +3,12 @@ import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import SendOutlined from '@mui/icons-material/SendOutlined';
 import { Alert, Box, Button, Card, CardContent, Divider, FormControl, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import type {
     DiscordNotificationCondition,
     DiscordNotificationEvent,
     DiscordNotificationRule,
+    DiscordNotificationSettings,
     UpdateDiscordNotificationDestination,
     UpdateDiscordNotificationSettings,
 } from '../../../../api';
@@ -46,22 +47,23 @@ export interface DiscordSettingsPanelHandle {
     save(): void;
 }
 
-export const DiscordSettingsPanel = forwardRef<DiscordSettingsPanelHandle>(function DiscordSettingsPanel(_props, ref): ReactNode {
+export const DiscordSettingsPanel = forwardRef<DiscordSettingsPanelHandle, { active: boolean }>(function DiscordSettingsPanel({ active }, ref): ReactNode {
     const { notify } = useNotifications();
     const queryClient = useQueryClient();
     const settings = useQuery({
         queryKey: ['discord', 'settings'],
         queryFn: api.getDiscordNotificationSettings,
+        enabled: active,
     });
     const [enabled, setEnabled] = useState(false);
     const [destinations, setDestinations] = useState<DestinationDraft[]>([]);
     const [rules, setRules] = useState<DiscordNotificationRule[]>([]);
+    const [initialized, setInitialized] = useState(false);
 
-    useEffect(() => {
-        if (settings.data === undefined) return;
-        setEnabled(settings.data.enabled);
+    const applySettings = useCallback((value: DiscordNotificationSettings) => {
+        setEnabled(value.enabled);
         setDestinations(
-            settings.data.destinations.map(destination => ({
+            value.destinations.map(destination => ({
                 id: destination.id,
                 name: destination.name,
                 username: destination.username,
@@ -70,14 +72,20 @@ export const DiscordSettingsPanel = forwardRef<DiscordSettingsPanelHandle>(funct
                 clearWebhook: false,
             })),
         );
-        setRules(settings.data.rules);
-    }, [settings.data]);
+        setRules(value.rules);
+        setInitialized(true);
+    }, []);
+
+    useEffect(() => {
+        if (!initialized && settings.data !== undefined) applySettings(settings.data);
+    }, [applySettings, initialized, settings.data]);
 
     const destinationOptions = useMemo(() => destinations.map(destination => ({ id: destination.id, name: destination.name })), [destinations]);
 
     const saveSettings = useMutation({
         mutationFn: (value: UpdateDiscordNotificationSettings) => api.updateDiscordNotificationSettings(value),
         onSuccess: async result => {
+            applySettings(result);
             queryClient.setQueryData(['discord', 'settings'], result);
             notify('Discord通知設定を保存しました', 'success');
         },
@@ -122,7 +130,7 @@ export const DiscordSettingsPanel = forwardRef<DiscordSettingsPanelHandle>(funct
     };
 
     const save = (): void => {
-        if (settings.data === undefined || saveSettings.isPending) return;
+        if (!initialized || saveSettings.isPending) return;
         saveSettings.mutate({
             enabled,
             destinations: destinations.map(({ configured: _configured, ...destination }) => ({
@@ -134,11 +142,23 @@ export const DiscordSettingsPanel = forwardRef<DiscordSettingsPanelHandle>(funct
     };
     useImperativeHandle(ref, () => ({ save }));
 
-    if (settings.isLoading) return <Typography color="text.secondary">Discord通知設定を読み込んでいます…</Typography>;
-    if (settings.isError) return <Alert severity="error">Discord通知設定を読み込めませんでした: {settings.error.message}</Alert>;
+    const loadError = settings.isError ? (
+        <Alert
+            severity="error"
+            action={
+                <Button disabled={settings.isFetching} onClick={() => void settings.refetch()}>
+                    再試行
+                </Button>
+            }
+        >
+            Discord通知設定を読み込めませんでした: {settings.error.message}
+        </Alert>
+    ) : null;
+    if (!initialized) return loadError ?? <Typography color="text.secondary">Discord通知設定を読み込んでいます…</Typography>;
 
     return (
-        <Stack spacing={2}>
+        <Stack component="fieldset" disabled={saveSettings.isPending} spacing={2} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
+            {loadError}
             <Card variant="outlined">
                 <CardContent sx={{ p: { xs: 2, md: 2.5 }, '&:last-child': { pb: { xs: 2, md: 2.5 } } }}>
                     <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>

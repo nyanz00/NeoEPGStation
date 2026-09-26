@@ -1,7 +1,7 @@
 import CheckCircleOutlineOutlined from '@mui/icons-material/CheckCircleOutlineOutlined';
 import ErrorOutlineOutlined from '@mui/icons-material/ErrorOutlineOutlined';
 import SettingsInputAntennaOutlined from '@mui/icons-material/SettingsInputAntennaOutlined';
-import { Alert, Box, Card, CardContent, Chip, CircularProgress, Divider, Grid, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Grid, Stack, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { SystemMirakurunTuner, SystemMirakurunTunerUser } from '../../../api';
@@ -105,12 +105,38 @@ export function SystemMirakurunPanel(): ReactNode {
             </Box>
         );
     }
-    if (status.isError) return <Alert severity="error">Mirakurun状態を取得できませんでした: {status.error.message}</Alert>;
+    if (status.isError && status.data === undefined) {
+        return (
+            <Alert
+                severity="error"
+                action={
+                    <Button color="inherit" size="small" onClick={() => void status.refetch()} disabled={status.isFetching}>
+                        再試行
+                    </Button>
+                }
+            >
+                Mirakurun状態を取得できませんでした: {status.error.message}
+            </Alert>
+        );
+    }
 
     const info = status.data;
+    const refetchWarning = status.isError ? (
+        <Alert
+            severity="warning"
+            action={
+                <Button color="inherit" size="small" onClick={() => void status.refetch()} disabled={status.isFetching}>
+                    再試行
+                </Button>
+            }
+        >
+            Mirakurun状態の再取得に失敗しました。前回の情報を表示しています: {status.error.message}
+        </Alert>
+    ) : null;
     if (!info.connected) {
         return (
             <Stack spacing={2}>
+                {refetchWarning}
                 <Alert severity="error" icon={<ErrorOutlineOutlined />}>
                     <Typography variant="subtitle1">Mirakurunへ接続できません</Typography>
                     {info.error !== undefined && <Typography variant="body2">{info.error}</Typography>}
@@ -127,6 +153,7 @@ export function SystemMirakurunPanel(): ReactNode {
     const errorTotal = info.errorCount === undefined ? 0 : Object.values(info.errorCount).reduce((sum, count) => sum + count, 0);
     return (
         <Stack spacing={3}>
+            {refetchWarning}
             <Card variant="outlined">
                 <CardContent>
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between' }}>

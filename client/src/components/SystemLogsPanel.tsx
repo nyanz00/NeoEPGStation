@@ -4,6 +4,7 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import {
     Alert,
     Box,
+    Button,
     Card,
     CardContent,
     CircularProgress,
@@ -222,9 +223,22 @@ export function SystemLogsPanel(): ReactNode {
 
             {updateLogLevel.isError && <Alert severity="error">ログレベルを変更できませんでした: {updateLogLevel.error.message}</Alert>}
 
-            {logs.isError ? (
-                <Alert severity="error">ログを取得できませんでした: {logs.error.message}</Alert>
-            ) : (
+            {logs.isError && (
+                <Alert
+                    severity={logs.data === undefined ? 'error' : 'warning'}
+                    action={
+                        <Button color="inherit" size="small" onClick={() => void logs.refetch()} disabled={logs.isFetching}>
+                            再試行
+                        </Button>
+                    }
+                >
+                    {logs.data === undefined
+                        ? `ログを取得できませんでした: ${logs.error.message}`
+                        : `ログの再取得に失敗しました。前回のログを表示しています: ${logs.error.message}`}
+                </Alert>
+            )}
+
+            {logs.data === undefined && logs.isError ? null : (
                 <Card variant="outlined">
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} sx={{ px: 2, py: 1.25, justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider' }}>
                         <Typography variant="subtitle2">
@@ -232,7 +246,7 @@ export function SystemLogsPanel(): ReactNode {
                         </Typography>
                         {logs.data !== undefined && (
                             <Typography variant="caption" color="text.secondary">
-                                {logs.data.fileName}・{fileSize(logs.data.size)}
+                                {logs.data.fileOutputConfigured === false ? 'ファイル出力なし' : `${logs.data.fileName}・${fileSize(logs.data.size)}`}
                                 {logs.data.updatedAt !== undefined ? `・${new Date(logs.data.updatedAt).toLocaleString()}` : ''}
                                 {logs.data.truncated ? '・末尾のみ表示' : ''}
                             </Typography>
@@ -256,6 +270,8 @@ export function SystemLogsPanel(): ReactNode {
                             <Box sx={{ height: '100%', display: 'grid', placeItems: 'center' }}>
                                 <CircularProgress size={32} />
                             </Box>
+                        ) : logs.data?.fileOutputConfigured === false ? (
+                            <Typography sx={{ color: '#8b949e' }}>このログ種別にはファイル出力が設定されていません。</Typography>
                         ) : logs.data?.exists === false ? (
                             <Typography sx={{ color: '#8b949e' }}>このログファイルはまだ作成されていません。</Typography>
                         ) : visibleLines.length === 0 ? (
