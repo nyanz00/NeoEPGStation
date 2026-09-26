@@ -18,10 +18,6 @@ import {
     Chip,
     CircularProgress,
     Divider,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
     FormControl,
     FormControlLabel,
     IconButton,
@@ -39,18 +35,18 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import type { AddRuleOption, AnnictProgram, AnnictWorkDetail, AnnictWorkSummary, RuleSearchOption } from '../../../api';
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { AnnictProgram, AnnictWorkDetail, AnnictWorkSummary, RuleSearchOption } from '../../../api';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
-import { RuleEditorDialog } from '../components/RuleEditorDialog';
+import { type BulkRuleSaveResult, type BulkRuleTarget, RuleEditorDialog } from '../components/RuleEditorDialog';
+import { animeStationKey, buildAnimeSearchOption, buildBulkAnimeSearchOption, localDateFromIso } from '../core/animeRules';
 import { api } from '../core/api/queries';
-import { isPaidBroadcastChannel } from '../core/channels';
+import { isAudioVideoChannel, isPaidBroadcastChannel } from '../core/channels';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { rememberAppScrollPosition } from '../core/scrollRestoration';
-import { useActiveUser } from '../core/storage/activeUser';
 import { clearAnimeReturnPosition, type AnimeSortOrder, loadAnimeReturnPosition, loadAnimeSortOrder, saveAnimeReturnPosition, saveAnimeSortOrder } from '../core/storage/anime';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -124,24 +120,6 @@ function workStartDateValue(work: AnnictWorkSummary): number {
     return releaseDateValue(work.releasedOn ?? work.releasedOnAbout);
 }
 
-function localDateFromIso(value?: string): string | undefined {
-    if (value === undefined) return undefined;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return undefined;
-    const year = date.getFullYear().toString(10).padStart(4, '0');
-    const month = (date.getMonth() + 1).toString(10).padStart(2, '0');
-    const day = date.getDate().toString(10).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-
-const openSearchPeriodEndAt = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
-
-function firstBroadcastSearchPeriods(work: Pick<AnnictWorkSummary, 'firstProgramStartedAt'>): RuleSearchOption['searchPeriods'] | undefined {
-    const date = localDateFromIso(work.firstProgramStartedAt);
-    if (date === undefined) return undefined;
-    return [{ startAt: new Date(`${date}T00:00:00`).getTime(), endAt: openSearchPeriodEndAt }];
-}
-
 function Loading(): ReactNode {
     return (
         <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}>
@@ -174,42 +152,81 @@ function AnimeWorkImage({
     title,
     fallbackAnnictId,
     onResolvedImageUrl,
+    fadeIn = false,
 }: {
     imageUrl?: string;
     title: string;
     fallbackAnnictId?: number;
     onResolvedImageUrl?: (imageUrl: string) => void;
+    fadeIn?: boolean;
 }): ReactNode {
     const [activeImageUrl, setActiveImageUrl] = useState(imageUrl);
     const [failed, setFailed] = useState(false);
-    const fallbackRequested = useRef(false);
+    const [loaded, setLoaded] = useState(false);
+    const fallbackAttempt = useRef(0);
+    const imageVersion = useRef(0);
+    const fallbackInFlightVersion = useRef<number | null>(null);
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const onResolvedImageUrlRef = useRef(onResolvedImageUrl);
+    onResolvedImageUrlRef.current = onResolvedImageUrl;
     useEffect(() => {
+        imageVersion.current += 1;
         setActiveImageUrl(imageUrl);
         setFailed(false);
-        fallbackRequested.current = false;
+        setLoaded(false);
+        fallbackAttempt.current = 0;
     }, [imageUrl]);
-    const handleError = async (): Promise<void> => {
-        if (fallbackAnnictId === undefined || fallbackRequested.current) {
-            setFailed(true);
-            return;
-        }
-        fallbackRequested.current = true;
+    const handleError = useCallback(async (): Promise<void> => {
+        const version = imageVersion.current;
+        if (fallbackInFlightVersion.current === version) return;
+        fallbackInFlightVersion.current = version;
         try {
-            const detail = await api.getAnnictWork(fallbackAnnictId);
-            if (detail.imageUrl !== undefined && detail.imageUrl !== activeImageUrl) {
-                setActiveImageUrl(detail.imageUrl);
-                onResolvedImageUrl?.(detail.imageUrl);
-                setFailed(false);
-                return;
+            if (fallbackAnnictId !== undefined) {
+                while (fallbackAttempt.current < 2) {
+                    const refresh = fallbackAttempt.current === 1;
+                    fallbackAttempt.current += 1;
+                    try {
+                        const result = await api.getAnnictWorkImage(fallbackAnnictId, refresh);
+                        if (version !== imageVersion.current) return;
+                        if (result.imageUrl !== undefined && result.imageUrl !== activeImageUrl) {
+                            setLoaded(false);
+                            setActiveImageUrl(result.imageUrl);
+                            onResolvedImageUrlRef.current?.(result.imageUrl);
+                            setFailed(false);
+                            return;
+                        }
+                    } catch {
+                        if (version !== imageVersion.current) return;
+                    }
+                }
             }
-        } catch {
-            // 画像の代替取得失敗はプレースホルダー表示へフォールバックする。
+            if (version === imageVersion.current) {
+                setLoaded(false);
+                setFailed(true);
+            }
+        } finally {
+            if (fallbackInFlightVersion.current === version) fallbackInFlightVersion.current = null;
         }
-        setFailed(true);
-    };
+    }, [activeImageUrl, fallbackAnnictId]);
+    useEffect(() => {
+        if (imageUrl !== undefined || activeImageUrl !== undefined || failed || fallbackAnnictId === undefined || containerRef.current === null) return;
+        const observer = new IntersectionObserver(
+            entries => {
+                if (!entries.some(entry => entry.isIntersecting)) return;
+                observer.disconnect();
+                void handleError();
+            },
+            { rootMargin: '200px' },
+        );
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, [activeImageUrl, failed, fallbackAnnictId, handleError, imageUrl]);
     const visible = activeImageUrl !== undefined && !failed;
     return (
-        <Box sx={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', bgcolor: 'action.hover', display: 'grid', placeItems: 'center' }}>
+        <Box
+            ref={containerRef}
+            sx={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', bgcolor: 'action.hover', display: 'grid', placeItems: 'center' }}
+        >
             {!visible && <BrokenImageOutlined color="disabled" sx={{ fontSize: 48 }} />}
             {visible && (
                 <Box
@@ -217,8 +234,20 @@ function AnimeWorkImage({
                     src={activeImageUrl}
                     alt={`${title}の画像`}
                     draggable={false}
+                    loading="lazy"
+                    onLoad={() => setLoaded(true)}
                     onError={() => void handleError()}
-                    sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                    sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'contain',
+                        display: 'block',
+                        opacity: !fadeIn || loaded ? 1 : 0,
+                        transition: fadeIn ? 'opacity 180ms ease' : 'none',
+                        '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                    }}
                 />
             )}
         </Box>
@@ -231,44 +260,6 @@ const seasonLabels: Record<string, string> = {
     summer: '夏',
     autumn: '秋',
 };
-
-function stationKey(program: AnnictProgram): string {
-    return program.channelAnnictId !== undefined ? `annict:${program.channelAnnictId}` : `name:${program.channelName.normalize('NFKC').toUpperCase()}`;
-}
-
-function bulkRuleSearchOption(work: AnnictWorkDetail): RuleSearchOption {
-    const searchPeriods = firstBroadcastSearchPeriods(work);
-    const firstByStation = new Map<string, AnnictProgram>();
-    work.programs
-        .filter(program => program.localChannels.length > 0 && Date.parse(program.startedAt) >= Date.now())
-        .sort((left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt))
-        .forEach(program => {
-            const key = stationKey(program);
-            if (!firstByStation.has(key)) firstByStation.set(key, program);
-        });
-    const programs = [...firstByStation.values()];
-    if (programs.length === 0) {
-        return {
-            keyword: work.title,
-            name: true,
-            description: false,
-            extended: false,
-            times: [{ week: 0x7f }],
-            searchPeriods,
-        };
-    }
-    const channelIds = Array.from(new Set(programs.flatMap(program => program.localChannels.map(channel => channel.id))));
-    const week = programs.reduce((value, program) => value | (1 << new Date(program.startedAt).getDay()), 0);
-    return {
-        keyword: work.title,
-        name: true,
-        description: false,
-        extended: false,
-        channelIds,
-        times: [{ week: week === 0 ? 0x7f : week }],
-        searchPeriods,
-    };
-}
 
 function programDate(program: AnnictProgram): string {
     return new Intl.DateTimeFormat('ja-JP', {
@@ -463,6 +454,12 @@ function ProgramCard({ program, selected, onToggle }: { program: AnnictProgram; 
     );
 }
 
+interface BulkRulePreparation {
+    requestedAnnictIds: number[];
+    targets: BulkRuleTarget[];
+    detailFailures: Array<{ annictId: number; title: string }>;
+}
+
 export function AnimePage(): ReactNode {
     const navigate = useNavigate();
     const location = useLocation();
@@ -470,7 +467,6 @@ export function AnimePage(): ReactNode {
     const { notify } = useNotifications();
     const [params, setParams] = useSearchParams();
     const queryClient = useQueryClient();
-    const activeUser = useActiveUser();
     const settings = useSettings();
     const now = currentSeason();
     const parsedFocusAnnictId = Number(params.get('focus'));
@@ -506,9 +502,11 @@ export function AnimePage(): ReactNode {
     });
     const writeAvailable = status.data?.writeConfigured === true;
     const works = useQuery({
-        queryKey: ['annict', 'works', season, mode],
-        queryFn: () => api.getAnnictWorks(season, false, mode === 'rerun'),
+        queryKey: ['annict', 'works', season, mode, settings.annictExcludePaidChannels],
+        queryFn: () => api.getAnnictWorks(season, false, mode === 'rerun', settings.annictExcludePaidChannels),
         enabled: status.data?.configured === true,
+        refetchInterval: query => (query.state.data?.refreshPending === true || query.state.data?.enrichmentPending === true ? 2_000 : false),
+        refetchIntervalInBackground: false,
     });
     const viewerStatusIds = useMemo(() => works.data?.works.map(work => work.annictId) ?? [], [works.data?.works]);
     const viewerStatuses = useQuery({
@@ -520,110 +518,94 @@ export function AnimePage(): ReactNode {
     const viewerStatusMap = useMemo(() => new Map(viewerStatuses.data?.statuses.map(item => [item.annictId, item.kind]) ?? []), [viewerStatuses.data?.statuses]);
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedWorkIds, setSelectedWorkIds] = useState<Set<number>>(() => new Set());
-    const [bulkRuleConfirmOpen, setBulkRuleConfirmOpen] = useState(false);
+    const [bulkRulePreparation, setBulkRulePreparation] = useState<BulkRulePreparation | null>(null);
+    const previousExcludePaidChannels = useRef(settings.annictExcludePaidChannels);
+    const animeListSignature = `${season}:${mode}:${settings.annictExcludePaidChannels ? 'exclude-paid' : 'all'}`;
+    const [revealedAnimeList, setRevealedAnimeList] = useState(() => ({ signature: animeListSignature, animate: false }));
+    const selectedWorkSignature = [...selectedWorkIds].sort((left, right) => left - right).join(',');
     const markWatched = useMutation({
         mutationFn: (annictIds: number[]) => api.setAnnictViewerStatuses(annictIds, 'watched'),
-        onSuccess: async (_data, annictIds) => {
-            await queryClient.invalidateQueries({ queryKey: ['annict', 'viewer-statuses'] });
-            setSelectedWorkIds(new Set());
-            setSelectionMode(false);
-            notify(`${annictIds.length}作品を「見た」に更新しました`, 'success');
+        onSuccess: async result => {
+            await queryClient.invalidateQueries({ queryKey: ['annict', 'viewer-statuses'] }).catch(() => undefined);
+            const succeeded = result.results.filter(item => item.success).map(item => item.annictId);
+            const failed = result.results.filter(item => !item.success);
+            setSelectedWorkIds(new Set(failed.map(item => item.annictId)));
+            if (failed.length === 0) setSelectionMode(false);
+            notify(
+                failed.length === 0 ? `${succeeded.length}作品を「見た」に更新しました` : `${succeeded.length}作品を「見た」に更新しました（失敗 ${failed.length}件）`,
+                failed.length === 0 ? 'success' : 'warning',
+            );
         },
-        onError: error => notify(`Annictの視聴ステータスを更新できませんでした: ${error.message}`, 'error'),
+        onError: async error => {
+            await queryClient.invalidateQueries({ queryKey: ['annict', 'viewer-statuses'] }).catch(() => undefined);
+            notify(`Annictの視聴ステータスを更新できませんでした: ${error.message}`, 'error');
+        },
     });
-    const addSelectedRules = useMutation({
-        mutationFn: async (annictIds: number[]) => {
-            if (typeof activeUser !== 'number') throw new Error('設定画面でアクティブユーザーを選択してください');
-            const uniqueAnnictIds = [...new Set(annictIds)];
-            const rulePageSize = 1000;
-            const firstRulePage = await api.getRules({ type: 'normal', userId: activeUser, offset: 0, limit: rulePageSize });
-            const existingRules = [...firstRulePage.rules];
-            for (let offset = rulePageSize; offset < firstRulePage.total; offset += rulePageSize) {
-                const rulePage = await api.getRules({ type: 'normal', userId: activeUser, offset, limit: rulePageSize });
-                existingRules.push(...rulePage.rules);
-            }
-            const existingAnnictIds = new Set(existingRules.flatMap(rule => (rule.annictId === undefined ? [] : [rule.annictId])));
-            const pendingAnnictIds = uniqueAnnictIds.filter(annictId => !existingAnnictIds.has(annictId));
-            const alreadyAdded = uniqueAnnictIds.length - pendingAnnictIds.length;
-            const config = await api.getConfig();
-            const details: AnnictWorkDetail[] = [];
-            const detailFailures: string[] = [];
-            for (let index = 0; index < pendingAnnictIds.length; index += 4) {
-                const batchIds = pendingAnnictIds.slice(index, index + 4);
+    const prepareSelectedRules = useMutation({
+        mutationFn: async ({ annictIds }: { annictIds: number[]; listSignature: string; selectionSignature: string }): Promise<BulkRulePreparation> => {
+            const requestedAnnictIds = [...new Set(annictIds)];
+            const targets: BulkRuleTarget[] = [];
+            const detailFailures: BulkRulePreparation['detailFailures'] = [];
+            const fallbackChannels = settings.annictExcludePaidChannels ? await api.getChannels() : [];
+            for (let index = 0; index < requestedAnnictIds.length; index += 4) {
+                const batchIds = requestedAnnictIds.slice(index, index + 4);
                 const batch = await Promise.allSettled(batchIds.map(annictId => api.getAnnictWork(annictId)));
                 batch.forEach((result, offset) => {
-                    if (result.status === 'fulfilled') details.push(result.value);
-                    else {
-                        const work = works.data?.works.find(item => item.annictId === batchIds[offset]);
-                        detailFailures.push(work?.title ?? `Annict ID ${batchIds[offset]}`);
+                    const annictId = batchIds[offset];
+                    if (result.status === 'fulfilled') {
+                        targets.push({
+                            annictId,
+                            title: result.value.title,
+                            searchOption: buildBulkAnimeSearchOption(result.value, settings.annictExcludePaidChannels, fallbackChannels),
+                        });
+                    } else {
+                        const summary = works.data?.works.find(item => item.annictId === annictId);
+                        detailFailures.push({ annictId, title: summary?.title ?? `Annict ID ${annictId.toString(10)}` });
                     }
                 });
             }
-
-            const failed = [...detailFailures];
-            const linkWarnings: string[] = [];
-            let created = 0;
-            for (const detail of details) {
-                const searchOption = bulkRuleSearchOption(detail);
-                const directory = settings.isEnableCopyKeywordToDirectory ? detail.title : undefined;
-                const mode = settings.isEnableEncodingSettingWhenCreateRule ? config.encode[0] : undefined;
-                const option: AddRuleOption = {
-                    isTimeSpecification: false,
-                    userId: activeUser,
-                    searchOption,
-                    reserveOption: {
-                        enable: true,
-                        allowEndLack: true,
-                        avoidDuplicate: settings.isCheckAvoidDuplicate,
-                    },
-                    saveOption: directory === undefined ? undefined : { directory },
-                    encodeOption:
-                        mode === undefined
-                            ? undefined
-                            : {
-                                  mode1: mode,
-                                  directory1: directory,
-                                  isDeleteOriginalAfterEncode: settings.isCheckDeleteOriginalAfterEncode,
-                                  updateThumbnail: false,
-                              },
-                };
-                try {
-                    const ruleId = await api.addRule(option);
-                    created++;
-                    try {
-                        await api.linkAnnictRule(ruleId, detail.annictId);
-                    } catch {
-                        if (viewerProfile.profileId !== null && writeAvailable) linkWarnings.push(detail.title);
-                    }
-                } catch {
-                    failed.push(detail.title);
-                }
+            return { requestedAnnictIds, targets, detailFailures };
+        },
+        onSuccess: (preparation, variables) => {
+            if (variables.listSignature !== animeListSignature || variables.selectionSignature !== selectedWorkSignature) return;
+            if (preparation.targets.length === 0) {
+                notify('作品情報を取得できなかったため、ルール追加ダイアログを開けませんでした', 'error');
+                return;
             }
-            return { requested: uniqueAnnictIds.length, created, alreadyAdded, failed, linkWarnings };
+            if (preparation.detailFailures.length > 0) {
+                notify(`作品情報を取得できなかった${preparation.detailFailures.length}件を除いて設定を開きます`, 'warning');
+            }
+            setBulkRulePreparation(preparation);
         },
-        onSuccess: async result => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['rules'] }),
-                queryClient.invalidateQueries({ queryKey: ['reserves'] }),
-                queryClient.invalidateQueries({ queryKey: ['reserve-counts'] }),
-                queryClient.invalidateQueries({ queryKey: ['reserve-lists'] }),
-                queryClient.invalidateQueries({ queryKey: ['annict', 'viewer-statuses'] }),
-            ]);
-            const notes = [
-                result.alreadyAdded > 0 ? `追加済み ${result.alreadyAdded}件` : '',
-                result.failed.length > 0 ? `追加失敗 ${result.failed.length}件` : '',
-                result.linkWarnings.length > 0 ? `Annict連携警告 ${result.linkWarnings.length}件` : '',
-            ].filter(Boolean);
-            notify(
-                `${result.created}/${result.requested}作品のルールを追加しました${notes.length > 0 ? `（${notes.join('、')}）` : ''}`,
-                result.created < result.requested || result.linkWarnings.length > 0 ? 'warning' : 'success',
-            );
-            setBulkRuleConfirmOpen(false);
-            setSelectionMode(false);
-            setSelectedWorkIds(new Set());
-        },
-        onError: error => notify(`一括ルール追加に失敗しました: ${error.message}`, 'error'),
+        onError: error => notify(`一括ルール追加の準備に失敗しました: ${error.message}`, 'error'),
     });
+
+    const finishBulkRuleSave = (result: BulkRuleSaveResult): void => {
+        if (bulkRulePreparation === null) return;
+        const failed = [...bulkRulePreparation.detailFailures, ...result.failed];
+        const failedIds = new Set(failed.map(item => item.annictId));
+        const notes = [
+            result.alreadyAddedAnnictIds.length > 0 ? `追加済み ${result.alreadyAddedAnnictIds.length}件` : '',
+            failed.length > 0 ? `追加失敗 ${failed.length}件` : '',
+            result.linkWarnings.length > 0 ? `Annict連携警告 ${result.linkWarnings.length}件` : '',
+        ].filter(Boolean);
+        notify(
+            `${result.createdAnnictIds.length}/${bulkRulePreparation.requestedAnnictIds.length}作品のルールを追加しました${notes.length > 0 ? `（${notes.join('、')}）` : ''}`,
+            failed.length > 0 || result.linkWarnings.length > 0 ? 'warning' : 'success',
+        );
+        setBulkRulePreparation(null);
+        setSelectedWorkIds(failedIds);
+        if (failedIds.size === 0) setSelectionMode(false);
+    };
+
+    const refreshWorks = (): void => {
+        void queryClient
+            .fetchQuery({
+                queryKey: ['annict', 'works', season, mode, settings.annictExcludePaidChannels],
+                queryFn: () => api.getAnnictWorks(season, true, mode === 'rerun', settings.annictExcludePaidChannels),
+            })
+            .catch(() => undefined);
+    };
 
     useEffect(() => {
         if (!writeAvailable && watchingOnly) setWatchingOnly(false);
@@ -651,6 +633,11 @@ export function AnimePage(): ReactNode {
             return popularityDifference !== 0 ? popularityDifference : left.title.localeCompare(right.title, 'ja');
         });
     }, [filterKeyword, showNonTv, sortOrder, viewerStatuses.error, viewerStatusMap, watchingOnly, works.data?.works, writeAvailable]);
+    const animeListWaiting = works.isPending || (watchingOnly && writeAvailable && viewerStatuses.isPending);
+    useLayoutEffect(() => {
+        if (animeListWaiting || revealedAnimeList.signature === animeListSignature) return;
+        setRevealedAnimeList({ signature: animeListSignature, animate: true });
+    }, [animeListSignature, animeListWaiting, revealedAnimeList.signature]);
 
     const toggleWorkSelection = (annictId: number): void => {
         setSelectedWorkIds(current => {
@@ -666,12 +653,22 @@ export function AnimePage(): ReactNode {
         setSelectedWorkIds(new Set());
     };
 
+    useEffect(() => {
+        if (previousExcludePaidChannels.current === settings.annictExcludePaidChannels) return;
+        previousExcludePaidChannels.current = settings.annictExcludePaidChannels;
+        setSelectionMode(false);
+        setSelectedWorkIds(new Set());
+        setBulkRulePreparation(null);
+    }, [settings.annictExcludePaidChannels]);
+
     const changeSortOrder = (value: AnimeSortOrder): void => {
         setSortOrder(value);
         saveAnimeSortOrder(value);
     };
 
     const changeSeason = (nextYear: number, nextSeasonName: SeasonName): void => {
+        finishSelectionMode();
+        setBulkRulePreparation(null);
         setYear(nextYear);
         setSeasonName(nextSeasonName);
         const nextParams = new URLSearchParams(params);
@@ -682,6 +679,8 @@ export function AnimePage(): ReactNode {
     };
 
     const changeMode = (): void => {
+        finishSelectionMode();
+        setBulkRulePreparation(null);
         const nextMode = mode === 'initial' ? 'rerun' : 'initial';
         const nextParams = new URLSearchParams(params);
         if (nextMode === 'rerun') nextParams.set('mode', 'rerun');
@@ -800,13 +799,19 @@ export function AnimePage(): ReactNode {
                                     size="small"
                                     variant="outlined"
                                     startIcon={<PlaylistAddOutlined />}
-                                    disabled={selectedWorkIds.size === 0 || addSelectedRules.isPending}
-                                    onClick={() => setBulkRuleConfirmOpen(true)}
+                                    disabled={selectedWorkIds.size === 0 || prepareSelectedRules.isPending}
+                                    onClick={() =>
+                                        prepareSelectedRules.mutate({
+                                            annictIds: [...selectedWorkIds],
+                                            listSignature: animeListSignature,
+                                            selectionSignature: selectedWorkSignature,
+                                        })
+                                    }
                                     sx={{ minWidth: { xs: 34, md: 'auto' }, px: { xs: 0.5, md: 1 }, '& .MuiButton-startIcon': { mr: { xs: 0, md: 0.5 } } }}
                                     aria-label="選択した作品のルールを一括追加"
                                 >
                                     <Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>
-                                        ルール追加
+                                        {prepareSelectedRules.isPending ? '準備中…' : 'ルール追加'}
                                     </Box>
                                 </Button>
                             </Stack>
@@ -825,45 +830,22 @@ export function AnimePage(): ReactNode {
                                 {selectionMode ? '選択終了' : '一括選択'}
                             </Box>
                         </Button>
-                        <IconButton
-                            aria-label="更新"
-                            disabled={!works.data}
-                            onClick={() =>
-                                void queryClient.fetchQuery({
-                                    queryKey: ['annict', 'works', season, mode],
-                                    queryFn: () => api.getAnnictWorks(season, true, mode === 'rerun'),
-                                })
-                            }
-                        >
+                        <IconButton aria-label="更新" disabled={status.data?.configured !== true || works.isFetching} onClick={refreshWorks}>
                             <RefreshOutlined />
                         </IconButton>
                     </Stack>
                 }
             />
-            <Dialog
-                open={bulkRuleConfirmOpen}
-                onClose={() => {
-                    if (!addSelectedRules.isPending) setBulkRuleConfirmOpen(false);
-                }}
-                maxWidth="sm"
-                fullWidth
-            >
-                <DialogTitle>ルールを一括追加</DialogTitle>
-                <DialogContent>
-                    <Typography>
-                        選択した{selectedWorkIds.size}
-                        作品について、受信可能な放送局と曜日を使ったルールを作品ごとに追加します。今後の受信可能な放送予定がない作品は、作品名のみ・全局・全曜日のルールを追加します。同じAnnict作品のルールが既にある作品はスキップします。
-                    </Typography>
-                </DialogContent>
-                <DialogActions>
-                    <Button disabled={addSelectedRules.isPending} onClick={() => setBulkRuleConfirmOpen(false)}>
-                        キャンセル
-                    </Button>
-                    <Button variant="contained" disabled={selectedWorkIds.size === 0 || addSelectedRules.isPending} onClick={() => addSelectedRules.mutate([...selectedWorkIds])}>
-                        {addSelectedRules.isPending ? '追加中…' : '追加'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
+            {bulkRulePreparation !== null && (
+                <RuleEditorDialog
+                    open
+                    searchOption={bulkRulePreparation.targets[0]?.searchOption ?? {}}
+                    priorityChannelIds={Array.from(new Set(bulkRulePreparation.targets.flatMap(target => target.searchOption.channelIds ?? [])))}
+                    bulkTargets={bulkRulePreparation.targets}
+                    onClose={() => setBulkRulePreparation(null)}
+                    onBulkSaved={finishBulkRuleSave}
+                />
+            )}
             {status.isPending ? (
                 <Loading />
             ) : status.isError ? (
@@ -938,15 +920,41 @@ export function AnimePage(): ReactNode {
                             </Box>
                         </Stack>
                     </PageSubHeader>
-                    <Stack spacing={2} sx={{ p: { xs: 1.5, md: 3 } }}>
-                        {works.data?.stale === true && <Alert severity="warning">Annictへ接続できなかったため、保存済みデータを表示しています。</Alert>}
+                    <Stack
+                        key={revealedAnimeList.signature}
+                        spacing={2}
+                        onAnimationEnd={event => {
+                            if (event.target !== event.currentTarget) return;
+                            setRevealedAnimeList(current => (current.animate ? { ...current, animate: false } : current));
+                        }}
+                        sx={{
+                            p: { xs: 1.5, md: 3 },
+                            animation: revealedAnimeList.animate ? 'anime-list-fade-in 320ms ease both' : 'none',
+                            '@keyframes anime-list-fade-in': {
+                                from: { opacity: 0 },
+                                to: { opacity: 1 },
+                            },
+                            '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+                        }}
+                    >
+                        {works.data?.stale === true &&
+                            (works.data.refreshPending === true ? (
+                                <Alert severity="info">保存済みデータを表示しています。最新情報はバックグラウンドで取得中です。</Alert>
+                            ) : (
+                                <Alert severity="warning">Annictへ接続できなかったため、保存済みデータを表示しています。</Alert>
+                            ))}
+                        {works.error !== null && works.data !== undefined && (
+                            <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
+                        )}
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>
                         )}
-                        {works.isPending || (watchingOnly && writeAvailable && viewerStatuses.isPending) ? (
+                        {animeListWaiting || revealedAnimeList.signature !== animeListSignature ? (
                             <Loading />
-                        ) : works.error !== null ? (
-                            <Alert severity="error">{queryErrorMessage(works.error)}</Alert>
+                        ) : works.error !== null && works.data === undefined ? (
+                            <Alert severity="error" action={<Button onClick={refreshWorks}>再試行</Button>}>
+                                {queryErrorMessage(works.error)}
+                            </Alert>
                         ) : visibleWorks.length === 0 ? (
                             <Alert severity="info">条件に一致する作品はありません。</Alert>
                         ) : (
@@ -1012,6 +1020,7 @@ export function AnimePage(): ReactNode {
                                                     imageUrl={work.imageUrl}
                                                     title={work.title}
                                                     fallbackAnnictId={work.annictId}
+                                                    fadeIn
                                                     onResolvedImageUrl={imageUrl =>
                                                         setResolvedImageUrls(current => (current[work.annictId] === imageUrl ? current : { ...current, [work.annictId]: imageUrl }))
                                                     }
@@ -1065,7 +1074,7 @@ export function AnimeDetailPage(): ReactNode {
     const channels = useQuery({
         queryKey: ['channels'],
         queryFn: api.getChannels,
-        enabled: config.data?.developerMode === true && settings.annictSupplementalChannelIds.length > 0,
+        enabled: settings.annictExcludePaidChannels || (config.data?.developerMode === true && settings.annictSupplementalChannelIds.length > 0),
     });
     const detailState = location.state as { imageUrl?: string; mode?: 'initial' | 'rerun'; fromAnimeList?: boolean } | null;
     const listImageUrl = detailState?.imageUrl;
@@ -1099,7 +1108,7 @@ export function AnimeDetailPage(): ReactNode {
     const { firstPrograms, additionalPrograms } = useMemo(() => {
         const groups = new Map<string, AnnictProgram[]>();
         receivable.forEach(program => {
-            const key = stationKey(program);
+            const key = animeStationKey(program);
             const items = groups.get(key) ?? [];
             items.push(program);
             groups.set(key, items);
@@ -1116,11 +1125,11 @@ export function AnimeDetailPage(): ReactNode {
             additionalPrograms: additional.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)),
         };
     }, [receivable]);
-    const selectionSignature = firstPrograms.map(program => `${stationKey(program)}:${program.annictId}`).join('|');
+    const selectionSignature = firstPrograms.map(program => `${animeStationKey(program)}:${program.annictId}`).join('|');
 
     useEffect(() => {
         if (selectionSource === selectionSignature) return;
-        setSelectedStationKeys(new Set(firstPrograms.map(stationKey)));
+        setSelectedStationKeys(new Set(firstPrograms.map(animeStationKey)));
         setSelectionSource(selectionSignature);
     }, [firstPrograms, selectionSignature, selectionSource]);
 
@@ -1143,44 +1152,48 @@ export function AnimeDetailPage(): ReactNode {
         return () => window.cancelAnimationFrame(frame);
     }, [annictId]);
 
-    const selectedPrograms = useMemo(() => firstPrograms.filter(program => selectedStationKeys.has(stationKey(program))), [firstPrograms, selectedStationKeys]);
+    const selectedPrograms = useMemo(() => firstPrograms.filter(program => selectedStationKeys.has(animeStationKey(program))), [firstPrograms, selectedStationKeys]);
     const selectedChannelIds = useMemo(
         () => Array.from(new Set([...selectedPrograms.flatMap(program => program.localChannels.map(channel => channel.id)), ...selectedSupplementalChannelIds])),
         [selectedPrograms, selectedSupplementalChannelIds],
     );
+    const freeFallbackChannelIds = useMemo(
+        () =>
+            settings.annictExcludePaidChannels
+                ? (channels.data ?? []).filter(channel => isAudioVideoChannel(channel) && !isPaidBroadcastChannel(channel)).map(channel => channel.id)
+                : [],
+        [channels.data, settings.annictExcludePaidChannels],
+    );
+    const effectiveSearchChannelIds = selectedChannelIds.length > 0 ? selectedChannelIds : freeFallbackChannelIds;
     const selectedWeek = useMemo(
         () => (selectedSupplementalChannelIds.size > 0 ? 0x7f : selectedPrograms.reduce((value, program) => value | (1 << new Date(program.startedAt).getDay()), 0)),
         [selectedPrograms, selectedSupplementalChannelIds.size],
     );
     const titleOnlyFallback = firstPrograms.length === 0 && selectedSupplementalChannelIds.size === 0;
-    const canOpenSearch = selectedChannelIds.length > 0 || titleOnlyFallback;
+    const canOpenSearch = selectedChannelIds.length > 0 || (titleOnlyFallback && (!settings.annictExcludePaidChannels || freeFallbackChannelIds.length > 0));
     const searchOption = useMemo<RuleSearchOption>(
-        () => ({
-            keyword: work.data?.title ?? '',
-            name: true,
-            description: false,
-            extended: false,
-            channelIds: selectedChannelIds,
-            times: [{ week: selectedWeek === 0 ? 0x7f : selectedWeek }],
-            searchPeriods: work.data === undefined ? undefined : firstBroadcastSearchPeriods(work.data),
-        }),
-        [selectedChannelIds, selectedWeek, work.data],
+        () => buildAnimeSearchOption({ title: work.data?.title ?? '', firstProgramStartedAt: work.data?.firstProgramStartedAt }, effectiveSearchChannelIds, selectedWeek),
+        [effectiveSearchChannelIds, selectedWeek, work.data],
     );
 
     const openSearch = (): void => {
         if (work.data === undefined) return;
         const params = new URLSearchParams({
-            keyword: work.data.title,
-            week: String(selectedWeek === 0 ? 0x7f : selectedWeek),
+            keyword: searchOption.keyword ?? work.data.title,
+            week: String(searchOption.times?.[0]?.week ?? 0x7f),
             origin: 'anime',
             annictId: String(annictId),
-            genre: '7',
+            genre: String(searchOption.genres?.[0]?.genre ?? 7),
             auto: '1',
+            mode,
         });
-        const firstBroadcastDate = localDateFromIso(work.data.firstProgramStartedAt);
+        if (returnYear !== undefined) params.set('year', String(returnYear));
+        if (isSeasonName(returnSeason)) params.set('season', returnSeason);
+        const searchStartAt = searchOption.searchPeriods?.[0]?.startAt;
+        const firstBroadcastDate = searchStartAt === undefined ? undefined : localDateFromIso(new Date(searchStartAt).toISOString());
         if (firstBroadcastDate !== undefined) params.set('startDate', firstBroadcastDate);
-        selectedChannelIds.forEach(channelId => params.append('channelId', String(channelId)));
-        void navigate(`/search?${params.toString()}`);
+        searchOption.channelIds?.forEach(channelId => params.append('channelId', String(channelId)));
+        void navigate(`/search?${params.toString()}`, { state: { fromAnimeDetail: true } });
     };
 
     const toggleStation = (key: string): void => {
@@ -1280,14 +1293,16 @@ export function AnimeDetailPage(): ReactNode {
                             </Typography>
                         </Box>
                         {firstPrograms.length === 0 && selectedSupplementalChannelIds.size === 0 ? (
-                            <Alert severity="info">現在取得できる受信可能局の放送予定がないため、作品タイトルを全局・全曜日で検索できます。</Alert>
+                            <Alert severity="info">
+                                現在取得できる受信可能局の放送予定がないため、作品タイトルを{settings.annictExcludePaidChannels ? '無料局' : '全局'}・全曜日で検索できます。
+                            </Alert>
                         ) : firstPrograms.length > 0 ? (
                             <Stack spacing={1}>
                                 <Typography variant="body2" color="text.secondary">
                                     検索・ルール作成の対象にする局を選択してください。各局の最初の放送予定を表示しています。
                                 </Typography>
                                 {firstPrograms.map(program => {
-                                    const key = stationKey(program);
+                                    const key = animeStationKey(program);
                                     return <ProgramCard key={key} program={program} selected={selectedStationKeys.has(key)} onToggle={() => toggleStation(key)} />;
                                 })}
                                 {additionalPrograms.length > 0 && (
@@ -1314,7 +1329,7 @@ export function AnimeDetailPage(): ReactNode {
                         )}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                             <Button variant="contained" startIcon={<SearchOutlined />} disabled={!canOpenSearch} onClick={openSearch}>
-                                {titleOnlyFallback ? '全局・全曜日で検索・予約候補' : '検索・予約候補'}
+                                {titleOnlyFallback ? (settings.annictExcludePaidChannels ? '無料局・全曜日で検索・予約候補' : '全局・全曜日で検索・予約候補') : '検索・予約候補'}
                             </Button>
                             <Button variant="outlined" startIcon={<CalendarMonthOutlined />} disabled={selectedChannelIds.length === 0} onClick={() => setRuleOpen(true)}>
                                 選択した局・曜日でルール作成
