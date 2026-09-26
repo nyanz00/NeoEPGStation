@@ -109,25 +109,25 @@ export default class EventSetter implements IEventSetter {
         // ルール追加イベント
         this.ruleEvent.setAdded(ruleId => {
             this.ipc.notifyClient();
-            this.reservationManage.updateRule(ruleId);
+            this.updateRuleReservation(ruleId);
         });
 
         // ルール更新イベント
         this.ruleEvent.setUpdated(ruleId => {
             this.ipc.notifyClient();
-            this.reservationManage.updateRule(ruleId);
+            this.updateRuleReservation(ruleId);
         });
 
         // ルール有効化イベント
         this.ruleEvent.setEnabled(ruleId => {
             this.ipc.notifyClient();
-            this.reservationManage.updateRule(ruleId);
+            this.updateRuleReservation(ruleId);
         });
 
         // ルール無効化イベント
         this.ruleEvent.setDisabled(ruleId => {
             this.ipc.notifyClient();
-            this.reservationManage.updateRule(ruleId);
+            this.updateRuleReservation(ruleId);
         });
 
         // ルール削除イベント
@@ -137,10 +137,7 @@ export default class EventSetter implements IEventSetter {
                 this.log.system.error(`failed to remove ruleId from recorded. ruleId: ${ruleId}`);
                 this.log.system.error(err);
             });
-            this.reservationManage.updateRule(ruleId).catch(err => {
-                this.log.system.error(`falied to update rule. ruleId: ${ruleId}`);
-                this.log.system.error(err);
-            });
+            this.updateRuleReservation(ruleId);
         });
 
         // 予約情報更新イベント
@@ -445,5 +442,12 @@ export default class EventSetter implements IEventSetter {
                 });
             }
         }
+    }
+
+    private updateRuleReservation(ruleId: apid.RuleId): void {
+        this.reservationManage.updateRule(ruleId).catch(err => {
+            this.log.system.error(`failed to update reservations for rule. ruleId: ${ruleId}`);
+            this.log.system.error(err);
+        });
     }
 }

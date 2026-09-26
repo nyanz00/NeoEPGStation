@@ -1,6 +1,7 @@
 import * as apid from '../../../../api';
 
 export default interface IRuleManageModel {
+    removeMissingEncodePresets(): Promise<void>;
     add(rule: apid.AddRuleOption): Promise<apid.RuleId>;
     update(rule: apid.Rule): Promise<void>;
     enable(ruleId: apid.RuleId): Promise<void>;

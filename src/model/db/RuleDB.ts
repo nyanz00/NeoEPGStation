@@ -689,6 +689,10 @@ export default class RuleDB implements IRuleDB {
             .from(Rule, 'rule')
             .orderBy('rule.id', 'ASC');
 
+        if (typeof option.userId !== 'undefined') {
+            queryBuilder = queryBuilder.andWhere('rule.userId = :userId', { userId: option.userId });
+        }
+
         // keyword
         if (typeof option.keyword !== 'undefined') {
             const names = StrUtil.toHalf(option.keyword).split(/ /);
