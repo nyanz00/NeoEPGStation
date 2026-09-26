@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
     isExpectedUpdateRepository,
+    isSupportedStableUpdateTarget,
     isStartSystemUpdateOption,
     STABLE_UPDATE_TAG_PATTERN,
 } = require('../../dist/model/update/UpdateValidation.js');
@@ -43,6 +44,13 @@ test('stable update tags exclude prereleases and option-like input', () => {
     for (const tag of ['v2.10.0-beta3', 'v2.10.0-rc1', '--upload-pack=evil', 'v2.10.0;calc']) {
         assert.equal(STABLE_UPDATE_TAG_PATTERN.test(tag), false);
     }
+});
+
+test('stable updater rejects releases from before the React migration', () => {
+    assert.equal(isSupportedStableUpdateTarget('v2.10.0', false), false);
+    assert.equal(isSupportedStableUpdateTarget('v2.9.1', false), false);
+    assert.equal(isSupportedStableUpdateTarget('v1.0.0', true), true);
+    assert.equal(isSupportedStableUpdateTarget('v1.0.0-beta.4', true), false);
 });
 
 test('Windows command shims are launched through cmd.exe', () => {
