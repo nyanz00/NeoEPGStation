@@ -194,6 +194,30 @@ export interface AnnictViewerStatuses {
     statuses: AnnictViewerStatus[];
 }
 
+export interface AnnictViewerStatusUpdateResult {
+    annictId: number;
+    success: boolean;
+    error?: string;
+}
+
+export interface AnnictViewerStatusUpdateResults {
+    results: AnnictViewerStatusUpdateResult[];
+}
+
+export interface AnnictRuleLinkResult {
+    linked: boolean;
+    statusUpdated: boolean;
+    statusUpdateSkipped?: boolean;
+    statusUpdateError?: string;
+}
+
+/** ルール操作の結果。ルール操作自体は成功しAnnict同期のみ失敗した場合、警告内容を含む。 */
+export interface RuleMutationResult {
+    code: number;
+    annictStatusError?: string;
+    annictLinkError?: string;
+}
+
 export type AnnictRecordedEpisodeState = 'unlinked' | 'pending' | 'matched';
 
 export type AnnictRecordedEpisodePendingReason =
@@ -230,9 +254,11 @@ export interface RecordedPlayback {
 export interface UpdateRecordedPlaybackOption {
     position: number;
     duration: number;
-    watchedSecondsDelta: number;
+    /** Legacy clients send a delta; new clients send a cumulative total for an idempotent session. */
+    watchedSecondsDelta?: number;
+    sessionId?: string;
+    sessionWatchedSeconds?: number;
     observedAt: UnixtimeMS;
-    historyLimit?: number;
 }
 
 export interface RecordedPlaybackHistoryItem {
@@ -246,6 +272,12 @@ export interface RecordedPlaybackHistory {
 
 export interface RecordedPlaybackHistorySettings {
     enabled: boolean;
+    limit: number;
+}
+
+export interface UpdateRecordedPlaybackHistorySettingsOption {
+    enabled?: boolean;
+    limit?: number;
 }
 
 export interface RecordedListPosition {
@@ -280,6 +312,8 @@ export interface AnnictWorkList {
     rerun?: boolean;
     cachedAt: number;
     stale: boolean;
+    refreshPending?: boolean;
+    enrichmentPending?: boolean;
 }
 
 export interface AnnictProgram {
@@ -582,6 +616,7 @@ export interface ReserveLists {
  */
 export interface ReserveListItem {
     reserveId: ReserveId;
+    userId?: UserId;
     programId?: ProgramId;
     ruleId?: RuleId;
 }
@@ -876,6 +911,14 @@ export interface DropLogFile {
     errorCnt: number;
     dropCnt: number;
     scramblingCnt: number;
+}
+
+/**
+ * Active recording drop-log counters
+ */
+export interface RecordingDropLogStatus {
+    recordedId: RecordedId;
+    dropLogFile: DropLogFile;
 }
 
 /**
@@ -1201,6 +1244,16 @@ export interface EncodeInfo {
     runningItems: EncodeProgramItem[]; // エンコード中
     waitItems: EncodeProgramItem[]; // エンコード待ち
     scheduledItems: EncodeProgramItem[]; // 開始時刻待ち
+    recoveryItems: EncodeRecoveryItem[]; // 要確認
+}
+
+export interface EncodeRecoveryItem {
+    id: EncodeId;
+    status: 'paused' | 'needs_attention';
+    mode: string | null;
+    recorded?: RecordedItem | null;
+    reason: string;
+    canRetry: boolean;
 }
 
 export interface EncodeQueueOrderOption {
@@ -1215,6 +1268,7 @@ export interface EncodeProgramItem {
     percent?: number;
     log?: string;
     scheduledAt?: UnixtimeMS;
+    scheduledAtLabel?: string;
 }
 
 /**
@@ -1296,7 +1350,14 @@ export interface VideoFileStreamInfoItem extends LiveStreamInfoItem {
  * アップロードするビデオ情報
  */
 export interface UploadVideoFileOption {
-    recordedId: RecordedId; // 紐付ける recorded id
+    recordedId?: RecordedId; // 紐付ける recorded id。未指定のM2TSはEITから録画情報を作成
+    userId?: UserId;
+    channelId?: ChannelId;
+    startAt?: UnixtimeMS;
+    duration?: number; // 録画時間（ミリ秒）
+    name?: string;
+    description?: string;
+    extended?: string;
     parentDirectoryName: string; // 保存先ディレクトリ名
     subDirectory?: string; // 保存先サブディレクトリ
     viewName: string; // UI 上での表示名
@@ -1346,7 +1407,12 @@ export interface DiskUsage {
 export interface StorageItem extends DiskUsage {
     name: string;
     breakdownPending?: boolean;
-    breakdown: StorageBreakdown;
+    breakdownError?: boolean;
+    breakdown?: StorageBreakdown;
+}
+
+export interface StorageItemError {
+    name: string;
 }
 
 export interface StorageBreakdown {
@@ -1425,6 +1491,7 @@ export interface SystemLogInfo {
     category: SystemLogCategory;
     level: SystemLogLevel;
     fileName: string;
+    fileOutputConfigured?: boolean;
     exists: boolean;
     size: number;
     updatedAt?: number;
@@ -1494,6 +1561,7 @@ export interface SystemMirakurunInfo {
  */
 export interface StorageInfo {
     items: StorageItem[];
+    errors?: StorageItemError[];
     system: SystemResourceInfo;
 }
 

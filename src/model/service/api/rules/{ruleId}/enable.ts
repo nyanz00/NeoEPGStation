@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../../ApiOperation';
 import IAnnictApiModel from '../../../../api/annict/IAnnictApiModel';
 import IRuleApiModel from '../../../../api/rule/IRuleApiModel';
 import container from '../../../../ModelContainer';
@@ -10,9 +10,9 @@ export const put: Operation = async (req, res) => {
     try {
         const ruleId = parseInt(req.params.ruleId, 10);
         await ruleApiModel.enable(ruleId);
-        await container.get<IAnnictApiModel>('IAnnictApiModel').syncEnabledRule(ruleId);
+        const annictStatusError = await container.get<IAnnictApiModel>('IAnnictApiModel').syncEnabledRule(ruleId);
 
-        api.responseJSON(res, 200, { code: 200 });
+        api.responseJSON(res, 200, { code: 200, ...(annictStatusError === undefined ? {} : { annictStatusError }) });
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
@@ -30,6 +30,13 @@ put.apiDoc = {
     responses: {
         200: {
             description: 'ルールを有効化しました',
+            content: {
+                'application/json': {
+                    schema: {
+                        $ref: '#/components/schemas/RuleMutationResult',
+                    },
+                },
+            },
         },
         default: {
             description: '予期しないエラー',

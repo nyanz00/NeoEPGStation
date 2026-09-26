@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import * as apid from '../../../../../api';
 import IMisskeyApiModel from '../../../api/misskey/IMisskeyApiModel';
 import container from '../../../ModelContainer';

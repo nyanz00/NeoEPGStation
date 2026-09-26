@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../ApiOperation';
 import * as fs from 'fs';
 import * as path from 'path';
 import UpdateManager from '../../update/UpdateManager';

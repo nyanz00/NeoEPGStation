@@ -1,23 +1,23 @@
-import { Operation } from '../../ApiOperation';
-import IEncodeApiModel from '../../../api/encode/IEncodeApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../../ApiOperation';
+import IEncodeApiModel from '../../../../api/encode/IEncodeApiModel';
+import container from '../../../../ModelContainer';
+import * as api from '../../../api';
 
-export const del: Operation = async (req, res) => {
+export const post: Operation = async (req, res) => {
     const encodeApiModel = container.get<IEncodeApiModel>('IEncodeApiModel');
 
     try {
-        await encodeApiModel.cancel(parseInt(req.params.encodeId, 10));
+        await encodeApiModel.retry(parseInt(req.params.encodeId, 10));
         api.responseJSON(res, 200, { code: 200 });
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }
 };
 
-del.apiDoc = {
-    summary: 'エンコードをキャンセル',
+post.apiDoc = {
+    summary: 'エンコードを再開',
     tags: ['encode'],
-    description: 'エンコードをキャンセルする',
+    description: '要確認キューのエンコードを安全性を確認して再開する',
     parameters: [
         {
             $ref: '#/components/parameters/PathEncodeId',
@@ -25,10 +25,10 @@ del.apiDoc = {
     ],
     responses: {
         200: {
-            description: 'エンコードをキャンセルしました',
+            description: 'エンコードを再開しました',
         },
         default: {
-            description: '予期しないエラー',
+            description: '再開できない、または予期しないエラー',
             content: {
                 'application/json': {
                     schema: {

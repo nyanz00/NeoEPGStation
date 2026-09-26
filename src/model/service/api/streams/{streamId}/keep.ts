@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../../ApiOperation';
 import IStreamApiModel from '../../../../api/stream/IStreamApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';

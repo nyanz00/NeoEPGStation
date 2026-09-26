@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../../../../ApiOperation';
 import IVideoApiModel from '../../../../../../api/video/IVideoApiModel';
 import container from '../../../../../../ModelContainer';
 import * as api from '../../../../../api';

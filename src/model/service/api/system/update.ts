@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import UpdateManager from '../../../update/UpdateManager';
 import { isStartSystemUpdateOption } from '../../../update/UpdateValidation';
 import * as api from '../../api';

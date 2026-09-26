@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import IIPTVApiModel from '../../../api/iptv/IIPTVApiModel';
 import IConfiguration from '../../../IConfiguration';
 import container from '../../../ModelContainer';

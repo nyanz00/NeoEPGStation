@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import * as apid from '../../../../../api';
 import IRuleApiModel from '../../../api/rule/IRuleApiModel';
 import container from '../../../ModelContainer';
@@ -17,6 +17,9 @@ export const get: Operation = async (req, res) => {
         }
         if (typeof req.query.keyword === 'string') {
             option.keyword = req.query.keyword;
+        }
+        if (typeof req.query.userId !== 'undefined') {
+            option.userId = parseInt(req.query.userId as any, 10);
         }
 
         api.responseJSON(res, 200, {
@@ -40,6 +43,14 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/QueryKeyword',
+        },
+        {
+            name: 'userId',
+            in: 'query',
+            description: 'ユーザーID',
+            schema: {
+                $ref: '#/components/schemas/UserId',
+            },
         },
     ],
     responses: {

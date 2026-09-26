@@ -1,4 +1,4 @@
-import { Operation } from 'express-openapi';
+import { Operation } from '../../ApiOperation';
 import IDropLogApiModel, { DropLogApiErrors } from '../../../api/dropLog/IDropLogApiModel';
 import container from '../../../ModelContainer';
 import * as api from '../../api';

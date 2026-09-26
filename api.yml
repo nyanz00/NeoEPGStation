@@ -744,6 +744,21 @@ components:
                     items:
                         $ref: '#/components/schemas/RuleKeywordItem'
 
+        RuleMutationResult:
+            description: ルール操作結果。Annict同期だけが失敗した場合はその内容を含む
+            type: object
+            required:
+                - code
+            properties:
+                code:
+                    type: integer
+                annictStatusError:
+                    description: ルール操作は成功したがAnnict視聴ステータス同期に失敗した理由
+                    type: string
+                annictLinkError:
+                    description: ルール操作は成功したがAnnictとの関連解除に失敗した理由
+                    type: string
+
         User:
             description: ユーザー情報
             type: object
@@ -1306,6 +1321,8 @@ components:
             properties:
                 reserveId:
                     $ref: '#/components/schemas/ReserveId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
                 programId:
                     $ref: '#/components/schemas/ProgramId'
                 ruleId:
@@ -1757,8 +1774,19 @@ components:
             required:
                 - position
                 - duration
-                - watchedSecondsDelta
                 - observedAt
+            oneOf:
+                - required:
+                      - watchedSecondsDelta
+                  not:
+                      anyOf:
+                          - required: [sessionId]
+                          - required: [sessionWatchedSeconds]
+                - required:
+                      - sessionId
+                      - sessionWatchedSeconds
+                  not:
+                      required: [watchedSecondsDelta]
             properties:
                 position:
                     type: number
@@ -1767,17 +1795,21 @@ components:
                     type: number
                     exclusiveMinimum: 0
                 watchedSecondsDelta:
-                    description: 前回通知以降にシークせず再生した秒数
+                    description: 旧クライアント用。前回通知以降にシークせず再生した秒数
                     type: number
                     minimum: 0
                     maximum: 30
+                sessionId:
+                    description: 再生セッションの識別子。sessionWatchedSecondsと組み合わせて送る
+                    type: string
+                    pattern: '^[a-zA-Z0-9-]{16,64}$'
+                sessionWatchedSeconds:
+                    description: この再生セッション内で実際に再生した累計秒数
+                    type: number
+                    minimum: 0
+                    maximum: 2592000
                 observedAt:
                     $ref: '#/components/schemas/UnixtimeMS'
-                historyLimit:
-                    description: ユーザーごとに保持する視聴履歴の最大件数
-                    type: integer
-                    minimum: 1
-                    maximum: 200
 
         RecordedPlaybackHistoryItem:
             description: ユーザーごとの録画視聴履歴
@@ -1807,9 +1839,27 @@ components:
             type: object
             required:
                 - enabled
+                - limit
             properties:
                 enabled:
                     type: boolean
+                limit:
+                    description: ユーザーごとに保持する視聴履歴の最大件数
+                    type: integer
+                    minimum: 1
+                    maximum: 200
+
+        UpdateRecordedPlaybackHistorySettingsOption:
+            description: アクティブユーザーの視聴履歴保存設定の変更
+            type: object
+            minProperties: 1
+            properties:
+                enabled:
+                    type: boolean
+                limit:
+                    type: integer
+                    minimum: 1
+                    maximum: 200
 
         RecordedListPosition:
             description: 録画済み一覧における対象録画のページ位置
@@ -2303,7 +2353,6 @@ components:
             description: ビデオファイルをアップロード
             type: object
             required:
-                - recordedId
                 - parentDirectoryName
                 - viewName
                 - fileType
@@ -2311,6 +2360,25 @@ components:
             properties:
                 recordedId:
                     $ref: '#/components/schemas/RecordedId'
+                userId:
+                    $ref: '#/components/schemas/UserId'
+                channelId:
+                    $ref: '#/components/schemas/ChannelId'
+                startAt:
+                    $ref: '#/components/schemas/UnixtimeMS'
+                duration:
+                    description: 録画時間（ミリ秒）
+                    type: integer
+                    minimum: 1
+                name:
+                    description: 番組名
+                    type: string
+                description:
+                    description: 番組詳細
+                    type: string
+                extended:
+                    description: 番組拡張
+                    type: string
                 parentDirectoryName:
                     description: 親保存ディレクトリ
                     type: string
@@ -2434,6 +2502,7 @@ components:
                 - runningItems
                 - waitItems
                 - scheduledItems
+                - recoveryItems
             properties:
                 runningItems:
                     type: array
@@ -2451,9 +2520,38 @@ components:
                             - type: object
                               required:
                                   - scheduledAt
+                                  - scheduledAtLabel
                               properties:
                                   scheduledAt:
                                       $ref: '#/components/schemas/UnixtimeMS'
+                                  scheduledAtLabel:
+                                      type: string
+                recoveryItems:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/EncodeRecoveryItem'
+
+        EncodeRecoveryItem:
+            description: 復旧確認が必要なエンコードタスク
+            type: object
+            required: [id, status, mode, reason, canRetry]
+            properties:
+                id:
+                    $ref: '#/components/schemas/EncodeId'
+                status:
+                    type: string
+                    enum: [paused, needs_attention]
+                mode:
+                    type: string
+                    nullable: true
+                recorded:
+                    allOf:
+                        - $ref: '#/components/schemas/RecordedItem'
+                    nullable: true
+                reason:
+                    type: string
+                canRetry:
+                    type: boolean
 
         EncodeQueueOrderOption:
             description: 待機中エンコードの実行順
@@ -2617,7 +2715,6 @@ components:
                 - available
                 - used
                 - total
-                - breakdown
             properties:
                 name:
                     description: ディスク名
@@ -2634,8 +2731,20 @@ components:
                 breakdownPending:
                     description: 使用済み容量の内訳をバックグラウンドで集計中かどうか
                     type: boolean
+                breakdownError:
+                    description: 使用済み容量の内訳の取得に失敗したかどうか
+                    type: boolean
                 breakdown:
                     $ref: '#/components/schemas/StorageBreakdown'
+
+        StorageItemError:
+            description: 容量を取得できなかった録画先
+            type: object
+            required:
+                - name
+            properties:
+                name:
+                    type: string
 
         StorageBreakdown:
             description: ディスク使用量の内訳
@@ -2861,6 +2970,9 @@ components:
                     $ref: '#/components/schemas/SystemLogLevel'
                 fileName:
                     type: string
+                fileOutputConfigured:
+                    description: 選択したログ種別にファイル出力が設定されているかどうか
+                    type: boolean
                 exists:
                     type: boolean
                 size:
@@ -3077,6 +3189,10 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/StorageItem'
+                errors:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/StorageItemError'
                 system:
                     $ref: '#/components/schemas/SystemResourceInfo'
 

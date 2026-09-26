@@ -75,7 +75,7 @@ export const responseFile = (
     const responseHeaders: Record<string, string | number> = {};
     if (download) {
         responseHeaders['Content-Type'] = 'application/octet-stream';
-        responseHeaders['Content-disposition'] = `attachment; filename*=utf-8'ja'${encodeURIComponent(
+        responseHeaders['Content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(
             path.basename(filePath),
         )};`;
     } else {
