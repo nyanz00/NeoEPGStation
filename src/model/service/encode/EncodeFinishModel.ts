@@ -31,6 +31,7 @@ export default class EncodeFinishModel implements IEncodeFinishModel {
         this.encodeEvent.setCancelEncode(this.cancelEncode.bind(this));
         this.encodeEvent.setFinishEncode(this.finishEncode.bind(this));
         this.encodeEvent.setErrorEncode(this.errorEncode.bind(this));
+        this.encodeEvent.setUpdateEncode(this.updateEncode.bind(this));
         this.encodeEvent.setUpdateEncodeProgress(this.updateEncodeProgress.bind(this));
     }
 
@@ -74,6 +75,23 @@ export default class EncodeFinishModel implements IEncodeFinishModel {
         } catch (err: any) {
             this.log.encode.error('finish encode error');
             this.log.encode.error(err);
+            if (info.fullOutputPath !== null) {
+                this.log.encode.error(`unregistered encode output was preserved: ${info.fullOutputPath}`);
+            }
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this.encodeEvent.emitErrorEncode({
+                recordedId: info.recordedId,
+                videoFileId: info.videoFileId,
+                mode: info.mode,
+                encoderMessage:
+                    info.fullOutputPath === null
+                        ? errorMessage
+                        : `${errorMessage} (未登録の出力ファイルは保持されています: ${info.fullOutputPath})`,
+            });
+
+            // 出力のDB登録に失敗した状態で元ファイル削除や成功通知へ進まない。
+            // キュー自体は呼び出し元が完了扱いで片付け、保持したパスはログと失敗通知へ残す。
+            return;
         }
 
         if (info.updateThumbnail === true && newVideoFileId !== null) {
@@ -116,5 +134,12 @@ export default class EncodeFinishModel implements IEncodeFinishModel {
      */
     private updateEncodeProgress(): void {
         this.socket.notifyUpdateEncodeProgress();
+    }
+
+    /**
+     * キュー構造の復元など、録画一覧側のエンコード状態も変わる更新を通知する。
+     */
+    private updateEncode(): void {
+        this.socket.notifyClient();
     }
 }

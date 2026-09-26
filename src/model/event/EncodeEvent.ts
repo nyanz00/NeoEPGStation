@@ -34,8 +34,11 @@ class EncodeEvent implements IEncodeEvent {
      * エンコード完了イベント発行
      * @param info: FinishEncodeInfo
      */
-    public emitFinishEncode(info: FinishEncodeInfo): void {
-        this.emitter.emit(EncodeEvent.FINISH_ENCODE_EVENT, info);
+    public async emitFinishEncode(info: FinishEncodeInfo): Promise<void> {
+        const listeners = this.emitter.listeners(EncodeEvent.FINISH_ENCODE_EVENT) as Array<
+            (finishInfo: FinishEncodeInfo) => void | Promise<void>
+        >;
+        await Promise.all(listeners.map(listener => listener(info)));
     }
 
     /**
@@ -55,7 +58,7 @@ class EncodeEvent implements IEncodeEvent {
     /**
      * エンコード更新イベント発行
      */
-    public emitupdateEncode(): void {
+    public emitUpdateEncode(): void {
         this.emitter.emit(EncodeEvent.UPDATE_ENCODE_EVENT);
     }
 
@@ -91,7 +94,7 @@ class EncodeEvent implements IEncodeEvent {
      * エンコード完了イベント登録
      * @param callback: (info: FinishEncodeInfo) => void
      */
-    public setFinishEncode(callback: (info: FinishEncodeInfo) => void): void {
+    public setFinishEncode(callback: (info: FinishEncodeInfo) => void | Promise<void>): void {
         this.emitter.on(EncodeEvent.FINISH_ENCODE_EVENT, async (info: FinishEncodeInfo) => {
             try {
                 await callback(info);

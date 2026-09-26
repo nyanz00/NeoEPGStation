@@ -33,12 +33,18 @@ export default class EncodeApiModel implements IEncodeApiModel {
      * @return Promise<apid.EncodeInfo>
      */
     public async getAll(isHalfWidth: boolean): Promise<apid.EncodeInfo> {
-        const info = this.encodeManage.getEncodeInfo();
-        if (info.runningQueue.length === 0 && info.waitQueue.length === 0 && info.scheduledQueue.length === 0) {
+        const info = await this.encodeManage.getEncodeInfo();
+        if (
+            info.runningQueue.length === 0 &&
+            info.waitQueue.length === 0 &&
+            info.scheduledQueue.length === 0 &&
+            info.recoveryQueue.length === 0
+        ) {
             return {
                 runningItems: [],
                 waitItems: [],
                 scheduledItems: [],
+                recoveryItems: [],
             };
         }
 
@@ -53,11 +59,14 @@ export default class EncodeApiModel implements IEncodeApiModel {
         for (const i of info.scheduledQueue) {
             recordedIds.push(i.recordedId);
         }
+        for (const i of info.recoveryQueue) {
+            if (i.recordedId !== null) recordedIds.push(i.recordedId);
+        }
         // 重複削除
         recordedIds = Array.from(new Set(recordedIds));
 
         // 番組情報取得
-        const recordedItems = await this.recordedDB.findIds(recordedIds);
+        const recordedItems = recordedIds.length > 0 ? await this.recordedDB.findIds(recordedIds) : [];
         const recordedIndex: { [key: number]: Recorded } = {};
         for (const i of recordedItems) {
             recordedIndex[i.id] = i;
@@ -68,6 +77,7 @@ export default class EncodeApiModel implements IEncodeApiModel {
             runningItems: [],
             waitItems: [],
             scheduledItems: [],
+            recoveryItems: [],
         };
 
         // エンコード中
@@ -115,7 +125,29 @@ export default class EncodeApiModel implements IEncodeApiModel {
                 mode: i.mode,
                 recorded: this.recordedItemUtil.convertRecordedToRecordedItem(recordedItem, isHalfWidth, {}),
                 scheduledAt: i.scheduledAt,
+                scheduledAtLabel: formatScheduledAtLabel(i.scheduledAt),
             });
+        }
+
+        for (const i of info.recoveryQueue) {
+            const recoveryItem: apid.EncodeRecoveryItem = {
+                id: i.id,
+                status: i.status,
+                mode: i.mode,
+                reason: i.reason,
+                canRetry: i.canRetry,
+            };
+            if (i.recordedId !== null) {
+                const recordedItem = recordedIndex[i.recordedId];
+                if (recordedItem !== undefined) {
+                    recoveryItem.recorded = this.recordedItemUtil.convertRecordedToRecordedItem(
+                        recordedItem,
+                        isHalfWidth,
+                        {},
+                    );
+                }
+            }
+            result.recoveryItems.push(recoveryItem);
         }
 
         return result;
@@ -180,9 +212,22 @@ export default class EncodeApiModel implements IEncodeApiModel {
     }
 
     /**
+     * 要確認キューのエンコードを再開する
+     */
+    public async retry(encodeId: apid.EncodeId): Promise<void> {
+        await this.encodeManage.retry(encodeId);
+    }
+
+    /**
      * 待機中エンコードの実行順を変更する
      */
     public async reorder(option: apid.EncodeQueueOrderOption): Promise<void> {
         await this.encodeManage.reorderWaitQueue(option.encodeIds, option.expectedEncodeIds);
     }
+}
+
+function formatScheduledAtLabel(timestamp: number): string {
+    const date = new Date(timestamp);
+    const twoDigits = (value: number): string => value.toString().padStart(2, '0');
+    return `${twoDigits(date.getMonth() + 1)}/${twoDigits(date.getDate())} ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}に解放`;
 }
