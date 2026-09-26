@@ -12,6 +12,7 @@ const {
     stripUpdateLogControlSequences,
 } = require('../../dist/model/update/UpdateCommand.js');
 const { shouldInstallUpdateDependencies } = require('../../dist/model/update/UpdateDependency.js');
+const UpdateManager = require('../../dist/model/update/UpdateManager.js').default;
 
 test('update API accepts only fixed target and package manager enums', () => {
     assert.equal(
@@ -91,4 +92,58 @@ test('saved dependency environment changes still require install', () => {
 
 test('ANSI color sequences are removed from update logs', () => {
     assert.equal(stripUpdateLogControlSequences('\u001b[32m[INFO]\u001b[39m backup'), '[INFO] backup');
+});
+
+test('repackaged stable release follows its matching develop source commit', async () => {
+    const older = '1'.repeat(40);
+    const source = '2'.repeat(40);
+    const newer = '3'.repeat(40);
+    const stable = '4'.repeat(40);
+    const tree = 'a'.repeat(40);
+    const updater = Object.create(UpdateManager.prototype);
+    updater.getCommitRelation = async () => 'diverged';
+    updater.gitRequiredText = async args =>
+        args[0] === 'rev-parse' ? tree : `${source}\t${tree}\n${older}\t${'b'.repeat(40)}`;
+    updater.isAncestor = async (ancestor, descendant) =>
+        (ancestor === older && descendant === source) || (ancestor === source && descendant === newer);
+
+    assert.equal(await updater.getTargetRelation('stable', older, stable), 'ahead');
+    assert.equal(await updater.getTargetRelation('stable', source, stable), 'ahead');
+    assert.equal(await updater.getTargetRelation('stable', newer, stable), 'behind');
+    assert.equal(await updater.getTargetRelation('develop', older, stable), 'diverged');
+});
+
+test('repackaged stable release rejects unknown and ambiguous histories', async () => {
+    const current = '1'.repeat(40);
+    const source = '2'.repeat(40);
+    const otherSource = '3'.repeat(40);
+    const stable = '4'.repeat(40);
+    const tree = 'a'.repeat(40);
+    const updater = Object.create(UpdateManager.prototype);
+    updater.getCommitRelation = async () => 'diverged';
+    updater.gitRequiredText = async args => (args[0] === 'rev-parse' ? tree : `${source}\t${'b'.repeat(40)}`);
+    updater.isAncestor = async () => false;
+
+    assert.equal(await updater.getTargetRelation('stable', current, stable), 'diverged');
+    updater.gitRequiredText = async args => (args[0] === 'rev-parse' ? tree : `${source}\t${tree}`);
+    assert.equal(await updater.getTargetRelation('stable', current, stable), 'diverged');
+    updater.gitRequiredText = async args =>
+        args[0] === 'rev-parse' ? tree : `${source}\t${tree}\n${otherSource}\t${tree}`;
+    updater.isAncestor = async (ancestor, descendant) =>
+        (ancestor === current && descendant === source) || (ancestor === otherSource && descendant === current);
+    assert.equal(await updater.getTargetRelation('stable', current, stable), 'diverged');
+    updater.gitRequiredText = async () => {
+        throw new Error('develop history unavailable');
+    };
+    assert.equal(await updater.getTargetRelation('stable', current, stable), 'unknown');
+});
+
+test('repackaged stable rollback still checks database compatibility', async () => {
+    const updater = Object.create(UpdateManager.prototype);
+    updater.isAncestor = async () => true;
+    updater.getDatabaseRollbackBlockReason = async () => 'DB schema is incompatible';
+    assert.deepEqual(await updater.getTargetApplicability('stable', 'behind', 'current', 'stable'), {
+        canApply: false,
+        blockedReason: 'DB schema is incompatible',
+    });
 });

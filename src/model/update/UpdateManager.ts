@@ -275,7 +275,7 @@ export default class UpdateManager {
                 this.finish(job, 'success', 'already-current', '既に選択したバージョンです');
                 return;
             }
-            const relation = await this.getCommitRelation(oldCommit, targetCommit);
+            const relation = await this.getTargetRelation(job.target, oldCommit, targetCommit);
             const applicability = await this.getTargetApplicability(job.target, relation, oldCommit, targetCommit);
             if (!applicability.canApply)
                 throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
@@ -527,7 +527,7 @@ export default class UpdateManager {
                     blockedReason: '現在のコミットと比較できません',
                 };
             }
-            const relation = await this.getCommitRelation(currentCommit, target.commit);
+            const relation = await this.getTargetRelation(targetKind, currentCommit, target.commit);
             const applicability = await this.getTargetApplicability(targetKind, relation, currentCommit, target.commit);
             return { ...target, relation, ...applicability };
         };
@@ -590,6 +590,61 @@ export default class UpdateManager {
         if (targetIsAncestor === true) return 'behind';
         if (currentIsAncestor === false && targetIsAncestor === false) return 'diverged';
         return 'unknown';
+    }
+
+    private async getTargetRelation(
+        target: SystemUpdateTarget,
+        currentCommit: string,
+        targetCommit: string,
+    ): Promise<SystemUpdateRelation> {
+        const relation = await this.getCommitRelation(currentCommit, targetCommit);
+        if (target !== 'stable' || relation !== 'diverged') return relation;
+
+        // Stable releases are repackaged into topical commits, so Git ancestry alone
+        // cannot tell whether their contents are newer than the current develop checkout.
+        let stableTree: string;
+        let developHistory: string;
+        try {
+            [stableTree, developHistory] = await Promise.all([
+                this.gitRequiredText(['rev-parse', `${targetCommit}^{tree}`]),
+                this.gitRequiredText([
+                    'log',
+                    '--first-parent',
+                    '--format=%H%x09%T',
+                    'refs/remotes/neoe-update/develop',
+                ]),
+            ]);
+        } catch {
+            return 'unknown';
+        }
+        const sourceCommits = developHistory
+            .split(/\r?\n/)
+            .map(line => line.split('\t'))
+            .filter(parts => parts[1] === stableTree)
+            .map(parts => parts[0]);
+        if (sourceCommits.length === 0) return 'diverged';
+
+        // If the same tree occurs more than once, do not guess which occurrence was
+        // released when the candidates disagree about the direction of travel.
+        const directions = new Set<SystemUpdateRelation>();
+        for (const sourceCommit of sourceCommits) {
+            if (sourceCommit === currentCommit) {
+                directions.add('ahead');
+            } else {
+                const currentIsAncestor = await this.isAncestor(currentCommit, sourceCommit);
+                if (currentIsAncestor === null) return 'unknown';
+                if (currentIsAncestor) {
+                    directions.add('ahead');
+                } else {
+                    const sourceIsAncestor = await this.isAncestor(sourceCommit, currentCommit);
+                    if (sourceIsAncestor === null) return 'unknown';
+                    if (!sourceIsAncestor) return 'diverged';
+                    directions.add('behind');
+                }
+            }
+            if (directions.size > 1) return 'diverged';
+        }
+        return directions.values().next().value ?? 'diverged';
     }
 
     private async isAncestor(ancestor: string, descendant: string): Promise<boolean | null> {
