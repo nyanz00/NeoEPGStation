@@ -1,6 +1,6 @@
 # NeoEPGStation
 
-[Mirakurun](https://github.com/Chinachu/Mirakurun)を利用した録画管理ソフト[EPGStation](https://github.com/l3tnun/EPGStation)とEPGStation-nyanzを基にしたフォークです。<br>
+[Mirakurun](https://github.com/Chinachu/Mirakurun)を利用した録画管理ソフト[EPGStation](https://github.com/l3tnun/EPGStation)を基にしたフォークです。<br>
 モバイルフレンドリーな操作感はそのままに、WebUIを刷新し、アニメ録画支援機能・Amatsukazeとの接続機能・字幕表示に対応した新プレイヤーなどNeo版独自の機能を追加しています。
 
 > [!IMPORTANT]
