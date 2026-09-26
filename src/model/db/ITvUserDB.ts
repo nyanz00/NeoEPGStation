@@ -7,6 +7,9 @@ export default interface ITvUserDB {
     findId(userId: apid.UserId): Promise<TvUser | null>;
     insertOnce(name: string): Promise<apid.UserId>;
     updateOnce(userId: apid.UserId, name: string): Promise<void>;
-    updateRecordedHistoryEnabled(userId: apid.UserId, enabled: boolean): Promise<void>;
+    updateRecordedHistorySettings(
+        userId: apid.UserId,
+        option: apid.UpdateRecordedPlaybackHistorySettingsOption,
+    ): Promise<void>;
     ensureDefaultUser(): Promise<TvUser>;
 }

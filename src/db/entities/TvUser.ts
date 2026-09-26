@@ -19,4 +19,7 @@ export default class TvUser extends BaseEntity {
 
     @Column({ type: 'boolean', default: true })
     public isRecordedHistoryEnabled!: boolean;
+
+    @Column({ type: 'integer', default: 50 })
+    public recordedHistoryLimit!: number;
 }

@@ -4,6 +4,8 @@ export interface RecordedPlaybackUpdate {
     position: number;
     duration: number;
     watchedSecondsDelta: number;
+    sessionId?: string;
+    sessionWatchedSeconds?: number;
     observedAt: number;
     historyLimit: number;
     historyEnabled: boolean;
