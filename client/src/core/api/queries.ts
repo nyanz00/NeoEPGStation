@@ -2,8 +2,10 @@ import type {
     AnnictStatus,
     AnnictEpisodeWatchOption,
     AnnictRecordedEpisodeInfo,
+    AnnictRuleLinkResult,
     AnnictViewerStatusKind,
     AnnictViewerStatuses,
+    AnnictViewerStatusUpdateResults,
     AnnictWorkDetail,
     AnnictWorkList,
     BlueskyStatus,
@@ -37,7 +39,9 @@ import type {
     RecordedPlayback,
     RecordedPlaybackHistory,
     RecordedPlaybackHistorySettings,
+    UpdateRecordedPlaybackHistorySettingsOption,
     RecordedListPosition,
+    RecordingDropLogStatus,
     RecordedSearchOptions,
     RecordedSubDirectories,
     ProgramId,
@@ -45,6 +49,8 @@ import type {
     RecordedCleanupPlanResult,
     Rule,
     RuleId,
+    RuleMutationResult,
+    RuleKeywordItem,
     Rules,
     GetRuleOption,
     ReserveCnts,
@@ -243,13 +249,29 @@ export const api = {
         await apiClient.delete('/annict/write-token');
     },
     async getAnnictViewerStatuses(annictIds: number[]): Promise<AnnictViewerStatuses> {
-        return (await apiClient.post<AnnictViewerStatuses>('/annict/viewer-statuses', { annictIds })).data;
+        const uniqueIds = [...new Set(annictIds)];
+        const responses: AnnictViewerStatuses[] = [];
+        for (let offset = 0; offset < uniqueIds.length; offset += 500) {
+            responses.push((await apiClient.post<AnnictViewerStatuses>('/annict/viewer-statuses', { annictIds: uniqueIds.slice(offset, offset + 500) })).data);
+        }
+        return { statuses: responses.flatMap(response => response.statuses) };
     },
-    async setAnnictViewerStatuses(annictIds: number[], kind: AnnictViewerStatusKind): Promise<void> {
-        await apiClient.put('/annict/viewer-statuses', { annictIds, kind });
+    async setAnnictViewerStatuses(annictIds: number[], kind: AnnictViewerStatusKind): Promise<AnnictViewerStatusUpdateResults> {
+        const uniqueIds = [...new Set(annictIds)];
+        const results: AnnictViewerStatusUpdateResults['results'] = [];
+        for (let offset = 0; offset < uniqueIds.length; offset += 500) {
+            const batchIds = uniqueIds.slice(offset, offset + 500);
+            try {
+                results.push(...(await apiClient.put<AnnictViewerStatusUpdateResults>('/annict/viewer-statuses', { annictIds: batchIds, kind })).data.results);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Annictの視聴ステータス更新リクエストに失敗しました';
+                results.push(...batchIds.map(annictId => ({ annictId, success: false, error: message })));
+            }
+        }
+        return { results };
     },
-    async linkAnnictRule(ruleId: RuleId, annictId: number): Promise<void> {
-        await apiClient.put(`/annict/rules/${ruleId}`, { annictId });
+    async linkAnnictRule(ruleId: RuleId, annictId: number): Promise<AnnictRuleLinkResult> {
+        return (await apiClient.put<AnnictRuleLinkResult>(`/annict/rules/${ruleId}`, { annictId })).data;
     },
     async getRecordedAnnictEpisode(recordedId: RecordedId): Promise<AnnictRecordedEpisodeInfo> {
         return (await apiClient.get<AnnictRecordedEpisodeInfo>(`/recorded/${recordedId}/annictEpisode`)).data;
@@ -278,10 +300,10 @@ export const api = {
             })
         ).data;
     },
-    async getRecordedPlaybackHistory(userId: number, isHalfWidth: boolean, limit: number): Promise<RecordedPlaybackHistory> {
+    async getRecordedPlaybackHistory(userId: number, isHalfWidth: boolean): Promise<RecordedPlaybackHistory> {
         return (
             await apiClient.get<RecordedPlaybackHistory>('/recorded/playbackHistory', {
-                params: { isHalfWidth, limit },
+                params: { isHalfWidth },
                 headers: playbackUserHeader(userId),
                 timeout: 10_000,
             })
@@ -294,17 +316,20 @@ export const api = {
             })
         ).data;
     },
-    async updateRecordedPlaybackHistorySettings(userId: number, enabled: boolean): Promise<RecordedPlaybackHistorySettings> {
-        return (await apiClient.put<RecordedPlaybackHistorySettings>('/recorded/playbackHistory/settings', { enabled }, { headers: playbackUserHeader(userId) })).data;
+    async updateRecordedPlaybackHistorySettings(userId: number, option: UpdateRecordedPlaybackHistorySettingsOption): Promise<RecordedPlaybackHistorySettings> {
+        return (await apiClient.put<RecordedPlaybackHistorySettings>('/recorded/playbackHistory/settings', option, { headers: playbackUserHeader(userId) })).data;
     },
     async removeRecordedPlaybackHistory(recordedId: RecordedId, userId: number): Promise<void> {
         await apiClient.delete(`/recorded/${recordedId}/playback`, { headers: playbackUserHeader(userId) });
     },
-    async getAnnictWorks(season: string, refresh = false, rerun = false): Promise<AnnictWorkList> {
-        return (await apiClient.get<AnnictWorkList>('/annict/works', { params: { season, refresh, rerun } })).data;
+    async getAnnictWorks(season: string, refresh = false, rerun = false, excludePaidChannels = false): Promise<AnnictWorkList> {
+        return (await apiClient.get<AnnictWorkList>('/annict/works', { params: { season, refresh, rerun, excludePaidChannels } })).data;
     },
     async getAnnictWork(annictId: number, refresh = false): Promise<AnnictWorkDetail> {
         return (await apiClient.get<AnnictWorkDetail>(`/annict/works/${annictId}`, { params: { refresh } })).data;
+    },
+    async getAnnictWorkImage(annictId: number, refresh = false): Promise<{ imageUrl?: string }> {
+        return (await apiClient.get<{ imageUrl?: string }>(`/annict/works/${annictId}/image`, { params: { refresh } })).data;
     },
     async getConfig(): Promise<Config> {
         const config = (await apiClient.get<Config>('/config')).data;
@@ -353,6 +378,9 @@ export const api = {
     async getRecording(option: GetRecordedOption): Promise<Records> {
         return (await apiClient.get<Records>('/recording', { params: option })).data;
     },
+    async getRecordingDropStatus(): Promise<RecordingDropLogStatus[]> {
+        return (await apiClient.get<RecordingDropLogStatus[]>('/recording/dropStatus')).data;
+    },
     async getRecorded(option: GetRecordedOption): Promise<Records> {
         return (await apiClient.get<Records>('/recorded', { params: option })).data;
     },
@@ -389,8 +417,8 @@ export const api = {
     async getDropLog(dropLogFileId: number, maxsize = 512): Promise<string> {
         return (await apiClient.get<string>(`/dropLogs/${dropLogFileId}`, { params: { maxsize }, responseType: 'text' })).data;
     },
-    async getRecordedSearchOptions(): Promise<RecordedSearchOptions> {
-        return (await apiClient.get<RecordedSearchOptions>('/recorded/options')).data;
+    async getRecordedSearchOptions(userId?: number): Promise<RecordedSearchOptions> {
+        return (await apiClient.get<RecordedSearchOptions>('/recorded/options', { params: { userId } })).data;
     },
     async getLatestRecordedCleanupPlan(): Promise<RecordedCleanupPlanResult | null> {
         const response = await apiClient.get<RecordedCleanupPlanResult>('/recorded/cleanupPlan');
@@ -402,9 +430,16 @@ export const api = {
     async executeRecordedCleanupPlan(planPath: string): Promise<RecordedCleanupExecuteResult> {
         return (await apiClient.post<RecordedCleanupExecuteResult>('/recorded/cleanupExecute', { planPath }, { timeout: 0 })).data;
     },
-    async uploadVideo(option: UploadVideoFileOption): Promise<void> {
+    async uploadVideo(option: UploadVideoFileOption): Promise<RecordedId> {
         const form = new FormData();
-        form.append('recordedId', String(option.recordedId));
+        if (option.recordedId !== undefined) form.append('recordedId', String(option.recordedId));
+        if (option.userId !== undefined) form.append('userId', String(option.userId));
+        if (option.channelId !== undefined) form.append('channelId', String(option.channelId));
+        if (option.startAt !== undefined) form.append('startAt', String(option.startAt));
+        if (option.duration !== undefined) form.append('duration', String(option.duration));
+        if (option.name !== undefined) form.append('name', option.name);
+        if (option.description !== undefined) form.append('description', option.description);
+        if (option.extended !== undefined) form.append('extended', option.extended);
         form.append('parentDirectoryName', option.parentDirectoryName);
         form.append('viewName', option.viewName);
         form.append('fileType', option.fileType);
@@ -412,7 +447,7 @@ export const api = {
         if (option.subDirectory !== undefined) {
             form.append('subDirectory', option.subDirectory);
         }
-        await apiClient.post('/videos/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
+        return (await apiClient.post<{ recordedId: RecordedId }>('/videos/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 })).data.recordedId;
     },
     async deleteVideo(videoFileId: VideoFileId): Promise<void> {
         await apiClient.delete(`/videos/${videoFileId}`);
@@ -459,6 +494,9 @@ export const api = {
     },
     async cancelEncode(encodeId: EncodeId): Promise<void> {
         await apiClient.delete(`/encode/${encodeId}`);
+    },
+    async retryEncode(encodeId: EncodeId): Promise<void> {
+        await apiClient.post(`/encode/${encodeId}/retry`);
     },
     async reorderEncodes(encodeIds: EncodeId[], expectedEncodeIds: EncodeId[]): Promise<void> {
         await apiClient.put('/encode/order', { encodeIds, expectedEncodeIds });
@@ -547,22 +585,25 @@ export const api = {
     async getRules(option: GetRuleOption): Promise<Rules> {
         return (await apiClient.get<Rules>('/rules', { params: option })).data;
     },
+    async getRuleKeywords(option: GetRuleOption): Promise<RuleKeywordItem[]> {
+        return (await apiClient.get<{ items: RuleKeywordItem[] }>('/rules/keyword', { params: option })).data.items;
+    },
     async getRule(ruleId: RuleId): Promise<Rule> {
         return (await apiClient.get<Rule>(`/rules/${ruleId}`)).data;
     },
     async addRule(option: AddRuleOption): Promise<RuleId> {
         return (await apiClient.post<{ ruleId: RuleId }>('/rules', option)).data.ruleId;
     },
-    async updateRule(ruleId: RuleId, option: AddRuleOption, syncAnnictStopWatching = true): Promise<void> {
-        await apiClient.put(`/rules/${ruleId}`, option, { params: { syncAnnictStopWatching } });
+    async updateRule(ruleId: RuleId, option: AddRuleOption, syncAnnictStopWatching = true): Promise<RuleMutationResult> {
+        return (await apiClient.put<RuleMutationResult>(`/rules/${ruleId}`, option, { params: { syncAnnictStopWatching } })).data;
     },
-    async deleteRule(ruleId: RuleId): Promise<void> {
-        await apiClient.delete(`/rules/${ruleId}`);
+    async deleteRule(ruleId: RuleId): Promise<RuleMutationResult> {
+        return (await apiClient.delete<RuleMutationResult>(`/rules/${ruleId}`)).data;
     },
-    async enableRule(ruleId: RuleId): Promise<void> {
-        await apiClient.put(`/rules/${ruleId}/enable`);
+    async enableRule(ruleId: RuleId): Promise<RuleMutationResult> {
+        return (await apiClient.put<RuleMutationResult>(`/rules/${ruleId}/enable`)).data;
     },
-    async disableRule(ruleId: RuleId, syncAnnictStopWatching = true): Promise<void> {
-        await apiClient.put(`/rules/${ruleId}/disable`, undefined, { params: { syncAnnictStopWatching } });
+    async disableRule(ruleId: RuleId, syncAnnictStopWatching = true): Promise<RuleMutationResult> {
+        return (await apiClient.put<RuleMutationResult>(`/rules/${ruleId}/disable`, undefined, { params: { syncAnnictStopWatching } })).data;
     },
 };

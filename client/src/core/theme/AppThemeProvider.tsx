@@ -1,5 +1,6 @@
 import { CssBaseline, Grow, ThemeProvider, createTheme } from '@mui/material';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { ScrollLockDialogRoot, ScrollLockDrawerRoot, ScrollLockPopoverRoot } from '../../components/ScrollLockModal';
 import { useSettings } from '../storage/settings';
 import { isCustomCssDisabledByUrl, useCustomCssPreview } from './customCss';
 import { getAppThemePreset, normalizeCustomThemeColor } from './themePresets';
@@ -83,6 +84,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }): ReactNo
                         },
                     },
                     MuiDrawer: {
+                        defaultProps: { slots: { root: ScrollLockDrawerRoot } },
                         styleOverrides: {
                             paper: {
                                 backgroundColor: selectedVariant.drawerBackground,
@@ -93,9 +95,11 @@ export function AppThemeProvider({ children }: { children: ReactNode }): ReactNo
                     },
                     MuiInputBase: { defaultProps: { autoComplete: 'off' } },
                     MuiTextField: { defaultProps: { autoComplete: 'off' } },
+                    MuiPopover: { defaultProps: { slots: { root: ScrollLockPopoverRoot } } },
+                    MuiMenu: { defaultProps: { slots: { root: ScrollLockPopoverRoot } } },
                     MuiDialog: {
                         defaultProps: {
-                            slots: { transition: Grow },
+                            slots: { root: ScrollLockDialogRoot, transition: Grow },
                             transitionDuration: { enter: 225, exit: 150 },
                         },
                     },

@@ -22,7 +22,9 @@ export interface AppSettings {
     customCss: string;
     isEmphasizeLightThemeEdges: boolean;
     isHalfWidthDisplayed: boolean;
+    isHideRecordedThumbnailButton: boolean;
     isShowVersionUpdateNotification: boolean;
+    isAlwaysShowBroadcastDetails: boolean;
     sideNavigationOrder: SideNavigationItemId[];
     hiddenSideNavigationItems: SideNavigationItemId[];
     isOnAirTabListView: boolean;
@@ -41,6 +43,7 @@ export interface AppSettings {
     watchStreamingSubtitleOutlineSizePercent: number;
     watchStreamingSubtitleOutlineOpacityPercent: number;
     watchPlaySubtitleDanmaku: boolean;
+    watchSelectSubtitleInPlayerSettings: boolean;
     watchDanmakuHighRefreshRate: boolean;
     watchDanmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
     watchPersistentBottomControls: boolean;
@@ -48,7 +51,6 @@ export interface AppSettings {
     watchVolumeBoostEnabled: boolean;
     watchVolumeBoostMaxPercent: number;
     watchResumePlayback: boolean;
-    watchHistoryLength: number;
     annictAutoWatchMode: AnnictAutoWatchMode;
     annictAutoWatchThresholdPercent: number;
     annictAutoWatchOnDownload: boolean;
@@ -87,8 +89,9 @@ export interface AppSettings {
     isForceEnableSubtitleStroke: boolean;
 }
 
-const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isAppleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const isAndroid = /Android/.test(navigator.userAgent);
+const iosDownloadSchemeOptInMigrationKey = 'ios-download-scheme-opt-in-v1';
 
 export const defaultSettings: AppSettings = {
     isEnablePWA: true,
@@ -103,7 +106,9 @@ export const defaultSettings: AppSettings = {
     customCss: '',
     isEmphasizeLightThemeEdges: true,
     isHalfWidthDisplayed: true,
+    isHideRecordedThumbnailButton: false,
     isShowVersionUpdateNotification: true,
+    isAlwaysShowBroadcastDetails: false,
     sideNavigationOrder: [...defaultSideNavigationOrder],
     hiddenSideNavigationItems: [],
     isOnAirTabListView: true,
@@ -122,6 +127,7 @@ export const defaultSettings: AppSettings = {
     watchStreamingSubtitleOutlineSizePercent: 100,
     watchStreamingSubtitleOutlineOpacityPercent: 100,
     watchPlaySubtitleDanmaku: false,
+    watchSelectSubtitleInPlayerSettings: false,
     watchDanmakuHighRefreshRate: false,
     watchDanmakuFrameRateLimit: 'auto',
     watchPersistentBottomControls: false,
@@ -129,7 +135,6 @@ export const defaultSettings: AppSettings = {
     watchVolumeBoostEnabled: false,
     watchVolumeBoostMaxPercent: 150,
     watchResumePlayback: true,
-    watchHistoryLength: 50,
     annictAutoWatchMode: 'disabled',
     annictAutoWatchThresholdPercent: 90,
     annictAutoWatchOnDownload: false,
@@ -156,7 +161,7 @@ export const defaultSettings: AppSettings = {
     deleteRecordedDefaultValue: false,
     shouldUseRecordedViewURLScheme: true,
     recordedViewURLScheme: null,
-    shouldUseRecordedDownloadURLScheme: true,
+    shouldUseRecordedDownloadURLScheme: false,
     recordedDownloadURLScheme: null,
     searchLength: 300,
     isEnableAutoScrollWhenEditingRule: true,
@@ -178,6 +183,7 @@ function loadSettings(): AppSettings {
                       watchSubtitlePreferredKeyword?: unknown;
                       watchPlaySubtitlePreferredKeyword?: unknown;
                   });
+        delete (parsed as typeof parsed & { watchHistoryLength?: unknown }).watchHistoryLength;
         let showInformationalChannels = parsed.isShowInformationalChannels;
         if (typeof showInformationalChannels !== 'boolean') {
             try {
@@ -191,13 +197,24 @@ function loadSettings(): AppSettings {
             ? (parsed.annictAutoWatchMode as AnnictAutoWatchMode)
             : defaultSettings.annictAutoWatchMode;
         const threshold = Number(parsed.annictAutoWatchThresholdPercent);
-        const historyLength = Number(parsed.watchHistoryLength);
+        let shouldUseRecordedDownloadURLScheme = parsed.shouldUseRecordedDownloadURLScheme ?? defaultSettings.shouldUseRecordedDownloadURLScheme;
+        if (isAppleMobile && parsed.recordedDownloadURLScheme == null && localStorage.getItem(iosDownloadSchemeOptInMigrationKey) !== '1') {
+            shouldUseRecordedDownloadURLScheme = false;
+            try {
+                localStorage.setItem('settings', JSON.stringify({ ...parsed, shouldUseRecordedDownloadURLScheme: false }));
+                localStorage.setItem(iosDownloadSchemeOptInMigrationKey, '1');
+            } catch {
+                // Keep the corrected value for this session when storage is unavailable.
+            }
+        }
         return {
             ...defaultSettings,
             ...parsed,
             appIconSet: isAppIconSetId(parsed.appIconSet) ? parsed.appIconSet : defaultSettings.appIconSet,
             isAppLogoLinkedToIcon: parsed.isAppLogoLinkedToIcon === true,
             isAppLogoHidden: parsed.isAppLogoHidden === true,
+            isHideRecordedThumbnailButton: parsed.isHideRecordedThumbnailButton === true,
+            isAlwaysShowBroadcastDetails: parsed.isAlwaysShowBroadcastDetails === true,
             themeColorPreset: isAppThemePresetId(parsed.themeColorPreset) ? parsed.themeColorPreset : defaultSettings.themeColorPreset,
             customThemeColor: normalizeCustomThemeColor(parsed.customThemeColor),
             isCustomCssEnabled: parsed.isCustomCssEnabled === true,
@@ -217,6 +234,7 @@ function loadSettings(): AppSettings {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
+            watchSelectSubtitleInPlayerSettings: parsed.watchSelectSubtitleInPlayerSettings === true,
             watchDanmakuHighRefreshRate: parsed.watchDanmakuHighRefreshRate === true,
             watchDanmakuFrameRateLimit: normalizeDanmakuFrameRateLimit(parsed.watchDanmakuFrameRateLimit),
             watchPersistentBottomControls: parsed.watchPersistentBottomControls === true,
@@ -230,7 +248,7 @@ function loadSettings(): AppSettings {
             annictAutoWatchMode,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
-            watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
+            shouldUseRecordedDownloadURLScheme,
             reservesLength: normalizeListLength(parsed.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(parsed.recordingLength, defaultSettings.recordingLength, 1_000),
             recordedLength: normalizeListLength(parsed.recordedLength, defaultSettings.recordedLength, 1_000),
@@ -253,7 +271,6 @@ export const settingsStore = {
     },
     save(value: AppSettings): void {
         const threshold = Number(value.annictAutoWatchThresholdPercent);
-        const historyLength = Number(value.watchHistoryLength);
         snapshot = {
             ...value,
             appIconSet: isAppIconSetId(value.appIconSet) ? value.appIconSet : defaultSettings.appIconSet,
@@ -264,6 +281,7 @@ export const settingsStore = {
             isCustomCssEnabled: value.isCustomCssEnabled === true,
             customCss: typeof value.customCss === 'string' ? value.customCss : '',
             isShowVersionUpdateNotification: value.isShowVersionUpdateNotification !== false,
+            isAlwaysShowBroadcastDetails: value.isAlwaysShowBroadcastDetails === true,
             sideNavigationOrder: normalizeSideNavigationOrder(value.sideNavigationOrder),
             hiddenSideNavigationItems: normalizeHiddenSideNavigationItems(value.hiddenSideNavigationItems),
             watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(value.watchSubtitlePreferredKeywords),
@@ -273,6 +291,7 @@ export const settingsStore = {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
+            watchSelectSubtitleInPlayerSettings: value.watchSelectSubtitleInPlayerSettings === true,
             watchDanmakuHighRefreshRate: value.watchDanmakuHighRefreshRate === true,
             watchDanmakuFrameRateLimit: normalizeDanmakuFrameRateLimit(value.watchDanmakuFrameRateLimit),
             watchPersistentBottomControls: value.watchPersistentBottomControls === true,
@@ -285,7 +304,6 @@ export const settingsStore = {
             annictExcludePaidChannels: value.annictExcludePaidChannels === true,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
-            watchHistoryLength: Number.isInteger(historyLength) && historyLength >= 1 && historyLength <= 200 ? historyLength : defaultSettings.watchHistoryLength,
             reservesLength: normalizeListLength(value.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(value.recordingLength, defaultSettings.recordingLength, 1_000),
             recordedLength: normalizeListLength(value.recordedLength, defaultSettings.recordedLength, 1_000),

@@ -3,7 +3,7 @@ import DashboardOutlined from '@mui/icons-material/DashboardOutlined';
 import DnsOutlined from '@mui/icons-material/DnsOutlined';
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import LiveTvOutlined from '@mui/icons-material/LiveTvOutlined';
-import MovieOutlined from '@mui/icons-material/MovieOutlined';
+import { FilmstripBoxMultipleIcon } from './icons/FilmstripBoxMultipleIcon';
 import PendingActionsOutlined from '@mui/icons-material/PendingActionsOutlined';
 import RadioButtonCheckedOutlined from '@mui/icons-material/RadioButtonCheckedOutlined';
 import RadioButtonUncheckedOutlined from '@mui/icons-material/RadioButtonUncheckedOutlined';
@@ -11,7 +11,7 @@ import ScheduleOutlined from '@mui/icons-material/ScheduleOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
-import TvOutlined from '@mui/icons-material/TvOutlined';
+import { TelevisionGuideIcon } from './icons/TelevisionGuideIcon';
 import { Box, CircularProgress, Divider, Drawer, Fade, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import type { ChannelType } from '../../../api';
@@ -41,6 +41,7 @@ interface SideNavigationState {
 
 interface AppLayoutContextValue {
     toggleDrawer: () => void;
+    contentOffset: number;
 }
 
 const AppLayoutContext = createContext<AppLayoutContextValue | null>(null);
@@ -87,15 +88,15 @@ export function AppLayout(): ReactNode {
                       .map(([type]) => ({
                           label: `番組表${channelTypeLabel(type as ChannelType)}`,
                           path: `/guide?type=${encodeURIComponent(type)}`,
-                          icon: <TvOutlined />,
+                          icon: <TelevisionGuideIcon />,
                       }))
-                : [{ label: '番組表', path: '/guide', icon: <TvOutlined /> }];
+                : [{ label: '番組表', path: '/guide', icon: <TelevisionGuideIcon /> }];
         if (conflictCount > 0) reserveNavigation.push({ label: '競合', path: '/reserves?type=conflict', icon: <PendingActionsOutlined />, count: conflictCount });
         if (overlapCount > 0) reserveNavigation.push({ label: '重複', path: '/reserves?type=overlap', icon: <PendingActionsOutlined />, count: overlapCount });
 
         const groups: Record<SideNavigationItemId, NavigationItem[]> = {
             dashboard: [{ label: sideNavigationLabels.dashboard, path: '/', icon: <DashboardOutlined /> }],
-            onair: [{ label: sideNavigationLabels.onair, path: '/onair', icon: <LiveTvOutlined /> }],
+            onair: config.data?.isEnableTSLiveStream === true ? [{ label: sideNavigationLabels.onair, path: '/onair', icon: <LiveTvOutlined /> }] : [],
             guide: guideNavigation,
             anime: [{ label: sideNavigationLabels.anime, path: '/anime', icon: <AlphaAIcon /> }],
             recording: [
@@ -105,7 +106,7 @@ export function AppLayout(): ReactNode {
                     icon: hasRecording ? <RadioButtonCheckedOutlined /> : <RadioButtonUncheckedOutlined />,
                 },
             ],
-            recorded: [{ label: sideNavigationLabels.recorded, path: '/recorded', icon: <MovieOutlined /> }],
+            recorded: [{ label: sideNavigationLabels.recorded, path: '/recorded', icon: <FilmstripBoxMultipleIcon /> }],
             encode: [{ label: sideNavigationLabels.encode, path: '/encode', icon: <SyncOutlined /> }],
             reserves: reserveNavigation,
             search: [{ label: sideNavigationLabels.search, path: '/search', icon: <SearchOutlined /> }],
@@ -231,7 +232,11 @@ export function AppLayout(): ReactNode {
         </Box>
     );
 
-    const contextValue = useMemo(() => ({ toggleDrawer: () => (desktop ? setDesktopOpen(value => !value) : setMobileOpen(value => !value)) }), [desktop]);
+    const contentOffset = desktop && !theaterMode && desktopOpen ? drawerWidth : 0;
+    const contextValue = useMemo(
+        () => ({ toggleDrawer: () => (desktop ? setDesktopOpen(value => !value) : setMobileOpen(value => !value)), contentOffset }),
+        [contentOffset, desktop],
+    );
     const drawerOpen = desktop ? desktopOpen : mobileOpen;
     const overlayDrawer = theaterMode || !desktop;
 
