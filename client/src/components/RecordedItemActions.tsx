@@ -273,13 +273,21 @@ export function RecordedItemActions({
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} fullWidth maxWidth="xs">
+            <Dialog
+                open={deleteOpen}
+                onClose={() => !deleteFiles.isPending && setDeleteOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>録画を削除</DialogTitle>
-                <DialogContent>
-                    <Typography sx={{ mb: 1 }}>{item.name} から削除するファイルを選択してください。</Typography>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
+                        {item.name} から削除するファイルを選択してください。
+                    </Typography>
                     <Stack>
                         {files.map(file => (
-                            <Box key={file.id} component="label" sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box key={file.id} component="label" sx={{ display: 'flex', alignItems: 'center', minHeight: 44, overflowWrap: 'anywhere' }}>
                                 <Checkbox
                                     checked={deleteIds.has(file.id)}
                                     onChange={() =>
@@ -297,8 +305,10 @@ export function RecordedItemActions({
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setDeleteOpen(false)}>キャンセル</Button>
-                    <Button color="error" disabled={deleteIds.size === 0 || deleteFiles.isPending} onClick={() => deleteFiles.mutate()}>
+                    <Button color="inherit" variant="outlined" disabled={deleteFiles.isPending} onClick={() => setDeleteOpen(false)}>
+                        キャンセル
+                    </Button>
+                    <Button color="error" variant="contained" disabled={deleteIds.size === 0 || deleteFiles.isPending} onClick={() => deleteFiles.mutate()}>
                         削除
                     </Button>
                 </DialogActions>

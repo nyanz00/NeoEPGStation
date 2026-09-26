@@ -29,6 +29,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { RecordedItemActions } from '../components/RecordedItemActions';
+import { programDialogPaper } from '../components/programDialogStyles';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
@@ -449,29 +450,50 @@ export function RecordingPage(): ReactNode {
                     </Stack>
                 )}
             </Box>
-            <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+            <Dialog
+                open={confirmOpen}
+                onClose={() => !remove.isPending && setConfirmOpen(false)}
+                fullWidth
+                maxWidth="sm"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>録画中のファイルを削除しますか？</DialogTitle>
-                <DialogContent>
-                    <Typography>{selected.size}件の録画ファイルを削除します。録画処理にも影響します。</Typography>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2">{selected.size}件の録画ファイルを削除します。録画処理にも影響します。</Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setConfirmOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" disabled={remove.isPending} onClick={() => setConfirmOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button color="error" variant="contained" disabled={remove.isPending} onClick={() => remove.mutate()}>
                         削除
                     </Button>
                 </DialogActions>
             </Dialog>
-            <Dialog open={stopTargets.length > 0} onClose={() => setStopTargets([])}>
+            <Dialog
+                open={stopTargets.length > 0}
+                onClose={() => !stop.isPending && setStopTargets([])}
+                fullWidth
+                maxWidth="sm"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>録画を停止しますか？</DialogTitle>
-                <DialogContent>
-                    <Typography>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
                         {stopTargets.length === 1 ? `「${stopTargets[0].name}」` : `${stopTargets.length}件`}
                         の録画を停止します。停止するまでに録画されたファイルは録画済みに残ります。予約も取り消されます。
                     </Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setStopTargets([])}>キャンセル</Button>
-                    <Button color="warning" variant="contained" disabled={stop.isPending} onClick={() => stop.mutate(stopTargets.map(item => item.id))}>
+                    <Button color="inherit" variant="outlined" disabled={stop.isPending} onClick={() => setStopTargets([])}>
+                        キャンセル
+                    </Button>
+                    <Button
+                        variant="contained"
+                        disabled={stop.isPending}
+                        onClick={() => stop.mutate(stopTargets.map(item => item.id))}
+                        sx={{ bgcolor: '#ffa726', color: '#111', '&:hover': { bgcolor: '#fb8c00' } }}
+                    >
                         録画停止
                     </Button>
                 </DialogActions>
