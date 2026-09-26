@@ -307,9 +307,18 @@ export default class UpdateManager {
 
             this.setStage(job, 'switching', `更新先 ${remoteTarget.label} へ切り替えています`);
             if (job.target === 'develop') {
-                await this.git(['checkout', 'develop']);
-                switched = true;
-                await this.git(['merge', '--ff-only', targetCommit]);
+                const localDevelop = await this.gitRequiredText(['branch', '--list', '--format=%(refname)', 'develop']);
+                if (localDevelop === '') {
+                    await this.git(['checkout', '-b', 'develop', targetCommit]);
+                    switched = true;
+                } else {
+                    await this.git(['checkout', 'develop']);
+                    switched = true;
+                    await this.git(['merge', '--ff-only', targetCommit]);
+                }
+                if ((await this.gitRequiredText(['rev-parse', 'HEAD'])) !== targetCommit) {
+                    throw new Error('developの切り替え先が更新対象と一致しません');
+                }
             } else {
                 await this.git(['checkout', '--detach', targetCommit]);
                 switched = true;
@@ -598,15 +607,22 @@ export default class UpdateManager {
         targetCommit: string,
     ): Promise<SystemUpdateRelation> {
         const relation = await this.getCommitRelation(currentCommit, targetCommit);
-        if (target !== 'stable' || relation !== 'diverged') return relation;
+        if (relation !== 'diverged') return relation;
+
+        if (target === 'develop') {
+            const onStableBranch = await this.isAncestor(currentCommit, 'refs/remotes/neoe-update/nyanz-master');
+            if (onStableBranch === null) return 'unknown';
+            if (!onStableBranch) return 'diverged';
+        }
 
         // Stable releases are repackaged into topical commits, so Git ancestry alone
-        // cannot tell whether their contents are newer than the current develop checkout.
-        let stableTree: string;
+        // cannot tell which side of the release the current checkout is on.
+        const releaseCommit = target === 'stable' ? targetCommit : currentCommit;
+        let releaseTree: string;
         let developHistory: string;
         try {
-            [stableTree, developHistory] = await Promise.all([
-                this.gitRequiredText(['rev-parse', `${targetCommit}^{tree}`]),
+            [releaseTree, developHistory] = await Promise.all([
+                this.gitRequiredText(['rev-parse', `${releaseCommit}^{tree}`]),
                 this.gitRequiredText([
                     'log',
                     '--first-parent',
@@ -620,7 +636,7 @@ export default class UpdateManager {
         const sourceCommits = developHistory
             .split(/\r?\n/)
             .map(line => line.split('\t'))
-            .filter(parts => parts[1] === stableTree)
+            .filter(parts => parts[1] === releaseTree)
             .map(parts => parts[0]);
         if (sourceCommits.length === 0) return 'diverged';
 
@@ -628,17 +644,19 @@ export default class UpdateManager {
         // released when the candidates disagree about the direction of travel.
         const directions = new Set<SystemUpdateRelation>();
         for (const sourceCommit of sourceCommits) {
-            if (sourceCommit === currentCommit) {
+            const fromCommit = target === 'stable' ? currentCommit : sourceCommit;
+            const toCommit = target === 'stable' ? sourceCommit : targetCommit;
+            if (fromCommit === toCommit) {
                 directions.add('ahead');
             } else {
-                const currentIsAncestor = await this.isAncestor(currentCommit, sourceCommit);
-                if (currentIsAncestor === null) return 'unknown';
-                if (currentIsAncestor) {
+                const fromIsAncestor = await this.isAncestor(fromCommit, toCommit);
+                if (fromIsAncestor === null) return 'unknown';
+                if (fromIsAncestor) {
                     directions.add('ahead');
                 } else {
-                    const sourceIsAncestor = await this.isAncestor(sourceCommit, currentCommit);
-                    if (sourceIsAncestor === null) return 'unknown';
-                    if (!sourceIsAncestor) return 'diverged';
+                    const toIsAncestor = await this.isAncestor(toCommit, fromCommit);
+                    if (toIsAncestor === null) return 'unknown';
+                    if (!toIsAncestor) return 'diverged';
                     directions.add('behind');
                 }
             }

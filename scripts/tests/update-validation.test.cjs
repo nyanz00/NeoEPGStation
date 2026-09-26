@@ -113,6 +113,27 @@ test('repackaged stable release follows its matching develop source commit', asy
     assert.equal(await updater.getTargetRelation('develop', older, stable), 'diverged');
 });
 
+test('stable release can update to a newer develop commit on the same content line', async () => {
+    const source = '1'.repeat(40);
+    const newerDevelop = '2'.repeat(40);
+    const stable = '3'.repeat(40);
+    const tree = 'a'.repeat(40);
+    const updater = Object.create(UpdateManager.prototype);
+    updater.getCommitRelation = async () => 'diverged';
+    updater.gitRequiredText = async args => (args[0] === 'rev-parse' ? tree : `${source}\t${tree}`);
+    updater.isAncestor = async (ancestor, descendant) =>
+        (ancestor === stable && descendant === 'refs/remotes/neoe-update/nyanz-master') ||
+        (ancestor === source && descendant === newerDevelop);
+
+    assert.equal(await updater.getTargetRelation('develop', stable, source), 'ahead');
+    assert.equal(await updater.getTargetRelation('develop', stable, newerDevelop), 'ahead');
+    updater.isAncestor = async (ancestor, descendant) =>
+        ancestor === stable && descendant === 'refs/remotes/neoe-update/nyanz-master';
+    assert.equal(await updater.getTargetRelation('develop', stable, newerDevelop), 'diverged');
+    updater.isAncestor = async () => false;
+    assert.equal(await updater.getTargetRelation('develop', stable, newerDevelop), 'diverged');
+});
+
 test('repackaged stable release rejects unknown and ambiguous histories', async () => {
     const current = '1'.repeat(40);
     const source = '2'.repeat(40);
