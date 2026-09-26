@@ -1,6 +1,6 @@
 # NeoEPGStation
 
-[Mirakurun](https://github.com/Chinachu/Mirakurun)を利用した録画管理ソフト[EPGStation](https://github.com/l3tnun/EPGStation)とEPGStation-nyanzを基にしたフォークです。<br>
+[Mirakurun](https://github.com/Chinachu/Mirakurun)を利用した録画管理ソフト[EPGStation](https://github.com/l3tnun/EPGStation)を基にしたフォークです。<br>
 モバイルフレンドリーな操作感はそのままに、WebUIを刷新し、アニメ録画支援機能・Amatsukazeとの接続機能・字幕表示に対応した新プレイヤーなどNeo版独自の機能を追加しています。
 
 > [!IMPORTANT]
@@ -21,7 +21,7 @@
 | ![アニメ録画支援](doc/images/readme/anime.png) | ![アニメ作品詳細](doc/images/readme/anime-detail-info.png) |
 |       指定した年とクールのアニメ一覧をAnnictの作品情報から取得        |              あらすじ、キャスト、スタッフ、作品情報を確認               |
 
-|                         放送候補・ルール作成                          |                            録画済み管理                             |
+|                         放送候補・ルール作成                          |                            録画管理                             |
 | :-----------------------------------------------------------------: | :----------------------------------------------------------------: |
 | ![放送候補・ルール作成](doc/images/readme/anime-detail-schedule.png) | ![録画済み管理](doc/images/readme/recorded.png) |
 |              Annict内の放送予定から受信可能な局で検索や録画ルールを作成               |      ユーザー機能を追加し、録画を所有ユーザーごとにフィルタリング可能      |
