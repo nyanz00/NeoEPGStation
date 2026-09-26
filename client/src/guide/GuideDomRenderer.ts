@@ -1,11 +1,13 @@
 import type { Schedule, ScheduleChannleItem, ScheduleProgramItem } from '../../../api';
 import type { GuideViewMode } from '../core/storage/settings';
 import type { GuideColorSettings, GuideGenreSettings, GuideSizeValue } from '../core/storage/guide';
+import { formatJstTime } from '../core/guide/time';
 
 export type GuideReserveKind = 'normal' | 'conflict' | 'skip' | 'overlap';
 
 export interface GuideReserveState {
     kind: GuideReserveKind;
+    note?: string;
 }
 
 interface GuideProgramElement {
@@ -30,6 +32,8 @@ export interface GuideDomRendererOptions {
     schedules: Schedule[];
     startAt: number;
     endAt: number;
+    columnStartAts?: readonly number[];
+    columnDurationMs?: number;
     size: GuideSizeValue;
     mode: GuideViewMode;
     dark: boolean;
@@ -50,8 +54,7 @@ function genreColor(genre: number | undefined, dark: boolean, colors: GuideColor
 }
 
 function timeText(value: number): string {
-    const date = new Date(value);
-    return `${date.getHours().toString(10).padStart(2, '0')}:${date.getMinutes().toString(10).padStart(2, '0')}`;
+    return formatJstTime(value);
 }
 
 export class GuideDomRenderer {
@@ -91,16 +94,14 @@ export class GuideDomRenderer {
     public updateGenres(genres: GuideGenreSettings): void {
         this.genres = genres;
         for (const item of this.items) {
-            item.element.classList.toggle('guide-program-genre-hidden', genres[item.genre ?? 15] === false);
+            item.element.classList.toggle('guide-program-genre-hidden', item.genre !== undefined && genres[item.genre] === false);
         }
     }
 
     public updateReserves(reserves: ReadonlyMap<number, GuideReserveState>): void {
         this.reserves = reserves;
         for (const item of this.items) {
-            const reserve = reserves.get(item.programId);
-            if (reserve === undefined) delete item.element.dataset.reserve;
-            else item.element.dataset.reserve = reserve.kind;
+            this.applyReserveState(item.element, reserves.get(item.programId), item.height);
         }
     }
 
@@ -120,20 +121,38 @@ export class GuideDomRenderer {
         );
     }
 
+    private applyReserveState(element: HTMLDivElement, reserve: GuideReserveState | undefined, height: number): void {
+        if (reserve === undefined) {
+            delete element.dataset.reserve;
+            delete element.dataset.reserveNote;
+            return;
+        }
+
+        element.dataset.reserve = reserve.kind;
+        if (reserve.note !== undefined && reserve.note.length > 0 && height >= 24 && this.options.size.channelWidth >= 48) {
+            element.dataset.reserveNote = reserve.note;
+        } else {
+            delete element.dataset.reserveNote;
+        }
+    }
+
     private async render(): Promise<void> {
         let fragment = document.createDocumentFragment();
         let fragmentSize = 0;
-        const { size, startAt, endAt } = this.options;
+        const { size, startAt, endAt, columnStartAts, columnDurationMs } = this.options;
+        const defaultColumnDurationMs = endAt - startAt;
 
         for (let channelIndex = 0; channelIndex < this.options.schedules.length; channelIndex += 1) {
             const schedule = this.options.schedules[channelIndex];
+            const columnStartAt = columnStartAts?.[channelIndex] ?? startAt;
+            const columnEndAt = columnStartAt + (columnDurationMs ?? defaultColumnDurationMs);
             for (const program of schedule.programs) {
                 if (this.destroyed) return;
-                const programStart = Math.max(startAt, program.startAt);
-                const programEnd = Math.min(endAt, program.endAt);
+                const programStart = Math.max(columnStartAt, program.startAt);
+                const programEnd = Math.min(columnEndAt, program.endAt);
                 if (programEnd <= programStart) continue;
 
-                const topMinutes = programStart === startAt ? 0 : Math.ceil(Math.floor((programStart - startAt) / 1_000) / 60);
+                const topMinutes = programStart === columnStartAt ? 0 : Math.ceil(Math.floor((programStart - columnStartAt) / 1_000) / 60);
                 const heightMinutes = Math.ceil((programEnd - programStart) / 60_000);
                 const top = (topMinutes * size.timescaleHeight) / 60;
                 const height = (heightMinutes * size.timescaleHeight) / 60;
@@ -154,8 +173,8 @@ export class GuideDomRenderer {
                 element.setAttribute('role', 'button');
                 element.setAttribute('aria-label', element.title);
                 if (this.options.dark) element.classList.add('guide-program-dark');
-                if (this.genres[genre ?? 15] === false) element.classList.add('guide-program-genre-hidden');
-                if (reserve !== undefined) element.dataset.reserve = reserve.kind;
+                if (genre !== undefined && this.genres[genre] === false) element.classList.add('guide-program-genre-hidden');
+                this.applyReserveState(element, reserve, height);
 
                 const name = document.createElement('div');
                 name.className = 'guide-program-name';
