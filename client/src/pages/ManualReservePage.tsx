@@ -19,41 +19,37 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { EditManualReserveOption, ManualReserveOption, ReserveEncodedOption, ReserveItem, ReserveSaveOption, ScheduleProgramItem } from '../../../api';
-import { type ReactNode, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
-import { channelName, formatProgramDate, formatProgramTime, programDuration } from '../core/program';
+import {
+    clearManualReserveHistory,
+    loadManualReserveHistory,
+    saveManualReserveHistory,
+    type ManualReserveDraftEditorState,
+    type ManualReserveDraftEncodeSetting,
+    type ManualReserveDraftTimeSpecifiedState,
+} from '../core/storage/manualReserve';
+import {
+    channelName,
+    formatProgramDate,
+    formatProgramTime,
+    programAudioComponentLabel,
+    programAudioSamplingRateLabel,
+    programDuration,
+    programGenrePathLabels,
+    programVideoComponentLabel,
+} from '../core/program';
 import { type ActiveUserId, useActiveUser } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
-interface EncodeSetting {
-    mode: string;
-    parentDirectoryName: string;
-    directory: string;
-}
-
-interface EditorState {
-    userId: ActiveUserId;
-    allowEndLack: boolean;
-    parentDirectoryName: string;
-    directory: string;
-    recordedFormat: string;
-    encodes: [EncodeSetting, EncodeSetting, EncodeSetting];
-    deleteOriginal: boolean;
-    updateThumbnail: boolean;
-}
-
-interface TimeSpecifiedState {
-    enabled: boolean;
-    name: string;
-    channelId: number | '';
-    startAt: string;
-    endAt: string;
-}
+type EditorState = ManualReserveDraftEditorState;
+type EncodeSetting = ManualReserveDraftEncodeSetting;
+type TimeSpecifiedState = ManualReserveDraftTimeSpecifiedState;
 
 function localDateTime(value: number): string {
     const date = new Date(value - new Date(value).getTimezoneOffset() * 60_000);
@@ -137,11 +133,14 @@ export function ManualReservePage(): ReactNode {
     const settings = useSettings();
     const activeUser = useActiveUser();
     const [params] = useSearchParams();
+    const location = useLocation();
+    const navigationType = useNavigationType();
     const reserveId = Number(params.get('reserveId'));
     const programId = Number(params.get('programId'));
     const validReserveId = params.has('reserveId') && Number.isSafeInteger(reserveId) && reserveId >= 0;
     const validProgramId = params.has('programId') && Number.isSafeInteger(programId) && programId >= 0;
     const validId = validReserveId || validProgramId;
+    const routeSignature = `${location.key}:${location.search}`;
     const goBack = useAppBack('/reserves');
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
@@ -157,17 +156,53 @@ export function ManualReservePage(): ReactNode {
         queryFn: () => api.getSchedule(programId, settings.isHalfWidthDisplayed),
         enabled: validProgramId,
     });
+    const reserveProgramId = reserve.data?.programId;
+    const reserveProgram = useQuery({
+        queryKey: ['schedule', reserveProgramId, settings.isHalfWidthDisplayed],
+        queryFn: () => api.getSchedule(reserveProgramId!, settings.isHalfWidthDisplayed),
+        enabled: validReserveId && reserveProgramId !== undefined,
+    });
     const [state, setState] = useState<EditorState | null>(null);
     const [timeSpecified, setTimeSpecified] = useState<TimeSpecifiedState | null>(null);
+    const initializedRouteSignature = useRef<string | null>(null);
+    const historySnapshot = useRef<{ state: EditorState; timeSpecified: TimeSpecifiedState } | null>(null);
+    const creationCompleted = useRef(false);
+
+    historySnapshot.current = state !== null && timeSpecified !== null ? { state, timeSpecified } : null;
 
     useEffect(() => {
-        if (reserve.data !== undefined) setState(editorState(reserve.data));
-        else if (program.data !== undefined) setState(initialEditorState(activeUser));
-    }, [activeUser, program.data, reserve.data]);
+        if (initializedRouteSignature.current === routeSignature) return;
+        if (validReserveId && reserve.data === undefined) return;
+        if (!validReserveId && validProgramId && program.data === undefined) return;
+
+        initializedRouteSignature.current = routeSignature;
+        if (validReserveId && reserve.data !== undefined) {
+            setState(editorState(reserve.data));
+            setTimeSpecified(null);
+            historySnapshot.current = null;
+            return;
+        }
+        if (validProgramId && program.data !== undefined) {
+            const restored = navigationType === 'POP' ? loadManualReserveHistory(location.key, location.search, programId) : null;
+            const nextState = restored?.state ?? initialEditorState(activeUser);
+            const nextTimeSpecified = restored?.timeSpecified ?? initialTimeSpecifiedState(program.data);
+            setState(nextState);
+            setTimeSpecified(nextTimeSpecified);
+            historySnapshot.current = { state: nextState, timeSpecified: nextTimeSpecified };
+        }
+    }, [activeUser, location.key, location.search, navigationType, program.data, programId, reserve.data, routeSignature, validProgramId, validReserveId]);
 
     useEffect(() => {
-        if (program.data !== undefined) setTimeSpecified(initialTimeSpecifiedState(program.data));
-    }, [program.data]);
+        const locationKey = location.key;
+        const routeSearch = location.search;
+        const shouldSave = validProgramId && !validReserveId;
+        return () => {
+            const snapshot = historySnapshot.current;
+            if (shouldSave && !creationCompleted.current && snapshot !== null) {
+                saveManualReserveHistory(locationKey, { routeSearch, programId, ...snapshot });
+            }
+        };
+    }, [location.key, location.search, programId, validProgramId, validReserveId]);
 
     const save = useMutation({
         mutationFn: async () => {
@@ -207,6 +242,9 @@ export function ManualReservePage(): ReactNode {
                 queryClient.invalidateQueries({ queryKey: ['reserve-lists'] }),
                 queryClient.invalidateQueries({ queryKey: ['reserve-counts'] }),
             ]);
+            creationCompleted.current = true;
+            historySnapshot.current = null;
+            clearManualReserveHistory(location.key);
             notify(`予約を${action}しました`, 'success');
             goBack();
         },
@@ -220,6 +258,13 @@ export function ManualReservePage(): ReactNode {
             encodes[index] = value;
             return { ...current, encodes };
         });
+
+    const programInfo = validReserveId ? (reserveProgram.data ?? reserve.data) : program.data;
+    const genres = programInfo === undefined ? [] : programGenrePathLabels(programInfo);
+    const video = programVideoComponentLabel(programInfo?.videoComponentType);
+    const audio = programAudioComponentLabel(programInfo?.audioComponentType);
+    const audioSamplingRate = programAudioSamplingRateLabel(programInfo?.audioSamplingRate);
+    const isFree = programInfo !== undefined && 'isFree' in programInfo ? programInfo.isFree : undefined;
 
     return (
         <>
@@ -252,18 +297,46 @@ export function ManualReservePage(): ReactNode {
                     <Card variant="outlined">
                         <CardContent>
                             <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                                {(validReserveId ? reserve.data : program.data)?.name}
+                                {programInfo?.name}
                             </Typography>
-                            <Typography color="text.secondary">{channelName(channels.data, (validReserveId ? reserve.data : program.data)!.channelId)}</Typography>
+                            <Typography color="text.secondary">{channelName(channels.data, programInfo!.channelId)}</Typography>
                             <Typography color="text.secondary">
-                                {formatProgramDate((validReserveId ? reserve.data : program.data)!.startAt)} -{' '}
-                                {formatProgramTime((validReserveId ? reserve.data : program.data)!.endAt)}（{programDuration((validReserveId ? reserve.data : program.data)!)}分）
+                                {formatProgramDate(programInfo!.startAt)} - {formatProgramTime(programInfo!.endAt)}（{programDuration(programInfo!)}分）
                             </Typography>
-                            {(validReserveId ? reserve.data : program.data)!.description !== undefined && (
-                                <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{(validReserveId ? reserve.data : program.data)!.description}</Typography>
+                            {genres.length > 0 && (
+                                <Stack spacing={0.25} sx={{ my: 1 }}>
+                                    {genres.map((genre, index) => (
+                                        <Typography key={`${index.toString(10)}-${genre}`} variant="body2" color="text.secondary">
+                                            {genre}
+                                        </Typography>
+                                    ))}
+                                </Stack>
                             )}
-                            {(validReserveId ? reserve.data : program.data)!.extended !== undefined && (
-                                <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{(validReserveId ? reserve.data : program.data)!.extended}</Typography>
+                            {programInfo!.description !== undefined && <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{programInfo!.description}</Typography>}
+                            {programInfo!.extended !== undefined && <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>{programInfo!.extended}</Typography>}
+                            {(video !== undefined || audio !== undefined || audioSamplingRate !== undefined || isFree !== undefined) && (
+                                <Stack spacing={0.25} sx={{ mt: 1 }}>
+                                    {video !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {video}
+                                        </Typography>
+                                    )}
+                                    {audio !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {audio}
+                                        </Typography>
+                                    )}
+                                    {audioSamplingRate !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {audioSamplingRate}
+                                        </Typography>
+                                    )}
+                                    {isFree !== undefined && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {isFree ? '無料放送' : '有料放送'}
+                                        </Typography>
+                                    )}
+                                </Stack>
                             )}
                         </CardContent>
                     </Card>

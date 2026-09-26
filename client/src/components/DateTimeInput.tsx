@@ -14,8 +14,11 @@ function parseDateText(value: string): string | null {
     const year = Number(match[1]);
     const month = Number(match[2]);
     const day = Number(match[3]);
-    const date = new Date(year, month - 1, day);
-    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+    if (year < 1) return null;
+    const date = new Date(0);
+    date.setUTCFullYear(year, month - 1, day);
+    date.setUTCHours(0, 0, 0, 0);
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
     return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
@@ -56,7 +59,15 @@ interface CommonInputProps {
     fullWidth?: boolean;
 }
 
-export function DateTextInput({ label, value, onChange, fullWidth = true }: CommonInputProps): ReactNode {
+interface DateTextInputProps extends CommonInputProps {
+    onValidityChange?: (isValid: boolean) => void;
+}
+
+interface TimeTextInputProps extends CommonInputProps {
+    onValidityChange?: (isValid: boolean) => void;
+}
+
+export function DateTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: DateTextInputProps): ReactNode {
     const theme = useTheme();
     const [text, setText] = useState(() => dateTextFromValue(value));
     const pickerRef = useRef<HTMLInputElement>(null);
@@ -69,8 +80,10 @@ export function DateTextInput({ label, value, onChange, fullWidth = true }: Comm
     const update = (event: ChangeEvent<HTMLInputElement>): void => {
         const raw = event.target.value;
         const next = raw.length < text.length ? raw : formatDateText(raw);
+        const parsed = parseDateText(next);
         setText(next);
-        onChange(parseDateText(next) ?? '');
+        onChange(parsed ?? '');
+        onValidityChange?.(next.length === 0 || parsed !== null);
     };
 
     return (
@@ -105,6 +118,7 @@ export function DateTextInput({ label, value, onChange, fullWidth = true }: Comm
                 onChange={event => {
                     setText(dateTextFromValue(event.target.value));
                     onChange(event.target.value);
+                    onValidityChange?.(true);
                 }}
                 tabIndex={-1}
                 aria-hidden="true"
@@ -114,7 +128,7 @@ export function DateTextInput({ label, value, onChange, fullWidth = true }: Comm
     );
 }
 
-export function TimeTextInput({ label, value, onChange, fullWidth = true }: CommonInputProps): ReactNode {
+export function TimeTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: TimeTextInputProps): ReactNode {
     const theme = useTheme();
     const [text, setText] = useState(value);
     const pickerRef = useRef<HTMLInputElement>(null);
@@ -129,6 +143,7 @@ export function TimeTextInput({ label, value, onChange, fullWidth = true }: Comm
         const next = raw.length < text.length ? raw : formatTimeText(raw);
         setText(next);
         onChange(isValidTime(next) ? next : '');
+        onValidityChange?.(next.length === 0 || isValidTime(next));
     };
 
     return (
@@ -161,6 +176,7 @@ export function TimeTextInput({ label, value, onChange, fullWidth = true }: Comm
                 onChange={event => {
                     setText(event.target.value);
                     onChange(event.target.value);
+                    onValidityChange?.(true);
                 }}
                 tabIndex={-1}
                 aria-hidden="true"

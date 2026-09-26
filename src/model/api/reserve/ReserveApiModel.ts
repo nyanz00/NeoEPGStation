@@ -115,8 +115,8 @@ export default class ReserveApiModel implements IReserveApiModel {
         if (reserve.encodeParentDirectoryName2 !== null) {
             item.encodeParentDirectoryName2 = reserve.encodeParentDirectoryName2;
         }
-        if (reserve.encodeDirectory3 !== null) {
-            item.encodeDirectory3 = reserve.encodeDirectory3;
+        if (reserve.encodeDirectory2 !== null) {
+            item.encodeDirectory2 = reserve.encodeDirectory2;
         }
         if (reserve.encodeMode3 !== null) {
             item.encodeMode3 = reserve.encodeMode3;
@@ -189,6 +189,9 @@ export default class ReserveApiModel implements IReserveApiModel {
         }
         if (reserve.audioSamplingRate !== null) {
             item.audioSamplingRate = <any>reserve.audioSamplingRate;
+        }
+        if (reserve.audioComponentType !== null) {
+            item.audioComponentType = reserve.audioComponentType;
         }
 
         return item;
@@ -265,6 +268,9 @@ export default class ReserveApiModel implements IReserveApiModel {
             reserveId: reserve.id,
         };
 
+        if (reserve.userId !== null) {
+            result.userId = reserve.userId;
+        }
         if (reserve.programId !== null) {
             result.programId = reserve.programId;
         }
