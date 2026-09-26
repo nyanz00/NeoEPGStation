@@ -476,12 +476,14 @@ export default class RecordedManageModel implements IRecordedManageModel {
 
         // 実ファイル削除
         const filePath = await this.videoUtil.getFullFilePathFromId(videoFileid);
-        if (filePath !== null) {
-            this.log.system.info(`delete: ${filePath}`);
-            await FileUtil.unlink(filePath).catch(err => {
-                this.log.system.error(`failed to delete ${filePath}`);
-                this.log.system.error(err);
-            });
+        if (filePath === null) {
+            throw new Error('GetVideoFilePathError');
+        }
+        this.log.system.info(`delete: ${filePath}`);
+        const fileDeleteErrors: string[] = [];
+        await this.deleteRecordedFile(filePath, fileDeleteErrors);
+        if (fileDeleteErrors.length > 0) {
+            throw new Error(`録画ファイルの削除に失敗しました: ${fileDeleteErrors.join('、')}`);
         }
 
         // DB から削除

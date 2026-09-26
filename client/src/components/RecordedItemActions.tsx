@@ -1,5 +1,6 @@
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import LockOpenOutlined from '@mui/icons-material/LockOpenOutlined';
@@ -9,7 +10,8 @@ import StopCircleOutlined from '@mui/icons-material/StopCircleOutlined';
 import SubtitlesOutlined from '@mui/icons-material/SubtitlesOutlined';
 import SyncOutlined from '@mui/icons-material/SyncOutlined';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Stack, Typography } from '@mui/material';
+import ImageOutlined from '@mui/icons-material/ImageOutlined';
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, Stack, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { RecordedItem, VideoFile } from '../../../api';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -23,6 +25,7 @@ import type { ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
 import { UserSelector } from './UserSelector';
+import { dialogSurfacePaper, programDialogClose, programDialogPaper } from './programDialogStyles';
 
 function formatBytes(size: number): string {
     if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GB`;
@@ -36,6 +39,7 @@ export function RecordedItemActions({
     onClose,
     onSearch,
     onEncode,
+    onThumbnail,
     onStop,
     onSubtitle,
     onChanged,
@@ -48,6 +52,7 @@ export function RecordedItemActions({
     onClose: () => void;
     onSearch: () => void;
     onEncode: () => void;
+    onThumbnail?: () => void;
     onStop?: () => void;
     onSubtitle?: () => void;
     onChanged: () => void;
@@ -90,8 +95,14 @@ export function RecordedItemActions({
     useEffect(() => setSelectedUserId(item.userId ?? null), [item.userId]);
     useEffect(() => {
         if (!deleteOpen) return;
+        const availableIds = new Set(files.map(file => file.id));
+        setDeleteIds(current => new Set([...current].filter(id => availableIds.has(id))));
+    }, [deleteOpen, files]);
+
+    const openDeleteDialog = (): void => {
         setDeleteIds(new Set(settings.deleteRecordedDefaultValue ? files.map(file => file.id) : []));
-    }, [deleteOpen, files, settings.deleteRecordedDefaultValue]);
+        setDeleteOpen(true);
+    };
 
     const protect = useMutation({
         mutationFn: () => (item.isProtected ? api.unprotectRecorded(item.id) : api.protectRecorded(item.id)),
@@ -108,7 +119,7 @@ export function RecordedItemActions({
             setUserOpen(false);
             notify('ユーザーを変更しました。', 'success');
             onChanged();
-            await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['recorded'] }), queryClient.invalidateQueries({ queryKey: ['recorded-options'] })]);
         },
         onError: error => notify(`ユーザーを変更できません: ${error.message}`, 'error'),
     });
@@ -126,7 +137,7 @@ export function RecordedItemActions({
             notify(`${item.name} を削除しました。`, 'success');
             if (allDeleted) onDeleted();
             else onChanged();
-            await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+            await Promise.all([queryClient.invalidateQueries({ queryKey: ['recorded'] }), queryClient.invalidateQueries({ queryKey: ['recorded-options'] })]);
         },
         onError: error => notify(`削除に失敗しました: ${error.message}`, 'error'),
     });
@@ -176,10 +187,16 @@ export function RecordedItemActions({
                     <AccountCircleOutlined fontSize="small" sx={{ mr: 1.5 }} />
                     user
                 </MenuItem>
-                {!item.isRecording && (
+                {!item.isRecording && (config.data?.encode.length ?? 0) > 0 && (
                     <MenuItem onClick={() => closeThen(onEncode)}>
                         <SyncOutlined fontSize="small" sx={{ mr: 1.5 }} />
                         encode
+                    </MenuItem>
+                )}
+                {detailActionOrder && onThumbnail !== undefined && (
+                    <MenuItem onClick={() => closeThen(onThumbnail)}>
+                        <ImageOutlined fontSize="small" sx={{ mr: 1.5 }} />
+                        thumbnail
                     </MenuItem>
                 )}
                 {detailActionOrder && config.data?.developerMode === true && onSubtitle !== undefined && (
@@ -201,7 +218,7 @@ export function RecordedItemActions({
                         Info
                     </MenuItem>
                 )}
-                {item.isRecording && onStop !== undefined && (
+                {(item.isRecording || item.isEncoding) && onStop !== undefined && (
                     <MenuItem onClick={() => closeThen(onStop)}>
                         <StopCircleOutlined fontSize="small" sx={{ mr: 1.5 }} />
                         stop
@@ -217,23 +234,37 @@ export function RecordedItemActions({
                         subtitle
                     </MenuItem>
                 )}
-                <MenuItem onClick={() => closeThen(() => setDeleteOpen(true))}>
+                <MenuItem onClick={() => closeThen(openDeleteDialog)}>
                     <DeleteOutlineOutlined fontSize="small" sx={{ mr: 1.5 }} />
                     delete
                 </MenuItem>
             </Menu>
 
-            <Dialog open={userOpen} onClose={() => setUserOpen(false)} fullWidth maxWidth="xs">
-                <DialogTitle>ユーザー変更</DialogTitle>
-                <DialogContent>
+            <Dialog
+                open={userOpen}
+                onClose={() => !updateUser.isPending && setUserOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+            >
+                <DialogTitle sx={{ position: 'relative' }}>
+                    ユーザー変更
+                    <IconButton aria-label="閉じる" disabled={updateUser.isPending} onClick={() => setUserOpen(false)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         {item.name} のユーザーを変更
                     </Typography>
                     <UserSelector value={selectedUserId} onChange={setSelectedUserId} includeMaster={false} />
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setUserOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" disabled={updateUser.isPending} onClick={() => setUserOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button
+                        variant="contained"
                         disabled={typeof selectedUserId !== 'number' || updateUser.isPending}
                         onClick={() => typeof selectedUserId === 'number' && updateUser.mutate(selectedUserId)}
                     >
@@ -242,13 +273,21 @@ export function RecordedItemActions({
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} fullWidth maxWidth="xs">
+            <Dialog
+                open={deleteOpen}
+                onClose={() => !deleteFiles.isPending && setDeleteOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>録画を削除</DialogTitle>
-                <DialogContent>
-                    <Typography sx={{ mb: 1 }}>{item.name} から削除するファイルを選択してください。</Typography>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
+                        {item.name} から削除するファイルを選択してください。
+                    </Typography>
                     <Stack>
                         {files.map(file => (
-                            <Box key={file.id} component="label" sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box key={file.id} component="label" sx={{ display: 'flex', alignItems: 'center', minHeight: 44, overflowWrap: 'anywhere' }}>
                                 <Checkbox
                                     checked={deleteIds.has(file.id)}
                                     onChange={() =>
@@ -266,41 +305,84 @@ export function RecordedItemActions({
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setDeleteOpen(false)}>キャンセル</Button>
-                    <Button color="error" disabled={deleteIds.size === 0 || deleteFiles.isPending} onClick={() => deleteFiles.mutate()}>
+                    <Button color="inherit" variant="outlined" disabled={deleteFiles.isPending} onClick={() => setDeleteOpen(false)}>
+                        キャンセル
+                    </Button>
+                    <Button color="error" variant="contained" disabled={deleteIds.size === 0 || deleteFiles.isPending} onClick={() => deleteFiles.mutate()}>
                         削除
                     </Button>
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={downloadOpen} onClose={() => setDownloadOpen(false)} fullWidth maxWidth="xs">
-                <DialogTitle>{item.name}</DialogTitle>
-                <DialogContent>
-                    <Typography sx={{ mb: 1 }}>video files</Typography>
-                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mb: 2 }}>
+            <Dialog
+                open={downloadOpen}
+                onClose={() => setDownloadOpen(false)}
+                fullWidth
+                maxWidth="sm"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...dialogSurfacePaper(theme),
+                            bgcolor: '#191E23',
+                            width: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
+                            m: { xs: 1.5, sm: 4 },
+                            maxHeight: 'calc(100dvh - 24px)',
+                        }),
+                    },
+                }}
+            >
+                <DialogTitle sx={{ position: 'relative', pr: 7, fontSize: { xs: '1.15rem', sm: '1.25rem' }, overflowWrap: 'anywhere' }}>
+                    {item.name}
+                    <IconButton aria-label="閉じる" onClick={() => setDownloadOpen(false)} sx={programDialogClose}>
+                        <CloseOutlined />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
+                    <Typography sx={{ mb: 1, fontWeight: 600 }}>video files</Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: 'flex-start', flexWrap: { sm: 'wrap' }, mb: 2 }}>
                         {files.map(file => (
-                            <Button key={file.id} variant="contained" onClick={() => download(file, false)}>
+                            <Button
+                                key={file.id}
+                                variant="contained"
+                                onClick={() => download(file, false)}
+                                sx={{ width: 'fit-content', maxWidth: '100%', minWidth: 0, justifyContent: 'flex-start', textAlign: 'left', overflowWrap: 'anywhere' }}
+                            >
                                 {file.name} ({formatBytes(file.size)})
                             </Button>
                         ))}
                     </Stack>
-                    <Typography sx={{ mb: 1 }}>play lists</Typography>
-                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    <Typography sx={{ mb: 1, fontWeight: 600 }}>play lists</Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: 'flex-start', flexWrap: { sm: 'wrap' } }}>
                         {files.map(file => (
-                            <Button key={file.id} variant="contained" onClick={() => download(file, true)}>
+                            <Button key={file.id} variant="contained" onClick={() => download(file, true)} sx={{ width: 'fit-content', maxWidth: '100%', minWidth: 0 }}>
                                 {file.name}
                             </Button>
                         ))}
                     </Stack>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ borderTop: 1, borderColor: 'divider', px: { xs: 2, sm: 3 }, py: 1.5 }}>
                     <Button onClick={() => setDownloadOpen(false)}>閉じる</Button>
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={infoOpen} onClose={() => setInfoOpen(false)} fullWidth maxWidth="md">
+            <Dialog
+                open={infoOpen}
+                onClose={() => setInfoOpen(false)}
+                fullWidth
+                maxWidth="md"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            bgcolor: '#191E23',
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        }),
+                    },
+                }}
+            >
                 <DialogTitle>Info</DialogTitle>
-                <DialogContent>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     {files.length > 1 && (
                         <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
                             {files.map(file => (
@@ -319,10 +401,12 @@ export function RecordedItemActions({
                     ) : null}
                 </DialogContent>
                 <DialogActions>
-                    <Button disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
+                    <Button variant="contained" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
                         Reanalyze
                     </Button>
-                    <Button onClick={() => setInfoOpen(false)}>閉じる</Button>
+                    <Button color="inherit" variant="outlined" onClick={() => setInfoOpen(false)}>
+                        閉じる
+                    </Button>
                 </DialogActions>
             </Dialog>
         </>

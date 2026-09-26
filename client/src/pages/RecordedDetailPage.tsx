@@ -1,3 +1,5 @@
+import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import { programDialogPaper, programDialogClose, programDialogFields } from '../components/programDialogStyles';
 import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
 import CastConnectedOutlined from '@mui/icons-material/CastConnectedOutlined';
 import CheckCircleOutlineOutlined from '@mui/icons-material/CheckCircleOutlineOutlined';
@@ -7,7 +9,7 @@ import PlayArrowOutlined from '@mui/icons-material/PlayArrowOutlined';
 import PlayCircleOutlineOutlined from '@mui/icons-material/PlayCircleOutlineOutlined';
 import ReplayOutlined from '@mui/icons-material/ReplayOutlined';
 import StopOutlined from '@mui/icons-material/StopOutlined';
-import SyncOutlined from '@mui/icons-material/SyncOutlined';
+import ControlPoint from '@mui/icons-material/ControlPoint';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import {
     Box,
@@ -34,8 +36,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AddManualEncodeProgramOption, AnnictRecordedEpisodeInfo, RecordedItem, VideoFile, VideoFileId } from '../../../api';
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { LinkifiedProgramText } from '../components/LinkifiedProgramText';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { RecordedSelectStreamDialog } from '../components/RecordedSelectStreamDialog';
 import { api } from '../core/api/queries';
@@ -44,7 +47,7 @@ import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { createRecordedRelatedSearchOption, getRecordedVideoPlaylistURL, getRecordedVideoSchemeURL, loadKodiHost, saveKodiHost } from '../core/media/recorded';
-import { formatProgramDate, formatProgramTime, genreNames, programDuration } from '../core/program';
+import { formatProgramDate, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { loadAddEncodeSettings, saveAddEncodeSettings } from '../core/storage/encode';
 import { useSettings } from '../core/storage/settings';
 import { useViewerProfile } from '../core/storage/viewerProfile';
@@ -330,8 +333,10 @@ function AnnictHeaderControl({
 export function RecordedDetailPage(): ReactNode {
     const { id } = useParams();
     const recordedId = Number(id);
+    const location = useLocation();
     const navigate = useNavigate();
     const goBack = useAppBack('/recorded');
+    const backTooltip = (location.state as { fromWatchHistory?: boolean } | null)?.fromWatchHistory === true ? '視聴履歴に戻る' : '録画済みに戻る';
     const settings = useSettings();
     const viewerProfile = useViewerProfile();
     const queryClient = useQueryClient();
@@ -383,7 +388,12 @@ export function RecordedDetailPage(): ReactNode {
         retry: false,
     });
     const addEncode = useMutation({
-        mutationFn: (option: AddManualEncodeProgramOption) => api.addManualEncode(option),
+        mutationFn: (option: AddManualEncodeProgramOption) => {
+            if (!recorded.data?.videoFiles?.some(video => video.id === option.sourceVideoFileId)) {
+                return Promise.reject(new Error('選択した録画ファイルは存在しません。'));
+            }
+            return api.addManualEncode(option);
+        },
         onSuccess: async () => {
             setEncodeOpen(false);
             notify('エンコードキューに追加しました。', 'success');
@@ -397,7 +407,12 @@ export function RecordedDetailPage(): ReactNode {
         onError: error => notify(`エンコードを追加できません: ${error.message}`, 'error'),
     });
     const replaceThumbnail = useMutation({
-        mutationFn: (videoFileId: VideoFileId) => api.replaceThumbnail(videoFileId),
+        mutationFn: (videoFileId: VideoFileId) => {
+            if (!recorded.data?.videoFiles?.some(video => video.id === videoFileId)) {
+                return Promise.reject(new Error('選択した録画ファイルは存在しません。'));
+            }
+            return api.replaceThumbnail(videoFileId);
+        },
         onSuccess: () => {
             setThumbnailOpen(false);
             notify('サムネイル再生成を開始しました。', 'success');
@@ -453,7 +468,8 @@ export function RecordedDetailPage(): ReactNode {
     useEffect(() => {
         const item = recorded.data;
         if (item === undefined) return;
-        setSourceVideoFileId(current => (current === '' ? (item.videoFiles?.[0]?.id ?? '') : current));
+        const videoFiles = item.videoFiles ?? [];
+        setSourceVideoFileId(current => (current !== '' && videoFiles.some(video => video.id === current) ? current : (videoFiles[0]?.id ?? '')));
     }, [recorded.data]);
     useEffect(() => {
         const data = config.data;
@@ -478,11 +494,12 @@ export function RecordedDetailPage(): ReactNode {
     const kodiHosts = config.data?.kodiHosts ?? [];
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
     const thumbnail = item?.thumbnails?.[0];
-    const genre = item?.genre1 === undefined ? undefined : genreNames[item.genre1];
+    const genres = item === undefined ? [] : programGenrePathLabels(item);
     const drop = item?.dropLogFile;
     const hasDrop = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     const hasAnnictHeaderControl = annictEpisode.isError || annictEpisode.data?.state === 'pending' || annictEpisode.data?.state === 'matched';
-    const canEncode = sourceVideoFileId !== '' && mode.length > 0 && (sameDirectory || parentDir.length > 0);
+    const sourceVideoFileExists = sourceVideoFileId !== '' && files.some(video => video.id === sourceVideoFileId);
+    const canEncode = sourceVideoFileExists && mode.length > 0 && (sameDirectory || parentDir.length > 0);
     const markAtPlaybackStart = (): void => {
         if (settings.annictAutoWatchMode === 'start' && annictEpisode.data?.state === 'matched' && annictEpisode.data.writeConfigured && !annictEpisode.data.watched) {
             markAnnictEpisodeWatched.mutate();
@@ -518,7 +535,7 @@ export function RecordedDetailPage(): ReactNode {
             <PageHeader
                 title="録画詳細"
                 leading={
-                    <Tooltip title="録画済みに戻る">
+                    <Tooltip title={backTooltip}>
                         <IconButton onClick={goBack}>
                             <ArrowBackOutlined />
                         </IconButton>
@@ -578,6 +595,7 @@ export function RecordedDetailPage(): ReactNode {
                         void navigate(`/recorded?${query}`);
                     }}
                     onEncode={() => setEncodeOpen(true)}
+                    onThumbnail={settings.isHideRecordedThumbnailButton && files.length > 0 ? () => setThumbnailOpen(true) : undefined}
                     onSubtitle={() => void navigate(`/recorded/subtitle/${recordedId.toString(10)}`)}
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded-detail', recordedId] })}
                     onDeleted={goBack}
@@ -614,11 +632,11 @@ export function RecordedDetailPage(): ReactNode {
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
                                 {channel?.name ?? item.channelId.toString(10)}
                             </Typography>
-                            {genre !== undefined && (
-                                <Typography variant="body2" color="text.secondary">
+                            {genres.map((genre, index) => (
+                                <Typography key={`${index.toString(10)}-${genre}`} variant="body2" color="text.secondary">
                                     {genre}
                                 </Typography>
-                            )}
+                            ))}
                             <Typography variant="body2" color="text.secondary">
                                 {formatProgramDate(item.startAt)} - {formatProgramTime(item.endAt)} ({programDuration(item)} m)
                             </Typography>
@@ -647,13 +665,13 @@ export function RecordedDetailPage(): ReactNode {
                                 {streamingFiles.length > 0 && (
                                     <VideoActionButton label="STREAMING" icon={<PlayCircleOutlineOutlined />} color="primary" files={streamingFiles} onSelect={streaming} />
                                 )}
-                                {files.length > 0 && (
+                                {files.length > 0 && !settings.isHideRecordedThumbnailButton && (
                                     <Button variant="contained" color="success" startIcon={<ImageOutlined />} onClick={() => setThumbnailOpen(true)}>
                                         THUMB
                                     </Button>
                                 )}
                                 {files.length > 0 && (
-                                    <Button variant="contained" color="success" startIcon={<SyncOutlined />} onClick={() => setEncodeOpen(true)}>
+                                    <Button variant="contained" color="success" startIcon={<ControlPoint />} onClick={() => setEncodeOpen(true)}>
                                         ENCODE
                                     </Button>
                                 )}
@@ -682,22 +700,37 @@ export function RecordedDetailPage(): ReactNode {
                     <Box sx={{ mt: 3 }}>
                         {item.description !== undefined && (
                             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                                {item.description}
+                                <LinkifiedProgramText text={item.description} />
                             </Typography>
                         )}
                         {item.extended !== undefined && (
                             <Typography variant="body2" sx={{ mt: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                                {item.extended}
+                                <LinkifiedProgramText text={item.extended} />
                             </Typography>
                         )}
                     </Box>
                 </Box>
             )}
 
-            <Dialog open={thumbnailOpen} onClose={() => setThumbnailOpen(false)} fullWidth maxWidth="xs" disableScrollLock>
+            <Dialog
+                open={thumbnailOpen}
+                onClose={() => setThumbnailOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            bgcolor: '#191E23',
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
+                        }),
+                    },
+                }}
+            >
                 <DialogTitle>サムネイル再生成</DialogTitle>
-                <DialogContent>
-                    <Typography variant="body2" sx={{ mb: 2 }}>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5, bgcolor: 'action.hover' }}>
+                    <Typography variant="body2" sx={{ mb: 1.5 }}>
                         選んだ録画ファイルタイプを元にサムネイルを再生成します。
                     </Typography>
                     <FormControl fullWidth>
@@ -712,10 +745,13 @@ export function RecordedDetailPage(): ReactNode {
                     </FormControl>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setThumbnailOpen(false)}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" onClick={() => setThumbnailOpen(false)}>
+                        キャンセル
+                    </Button>
                     <Button
-                        disabled={sourceVideoFileId === '' || replaceThumbnail.isPending}
-                        onClick={() => sourceVideoFileId !== '' && replaceThumbnail.mutate(sourceVideoFileId)}
+                        variant="contained"
+                        disabled={!sourceVideoFileExists || replaceThumbnail.isPending}
+                        onClick={() => sourceVideoFileExists && replaceThumbnail.mutate(sourceVideoFileId)}
                     >
                         再生成
                     </Button>
@@ -734,9 +770,24 @@ export function RecordedDetailPage(): ReactNode {
                 }}
             />
 
-            <Dialog open={dropLogOpen} onClose={() => setDropLogOpen(false)} fullWidth maxWidth="md">
+            <Dialog
+                open={dropLogOpen}
+                onClose={() => setDropLogOpen(false)}
+                fullWidth
+                maxWidth="md"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            bgcolor: '#191E23',
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                        }),
+                    },
+                }}
+            >
                 <DialogTitle>{item?.name ?? '録画'} - ドロップログ</DialogTitle>
-                <DialogContent dividers>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2 }}>
                     {dropLogLoading ? (
                         <Box sx={{ py: 4, textAlign: 'center' }}>
                             <CircularProgress />
@@ -802,60 +853,87 @@ export function RecordedDetailPage(): ReactNode {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={encodeOpen} onClose={closeEncodeDialog} fullWidth maxWidth="sm" disableScrollLock>
-                <DialogTitle>エンコード追加</DialogTitle>
-                <DialogContent>
-                    <Stack spacing={2} sx={{ pt: 1 }}>
-                        <FormControl fullWidth>
-                            <InputLabel>元ファイル</InputLabel>
-                            <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
-                                {files.map(video => (
-                                    <MenuItem key={video.id} value={video.id}>
-                                        {video.name}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        <FormControl fullWidth>
-                            <InputLabel>エンコードプリセット</InputLabel>
-                            <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
-                                {config.data?.encode.map(value => (
-                                    <MenuItem key={value} value={value}>
-                                        {value}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        <FormControlLabel
-                            control={<Checkbox checked={sameDirectory} onChange={event => setSameDirectory(event.target.checked)} />}
-                            label="元ファイルと同じ場所に保存"
-                        />
-                        {!sameDirectory && (
-                            <>
-                                <FormControl fullWidth>
-                                    <InputLabel>保存先</InputLabel>
-                                    <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
-                                        {config.data?.recorded.map(value => (
-                                            <MenuItem key={value} value={value}>
-                                                {value}
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                <TextField label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
-                            </>
-                        )}
-                        <FormControlLabel control={<Checkbox checked={removeOriginal} onChange={event => setRemoveOriginal(event.target.checked)} />} label="元ファイル削除" />
-                        <FormControlLabel control={<Checkbox checked={updateThumbnail} onChange={event => setUpdateThumbnail(event.target.checked)} />} label="サムネイル再生成" />
+            <Dialog
+                open={encodeOpen}
+                onClose={closeEncodeDialog}
+                fullWidth
+                maxWidth="sm"
+                aria-labelledby="encode-program-title"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5 },
+                            '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
+                            '& .MuiCheckbox-root': { py: 0.5 },
+                        }),
+                    },
+                }}
+            >
+                <DialogTitle id="encode-program-title">{item?.name ?? '録画'}</DialogTitle>
+                <IconButton aria-label="閉じる" onClick={closeEncodeDialog} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1.5, bgcolor: 'action.hover' }}>
+                    <Stack spacing={1}>
+                        <Box sx={programDialogFields}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>元ファイル</InputLabel>
+                                <Select label="元ファイル" value={sourceVideoFileId} onChange={event => setSourceVideoFileId(Number(event.target.value))}>
+                                    {files.map(video => (
+                                        <MenuItem key={video.id} value={video.id}>
+                                            {video.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>エンコードプリセット</InputLabel>
+                                <Select label="エンコードプリセット" value={mode} onChange={event => setMode(event.target.value)}>
+                                    {config.data?.encode.map(value => (
+                                        <MenuItem key={value} value={value}>
+                                            {value}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        </Box>
+                        <Box sx={programDialogFields}>
+                            <FormControl fullWidth size="small" disabled={sameDirectory}>
+                                <InputLabel>保存先</InputLabel>
+                                <Select label="保存先" value={parentDir} onChange={event => setParentDir(event.target.value)}>
+                                    {config.data?.recorded.map(value => (
+                                        <MenuItem key={value} value={value}>
+                                            {value}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <TextField disabled={sameDirectory} size="small" label="サブディレクトリ" value={directory} onChange={event => setDirectory(event.target.value)} />
+                        </Box>
+                        <Stack spacing={0}>
+                            <FormControlLabel
+                                control={<Checkbox checked={sameDirectory} onChange={event => setSameDirectory(event.target.checked)} />}
+                                label="元ファイルと同じ場所に保存"
+                            />
+
+                            <FormControlLabel control={<Checkbox checked={removeOriginal} onChange={event => setRemoveOriginal(event.target.checked)} />} label="元ファイル削除" />
+                            <FormControlLabel
+                                control={<Checkbox checked={updateThumbnail} onChange={event => setUpdateThumbnail(event.target.checked)} />}
+                                label="サムネイル再生成"
+                            />
+                        </Stack>
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={closeEncodeDialog}>キャンセル</Button>
+                    <Button color="inherit" variant="outlined" onClick={closeEncodeDialog}>
+                        キャンセル
+                    </Button>
                     <Button
                         variant="contained"
                         disabled={!canEncode || addEncode.isPending}
                         onClick={() => {
-                            if (sourceVideoFileId === '') return;
+                            if (!sourceVideoFileExists) return;
                             persistEncodeSettings();
                             const option: AddManualEncodeProgramOption = {
                                 recordedId,

@@ -1,5 +1,5 @@
 import { inject, injectable } from 'inversify';
-import { In, IsNull, Not } from 'typeorm';
+import { In } from 'typeorm';
 import * as apid from '../../../api';
 import Recorded from '../../db/entities/Recorded';
 import Thumbnail from '../../db/entities/Thumbnail';
@@ -605,37 +605,62 @@ export default class RecordedDB implements IRecordedDB {
      * channelIdのリストを返す
      * @return Promise<apid.RecordedChannelListItem[]>
      */
-    public async findChannelList(): Promise<apid.RecordedChannelListItem[]> {
+    public async findChannelList(userId?: apid.UserId): Promise<apid.RecordedChannelListItem[]> {
         const connection = await this.op.getConnection();
 
-        const queryBuilder = await connection
+        const queryBuilder = connection
             .getRepository(Recorded)
             .createQueryBuilder('recorded')
-            .select('count(*) as cnt, channelId')
-            .groupBy('channelId');
+            .select('COUNT(recorded.id)', 'cnt')
+            .addSelect('recorded.channelId', 'channelId')
+            .where('recorded.isRecording = :isRecording', { isRecording: false })
+            .groupBy('recorded.channelId');
 
-        return await this.promieRetry.run(() => {
+        if (typeof userId !== 'undefined') {
+            queryBuilder.andWhere('recorded.userId = :userId', { userId });
+        }
+
+        const rows: Array<{ cnt: number | string; channelId: number | string }> = await this.promieRetry.run(() => {
             return queryBuilder.getRawMany();
         });
+
+        return rows.map(row => ({
+            cnt: Number(row.cnt),
+            channelId: Number(row.channelId),
+        }));
     }
 
     /**
      * genreのリストを返す
      * @return Promise<apid.RecordedGenreListItem[]>
      */
-    public async findGenreList(): Promise<apid.RecordedGenreListItem[]> {
+    public async findGenreList(userId?: apid.UserId): Promise<apid.RecordedGenreListItem[]> {
         const connection = await this.op.getConnection();
+        const recordedFilter = typeof userId === 'undefined' ? 'isRecording = 0' : 'isRecording = 0 AND userId = ?';
+        const parameters = typeof userId === 'undefined' ? [] : [userId];
+        // UNION で同じ録画 ID と大ジャンルの組を 1 件にまとめる
+        const rows: Array<{ cnt: number | string; genre: number | string }> = await this.promieRetry.run(() =>
+            connection.query(
+                `
+                SELECT COUNT(*) AS cnt, genre
+                FROM (
+                    SELECT id, genre1 AS genre FROM recorded WHERE ${recordedFilter} AND genre1 IS NOT NULL
+                    UNION
+                    SELECT id, genre2 AS genre FROM recorded WHERE ${recordedFilter} AND genre2 IS NOT NULL
+                    UNION
+                    SELECT id, genre3 AS genre FROM recorded WHERE ${recordedFilter} AND genre3 IS NOT NULL
+                ) AS recorded_genres
+                GROUP BY genre
+                ORDER BY genre ASC
+            `,
+                parameters.length === 0 ? [] : [...parameters, ...parameters, ...parameters],
+            ),
+        );
 
-        const queryBuilder = await connection
-            .getRepository(Recorded)
-            .createQueryBuilder('recorded')
-            .select('count(*) as cnt, genre1 as genre')
-            .where({ genre1: Not(IsNull()) })
-            .groupBy('genre');
-
-        return await this.promieRetry.run(() => {
-            return queryBuilder.getRawMany();
-        });
+        return rows.map(row => ({
+            cnt: Number(row.cnt),
+            genre: Number(row.genre),
+        }));
     }
 
     public async findEncodedNameList(): Promise<string[]> {

@@ -32,8 +32,8 @@ export default interface IRecordedDB {
     findIds(recordedIds: apid.RecordedId[]): Promise<Recorded[]>;
     findAll(option: FindAllOption, columnOption: RecordedColumnOption): Promise<[Recorded[], number]>;
     countRecordedBefore(recorded: Recorded): Promise<number>;
-    findChannelList(): Promise<apid.RecordedChannelListItem[]>;
-    findGenreList(): Promise<apid.RecordedGenreListItem[]>;
+    findChannelList(userId?: apid.UserId): Promise<apid.RecordedChannelListItem[]>;
+    findGenreList(userId?: apid.UserId): Promise<apid.RecordedGenreListItem[]>;
     findEncodedNameList(): Promise<string[]>;
     findOld(): Promise<Recorded | null>;
     findReserveId(reserveId: apid.ReserveId): Promise<Recorded[]>;
