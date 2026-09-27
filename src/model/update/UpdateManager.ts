@@ -55,12 +55,17 @@ interface TargetApplicability {
     blockedReason: string | null;
 }
 
+type CachedRemoteTargets = SystemUpdateInfo['targets'] & {
+    stableHead: string | null;
+    previousStable: SystemUpdateRemoteTarget | null;
+};
+
 interface PersistedState {
     packageManager?: Exclude<SystemUpdatePackageManager, 'auto'>;
     preferredPackageManager?: Exclude<SystemUpdatePackageManager, 'auto'>;
     nodeVersion?: string;
     dependencyHash?: string;
-    remoteCache?: SystemUpdateInfo['targets'];
+    remoteCache?: CachedRemoteTargets;
     remoteCacheAt?: number;
     job?: SystemUpdateJob;
 }
@@ -263,7 +268,17 @@ export default class UpdateManager {
                 if ((await this.isAncestor(REACT_RELEASE_BASE_COMMIT, targetCommit)) !== true) {
                     throw new Error('React版以前のバージョンへは戻せません');
                 }
-                await this.git(['merge-base', '--is-ancestor', targetCommit, 'refs/remotes/neoe-update/nyanz-master']);
+                const [tagCommit, stableHead] = await Promise.all([
+                    this.gitRequiredText(['rev-parse', `refs/tags/${remoteTarget.tag}^{}`]),
+                    this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/nyanz-master']),
+                ]);
+                if (targetCommit !== tagCommit && targetCommit !== stableHead) {
+                    throw new Error('安定版の更新先がタグまたは最新コミットと一致しません');
+                }
+                if ((await this.isAncestor(tagCommit, targetCommit)) !== true) {
+                    throw new Error('安定版タグと更新先の履歴が一致しません');
+                }
+                await this.git(['merge-base', '--is-ancestor', targetCommit, stableHead]);
             } else {
                 const fetchedDevelop = (
                     await this.git(['rev-parse', 'refs/remotes/neoe-update/develop'])
@@ -425,10 +440,12 @@ export default class UpdateManager {
         }
     }
 
-    private async getRemoteTargets(force: boolean): Promise<SystemUpdateInfo['targets']> {
+    private async getRemoteTargets(force: boolean): Promise<CachedRemoteTargets> {
         if (
             !force &&
             this.state.remoteCache !== undefined &&
+            this.state.remoteCache.stableHead !== undefined &&
+            this.state.remoteCache.previousStable !== undefined &&
             Date.now() - (this.state.remoteCacheAt ?? 0) < 10 * 60_000
         ) {
             return this.state.remoteCache;
@@ -460,6 +477,7 @@ export default class UpdateManager {
                 return this.compareVersion(bv, av);
             });
             let stableTag: string | undefined;
+            let previousStableTag: string | undefined;
             for (const candidate of stableCandidates) {
                 const commit = tagCommits.get(candidate)!;
                 if (
@@ -469,11 +487,19 @@ export default class UpdateManager {
                     ) &&
                     (await this.isAncestor(commit, 'refs/remotes/neoe-update/nyanz-master')) === true
                 ) {
-                    stableTag = candidate;
-                    break;
+                    if (stableTag === undefined) {
+                        stableTag = candidate;
+                    } else if ((await this.isAncestor(commit, tagCommits.get(stableTag)!)) === true) {
+                        previousStableTag = candidate;
+                        break;
+                    }
                 }
             }
-            const targets: SystemUpdateInfo['targets'] = {
+            const stableHead =
+                stableTag === undefined
+                    ? null
+                    : await this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/nyanz-master']);
+            const targets: CachedRemoteTargets = {
                 develop:
                     developMatch === null
                         ? null
@@ -498,6 +524,19 @@ export default class UpdateManager {
                               canApply: false,
                               blockedReason: '現在のコミットと比較できません',
                           },
+                stableHead,
+                previousStable:
+                    previousStableTag === undefined
+                        ? null
+                        : {
+                              label: previousStableTag,
+                              version: previousStableTag.replace(/^v/, ''),
+                              tag: previousStableTag,
+                              commit: tagCommits.get(previousStableTag)!,
+                              relation: 'unknown',
+                              canApply: false,
+                              blockedReason: '現在のコミットと比較できません',
+                          },
                 checkedAt: Date.now(),
                 error: null,
             };
@@ -506,9 +545,26 @@ export default class UpdateManager {
             this.writeState();
             return targets;
         } catch (err: any) {
-            if (this.state.remoteCache !== undefined)
-                return { ...this.state.remoteCache, error: this.safeMessage(err) };
-            return { stable: null, develop: null, checkedAt: Date.now(), error: this.safeMessage(err) };
+            if (this.state.remoteCache !== undefined) {
+                const hasStableMetadata =
+                    this.state.remoteCache.stableHead !== undefined &&
+                    this.state.remoteCache.previousStable !== undefined;
+                return {
+                    ...this.state.remoteCache,
+                    stable: hasStableMetadata ? this.state.remoteCache.stable : null,
+                    stableHead: this.state.remoteCache.stableHead ?? null,
+                    previousStable: this.state.remoteCache.previousStable ?? null,
+                    error: this.safeMessage(err),
+                };
+            }
+            return {
+                stable: null,
+                develop: null,
+                stableHead: null,
+                previousStable: null,
+                checkedAt: Date.now(),
+                error: this.safeMessage(err),
+            };
         }
     }
 
@@ -520,7 +576,7 @@ export default class UpdateManager {
     }
 
     private async addTargetRelations(
-        targets: SystemUpdateInfo['targets'],
+        targets: CachedRemoteTargets,
         currentCommit: string | null,
     ): Promise<SystemUpdateInfo['targets']> {
         const add = async (
@@ -540,8 +596,16 @@ export default class UpdateManager {
             const applicability = await this.getTargetApplicability(targetKind, relation, currentCommit, target.commit);
             return { ...target, relation, ...applicability };
         };
-        const [stable, develop] = await Promise.all([add('stable', targets.stable), add('develop', targets.develop)]);
-        return { ...targets, stable, develop };
+        let stableTarget = targets.stable;
+        if (stableTarget !== null && targets.stableHead !== null && currentCommit !== null) {
+            if (currentCommit === targets.stableHead) {
+                stableTarget = targets.previousStable ?? { ...stableTarget, commit: targets.stableHead };
+            } else if ((await this.isAncestor(currentCommit, targets.stableHead)) === true) {
+                stableTarget = { ...stableTarget, commit: targets.stableHead };
+            }
+        }
+        const [stable, develop] = await Promise.all([add('stable', stableTarget), add('develop', targets.develop)]);
+        return { stable, develop, checkedAt: targets.checkedAt, error: targets.error };
     }
 
     private async getTargetApplicability(

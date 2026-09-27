@@ -4,6 +4,7 @@ const {
     isExpectedUpdateRepository,
     isSupportedStableUpdateTarget,
     isStartSystemUpdateOption,
+    REACT_RELEASE_BASE_COMMIT,
     STABLE_UPDATE_TAG_PATTERN,
 } = require('../../dist/model/update/UpdateValidation.js');
 const {
@@ -52,6 +53,107 @@ test('stable updater rejects releases from before the React migration', () => {
     assert.equal(isSupportedStableUpdateTarget('v2.9.1', false), false);
     assert.equal(isSupportedStableUpdateTarget('v1.0.0', true), true);
     assert.equal(isSupportedStableUpdateTarget('v1.0.0-beta.4', true), false);
+});
+
+test('stable targets keep the latest tag, branch head, and previous supported tag distinct', async () => {
+    const previous = '1'.repeat(40);
+    const latest = '2'.repeat(40);
+    const head = '3'.repeat(40);
+    const develop = '4'.repeat(40);
+    const legacy = '5'.repeat(40);
+    const updater = Object.create(UpdateManager.prototype);
+    updater.state = {};
+    updater.writeState = () => {};
+    updater.git = async args => ({
+        stdout:
+            args[0] === 'ls-remote' && args.includes('--heads')
+                ? `${develop}\trefs/heads/develop`
+                : args[0] === 'ls-remote'
+                  ? `${legacy}\trefs/tags/v1.7.6\n${previous}\trefs/tags/v1.0.0\n${latest}\trefs/tags/v1.0.1`
+                  : '',
+    });
+    updater.gitRequiredText = async () => head;
+    updater.isAncestor = async (ancestor, descendant) =>
+        (ancestor === previous && descendant === latest) ||
+        ([previous, latest].includes(ancestor) && descendant === 'refs/remotes/neoe-update/nyanz-master') ||
+        (ancestor === REACT_RELEASE_BASE_COMMIT && [previous, latest].includes(descendant));
+
+    const targets = await updater.getRemoteTargets(true);
+    assert.equal(targets.stable.commit, latest);
+    assert.equal(targets.stableHead, head);
+    assert.equal(targets.previousStable.commit, previous);
+    assert.equal(targets.develop.commit, develop);
+});
+
+test('stable checkouts update to branch head and roll back only from its head', async () => {
+    const previous = '1'.repeat(40);
+    const latest = '2'.repeat(40);
+    const head = '3'.repeat(40);
+    const develop = '4'.repeat(40);
+    const target = (tag, commit) => ({
+        label: tag,
+        version: tag.slice(1),
+        tag,
+        commit,
+        relation: 'unknown',
+        canApply: false,
+        blockedReason: null,
+    });
+    const targets = {
+        stable: target('v1.0.1', latest),
+        stableHead: head,
+        previousStable: target('v1.0.0', previous),
+        develop: null,
+        checkedAt: Date.now(),
+        error: null,
+    };
+    const updater = Object.create(UpdateManager.prototype);
+    updater.isAncestor = async (ancestor, descendant) => [previous, latest].includes(ancestor) && descendant === head;
+    updater.getTargetRelation = async (_kind, current, commit) =>
+        current === head && commit === previous ? 'behind' : current === commit ? 'same' : 'ahead';
+    updater.getTargetApplicability = async (_kind, relation) => ({
+        canApply: relation !== 'same',
+        blockedReason: relation === 'same' ? '既に選択したバージョンです' : null,
+    });
+
+    assert.equal((await updater.addTargetRelations(targets, previous)).stable.commit, head);
+    assert.equal((await updater.addTargetRelations(targets, latest)).stable.commit, head);
+    const atHead = (await updater.addTargetRelations(targets, head)).stable;
+    assert.equal(atHead.commit, previous);
+    assert.equal(atHead.relation, 'behind');
+    assert.equal((await updater.addTargetRelations(targets, develop)).stable.commit, latest);
+
+    const noPrevious = { ...targets, previousStable: null };
+    const same = (await updater.addTargetRelations(noPrevious, head)).stable;
+    assert.equal(same.commit, head);
+    assert.equal(same.canApply, false);
+});
+
+test('a pre-change cache cannot offer the latest tag as a rollback when refresh fails', async () => {
+    const updater = Object.create(UpdateManager.prototype);
+    updater.state = {
+        remoteCache: {
+            stable: {
+                label: 'v1.0.1',
+                version: '1.0.1',
+                tag: 'v1.0.1',
+                commit: '1'.repeat(40),
+                relation: 'unknown',
+                canApply: false,
+                blockedReason: null,
+            },
+            develop: null,
+            checkedAt: Date.now(),
+            error: null,
+        },
+    };
+    updater.git = async () => {
+        throw new Error('network unavailable');
+    };
+
+    const targets = await updater.getRemoteTargets(true);
+    assert.equal(targets.stable, null);
+    assert.match(targets.error, /network unavailable/);
 });
 
 test('Windows command shims are launched through cmd.exe', () => {
