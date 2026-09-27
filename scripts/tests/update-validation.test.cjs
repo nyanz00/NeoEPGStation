@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const path = require('node:path');
 const {
     isExpectedUpdateRepository,
     isSupportedStableUpdateTarget,
@@ -13,6 +14,7 @@ const {
     stripUpdateLogControlSequences,
 } = require('../../dist/model/update/UpdateCommand.js');
 const { shouldInstallUpdateDependencies } = require('../../dist/model/update/UpdateDependency.js');
+const { getWinserChangeBlockReason, resolveWinserResolution } = require('../../dist/model/update/UpdateWinser.js');
 const UpdateManager = require('../../dist/model/update/UpdateManager.js').default;
 
 test('update API accepts only fixed target and package manager enums', () => {
@@ -190,6 +192,67 @@ test('saved dependency environment changes still require install', () => {
     assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, packageManager: 'npm' }), true);
     assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, nodeVersion: 'v22.22.0' }), true);
     assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, dependencyHash: 'previous' }), true);
+});
+
+test('Windows service updates allow an unchanged winser resolution and block a changed or removed one', () => {
+    const npmManifest = JSON.stringify({ devDependencies: { winser: '^1.0.3' } });
+    const npmLock = JSON.stringify({ packages: { 'node_modules/winser': { version: '1.0.3' } } });
+    const currentNpm = resolveWinserResolution(npmManifest, npmLock, 'npm');
+
+    assert.equal(getWinserChangeBlockReason(currentNpm, resolveWinserResolution(npmManifest, npmLock, 'npm')), null);
+    assert.match(
+        getWinserChangeBlockReason(
+            currentNpm,
+            resolveWinserResolution(
+                JSON.stringify({ devDependencies: { winser: '^1.0.3' } }),
+                JSON.stringify({ packages: { 'node_modules/winser': { version: '1.1.0' } } }),
+                'npm',
+            ),
+        ),
+        /1\.0\.3 → 1\.1\.0/,
+    );
+    assert.match(
+        getWinserChangeBlockReason(
+            currentNpm,
+            resolveWinserResolution(JSON.stringify({ devDependencies: {} }), npmLock, 'npm'),
+        ),
+        /削除される/,
+    );
+});
+
+test('Windows service update guard reads pnpm importer versions and refuses unresolved ranges', () => {
+    const manifest = JSON.stringify({ devDependencies: { winser: '1.0.3' } });
+    const lock =
+        'importers:\n  .:\n    devDependencies:\n      winser:\n        specifier: 1.0.3\n        version: 1.0.3\n';
+    assert.deepEqual(resolveWinserResolution(manifest, lock, 'pnpm'), { kind: 'resolved', version: '1.0.3' });
+    assert.deepEqual(resolveWinserResolution(manifest, null, 'pnpm'), { kind: 'resolved', version: '1.0.3' });
+    assert.deepEqual(resolveWinserResolution(JSON.stringify({ devDependencies: { winser: '1.0.4' } }), lock, 'pnpm'), {
+        kind: 'unknown',
+    });
+    assert.equal(
+        getWinserChangeBlockReason(
+            resolveWinserResolution(JSON.stringify({ devDependencies: { winser: '^1.0.3' } }), null, 'pnpm'),
+            { kind: 'resolved', version: '1.0.3' },
+        )?.includes('特定できませんでした'),
+        true,
+    );
+});
+
+test('npm updater install keeps existing dependencies and leaves pnpm frozen install unchanged', async () => {
+    const updater = Object.create(UpdateManager.prototype);
+    updater.rootDir = 'C:\\EPGStation';
+    const commands = [];
+    updater.runLogged = async (...args) => commands.push(args);
+
+    await updater.install('npm');
+    assert.deepEqual(commands, [
+        ['npm', ['i', '--no-save', '--no-audit', '--no-fund']],
+        ['npm', ['i', '--no-save', '--no-audit', '--no-fund'], path.join('C:\\EPGStation', 'client')],
+    ]);
+
+    commands.length = 0;
+    await updater.install('pnpm');
+    assert.deepEqual(commands, [['pnpm', ['install', '--frozen-lockfile']]]);
 });
 
 test('ANSI color sequences are removed from update logs', () => {

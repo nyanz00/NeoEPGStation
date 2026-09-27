@@ -24,6 +24,7 @@ import {
     stripUpdateLogControlSequences,
 } from './UpdateCommand';
 import { shouldInstallUpdateDependencies } from './UpdateDependency';
+import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -243,14 +244,8 @@ export default class UpdateManager {
             this.setStage(job, 'checking', 'Gitリポジトリと更新対象を確認しています');
             await this.assertRepository();
             const dirty = await this.git(['status', '--porcelain']);
-            if (dirty.stdout.trim() !== '') {
-                if (!preserveLocalChanges) throw new Error('未コミットの変更があるため更新できません');
-                this.setStage(job, 'stashing', '未コミットの変更をGit stashへ退避しています');
-                job.stashCommit = await this.stashLocalChanges(job.id);
-                this.append(job, `ローカル変更をstashへ退避しました: ${job.stashCommit.slice(0, 12)}`);
-                if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
-                    throw new Error('stash後も未コミットの変更が残っているため更新を中止しました');
-                }
+            if (dirty.stdout.trim() !== '' && !preserveLocalChanges) {
+                throw new Error('未コミットの変更があるため更新できません');
             }
             oldCommit = (await this.git(['rev-parse', 'HEAD'])).stdout.trim();
             oldBranch = (await this.git(['branch', '--show-current'])).stdout.trim() || null;
@@ -294,6 +289,19 @@ export default class UpdateManager {
             const applicability = await this.getTargetApplicability(job.target, relation, oldCommit, targetCommit);
             if (!applicability.canApply)
                 throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
+            const manager = requestedManager === 'auto' ? this.detectPackageManager() : requestedManager;
+            await this.assertWindowsServiceWinserUnchanged(oldCommit, targetCommit, manager);
+
+            if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
+                if (!preserveLocalChanges) throw new Error('更新の確認中に変更が発生したため更新できません');
+                this.setStage(job, 'stashing', '未コミットの変更をGit stashへ退避しています');
+                job.stashCommit = await this.stashLocalChanges(job.id);
+                this.append(job, `ローカル変更をstashへ退避しました: ${job.stashCommit.slice(0, 12)}`);
+                if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
+                    throw new Error('stash後も未コミットの変更が残っているため更新を中止しました');
+                }
+            }
+
             if (relation === 'behind') {
                 this.append(job, 'DB互換性を確認しました。現在のDBを保持したまま安定版へロールバックします');
             }
@@ -301,7 +309,6 @@ export default class UpdateManager {
             this.setStage(job, 'backing-up', 'DBとconfig.ymlをバックアップしています');
             await this.createBackup(job.id);
 
-            const manager = requestedManager === 'auto' ? this.detectPackageManager() : requestedManager;
             job.packageManager = manager;
             this.state.preferredPackageManager = manager;
             this.writeState();
@@ -743,9 +750,34 @@ export default class UpdateManager {
         if (manager === 'pnpm') {
             await this.runLogged('pnpm', ['install', '--frozen-lockfile']);
         } else {
-            await this.runLogged('npm', ['ci', '--no-audit', '--no-fund']);
-            await this.runLogged('npm', ['ci', '--no-audit', '--no-fund'], path.join(this.rootDir, 'client'));
+            await this.runLogged('npm', ['i', '--no-save', '--no-audit', '--no-fund']);
+            await this.runLogged(
+                'npm',
+                ['i', '--no-save', '--no-audit', '--no-fund'],
+                path.join(this.rootDir, 'client'),
+            );
         }
+    }
+
+    private async assertWindowsServiceWinserUnchanged(
+        currentCommit: string,
+        targetCommit: string,
+        manager: 'npm' | 'pnpm',
+    ): Promise<void> {
+        if (process.platform !== 'win32') return;
+
+        const lockfile = manager === 'npm' ? 'package-lock.json' : 'pnpm-lock.yaml';
+        const [currentPackageJson, currentLockfile, targetPackageJson, targetLockfile] = await Promise.all([
+            this.gitOptional(['show', `${currentCommit}:package.json`]),
+            this.gitOptional(['show', `${currentCommit}:${lockfile}`]),
+            this.gitOptional(['show', `${targetCommit}:package.json`]),
+            this.gitOptional(['show', `${targetCommit}:${lockfile}`]),
+        ]);
+        const reason = getWinserChangeBlockReason(
+            resolveWinserResolution(currentPackageJson, currentLockfile, manager),
+            resolveWinserResolution(targetPackageJson, targetLockfile, manager),
+        );
+        if (reason !== null) throw new Error(reason);
     }
 
     private async build(manager: 'npm' | 'pnpm'): Promise<void> {
