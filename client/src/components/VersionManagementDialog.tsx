@@ -356,22 +356,21 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     {job.logs.join('\n')}
                                 </Box>
                                 {job.restartRequired && (
-                                    <Alert
-                                        severity="success"
-                                        sx={{ '& .MuiAlert-action': { flexShrink: 0 } }}
-                                        action={
+                                    <Alert severity="success" sx={{ '& .MuiAlert-message': { width: '100%', minWidth: 0 } }}>
+                                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'flex-start', sm: 'center' } }}>
+                                            <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }}>
+                                                更新は完了しています。サービス管理下で再起動すると新しいバージョンが反映されます。手動起動中は端末から再起動してください。
+                                            </Typography>
                                             <Button
                                                 color="inherit"
                                                 startIcon={<RestartAltOutlined />}
                                                 disabled={!canManageVersion || restart.isPending || restartRequested}
                                                 onClick={() => restart.mutate()}
-                                                sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
+                                                sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: { xs: 'flex-end', sm: 'center' } }}
                                             >
                                                 {restartRequested ? '再起動中…' : '再起動'}
                                             </Button>
-                                        }
-                                    >
-                                        更新は完了しています。サービス管理下で再起動すると新しいバージョンが反映されます。手動起動中は端末から再起動してください。
+                                        </Stack>
                                     </Alert>
                                 )}
                             </Stack>
