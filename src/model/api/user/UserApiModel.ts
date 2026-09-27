@@ -1,4 +1,5 @@
 import { inject, injectable } from 'inversify';
+import { QueryRunner } from 'typeorm';
 import * as apid from '../../../../api';
 import AnnictEpisodeWatch from '../../../db/entities/AnnictEpisodeWatch';
 import AnnictRuleLink from '../../../db/entities/AnnictRuleLink';
@@ -35,6 +36,7 @@ export default class UserApiModel implements IUserApiModel {
                     id: user.id,
                     name: user.name,
                     createdAt: user.createdAt,
+                    isAdmin: user.isAdmin,
                 };
             }),
         };
@@ -61,17 +63,54 @@ export default class UserApiModel implements IUserApiModel {
         await this.userDB.updateOnce(userId, name);
     }
 
+    private async lockedUsers(queryRunner: QueryRunner): Promise<TvUser[]> {
+        const query = queryRunner.manager.getRepository(TvUser).createQueryBuilder('user').orderBy('user.id', 'ASC');
+        if (queryRunner.connection.options.type === 'mysql') query.setLock('pessimistic_write');
+        return query.getMany();
+    }
+
+    public async updateAdmin(
+        actorUserId: apid.UserId,
+        userId: apid.UserId,
+        option: apid.UpdateUserAdminOption,
+    ): Promise<void> {
+        const connection = await this.dbOperator.getConnection();
+        const queryRunner = connection.createQueryRunner();
+        await queryRunner.startTransaction();
+        try {
+            const users = await this.lockedUsers(queryRunner);
+            const actor = users.find(user => user.id === actorUserId);
+            if (actor?.isAdmin !== true) throw new Error('管理者ユーザーへ切り替えてください');
+            const target = users.find(user => user.id === userId);
+            if (target === undefined) throw new Error('ユーザーが見つかりません');
+            if (target.isAdmin && !option.isAdmin && users.filter(user => user.isAdmin).length <= 1) {
+                throw new Error('最後の管理者の権限は解除できません');
+            }
+            await queryRunner.manager.getRepository(TvUser).update(userId, { isAdmin: option.isAdmin });
+            await queryRunner.commitTransaction();
+        } catch (error) {
+            await queryRunner.rollbackTransaction();
+            throw error;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
     public async delete(userId: apid.UserId): Promise<void> {
         const connection = await this.dbOperator.getConnection();
         const queryRunner = connection.createQueryRunner();
         await queryRunner.startTransaction();
 
         try {
+            const users = await this.lockedUsers(queryRunner);
             const userRepository = queryRunner.manager.getRepository(TvUser);
-            const user = await userRepository.findOne({ where: { id: userId } });
-            if (user === null || typeof user === 'undefined') throw new Error('削除するユーザーが見つかりません');
-            if ((await userRepository.count()) <= 1) {
+            const user = users.find(item => item.id === userId);
+            if (user === undefined) throw new Error('削除するユーザーが見つかりません');
+            if (users.length <= 1) {
                 throw new Error('最後のユーザーは削除できません');
+            }
+            if (user.isAdmin && users.filter(item => item.isAdmin).length <= 1) {
+                throw new Error('最後の管理者は削除できません');
             }
 
             const recordedCount = await queryRunner.manager.getRepository(Recorded).count({ where: { userId } });

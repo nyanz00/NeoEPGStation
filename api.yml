@@ -766,6 +766,7 @@ components:
                 - id
                 - name
                 - createdAt
+                - isAdmin
             properties:
                 id:
                     $ref: '#/components/schemas/UserId'
@@ -773,6 +774,8 @@ components:
                     type: string
                 createdAt:
                     $ref: '#/components/schemas/UnixtimeMS'
+                isAdmin:
+                    type: boolean
 
         Users:
             description: ユーザー一覧
@@ -802,6 +805,15 @@ components:
             properties:
                 name:
                     type: string
+
+        UpdateUserAdminOption:
+            description: ユーザーの管理者権限変更オプション
+            type: object
+            required:
+                - isAdmin
+            properties:
+                isAdmin:
+                    type: boolean
 
         UpdateRecordedUserOption:
             description: 録画ユーザー更新オプション

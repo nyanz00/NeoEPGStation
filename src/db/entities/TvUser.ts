@@ -22,4 +22,7 @@ export default class TvUser extends BaseEntity {
 
     @Column({ type: 'integer', default: 50 })
     public recordedHistoryLimit!: number;
+
+    @Column({ type: 'boolean', default: false })
+    public isAdmin!: boolean;
 }

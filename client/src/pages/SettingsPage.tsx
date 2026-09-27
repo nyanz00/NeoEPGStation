@@ -49,6 +49,7 @@ import { ViewerProfilePasswordField } from '../components/ViewerProfilePasswordF
 import { ViewerRecoveryCodeDialog } from '../components/ViewerRecoveryCodeDialog';
 import { AlphaAIcon } from '../components/icons/AlphaAIcon';
 import { api } from '../core/api/queries';
+import { useActiveAdminAccess } from '../core/adminAccess';
 import { isAppleMobileWebKit } from '../core/platform/webkit';
 import { appIconAssetUrl, appIconSets, getAppIconSet, type AppIconSetId } from '../core/icons/appIcons';
 import { activeUserStore, useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
@@ -234,6 +235,7 @@ export function SettingsPage(): ReactNode {
     const isDesktopSettingsNavigation = useMediaQuery(theme.breakpoints.up('md'));
     const savedSettings = useSettings();
     const activeUser = useActiveUser();
+    const adminAccess = useActiveAdminAccess();
     const activeViewerProfile = useViewerProfile();
     const [draft, setDraft] = useState<AppSettings>(savedSettings);
     const [newUserName, setNewUserName] = useState('');
@@ -296,6 +298,8 @@ export function SettingsPage(): ReactNode {
               ? `${users.data?.users.find(user => user.id === activeUser)?.name ?? '選択中のユーザー'}: 未連携`
               : `${users.data?.users.find(user => user.id === activeUser)?.name ?? linkedViewerProfile.name}: 連携済み`;
     const activeUserInfo = typeof activeUser === 'number' ? users.data?.users.find(user => user.id === activeUser) : undefined;
+    const activeAdminCount = users.data?.users.filter(user => user.isAdmin).length ?? 0;
+    const activeUserIsLastAdmin = activeUserInfo?.isAdmin === true && activeAdminCount <= 1;
     const channelOptions = useMemo(
         () =>
             (channels.data ?? []).map(channel => ({
@@ -390,6 +394,18 @@ export function SettingsPage(): ReactNode {
             notify('ユーザー名を変更しました', 'success');
         },
         onError: error => notify(`ユーザー名の変更に失敗しました: ${error.message}`, 'error'),
+    });
+    const updateUserAdmin = useMutation({
+        mutationFn: async ({ userId, isAdmin }: { userId: number; isAdmin: boolean }) => {
+            if (adminAccess.status !== 'admin') throw new Error('管理者権限を確認できません');
+            await api.setUserAdmin(userId, isAdmin);
+        },
+        onSuccess: async (_, { userId, isAdmin }) => {
+            await queryClient.invalidateQueries({ queryKey: ['users'] });
+            const userName = users.data?.users.find(user => user.id === userId)?.name ?? 'ユーザー';
+            notify(`${userName}の管理者権限を${isAdmin ? '付与' : '解除'}しました`, 'success');
+        },
+        onError: error => notify(`管理者権限を変更できませんでした: ${error.message}`, 'error'),
     });
     const deleteUser = useMutation({
         mutationFn: async ({ userId, profileId, password }: { userId: number; profileId?: number; password?: string }) => {
@@ -1574,13 +1590,13 @@ export function SettingsPage(): ReactNode {
                                             />
                                             <SettingRow
                                                 title="ユーザーを削除"
-                                                description="現在のアクティブユーザーを削除します。録画済み、ルール、予約を所有するユーザーと最後の1ユーザーは削除できません。外部連携とユーザー別の視聴情報も削除されます。"
+                                                description={`現在のアクティブユーザーを削除します。録画済み、ルール、予約を所有するユーザーと最後の1ユーザーは削除できません。${activeUserIsLastAdmin ? '最後の管理者も削除できません。' : ''}外部連携とユーザー別の視聴情報も削除されます。`}
                                                 control={
                                                     <Button
                                                         color="error"
                                                         variant="outlined"
                                                         startIcon={<DeleteOutlineOutlined />}
-                                                        disabled={deleteUser.isPending || (users.data?.users.length ?? 0) <= 1}
+                                                        disabled={deleteUser.isPending || (users.data?.users.length ?? 0) <= 1 || activeUserIsLastAdmin}
                                                         onClick={() => {
                                                             setDeleteUserPassword('');
                                                             setDeleteUserConfirmOpen(true);
@@ -1608,6 +1624,59 @@ export function SettingsPage(): ReactNode {
                                             </Stack>
                                         }
                                     />
+                                    {activeUserInfo?.isAdmin === true && (
+                                        <>
+                                            <Divider sx={{ my: 1 }} />
+                                            <Typography variant="subtitle1" sx={{ mt: 1, fontWeight: 600 }}>
+                                                管理者権限
+                                            </Typography>
+                                            {adminAccess.status === 'checking' && <Alert severity="info">管理者権限を確認しています。</Alert>}
+                                            {adminAccess.status === 'error' && (
+                                                <Alert severity="error">管理者権限を確認できません: {adminAccess.error?.message ?? 'ユーザー情報の取得に失敗しました'}</Alert>
+                                            )}
+                                            {adminAccess.status === 'locked' && (
+                                                <Alert severity="warning">
+                                                    このユーザーの外部連携プロフィールがロックされています。既存のプロフィール選択画面でロックを解除してください。
+                                                </Alert>
+                                            )}
+                                            {adminAccess.status === 'not-admin' && (
+                                                <Alert severity="warning">現在のユーザーの管理者権限を確認できないため、変更操作を無効にしています。</Alert>
+                                            )}
+                                            {users.data?.users.map(user => {
+                                                const isLastAdmin = user.isAdmin && activeAdminCount <= 1;
+                                                const disabled = adminAccess.status !== 'admin' || updateUserAdmin.isPending || isLastAdmin;
+                                                return (
+                                                    <SettingRow
+                                                        key={user.id}
+                                                        title={user.name}
+                                                        description={
+                                                            isLastAdmin
+                                                                ? '最後の管理者のため、権限を解除できません。'
+                                                                : user.isAdmin
+                                                                  ? 'このユーザーは管理者権限を持っています。'
+                                                                  : '管理者権限を付与できます。'
+                                                        }
+                                                        control={
+                                                            <Tooltip title={isLastAdmin ? '最後の管理者の権限は解除できません' : ''}>
+                                                                <span>
+                                                                    <FormControlLabel
+                                                                        control={
+                                                                            <Switch
+                                                                                checked={user.isAdmin}
+                                                                                disabled={disabled}
+                                                                                onChange={event => updateUserAdmin.mutate({ userId: user.id, isAdmin: event.target.checked })}
+                                                                            />
+                                                                        }
+                                                                        label={user.isAdmin ? '管理者' : '一般ユーザー'}
+                                                                    />
+                                                                </span>
+                                                            </Tooltip>
+                                                        }
+                                                    />
+                                                );
+                                            })}
+                                        </>
+                                    )}
                                 </SettingSection>
                                 <SettingSection title="ユーザーの外部連携">
                                     {viewerProfiles.isError && (

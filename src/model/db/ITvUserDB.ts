@@ -5,7 +5,7 @@ export default interface ITvUserDB {
     restore(items: TvUser[]): Promise<void>;
     findAll(): Promise<TvUser[]>;
     findId(userId: apid.UserId): Promise<TvUser | null>;
-    insertOnce(name: string): Promise<apid.UserId>;
+    insertOnce(name: string, isAdmin?: boolean): Promise<apid.UserId>;
     updateOnce(userId: apid.UserId, name: string): Promise<void>;
     updateRecordedHistorySettings(
         userId: apid.UserId,

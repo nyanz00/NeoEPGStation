@@ -22,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SystemUpdateInfo, SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { api } from '../core/api/queries';
+import { useActiveAdminAccess } from '../core/adminAccess';
 import { useNotifications } from '../core/notifications/Notifications';
 
 interface Props {
@@ -48,6 +49,8 @@ function relationSuffix(relation: string | undefined): string {
 export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     const { notify } = useNotifications();
     const queryClient = useQueryClient();
+    const adminAccess = useActiveAdminAccess();
+    const canManageVersion = adminAccess.status === 'admin';
     const [packageManager, setPackageManager] = useState<SystemUpdatePackageManager>('auto');
     const [preserveLocalChanges, setPreserveLocalChanges] = useState(false);
     const [restartRequested, setRestartRequested] = useState(false);
@@ -121,7 +124,10 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     }, [queryClient, restartRequested]);
 
     const start = useMutation({
-        mutationFn: (target: SystemUpdateTarget) => api.startSystemUpdate({ target, packageManager, preserveLocalChanges }),
+        mutationFn: async (target: SystemUpdateTarget) => {
+            if (!canManageVersion) throw new Error('アクティブユーザーの管理者権限を確認できません');
+            return api.startSystemUpdate({ target, packageManager, preserveLocalChanges });
+        },
         onSuccess: job => {
             notify('更新処理を開始しました', 'info');
             queryClient.setQueryData<SystemUpdateInfo>(['system-update'], current => (current === undefined ? current : { ...current, job }));
@@ -129,7 +135,10 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         onError: error => notify(`更新を開始できませんでした: ${error.message}`, 'error'),
     });
     const restart = useMutation({
-        mutationFn: api.restartAfterSystemUpdate,
+        mutationFn: async () => {
+            if (!canManageVersion) throw new Error('アクティブユーザーの管理者権限を確認できません');
+            await api.restartAfterSystemUpdate();
+        },
         onSuccess: () => {
             setRestartRequested(true);
             notify('再起動を要求しました。完了を確認しています', 'info');
@@ -142,6 +151,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         onError: error => notify(`更新情報を再取得できませんでした: ${error.message}`, 'error'),
     });
     const begin = (target: SystemUpdateTarget): void => {
+        if (!canManageVersion) return;
         const targetInfo = target === 'stable' ? info.data?.targets.stable : info.data?.targets.develop;
         const label = targetInfo?.label;
         const rollback = targetInfo?.relation === 'behind';
@@ -180,6 +190,34 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                     ) : null
                 ) : (
                     <Stack spacing={2.5}>
+                        {adminAccess.status === 'checking' && <Alert severity="info">管理者権限を確認しています。確認が終わるまでWeb更新と再起動は利用できません。</Alert>}
+                        {adminAccess.status === 'error' && (
+                            <Alert
+                                severity="warning"
+                                action={
+                                    <Button
+                                        color="inherit"
+                                        size="small"
+                                        onClick={() =>
+                                            void Promise.all([
+                                                queryClient.invalidateQueries({ queryKey: ['users'] }),
+                                                queryClient.invalidateQueries({ queryKey: ['viewer-profiles'] }),
+                                            ])
+                                        }
+                                    >
+                                        再試行
+                                    </Button>
+                                }
+                            >
+                                管理者権限を確認できないため、Web更新と再起動を無効にしています: {adminAccess.error?.message ?? 'ユーザー情報の取得に失敗しました'}
+                            </Alert>
+                        )}
+                        {adminAccess.status === 'locked' && (
+                            <Alert severity="warning">管理者ユーザーの外部連携プロフィールがロックされています。既存のプロフィール選択画面でロックを解除してください。</Alert>
+                        )}
+                        {adminAccess.status === 'not-admin' && (
+                            <Alert severity="info">バージョン情報は閲覧できます。Web更新と再起動には管理者ユーザーをアクティブにしてください。</Alert>
+                        )}
                         {info.isError && (
                             <Alert
                                 severity="warning"
@@ -223,7 +261,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 {info.data.branch ?? 'detached HEAD'} / {info.data.commit?.slice(0, 8) ?? '不明'}
                             </Typography>
                         </Box>
-                        <FormControl size="small" sx={{ width: 240 }} disabled={running}>
+                        <FormControl size="small" sx={{ width: 240 }} disabled={running || !canManageVersion}>
                             <InputLabel>パッケージ管理</InputLabel>
                             <Select label="パッケージ管理" value={packageManager} onChange={event => setPackageManager(event.target.value as SystemUpdatePackageManager)}>
                                 <MenuItem value="auto">自動判定（{info.data.packageManager}）</MenuItem>
@@ -233,7 +271,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                         </FormControl>
                         {!info.data.isClean && info.data.gitError === null && info.data.isGitRepository && (
                             <FormControlLabel
-                                control={<Checkbox checked={preserveLocalChanges} onChange={event => setPreserveLocalChanges(event.target.checked)} />}
+                                control={<Checkbox checked={preserveLocalChanges} disabled={!canManageVersion} onChange={event => setPreserveLocalChanges(event.target.checked)} />}
                                 label="未コミットの変更を退避して上書き更新する"
                             />
                         )}
@@ -252,6 +290,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 variant="contained"
                                 startIcon={<SystemUpdateAltOutlined />}
                                 disabled={
+                                    !canManageVersion ||
                                     running ||
                                     start.isPending ||
                                     info.data.gitError !== null ||
@@ -269,6 +308,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 variant="outlined"
                                 startIcon={<SystemUpdateAltOutlined />}
                                 disabled={
+                                    !canManageVersion ||
                                     running ||
                                     start.isPending ||
                                     info.data.gitError !== null ||
@@ -323,7 +363,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                             <Button
                                                 color="inherit"
                                                 startIcon={<RestartAltOutlined />}
-                                                disabled={restart.isPending || restartRequested}
+                                                disabled={!canManageVersion || restart.isPending || restartRequested}
                                                 onClick={() => restart.mutate()}
                                                 sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
                                             >

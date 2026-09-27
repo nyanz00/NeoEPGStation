@@ -372,6 +372,9 @@ export const api = {
     async updateUser(userId: number, name: string): Promise<void> {
         await apiClient.put(`/users/${userId}`, { name });
     },
+    async setUserAdmin(userId: number, isAdmin: boolean): Promise<void> {
+        await apiClient.put(`/users/${userId}/admin`, { isAdmin });
+    },
     async deleteUser(userId: number): Promise<void> {
         await apiClient.delete(`/users/${userId}`);
     },
