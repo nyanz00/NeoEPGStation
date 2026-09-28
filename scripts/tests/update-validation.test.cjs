@@ -66,15 +66,17 @@ test('stable targets keep the latest tag, branch head, and previous supported ta
     const updater = Object.create(UpdateManager.prototype);
     updater.state = {};
     updater.writeState = () => {};
-    updater.git = async args => ({
-        stdout:
-            args[0] === 'ls-remote' && args.includes('--heads')
-                ? `${develop}\trefs/heads/develop`
-                : args[0] === 'ls-remote'
-                  ? `${legacy}\trefs/tags/v1.7.6\n${previous}\trefs/tags/v1.0.0\n${latest}\trefs/tags/v1.0.1`
-                  : '',
-    });
-    updater.gitRequiredText = async () => head;
+    const commands = [];
+    updater.git = async args => {
+        commands.push(args);
+        return {
+            stdout:
+                args[0] === 'for-each-ref'
+                    ? `refs/remotes/neoe-update/tags/v1.7.6\t${legacy}\t\nrefs/remotes/neoe-update/tags/v1.0.0\t${previous}\t\nrefs/remotes/neoe-update/tags/v1.0.1\t${'6'.repeat(40)}\t${latest}\n`
+                    : '',
+        };
+    };
+    updater.gitRequiredText = async args => (args[1] === 'refs/remotes/neoe-update/develop' ? develop : head);
     updater.isAncestor = async (ancestor, descendant) =>
         (ancestor === previous && descendant === latest) ||
         ([previous, latest].includes(ancestor) && descendant === 'refs/remotes/neoe-update/nyanz-master') ||
@@ -85,6 +87,11 @@ test('stable targets keep the latest tag, branch head, and previous supported ta
     assert.equal(targets.stableHead, head);
     assert.equal(targets.previousStable.commit, previous);
     assert.equal(targets.develop.commit, develop);
+    assert.equal(commands.length, 2);
+    assert.equal(commands[0][0], 'fetch');
+    assert.ok(commands[0].includes('--prune'));
+    assert.ok(commands[0].includes('+refs/tags/*:refs/remotes/neoe-update/tags/*'));
+    assert.equal(commands[1][0], 'for-each-ref');
 });
 
 test('stable checkouts update to branch head and roll back only from its head', async () => {

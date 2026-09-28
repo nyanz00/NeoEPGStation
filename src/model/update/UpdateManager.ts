@@ -264,7 +264,7 @@ export default class UpdateManager {
                     throw new Error('React版以前のバージョンへは戻せません');
                 }
                 const [tagCommit, stableHead] = await Promise.all([
-                    this.gitRequiredText(['rev-parse', `refs/tags/${remoteTarget.tag}^{}`]),
+                    this.gitRequiredText(['rev-parse', `refs/remotes/neoe-update/tags/${remoteTarget.tag}^{}`]),
                     this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/nyanz-master']),
                 ]);
                 if (targetCommit !== tagCommit && targetCommit !== stableHead) {
@@ -458,25 +458,32 @@ export default class UpdateManager {
             return this.state.remoteCache;
         }
         try {
+            // Keep remote tag candidates in a prunable namespace without pruning the user's local tags.
             await this.git([
                 'fetch',
                 '--quiet',
                 '--force',
+                '--prune',
                 '--tags',
                 '--no-write-fetch-head',
                 REPOSITORY_URL,
                 '+refs/heads/develop:refs/remotes/neoe-update/develop',
                 '+refs/heads/nyanz-master:refs/remotes/neoe-update/nyanz-master',
+                '+refs/tags/*:refs/remotes/neoe-update/tags/*',
             ]);
-            const [heads, tags] = await Promise.all([
-                this.git(['ls-remote', '--heads', REPOSITORY_URL, 'develop']),
-                this.git(['ls-remote', '--tags', REPOSITORY_URL]),
+            const [developCommit, tags] = await Promise.all([
+                this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/develop']),
+                this.git([
+                    'for-each-ref',
+                    '--format=%(refname)%09%(objectname)%09%(*objectname)',
+                    'refs/remotes/neoe-update/tags',
+                ]),
             ]);
-            const developMatch = /^([0-9a-f]{40})\s+refs\/heads\/develop$/im.exec(heads.stdout);
             const tagCommits = new Map<string, string>();
             for (const line of tags.stdout.split(/\r?\n/)) {
-                const match = /^([0-9a-f]{40})\s+refs\/tags\/(v?\d+\.\d+\.\d+)(\^\{\})?$/.exec(line);
-                if (match !== null) tagCommits.set(match[2], match[1]);
+                const match =
+                    /^refs\/remotes\/neoe-update\/tags\/(v?\d+\.\d+\.\d+)\t([0-9a-f]{40})\t([0-9a-f]{40})?$/.exec(line);
+                if (match !== null) tagCommits.set(match[1], match[3] ?? match[2]);
             }
             const stableCandidates = [...tagCommits.keys()].sort((a, b) => {
                 const av = this.parseVersion(a)!;
@@ -507,18 +514,15 @@ export default class UpdateManager {
                     ? null
                     : await this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/nyanz-master']);
             const targets: CachedRemoteTargets = {
-                develop:
-                    developMatch === null
-                        ? null
-                        : {
-                              label: `develop (${developMatch[1].slice(0, 8)})`,
-                              version: null,
-                              tag: null,
-                              commit: developMatch[1],
-                              relation: 'unknown',
-                              canApply: false,
-                              blockedReason: '現在のコミットと比較できません',
-                          },
+                develop: {
+                    label: `develop (${developCommit.slice(0, 8)})`,
+                    version: null,
+                    tag: null,
+                    commit: developCommit,
+                    relation: 'unknown',
+                    canApply: false,
+                    blockedReason: '現在のコミットと比較できません',
+                },
                 stable:
                     stableTag === undefined
                         ? null
