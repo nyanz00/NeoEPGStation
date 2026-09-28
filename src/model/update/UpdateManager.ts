@@ -12,12 +12,7 @@ import type {
     SystemUpdateRemoteTarget,
     SystemUpdateTarget,
 } from '../../../api';
-import {
-    isExpectedUpdateRepository,
-    isSupportedStableUpdateTarget,
-    REACT_RELEASE_BASE_COMMIT,
-    STABLE_UPDATE_TAG_PATTERN,
-} from './UpdateValidation';
+import { isExpectedUpdateRepository, REACT_RELEASE_BASE_COMMIT, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
 import {
     createUpdateCommandInvocation,
     createUpdatePackageEnvironment,
@@ -101,6 +96,7 @@ export default class UpdateManager {
     private readonly gitExecutable: string;
     private state: PersistedState;
     private running = false;
+    private remoteTargetsPromise?: Promise<CachedRemoteTargets>;
 
     public static getInstance(): UpdateManager {
         if (UpdateManager.instance === null) UpdateManager.instance = new UpdateManager();
@@ -448,6 +444,7 @@ export default class UpdateManager {
     }
 
     private async getRemoteTargets(force: boolean): Promise<CachedRemoteTargets> {
+        if (this.remoteTargetsPromise !== undefined) return this.remoteTargetsPromise;
         if (
             !force &&
             this.state.remoteCache !== undefined &&
@@ -457,6 +454,15 @@ export default class UpdateManager {
         ) {
             return this.state.remoteCache;
         }
+        this.remoteTargetsPromise = this.refreshRemoteTargets();
+        try {
+            return await this.remoteTargetsPromise;
+        } finally {
+            this.remoteTargetsPromise = undefined;
+        }
+    }
+
+    private async refreshRemoteTargets(): Promise<CachedRemoteTargets> {
         try {
             // Keep remote tag candidates in a prunable namespace without pruning the user's local tags.
             await this.git([
@@ -475,39 +481,40 @@ export default class UpdateManager {
                 this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/develop']),
                 this.git([
                     'for-each-ref',
+                    `--contains=${REACT_RELEASE_BASE_COMMIT}`,
+                    '--merged=refs/remotes/neoe-update/nyanz-master',
                     '--format=%(refname)%09%(objectname)%09%(*objectname)',
                     'refs/remotes/neoe-update/tags',
                 ]),
             ]);
             const tagCommits = new Map<string, string>();
             for (const line of tags.stdout.split(/\r?\n/)) {
-                const match =
-                    /^refs\/remotes\/neoe-update\/tags\/(v?\d+\.\d+\.\d+)\t([0-9a-f]{40})\t([0-9a-f]{40})?$/.exec(line);
-                if (match !== null) tagCommits.set(match[1], match[3] ?? match[2]);
+                const match = /^refs\/remotes\/neoe-update\/tags\/([^\t]+)\t([0-9a-f]{40})\t([0-9a-f]{40})?$/.exec(
+                    line,
+                );
+                if (match !== null && STABLE_UPDATE_TAG_PATTERN.test(match[1])) {
+                    tagCommits.set(match[1], match[3] ?? match[2]);
+                }
             }
             const stableCandidates = [...tagCommits.keys()].sort((a, b) => {
                 const av = this.parseVersion(a)!;
                 const bv = this.parseVersion(b)!;
                 return this.compareVersion(bv, av);
             });
-            let stableTag: string | undefined;
+            const stableTag = stableCandidates[0];
             let previousStableTag: string | undefined;
-            for (const candidate of stableCandidates) {
-                const commit = tagCommits.get(candidate)!;
-                if (
-                    isSupportedStableUpdateTarget(
-                        candidate,
-                        (await this.isAncestor(REACT_RELEASE_BASE_COMMIT, commit)) === true,
-                    ) &&
-                    (await this.isAncestor(commit, 'refs/remotes/neoe-update/nyanz-master')) === true
-                ) {
-                    if (stableTag === undefined) {
-                        stableTag = candidate;
-                    } else if ((await this.isAncestor(commit, tagCommits.get(stableTag)!)) === true) {
-                        previousStableTag = candidate;
-                        break;
-                    }
-                }
+            if (stableTag !== undefined && stableCandidates.length > 1) {
+                // Check ancestry in bulk, including when stable contains merged release branches.
+                const ancestors = await this.git([
+                    'for-each-ref',
+                    `--merged=${tagCommits.get(stableTag)!}`,
+                    '--format=%(refname)',
+                    'refs/remotes/neoe-update/tags',
+                ]);
+                const ancestorRefs = new Set(ancestors.stdout.split(/\r?\n/));
+                previousStableTag = stableCandidates
+                    .slice(1)
+                    .find(candidate => ancestorRefs.has(`refs/remotes/neoe-update/tags/${candidate}`));
             }
             const stableHead =
                 stableTag === undefined
@@ -528,7 +535,7 @@ export default class UpdateManager {
                         ? null
                         : {
                               label: stableTag,
-                              version: stableTag.replace(/^v/, ''),
+                              version: stableTag.replace(/^(?:Neo-v|v)/, ''),
                               tag: stableTag,
                               commit: tagCommits.get(stableTag)!,
                               relation: 'unknown',
@@ -541,7 +548,7 @@ export default class UpdateManager {
                         ? null
                         : {
                               label: previousStableTag,
-                              version: previousStableTag.replace(/^v/, ''),
+                              version: previousStableTag.replace(/^(?:Neo-v|v)/, ''),
                               tag: previousStableTag,
                               commit: tagCommits.get(previousStableTag)!,
                               relation: 'unknown',
@@ -945,7 +952,7 @@ export default class UpdateManager {
     }
 
     private parseVersion(value: string): [number, number, number, number] | null {
-        const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-.]?beta\d*)?$/i.exec(value);
+        const match = STABLE_UPDATE_TAG_PATTERN.exec(value);
         return match === null
             ? null
             : [Number(match[1]), Number(match[2]), Number(match[3]), /beta/i.test(value) ? 0 : 1];

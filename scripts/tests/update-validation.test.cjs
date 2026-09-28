@@ -45,6 +45,8 @@ test('only the NeoEPGStation origin is accepted', () => {
 
 test('stable update tags exclude prereleases and option-like input', () => {
     assert.equal(STABLE_UPDATE_TAG_PATTERN.test('v2.10.0'), true);
+    assert.equal(STABLE_UPDATE_TAG_PATTERN.test('Neo-v1.0.3'), true);
+    assert.equal(STABLE_UPDATE_TAG_PATTERN.test('Neo-v1.0.3-beta.1'), false);
     for (const tag of ['v2.10.0-beta3', 'v2.10.0-rc1', '--upload-pack=evil', 'v2.10.0;calc']) {
         assert.equal(STABLE_UPDATE_TAG_PATTERN.test(tag), false);
     }
@@ -62,7 +64,6 @@ test('stable targets keep the latest tag, branch head, and previous supported ta
     const latest = '2'.repeat(40);
     const head = '3'.repeat(40);
     const develop = '4'.repeat(40);
-    const legacy = '5'.repeat(40);
     const updater = Object.create(UpdateManager.prototype);
     updater.state = {};
     updater.writeState = () => {};
@@ -72,26 +73,62 @@ test('stable targets keep the latest tag, branch head, and previous supported ta
         return {
             stdout:
                 args[0] === 'for-each-ref'
-                    ? `refs/remotes/neoe-update/tags/v1.7.6\t${legacy}\t\nrefs/remotes/neoe-update/tags/v1.0.0\t${previous}\t\nrefs/remotes/neoe-update/tags/v1.0.1\t${'6'.repeat(40)}\t${latest}\n`
+                    ? args.includes('--format=%(refname)')
+                        ? 'refs/remotes/neoe-update/tags/v1.0.2\n'
+                        : `refs/remotes/neoe-update/tags/v1.0.2\t${previous}\t\nrefs/remotes/neoe-update/tags/Neo-v1.0.3\t${'6'.repeat(40)}\t${latest}\nrefs/remotes/neoe-update/tags/Neo-v1.0.4-beta.1\t${head}\t\n`
                     : '',
         };
     };
     updater.gitRequiredText = async args => (args[1] === 'refs/remotes/neoe-update/develop' ? develop : head);
-    updater.isAncestor = async (ancestor, descendant) =>
-        (ancestor === previous && descendant === latest) ||
-        ([previous, latest].includes(ancestor) && descendant === 'refs/remotes/neoe-update/nyanz-master') ||
-        (ancestor === REACT_RELEASE_BASE_COMMIT && [previous, latest].includes(descendant));
+    updater.isAncestor = async () => assert.fail('tag enumeration must not start per-tag ancestry commands');
 
     const targets = await updater.getRemoteTargets(true);
     assert.equal(targets.stable.commit, latest);
+    assert.equal(targets.stable.version, '1.0.3');
+    assert.equal(targets.previousStable.version, '1.0.2');
     assert.equal(targets.stableHead, head);
     assert.equal(targets.previousStable.commit, previous);
     assert.equal(targets.develop.commit, develop);
-    assert.equal(commands.length, 2);
+    assert.equal(commands.length, 3);
     assert.equal(commands[0][0], 'fetch');
     assert.ok(commands[0].includes('--prune'));
     assert.ok(commands[0].includes('+refs/tags/*:refs/remotes/neoe-update/tags/*'));
     assert.equal(commands[1][0], 'for-each-ref');
+    assert.ok(commands[1].includes(`--contains=${REACT_RELEASE_BASE_COMMIT}`));
+    assert.ok(commands[1].includes('--merged=refs/remotes/neoe-update/nyanz-master'));
+    assert.ok(commands[2].includes(`--merged=${latest}`));
+});
+
+test('remote refresh shares in-flight work, preserves cache on failure, and allows retry', async () => {
+    const updater = Object.create(UpdateManager.prototype);
+    const cached = { stable: null, develop: null, stableHead: null, previousStable: null, checkedAt: 1, error: null };
+    updater.state = { remoteCache: cached, remoteCacheAt: Date.now() };
+    let attempts = 0;
+    let rejectFetch;
+    updater.git = async () => {
+        attempts++;
+        return new Promise((_resolve, reject) => {
+            rejectFetch = reject;
+        });
+    };
+    assert.equal(await updater.getRemoteTargets(false), cached);
+    assert.equal(attempts, 0);
+    const forced = updater.getRemoteTargets(true);
+    const regular = updater.getRemoteTargets(false);
+    const anotherForced = updater.getRemoteTargets(true);
+    assert.equal(attempts, 1);
+    rejectFetch(new Error('offline'));
+    const results = await Promise.all([forced, regular, anotherForced]);
+    assert.equal(results[0], results[1]);
+    assert.equal(results[0], results[2]);
+    assert.equal(results[0].checkedAt, cached.checkedAt);
+    assert.match(results[0].error, /offline/);
+    assert.equal(updater.state.remoteCache, cached);
+    updater.state.remoteCacheAt = 0;
+    const retry = updater.getRemoteTargets(false);
+    assert.equal(attempts, 2);
+    rejectFetch(new Error('still offline'));
+    assert.match((await retry).error, /still offline/);
 });
 
 test('stable checkouts update to branch head and roll back only from its head', async () => {

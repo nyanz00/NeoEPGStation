@@ -1,6 +1,6 @@
 import type { StartSystemUpdateOption } from '../../../api';
 
-export const STABLE_UPDATE_TAG_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)$/;
+export const STABLE_UPDATE_TAG_PATTERN = /^(?:Neo-v|v?)(\d+)\.(\d+)\.(\d+)$/;
 
 // The last pre-React EPGStation releases have higher version numbers than NeoEPGStation 1.0.0.
 // Keep the release boundary tied to history, rather than comparing their unrelated version numbers.
