@@ -105,19 +105,12 @@ function isSameAnimeListContext(position: ReturnType<typeof loadAnimeReturnPosit
     return true;
 }
 
-function releaseDateValue(value?: string): number {
-    if (value === undefined) return Number.POSITIVE_INFINITY;
-    const match = value.match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?/);
-    if (match === null) return Number.POSITIVE_INFINITY;
-    return Date.UTC(Number(match[1]), Number(match[2] ?? 1) - 1, Number(match[3] ?? 1));
-}
-
 function workStartDateValue(work: AnnictWorkSummary): number {
-    if (work.firstProgramStartedAt !== undefined) {
-        const startedAt = Date.parse(work.firstProgramStartedAt);
+    if (work.firstReceivableProgramStartedAt !== undefined) {
+        const startedAt = Date.parse(work.firstReceivableProgramStartedAt);
         if (Number.isFinite(startedAt)) return startedAt;
     }
-    return releaseDateValue(work.releasedOn ?? work.releasedOnAbout);
+    return Number.POSITIVE_INFINITY;
 }
 
 function Loading(): ReactNode {
@@ -945,6 +938,9 @@ export function AnimePage(): ReactNode {
                             ))}
                         {works.error !== null && works.data !== undefined && (
                             <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
+                        )}
+                        {sortOrder === 'release-date' && works.data?.enrichmentPending === true && (
+                            <Alert severity="info">受信可能な局の放送開始日時を取得しています。取得後に並び順を更新します。</Alert>
                         )}
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>

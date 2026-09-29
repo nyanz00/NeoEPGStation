@@ -304,6 +304,7 @@ export interface AnnictWorkSummary {
     releasedOn?: string;
     releasedOnAbout?: string;
     firstProgramStartedAt?: string;
+    firstReceivableProgramStartedAt?: string;
 }
 
 export interface AnnictWorkList {
