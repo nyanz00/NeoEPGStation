@@ -502,6 +502,21 @@ export function AnimePage(): ReactNode {
         refetchIntervalInBackground: false,
     });
     const viewerStatusIds = useMemo(() => works.data?.works.map(work => work.annictId) ?? [], [works.data?.works]);
+    const linkedRules = useQuery({
+        queryKey: ['rules', 'anime-badges'],
+        queryFn: async () => {
+            const limit = 1000;
+            const first = await api.getRules({ type: 'normal', offset: 0, limit });
+            const rules = [...first.rules];
+            for (let offset = limit; offset < first.total; offset += limit) {
+                const page = await api.getRules({ type: 'normal', offset, limit });
+                rules.push(...page.rules);
+            }
+            return rules.flatMap(rule => (rule.annictId === undefined ? [] : [rule.annictId]));
+        },
+        enabled: status.data?.configured === true,
+    });
+    const reservedWorkIds = useMemo(() => new Set(linkedRules.data ?? []), [linkedRules.data]);
     const viewerStatuses = useQuery({
         queryKey: ['annict', 'viewer-statuses', viewerProfile.profileId, viewerProfile.sessionToken, viewerStatusIds.join(',')],
         queryFn: () => api.getAnnictViewerStatuses(viewerStatusIds),
@@ -950,6 +965,11 @@ export function AnimePage(): ReactNode {
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>
                         )}
+                        {linkedRules.isError && (
+                            <Alert severity="warning" action={<Button onClick={() => void linkedRules.refetch()}>再試行</Button>}>
+                                ルール情報を取得できないため、予約済みバッジを更新できませんでした。
+                            </Alert>
+                        )}
                         {animeListWaiting || revealedAnimeList.signature !== animeListSignature ? (
                             <Loading />
                         ) : works.error !== null && works.data === undefined ? (
@@ -1041,6 +1061,7 @@ export function AnimePage(): ReactNode {
                                                     </Typography>
                                                     <Stack direction="row" spacing={0.75} sx={{ mt: 1 }}>
                                                         {work.media && <Chip size="small" label={work.media} />}
+                                                        {reservedWorkIds.has(work.annictId) && <Chip size="small" color="primary" label="予約済み" />}
                                                         {work.watchersCount !== undefined && <Chip size="small" variant="outlined" label={`${work.watchersCount}人`} />}
                                                     </Stack>
                                                 </CardContent>
