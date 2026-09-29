@@ -1569,6 +1569,39 @@ export function SettingsPage(): ReactNode {
                                         />
                                     }
                                 />
+                                <SettingRow
+                                    title="サムネイルの自動再生成"
+                                    description="ルール作成時にサムネイル再生成を初期選択する"
+                                    control={
+                                        <Switch
+                                            checked={draft.isCheckUpdateThumbnailWhenCreateRule}
+                                            onChange={event => patch('isCheckUpdateThumbnailWhenCreateRule', event.target.checked)}
+                                        />
+                                    }
+                                />
+                                <SettingRow
+                                    title="エンコード開始待機時間"
+                                    description="新規ルールの初期値。空欄は0分（録画完了後すぐ）"
+                                    control={
+                                        <TextField
+                                            type="number"
+                                            size="small"
+                                            label="分"
+                                            value={draft.defaultRuleEncodeStartDelayMinutes === 0 ? '' : draft.defaultRuleEncodeStartDelayMinutes}
+                                            onChange={event => {
+                                                const input = event.target.value;
+                                                if (input === '') {
+                                                    patch('defaultRuleEncodeStartDelayMinutes', 0);
+                                                } else if (/^\d+$/.test(input)) {
+                                                    const minutes = Number(input);
+                                                    if (Number.isSafeInteger(minutes)) patch('defaultRuleEncodeStartDelayMinutes', minutes);
+                                                }
+                                            }}
+                                            slotProps={{ htmlInput: { min: 0, step: 1, 'aria-label': 'エンコード開始待機時間（分）' } }}
+                                            sx={{ width: 120 }}
+                                        />
+                                    }
+                                />
                             </SettingSection>
                         )}
 

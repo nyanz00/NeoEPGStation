@@ -85,6 +85,8 @@ export interface AppSettings {
     isCheckAvoidDuplicate: boolean;
     isEnableEncodingSettingWhenCreateRule: boolean;
     isCheckDeleteOriginalAfterEncode: boolean;
+    isCheckUpdateThumbnailWhenCreateRule: boolean;
+    defaultRuleEncodeStartDelayMinutes: number;
     rulesLength: number;
     isForceEnableSubtitleStroke: boolean;
 }
@@ -169,6 +171,8 @@ export const defaultSettings: AppSettings = {
     isCheckAvoidDuplicate: false,
     isEnableEncodingSettingWhenCreateRule: false,
     isCheckDeleteOriginalAfterEncode: false,
+    isCheckUpdateThumbnailWhenCreateRule: false,
+    defaultRuleEncodeStartDelayMinutes: 0,
     rulesLength: 24,
     isForceEnableSubtitleStroke: true,
 };
@@ -248,6 +252,8 @@ function loadSettings(): AppSettings {
             annictAutoWatchMode,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
+            isCheckUpdateThumbnailWhenCreateRule: parsed.isCheckUpdateThumbnailWhenCreateRule === true,
+            defaultRuleEncodeStartDelayMinutes: normalizeNonNegativeInteger(parsed.defaultRuleEncodeStartDelayMinutes, defaultSettings.defaultRuleEncodeStartDelayMinutes),
             shouldUseRecordedDownloadURLScheme,
             reservesLength: normalizeListLength(parsed.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(parsed.recordingLength, defaultSettings.recordingLength, 1_000),
@@ -304,6 +310,8 @@ export const settingsStore = {
             annictExcludePaidChannels: value.annictExcludePaidChannels === true,
             annictAutoWatchThresholdPercent:
                 Number.isFinite(threshold) && threshold >= 1 && threshold <= 100 ? Math.round(threshold) : defaultSettings.annictAutoWatchThresholdPercent,
+            isCheckUpdateThumbnailWhenCreateRule: value.isCheckUpdateThumbnailWhenCreateRule === true,
+            defaultRuleEncodeStartDelayMinutes: normalizeNonNegativeInteger(value.defaultRuleEncodeStartDelayMinutes, defaultSettings.defaultRuleEncodeStartDelayMinutes),
             reservesLength: normalizeListLength(value.reservesLength, defaultSettings.reservesLength, 1_000),
             recordingLength: normalizeListLength(value.recordingLength, defaultSettings.recordingLength, 1_000),
             recordedLength: normalizeListLength(value.recordedLength, defaultSettings.recordedLength, 1_000),
@@ -343,6 +351,10 @@ function normalizeChannelIds(value: unknown): number[] {
 function normalizePercent(value: unknown, minimum: number, maximum: number, fallback: number): number {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? Math.round(parsed) : fallback;
+}
+
+function normalizeNonNegativeInteger(value: unknown, fallback: number): number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
 }
 
 function normalizeListLength(value: unknown, fallback: number, maximum: number): number {
