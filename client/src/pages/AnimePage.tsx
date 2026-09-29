@@ -1121,16 +1121,23 @@ export function AnimeDetailPage(): ReactNode {
             ) ?? [],
         [settings.annictExcludePaidChannels, work.data?.programs],
     );
+    const unscheduledChannels = useMemo(
+        () => (work.data?.unscheduledChannels ?? []).filter(channel => !settings.annictExcludePaidChannels || !isPaidBroadcastChannel(channel)),
+        [work.data?.unscheduledChannels, settings.annictExcludePaidChannels],
+    );
     const supplementalChannels = useMemo(() => {
         if (config.data?.developerMode !== true) return [];
-        const scheduledChannelIds = new Set(receivable.flatMap(program => program.localChannels.map(channel => channel.id)));
+        const scheduledChannelIds = new Set([
+            ...receivable.flatMap(program => program.localChannels.map(channel => channel.id)),
+            ...unscheduledChannels.map(channel => channel.id),
+        ]);
         return (channels.data ?? []).filter(
             channel =>
                 settings.annictSupplementalChannelIds.includes(channel.id) &&
                 !scheduledChannelIds.has(channel.id) &&
                 (!settings.annictExcludePaidChannels || !isPaidBroadcastChannel(channel)),
         );
-    }, [channels.data, config.data?.developerMode, receivable, settings.annictExcludePaidChannels, settings.annictSupplementalChannelIds]);
+    }, [channels.data, config.data?.developerMode, receivable, unscheduledChannels, settings.annictExcludePaidChannels, settings.annictSupplementalChannelIds]);
     const { firstPrograms, additionalPrograms } = useMemo(() => {
         const groups = new Map<string, AnnictProgram[]>();
         receivable.forEach(program => {
@@ -1151,13 +1158,16 @@ export function AnimeDetailPage(): ReactNode {
             additionalPrograms: additional.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)),
         };
     }, [receivable]);
-    const selectionSignature = firstPrograms.map(program => `${animeStationKey(program)}:${program.annictId}`).join('|');
+    const selectionSignature = [
+        ...firstPrograms.map(program => `${animeStationKey(program)}:${program.annictId}`),
+        ...unscheduledChannels.map(channel => `local:${channel.id}`),
+    ].join('|');
 
     useEffect(() => {
         if (selectionSource === selectionSignature) return;
-        setSelectedStationKeys(new Set(firstPrograms.map(animeStationKey)));
+        setSelectedStationKeys(new Set([...firstPrograms.map(animeStationKey), ...unscheduledChannels.map(channel => `local:${channel.id}`)]));
         setSelectionSource(selectionSignature);
-    }, [firstPrograms, selectionSignature, selectionSource]);
+    }, [firstPrograms, unscheduledChannels, selectionSignature, selectionSource]);
 
     useEffect(() => {
         setSelectedSupplementalChannelIds(new Set());
@@ -1179,9 +1189,20 @@ export function AnimeDetailPage(): ReactNode {
     }, [annictId]);
 
     const selectedPrograms = useMemo(() => firstPrograms.filter(program => selectedStationKeys.has(animeStationKey(program))), [firstPrograms, selectedStationKeys]);
+    const selectedUnscheduledChannels = useMemo(
+        () => unscheduledChannels.filter(channel => selectedStationKeys.has(`local:${channel.id}`)),
+        [unscheduledChannels, selectedStationKeys],
+    );
     const selectedChannelIds = useMemo(
-        () => Array.from(new Set([...selectedPrograms.flatMap(program => program.localChannels.map(channel => channel.id)), ...selectedSupplementalChannelIds])),
-        [selectedPrograms, selectedSupplementalChannelIds],
+        () =>
+            Array.from(
+                new Set([
+                    ...selectedPrograms.flatMap(program => program.localChannels.map(channel => channel.id)),
+                    ...selectedUnscheduledChannels.map(channel => channel.id),
+                    ...selectedSupplementalChannelIds,
+                ]),
+            ),
+        [selectedPrograms, selectedUnscheduledChannels, selectedSupplementalChannelIds],
     );
     const freeFallbackChannelIds = useMemo(
         () =>
@@ -1192,13 +1213,21 @@ export function AnimeDetailPage(): ReactNode {
     );
     const effectiveSearchChannelIds = selectedChannelIds.length > 0 ? selectedChannelIds : freeFallbackChannelIds;
     const selectedWeek = useMemo(
-        () => (selectedSupplementalChannelIds.size > 0 ? 0x7f : selectedPrograms.reduce((value, program) => value | (1 << new Date(program.startedAt).getDay()), 0)),
-        [selectedPrograms, selectedSupplementalChannelIds.size],
+        () =>
+            selectedSupplementalChannelIds.size > 0 || selectedUnscheduledChannels.length > 0
+                ? 0x7f
+                : selectedPrograms.reduce((value, program) => value | (1 << new Date(program.startedAt).getDay()), 0),
+        [selectedPrograms, selectedUnscheduledChannels, selectedSupplementalChannelIds.size],
     );
-    const titleOnlyFallback = firstPrograms.length === 0 && selectedSupplementalChannelIds.size === 0;
+    const titleOnlyFallback = firstPrograms.length === 0 && unscheduledChannels.length === 0 && selectedSupplementalChannelIds.size === 0;
     const canOpenSearch = selectedChannelIds.length > 0 || (titleOnlyFallback && (!settings.annictExcludePaidChannels || freeFallbackChannelIds.length > 0));
     const searchOption = useMemo<RuleSearchOption>(
-        () => buildAnimeSearchOption({ title: work.data?.title ?? '', firstProgramStartedAt: work.data?.firstProgramStartedAt }, effectiveSearchChannelIds, selectedWeek),
+        () =>
+            buildAnimeSearchOption(
+                { title: work.data?.title ?? '', firstProgramStartedAt: work.data?.firstProgramStartedAt, releasedOn: work.data?.releasedOn },
+                effectiveSearchChannelIds,
+                selectedWeek,
+            ),
         [effectiveSearchChannelIds, selectedWeek, work.data],
     );
 
@@ -1318,7 +1347,7 @@ export function AnimeDetailPage(): ReactNode {
                                 Annictの開始日時と、EPGStationで受信できる放送局名を照合しています。実際の予約時間は検索結果のEPG情報を使用します。
                             </Typography>
                         </Box>
-                        {firstPrograms.length === 0 && selectedSupplementalChannelIds.size === 0 ? (
+                        {firstPrograms.length === 0 && unscheduledChannels.length === 0 && selectedSupplementalChannelIds.size === 0 ? (
                             <Alert severity="info">
                                 現在取得できる受信可能局の放送予定がないため、作品タイトルを{settings.annictExcludePaidChannels ? '無料局' : '全局'}・全曜日で検索できます。
                             </Alert>
@@ -1339,6 +1368,20 @@ export function AnimeDetailPage(): ReactNode {
                                 {showAllPrograms && additionalPrograms.map(program => <ProgramCard key={program.annictId} program={program} />)}
                             </Stack>
                         ) : null}
+                        {unscheduledChannels.length > 0 && (
+                            <Stack spacing={0.5}>
+                                <Typography variant="body2" color="text.secondary">
+                                    Annictに登録された局です。放送日時が未登録のため、選択した局を全曜日で検索します。
+                                </Typography>
+                                {unscheduledChannels.map(channel => (
+                                    <FormControlLabel
+                                        key={channel.id}
+                                        control={<Checkbox checked={selectedStationKeys.has(`local:${channel.id}`)} onChange={() => toggleStation(`local:${channel.id}`)} />}
+                                        label={`${channel.name}（放送日時未登録）`}
+                                    />
+                                ))}
+                            </Stack>
+                        )}
                         {supplementalChannels.length > 0 && (
                             <Stack spacing={0.5}>
                                 <Typography variant="body2" color="text.secondary">

@@ -361,6 +361,7 @@ export interface AnnictWorkDetail extends AnnictWorkSummary {
     casts: AnnictCast[];
     staffs: AnnictStaff[];
     programs: AnnictProgram[];
+    unscheduledChannels?: AnnictLocalChannel[];
     programsError?: string;
     cachedAt: number;
     stale: boolean;

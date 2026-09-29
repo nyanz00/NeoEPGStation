@@ -24,8 +24,33 @@ require.extensions['.ts'] = (module, filename) => {
 };
 
 const AnnictApiModel = require('../../src/model/api/annict/AnnictApiModel.ts').default;
+const animeRules = require('../../client/src/core/animeRules.ts');
 if (previousTypeScriptLoader === undefined) delete require.extensions['.ts'];
 else require.extensions['.ts'] = previousTypeScriptLoader;
+
+test('undated registered TV stations remain selectable without web streaming dates', async () => {
+    const model = Object.create(AnnictApiModel.prototype);
+    const row = (id, name, state = '公開') =>
+        `<tr>${[id, id, name, '-', '-', '-', '-', state].map(value => `<td>${value}</td>`).join('')}</tr>`;
+    const html = `<table><th>チャンネルID</th><th>放送開始日時</th>${row(19, 'TOKYO MX')}${row(128, 'BS11イレブン')}${row(165, 'ニコニコチャンネル')}${row(999, 'MBS', '非公開')}</table>`;
+    const channels = model.parseRegisteredWorkChannels(html, [
+        { id: 11, name: 'BS11', channelType: 'BS' },
+        { id: 12, name: 'MBS', channelType: 'GR' },
+    ]);
+    assert.deepEqual(channels, [{ id: 11, name: 'BS11', channelType: 'BS' }]);
+    assert.throws(() => model.parseRegisteredWorkChannels('<html>unavailable</html>', []), /形式/);
+    const work = {
+        title: 'Test',
+        releasedOn: '2026-10-05',
+        unscheduledChannels: channels,
+        programs: [{ startedAt: '2026-10-07T16:05:00Z', channelName: 'ニコニコチャンネル', localChannels: [] }],
+    };
+    const option = animeRules.buildBulkAnimeSearchOption(work, false, [], Date.parse('2026-09-29'));
+    assert.deepEqual(option.channelIds, [11]);
+    assert.equal(option.times[0].week, 0x7f);
+    assert.equal(option.searchPeriods[0].startAt, new Date('2026-10-05T00:00:00').getTime());
+    assert.equal(animeRules.firstBroadcastSearchPeriods({}), undefined);
+});
 
 test('work list start dates use receivable stations and respect paid-channel exclusion', async () => {
     const model = Object.create(AnnictApiModel.prototype);
@@ -62,6 +87,31 @@ test('work list start dates use receivable stations and respect paid-channel exc
     );
     channels = [{ id: 3, name: 'TOKYO MX', type: 1 }];
     assert.equal((await model.getWorks('2026-autumn', false)).works[0].firstReceivableProgramStartedAt, date(2));
+});
+
+test('work detail does not expose an earliest streaming slot as its rule start date', async () => {
+    const model = Object.create(AnnictApiModel.prototype);
+    model.root = '/unused';
+    model.readCache = async () => null;
+    model.requestWithSavedToken = async () => ({ searchWorks: { nodes: [{ annictId: 17600 }] } });
+    model.channelApiModel = { getChannels: async () => [] };
+    model.mapWork = () => ({ annictId: 17600, title: 'Test', firstProgramStartedAt: '2026-10-07T16:05:00Z' });
+    model.getPrograms = async () => ({ programs: [{ startedAt: '2026-10-07T16:05:00Z', localChannels: [] }] });
+    model.getRestWorkDetail = async () => ({ releasedOn: '2026-10-05' });
+    model.getAnnictPageMetadata = async () => ({});
+    model.getAnnictInfoPageReleasedOn = async () => '2026-10-05';
+    model.getRestCasts = model.getRestStaffs = async () => [];
+    model.getRegisteredWorkChannels = async () => ({ channels: [{ id: 11, name: 'BS11', channelType: 'BS' }] });
+    model.resolveWorkImageUrl = async () => 'https://example.com/image.jpg';
+    model.writeJson = async () => {};
+    model.addSyoboiProgramFallback = async (_id, value) => value;
+    const detail = await model.getWork(17600, true);
+    assert.equal(detail.firstProgramStartedAt, undefined);
+    assert.equal(detail.unscheduledChannels[0].id, 11);
+    assert.equal(
+        animeRules.buildAnimeSearchOption(detail).searchPeriods[0].startAt,
+        new Date('2026-10-05T00:00:00').getTime(),
+    );
 });
 
 test('station start dates include later pages and keep the earliest date for each station', async () => {

@@ -13,8 +13,8 @@ export function localDateFromIso(value?: string): string | undefined {
     return `${year}-${month}-${day}`;
 }
 
-export function firstBroadcastSearchPeriods(work: Pick<AnnictWorkSummary, 'firstProgramStartedAt'>): RuleSearchOption['searchPeriods'] | undefined {
-    const date = localDateFromIso(work.firstProgramStartedAt);
+export function firstBroadcastSearchPeriods(work: Pick<AnnictWorkSummary, 'firstProgramStartedAt' | 'releasedOn'>): RuleSearchOption['searchPeriods'] | undefined {
+    const date = localDateFromIso(work.firstProgramStartedAt) ?? (/^\d{4}-\d{2}-\d{2}$/.test(work.releasedOn ?? '') ? work.releasedOn : undefined);
     if (date === undefined) return undefined;
     return [{ startAt: new Date(`${date}T00:00:00`).getTime(), endAt: openSearchPeriodEndAt }];
 }
@@ -39,7 +39,11 @@ export function annictLocalChannelIds(programs: AnnictProgram[], excludePaidChan
  * Channel and weekday selection differs between the detail and bulk flows,
  * but the title, genre and first-broadcast boundary must never drift apart.
  */
-export function buildAnimeSearchOption(work: Pick<AnnictWorkSummary, 'title' | 'firstProgramStartedAt'>, channelIds: ChannelId[] = [], week = 0x7f): RuleSearchOption {
+export function buildAnimeSearchOption(
+    work: Pick<AnnictWorkSummary, 'title' | 'firstProgramStartedAt' | 'releasedOn'>,
+    channelIds: ChannelId[] = [],
+    week = 0x7f,
+): RuleSearchOption {
     return {
         keyword: work.title,
         name: true,
@@ -70,13 +74,14 @@ export function buildBulkAnimeSearchOption(
         });
 
     const programs = [...firstByStation.values()];
-    if (programs.length === 0) {
+    const undated = (work.unscheduledChannels ?? []).filter(channel => !excludePaidChannels || !isPaidBroadcastChannel(channel));
+    if (programs.length === 0 && undated.length === 0) {
         const fallbackChannelIds = excludePaidChannels
             ? fallbackChannels.filter(channel => isAudioVideoChannel(channel) && !isPaidBroadcastChannel(channel)).map(channel => channel.id)
             : [];
         return buildAnimeSearchOption(work, fallbackChannelIds);
     }
-    const channelIds = Array.from(new Set(programs.flatMap(program => program.localChannels.map(channel => channel.id))));
-    const week = programs.reduce((value, program) => value | (1 << new Date(program.startedAt).getDay()), 0);
+    const channelIds = Array.from(new Set([...programs.flatMap(program => program.localChannels.map(channel => channel.id)), ...undated.map(channel => channel.id)]));
+    const week = undated.length > 0 ? 0x7f : programs.reduce((value, program) => value | (1 << new Date(program.startedAt).getDay()), 0);
     return buildAnimeSearchOption(work, channelIds, week);
 }
