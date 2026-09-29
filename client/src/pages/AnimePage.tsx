@@ -942,6 +942,11 @@ export function AnimePage(): ReactNode {
                         {sortOrder === 'release-date' && works.data?.enrichmentPending === true && (
                             <Alert severity="info">受信可能な局の放送開始日時を取得しています。取得後に並び順を更新します。</Alert>
                         )}
+                        {sortOrder === 'release-date' && works.data?.broadcastDatesIncomplete === true && works.data.enrichmentPending !== true && (
+                            <Alert severity="warning" action={<Button onClick={refreshWorks}>再試行</Button>}>
+                                放送開始日時を一部取得できませんでした。取得できた作品を日時順に表示し、未取得の作品は末尾に表示しています。
+                            </Alert>
+                        )}
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>
                         )}

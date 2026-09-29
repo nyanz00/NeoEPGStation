@@ -881,6 +881,7 @@ class AnnictApiModel implements IAnnictApiModel {
         const channels = await this.channelApiModel.getChannels();
         return {
             ...result,
+            broadcastDatesIncomplete: result.works.some(work => !Array.isArray((work as any).broadcastStarts)),
             works: result.works.map(work => {
                 const { broadcastStarts = [], ...summary } = work as apid.AnnictWorkSummary & {
                     broadcastStarts?: { channelName: string; startedAt: string }[];
@@ -1122,17 +1123,36 @@ class AnnictApiModel implements IAnnictApiModel {
             .map(this.mapWork);
     }
 
-    private async enrichWorkBroadcastStarts(works: apid.AnnictWorkSummary[]): Promise<apid.AnnictWorkSummary[]> {
-        const result: apid.AnnictWorkSummary[] = [];
-        for (let index = 0; index < works.length; index += 4) {
-            result.push(
-                ...(await Promise.all(
-                    works.slice(index, index + 4).map(async work => ({
-                        ...work,
-                        broadcastStarts: await this.getWorkBroadcastStarts(work),
-                    })),
-                )),
+    private async enrichWorkBroadcastStarts(
+        works: apid.AnnictWorkSummary[],
+        saveProgress?: (works: apid.AnnictWorkSummary[]) => Promise<void>,
+    ): Promise<apid.AnnictWorkSummary[]> {
+        const result = [...works];
+        const missing = works.filter(work => !Array.isArray((work as any).broadcastStarts));
+        for (let index = 0; index < missing.length; index += 10) {
+            const batch = missing.slice(index, index + 10);
+            const data = await this.requestWithSavedToken(
+                `query WorkBroadcastStartsBatch($ids: [Int!]) {
+                    searchWorks(annictIds: $ids, first: 10) {
+                        nodes {
+                            annictId
+                            programs(first: 100, orderBy: { field: STARTED_AT, direction: ASC }) {
+                                nodes { startedAt channel { name } }
+                                pageInfo { hasNextPage endCursor }
+                            }
+                        }
+                    }
+                }`,
+                { ids: batch.map(work => work.annictId) },
+                true,
             );
+            for (const work of batch) {
+                const node = data.searchWorks?.nodes?.find((item: any) => item?.annictId === work.annictId);
+                if (node?.programs === undefined) throw new Error('Annict放送開始日時を取得できませんでした');
+                const updated = { ...work, broadcastStarts: await this.getWorkBroadcastStarts(node) };
+                result[works.indexOf(work)] = updated;
+                await saveProgress?.([...result]);
+            }
         }
         return result;
     }
@@ -1190,9 +1210,13 @@ class AnnictApiModel implements IAnnictApiModel {
 
         const request = Promise.resolve()
             .then(async () => {
-                const enriched = await this.enrichWorkReleaseDates(
-                    await this.fillMissingWorkImages(await this.enrichWorkBroadcastStarts(works)),
-                );
+                const scheduled = await this.enrichWorkBroadcastStarts(works, async value => {
+                    const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                    if (current !== null && this.workListCacheGeneration(current) === generation) {
+                        await this.writeJson(basicFile, { cachedAt, generation, value });
+                    }
+                });
+                const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(scheduled));
                 const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
                 if (latestBasic === null || this.workListCacheGeneration(latestBasic) !== generation) return;
                 await this.writeJson(enrichedFile, { cachedAt, generation, value: enriched });

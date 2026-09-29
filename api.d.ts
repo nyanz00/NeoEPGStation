@@ -308,6 +308,7 @@ export interface AnnictWorkSummary {
 }
 
 export interface AnnictWorkList {
+    broadcastDatesIncomplete?: boolean;
     season: string;
     works: AnnictWorkSummary[];
     rerun?: boolean;
