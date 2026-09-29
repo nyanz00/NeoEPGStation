@@ -1061,8 +1061,8 @@ export function AnimePage(): ReactNode {
                                                     </Typography>
                                                     <Stack direction="row" spacing={0.75} sx={{ mt: 1 }}>
                                                         {work.media && <Chip size="small" label={work.media} />}
-                                                        {reservedWorkIds.has(work.annictId) && <Chip size="small" color="primary" label="予約済み" />}
                                                         {work.watchersCount !== undefined && <Chip size="small" variant="outlined" label={`${work.watchersCount}人`} />}
+                                                        {reservedWorkIds.has(work.annictId) && <Chip size="small" color="primary" label="予約済み" />}
                                                     </Stack>
                                                 </CardContent>
                                             </CardActionArea>
