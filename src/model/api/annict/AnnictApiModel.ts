@@ -1129,11 +1129,11 @@ class AnnictApiModel implements IAnnictApiModel {
     ): Promise<apid.AnnictWorkSummary[]> {
         const result = [...works];
         const missing = works.filter(work => !Array.isArray((work as any).broadcastStarts));
-        for (let index = 0; index < missing.length; index += 10) {
-            const batch = missing.slice(index, index + 10);
+        for (let index = 0; index < missing.length; index += 50) {
+            const batch = missing.slice(index, index + 50);
             const data = await this.requestWithSavedToken(
                 `query WorkBroadcastStartsBatch($ids: [Int!]) {
-                    searchWorks(annictIds: $ids, first: 10) {
+                    searchWorks(annictIds: $ids, first: 50) {
                         nodes {
                             annictId
                             programs(first: 100, orderBy: { field: STARTED_AT, direction: ASC }) {

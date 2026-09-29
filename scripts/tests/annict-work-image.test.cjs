@@ -131,7 +131,8 @@ test('schedule batches retain progress after rate limiting and resume only missi
     model.requestWithSavedToken = async (_query, { ids }, strict) => {
         calls++;
         assert.equal(strict, true);
-        assert.ok(ids.length <= 10);
+        assert.ok(ids.length <= 50);
+        assert.match(_query, /searchWorks\(annictIds: \$ids, first: 50\)/);
         if (fail && calls === 2) throw new Error('HTTP 429');
         return {
             searchWorks: {
@@ -151,14 +152,14 @@ test('schedule batches retain progress after rate limiting and resume only missi
         }),
         /429/,
     );
-    assert.equal(saved.filter(work => work.broadcastStarts !== undefined).length, 10);
+    assert.equal(saved.filter(work => work.broadcastStarts !== undefined).length, 50);
     fail = false;
     calls = 0;
     const result = await model.enrichWorkBroadcastStarts(saved);
-    assert.equal(calls, 12);
+    assert.equal(calls, 2);
     assert.equal(result.filter(work => work.broadcastStarts !== undefined).length, 127);
     await model.enrichWorkBroadcastStarts(result);
-    assert.equal(calls, 12);
+    assert.equal(calls, 2);
 });
 
 test('work image fallback reads the Annict-hosted image and can refresh stale metadata', async t => {
