@@ -1,4 +1,4 @@
-import type { ScheduleChannleItem } from '../../../api';
+import type { ChannelId, ChannelItem, ScheduleChannleItem } from '../../../api';
 
 const paidBroadcastChannelPattern =
     /AT[\s-]*X|キッズステーション|アニマックス|ディズニー|WOWOW|スターチャンネル|J[\s:：-]*COM[\s-]*BS|J SPORTS|日本映画専門|時代劇専門|チャンネルNECO|ファミリー劇場|テレ朝チャンネル|TBSチャンネル|フジテレビ(?:ONE|TWO|NEXT)|日テレプラス|ホームドラマ|衛星劇場|東映チャンネル|カートゥーン|GAORA|スカイA/i;
@@ -22,6 +22,44 @@ export function isAudioVideoChannel(channel: { type?: number | null }): boolean 
         default:
             return false;
     }
+}
+
+/** Keep Annict's preferred stations consistent with the schedule's main-channel detection. */
+export function isMainBroadcastChannel(channel: Pick<ChannelItem, 'channelType' | 'serviceId' | 'type'>): boolean {
+    if (!isAudioVideoChannel(channel)) return false;
+    if (channel.channelType === 'GR' || channel.channelType.startsWith('GR-ALT')) return (channel.serviceId & 0x0187) === 0;
+    if (channel.channelType !== 'BS') return true;
+    return !(
+        channel.serviceId === 102 ||
+        channel.serviceId === 104 ||
+        (142 <= channel.serviceId && channel.serviceId <= 149) ||
+        (152 <= channel.serviceId && channel.serviceId <= 159) ||
+        (162 <= channel.serviceId && channel.serviceId <= 169) ||
+        (172 <= channel.serviceId && channel.serviceId <= 179) ||
+        (182 <= channel.serviceId && channel.serviceId <= 189) ||
+        channel.serviceId === 232 ||
+        channel.serviceId === 233
+    );
+}
+
+export function sortRuleEncodeChannels(channels: ChannelItem[], priorityChannelIds: ChannelId[], annictPriorityChannelIds: ChannelId[]): ChannelItem[] {
+    const annictChannelIds = new Set(annictPriorityChannelIds);
+    const mainAnnictChannelIds = new Set(channels.filter(channel => annictChannelIds.has(channel.id) && isMainBroadcastChannel(channel)).map(channel => channel.id));
+    const preferredChannelIds = Array.from(
+        new Set([
+            ...priorityChannelIds.filter(id => !annictChannelIds.has(id) || mainAnnictChannelIds.has(id)),
+            ...annictPriorityChannelIds.filter(id => mainAnnictChannelIds.has(id)),
+        ]),
+    );
+    const rank = new Map(preferredChannelIds.map((id, index) => [id, index]));
+    return [...channels].sort((a, b) => {
+        const aRank = rank.get(a.id);
+        const bRank = rank.get(b.id);
+        if (aRank === undefined && bRank === undefined) return 0;
+        if (aRank === undefined) return 1;
+        if (bRank === undefined) return -1;
+        return aRank - bRank;
+    });
 }
 
 export function isDefaultVisibleChannel(channel: Pick<ScheduleChannleItem, 'name' | 'type'>): boolean {

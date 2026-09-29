@@ -41,7 +41,7 @@ import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { type BulkRuleSaveResult, type BulkRuleTarget, RuleEditorDialog } from '../components/RuleEditorDialog';
-import { animeStationKey, buildAnimeSearchOption, buildBulkAnimeSearchOption, localDateFromIso } from '../core/animeRules';
+import { animeStationKey, annictLocalChannelIds, buildAnimeSearchOption, buildBulkAnimeSearchOption, localDateFromIso } from '../core/animeRules';
 import { api } from '../core/api/queries';
 import { isAudioVideoChannel, isPaidBroadcastChannel } from '../core/channels';
 import { useAppBack } from '../core/navigation';
@@ -450,6 +450,7 @@ function ProgramCard({ program, selected, onToggle }: { program: AnnictProgram; 
 interface BulkRulePreparation {
     requestedAnnictIds: number[];
     targets: BulkRuleTarget[];
+    annictPriorityChannelIds: number[];
     detailFailures: Array<{ annictId: number; title: string }>;
 }
 
@@ -553,6 +554,7 @@ export function AnimePage(): ReactNode {
         mutationFn: async ({ annictIds }: { annictIds: number[]; listSignature: string; selectionSignature: string }): Promise<BulkRulePreparation> => {
             const requestedAnnictIds = [...new Set(annictIds)];
             const targets: BulkRuleTarget[] = [];
+            const annictPriorityChannelIds: number[] = [];
             const detailFailures: BulkRulePreparation['detailFailures'] = [];
             const fallbackChannels = settings.annictExcludePaidChannels ? await api.getChannels() : [];
             for (let index = 0; index < requestedAnnictIds.length; index += 4) {
@@ -561,6 +563,7 @@ export function AnimePage(): ReactNode {
                 batch.forEach((result, offset) => {
                     const annictId = batchIds[offset];
                     if (result.status === 'fulfilled') {
+                        annictPriorityChannelIds.push(...annictLocalChannelIds(result.value.programs, settings.annictExcludePaidChannels));
                         targets.push({
                             annictId,
                             title: result.value.title,
@@ -572,7 +575,7 @@ export function AnimePage(): ReactNode {
                     }
                 });
             }
-            return { requestedAnnictIds, targets, detailFailures };
+            return { requestedAnnictIds, targets, annictPriorityChannelIds: Array.from(new Set(annictPriorityChannelIds)), detailFailures };
         },
         onSuccess: (preparation, variables) => {
             if (variables.listSignature !== animeListSignature || variables.selectionSignature !== selectedWorkSignature) return;
@@ -849,6 +852,7 @@ export function AnimePage(): ReactNode {
                     open
                     searchOption={bulkRulePreparation.targets[0]?.searchOption ?? {}}
                     priorityChannelIds={Array.from(new Set(bulkRulePreparation.targets.flatMap(target => target.searchOption.channelIds ?? [])))}
+                    annictPriorityChannelIds={bulkRulePreparation.annictPriorityChannelIds}
                     bulkTargets={bulkRulePreparation.targets}
                     onClose={() => setBulkRulePreparation(null)}
                     onBulkSaved={finishBulkRuleSave}
@@ -1361,6 +1365,7 @@ export function AnimeDetailPage(): ReactNode {
                             open={ruleOpen}
                             searchOption={searchOption}
                             priorityChannelIds={selectedChannelIds}
+                            annictPriorityChannelIds={annictLocalChannelIds(work.data?.programs ?? [], settings.annictExcludePaidChannels)}
                             annictId={annictId}
                             onClose={() => setRuleOpen(false)}
                             onSaved={() => {

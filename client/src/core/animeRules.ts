@@ -23,6 +23,16 @@ export function animeStationKey(program: AnnictProgram): string {
     return program.channelAnnictId !== undefined ? `annict:${program.channelAnnictId}` : `name:${program.channelName.normalize('NFKC').toUpperCase()}`;
 }
 
+export function annictLocalChannelIds(programs: AnnictProgram[], excludePaidChannels: boolean): ChannelId[] {
+    return Array.from(
+        new Set(
+            programs
+                .filter(program => !excludePaidChannels || !isPaidBroadcastChannel({ name: program.channelName }))
+                .flatMap(program => program.localChannels.map(channel => channel.id)),
+        ),
+    );
+}
+
 /**
  * Build the common search root used by every anime rule/search entry point.
  *
