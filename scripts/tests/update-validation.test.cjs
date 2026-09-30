@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const path = require('node:path');
 const {
     isExpectedUpdateRepository,
     isSupportedStableUpdateTarget,
@@ -13,6 +14,7 @@ const {
     stripUpdateLogControlSequences,
 } = require('../../dist/model/update/UpdateCommand.js');
 const { shouldInstallUpdateDependencies } = require('../../dist/model/update/UpdateDependency.js');
+const { getWinserChangeBlockReason, resolveWinserResolution } = require('../../dist/model/update/UpdateWinser.js');
 const UpdateManager = require('../../dist/model/update/UpdateManager.js').default;
 
 test('update API accepts only fixed target and package manager enums', () => {
@@ -43,6 +45,8 @@ test('only the NeoEPGStation origin is accepted', () => {
 
 test('stable update tags exclude prereleases and option-like input', () => {
     assert.equal(STABLE_UPDATE_TAG_PATTERN.test('v2.10.0'), true);
+    assert.equal(STABLE_UPDATE_TAG_PATTERN.test('Neo-v1.0.3'), true);
+    assert.equal(STABLE_UPDATE_TAG_PATTERN.test('Neo-v1.0.3-beta.1'), false);
     for (const tag of ['v2.10.0-beta3', 'v2.10.0-rc1', '--upload-pack=evil', 'v2.10.0;calc']) {
         assert.equal(STABLE_UPDATE_TAG_PATTERN.test(tag), false);
     }
@@ -60,29 +64,71 @@ test('stable targets keep the latest tag, branch head, and previous supported ta
     const latest = '2'.repeat(40);
     const head = '3'.repeat(40);
     const develop = '4'.repeat(40);
-    const legacy = '5'.repeat(40);
     const updater = Object.create(UpdateManager.prototype);
     updater.state = {};
     updater.writeState = () => {};
-    updater.git = async args => ({
-        stdout:
-            args[0] === 'ls-remote' && args.includes('--heads')
-                ? `${develop}\trefs/heads/develop`
-                : args[0] === 'ls-remote'
-                  ? `${legacy}\trefs/tags/v1.7.6\n${previous}\trefs/tags/v1.0.0\n${latest}\trefs/tags/v1.0.1`
-                  : '',
-    });
-    updater.gitRequiredText = async () => head;
-    updater.isAncestor = async (ancestor, descendant) =>
-        (ancestor === previous && descendant === latest) ||
-        ([previous, latest].includes(ancestor) && descendant === 'refs/remotes/neoe-update/nyanz-master') ||
-        (ancestor === REACT_RELEASE_BASE_COMMIT && [previous, latest].includes(descendant));
+    const commands = [];
+    updater.git = async args => {
+        commands.push(args);
+        return {
+            stdout:
+                args[0] === 'for-each-ref'
+                    ? args.includes('--format=%(refname)')
+                        ? 'refs/remotes/neoe-update/tags/v1.0.2\n'
+                        : `refs/remotes/neoe-update/tags/v1.0.2\t${previous}\t\nrefs/remotes/neoe-update/tags/Neo-v1.0.3\t${'6'.repeat(40)}\t${latest}\nrefs/remotes/neoe-update/tags/Neo-v1.0.4-beta.1\t${head}\t\n`
+                    : '',
+        };
+    };
+    updater.gitRequiredText = async args => (args[1] === 'refs/remotes/neoe-update/develop' ? develop : head);
+    updater.isAncestor = async () => assert.fail('tag enumeration must not start per-tag ancestry commands');
 
     const targets = await updater.getRemoteTargets(true);
     assert.equal(targets.stable.commit, latest);
+    assert.equal(targets.stable.version, '1.0.3');
+    assert.equal(targets.previousStable.version, '1.0.2');
     assert.equal(targets.stableHead, head);
     assert.equal(targets.previousStable.commit, previous);
     assert.equal(targets.develop.commit, develop);
+    assert.equal(commands.length, 3);
+    assert.equal(commands[0][0], 'fetch');
+    assert.ok(commands[0].includes('--prune'));
+    assert.ok(commands[0].includes('+refs/tags/*:refs/remotes/neoe-update/tags/*'));
+    assert.equal(commands[1][0], 'for-each-ref');
+    assert.ok(commands[1].includes(`--contains=${REACT_RELEASE_BASE_COMMIT}`));
+    assert.ok(commands[1].includes('--merged=refs/remotes/neoe-update/nyanz-master'));
+    assert.ok(commands[2].includes(`--merged=${latest}`));
+});
+
+test('remote refresh shares in-flight work, preserves cache on failure, and allows retry', async () => {
+    const updater = Object.create(UpdateManager.prototype);
+    const cached = { stable: null, develop: null, stableHead: null, previousStable: null, checkedAt: 1, error: null };
+    updater.state = { remoteCache: cached, remoteCacheAt: Date.now() };
+    let attempts = 0;
+    let rejectFetch;
+    updater.git = async () => {
+        attempts++;
+        return new Promise((_resolve, reject) => {
+            rejectFetch = reject;
+        });
+    };
+    assert.equal(await updater.getRemoteTargets(false), cached);
+    assert.equal(attempts, 0);
+    const forced = updater.getRemoteTargets(true);
+    const regular = updater.getRemoteTargets(false);
+    const anotherForced = updater.getRemoteTargets(true);
+    assert.equal(attempts, 1);
+    rejectFetch(new Error('offline'));
+    const results = await Promise.all([forced, regular, anotherForced]);
+    assert.equal(results[0], results[1]);
+    assert.equal(results[0], results[2]);
+    assert.equal(results[0].checkedAt, cached.checkedAt);
+    assert.match(results[0].error, /offline/);
+    assert.equal(updater.state.remoteCache, cached);
+    updater.state.remoteCacheAt = 0;
+    const retry = updater.getRemoteTargets(false);
+    assert.equal(attempts, 2);
+    rejectFetch(new Error('still offline'));
+    assert.match((await retry).error, /still offline/);
 });
 
 test('stable checkouts update to branch head and roll back only from its head', async () => {
@@ -190,6 +236,67 @@ test('saved dependency environment changes still require install', () => {
     assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, packageManager: 'npm' }), true);
     assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, nodeVersion: 'v22.22.0' }), true);
     assert.equal(shouldInstallUpdateDependencies(false, current, { ...current, dependencyHash: 'previous' }), true);
+});
+
+test('Windows service updates allow an unchanged winser resolution and block a changed or removed one', () => {
+    const npmManifest = JSON.stringify({ devDependencies: { winser: '^1.0.3' } });
+    const npmLock = JSON.stringify({ packages: { 'node_modules/winser': { version: '1.0.3' } } });
+    const currentNpm = resolveWinserResolution(npmManifest, npmLock, 'npm');
+
+    assert.equal(getWinserChangeBlockReason(currentNpm, resolveWinserResolution(npmManifest, npmLock, 'npm')), null);
+    assert.match(
+        getWinserChangeBlockReason(
+            currentNpm,
+            resolveWinserResolution(
+                JSON.stringify({ devDependencies: { winser: '^1.0.3' } }),
+                JSON.stringify({ packages: { 'node_modules/winser': { version: '1.1.0' } } }),
+                'npm',
+            ),
+        ),
+        /1\.0\.3 → 1\.1\.0/,
+    );
+    assert.match(
+        getWinserChangeBlockReason(
+            currentNpm,
+            resolveWinserResolution(JSON.stringify({ devDependencies: {} }), npmLock, 'npm'),
+        ),
+        /削除される/,
+    );
+});
+
+test('Windows service update guard reads pnpm importer versions and refuses unresolved ranges', () => {
+    const manifest = JSON.stringify({ devDependencies: { winser: '1.0.3' } });
+    const lock =
+        'importers:\n  .:\n    devDependencies:\n      winser:\n        specifier: 1.0.3\n        version: 1.0.3\n';
+    assert.deepEqual(resolveWinserResolution(manifest, lock, 'pnpm'), { kind: 'resolved', version: '1.0.3' });
+    assert.deepEqual(resolveWinserResolution(manifest, null, 'pnpm'), { kind: 'resolved', version: '1.0.3' });
+    assert.deepEqual(resolveWinserResolution(JSON.stringify({ devDependencies: { winser: '1.0.4' } }), lock, 'pnpm'), {
+        kind: 'unknown',
+    });
+    assert.equal(
+        getWinserChangeBlockReason(
+            resolveWinserResolution(JSON.stringify({ devDependencies: { winser: '^1.0.3' } }), null, 'pnpm'),
+            { kind: 'resolved', version: '1.0.3' },
+        )?.includes('特定できませんでした'),
+        true,
+    );
+});
+
+test('npm updater install keeps existing dependencies and leaves pnpm frozen install unchanged', async () => {
+    const updater = Object.create(UpdateManager.prototype);
+    updater.rootDir = 'C:\\EPGStation';
+    const commands = [];
+    updater.runLogged = async (...args) => commands.push(args);
+
+    await updater.install('npm');
+    assert.deepEqual(commands, [
+        ['npm', ['i', '--no-save', '--no-audit', '--no-fund']],
+        ['npm', ['i', '--no-save', '--no-audit', '--no-fund'], path.join('C:\\EPGStation', 'client')],
+    ]);
+
+    commands.length = 0;
+    await updater.install('pnpm');
+    assert.deepEqual(commands, [['pnpm', ['install', '--frozen-lockfile']]]);
 });
 
 test('ANSI color sequences are removed from update logs', () => {

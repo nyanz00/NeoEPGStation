@@ -12,18 +12,14 @@ import type {
     SystemUpdateRemoteTarget,
     SystemUpdateTarget,
 } from '../../../api';
-import {
-    isExpectedUpdateRepository,
-    isSupportedStableUpdateTarget,
-    REACT_RELEASE_BASE_COMMIT,
-    STABLE_UPDATE_TAG_PATTERN,
-} from './UpdateValidation';
+import { isExpectedUpdateRepository, REACT_RELEASE_BASE_COMMIT, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
 import {
     createUpdateCommandInvocation,
     createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
 } from './UpdateCommand';
 import { shouldInstallUpdateDependencies } from './UpdateDependency';
+import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -100,6 +96,7 @@ export default class UpdateManager {
     private readonly gitExecutable: string;
     private state: PersistedState;
     private running = false;
+    private remoteTargetsPromise?: Promise<CachedRemoteTargets>;
 
     public static getInstance(): UpdateManager {
         if (UpdateManager.instance === null) UpdateManager.instance = new UpdateManager();
@@ -243,14 +240,8 @@ export default class UpdateManager {
             this.setStage(job, 'checking', 'Gitリポジトリと更新対象を確認しています');
             await this.assertRepository();
             const dirty = await this.git(['status', '--porcelain']);
-            if (dirty.stdout.trim() !== '') {
-                if (!preserveLocalChanges) throw new Error('未コミットの変更があるため更新できません');
-                this.setStage(job, 'stashing', '未コミットの変更をGit stashへ退避しています');
-                job.stashCommit = await this.stashLocalChanges(job.id);
-                this.append(job, `ローカル変更をstashへ退避しました: ${job.stashCommit.slice(0, 12)}`);
-                if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
-                    throw new Error('stash後も未コミットの変更が残っているため更新を中止しました');
-                }
+            if (dirty.stdout.trim() !== '' && !preserveLocalChanges) {
+                throw new Error('未コミットの変更があるため更新できません');
             }
             oldCommit = (await this.git(['rev-parse', 'HEAD'])).stdout.trim();
             oldBranch = (await this.git(['branch', '--show-current'])).stdout.trim() || null;
@@ -269,7 +260,7 @@ export default class UpdateManager {
                     throw new Error('React版以前のバージョンへは戻せません');
                 }
                 const [tagCommit, stableHead] = await Promise.all([
-                    this.gitRequiredText(['rev-parse', `refs/tags/${remoteTarget.tag}^{}`]),
+                    this.gitRequiredText(['rev-parse', `refs/remotes/neoe-update/tags/${remoteTarget.tag}^{}`]),
                     this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/nyanz-master']),
                 ]);
                 if (targetCommit !== tagCommit && targetCommit !== stableHead) {
@@ -294,6 +285,19 @@ export default class UpdateManager {
             const applicability = await this.getTargetApplicability(job.target, relation, oldCommit, targetCommit);
             if (!applicability.canApply)
                 throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
+            const manager = requestedManager === 'auto' ? this.detectPackageManager() : requestedManager;
+            await this.assertWindowsServiceWinserUnchanged(oldCommit, targetCommit, manager);
+
+            if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
+                if (!preserveLocalChanges) throw new Error('更新の確認中に変更が発生したため更新できません');
+                this.setStage(job, 'stashing', '未コミットの変更をGit stashへ退避しています');
+                job.stashCommit = await this.stashLocalChanges(job.id);
+                this.append(job, `ローカル変更をstashへ退避しました: ${job.stashCommit.slice(0, 12)}`);
+                if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
+                    throw new Error('stash後も未コミットの変更が残っているため更新を中止しました');
+                }
+            }
+
             if (relation === 'behind') {
                 this.append(job, 'DB互換性を確認しました。現在のDBを保持したまま安定版へロールバックします');
             }
@@ -301,7 +305,6 @@ export default class UpdateManager {
             this.setStage(job, 'backing-up', 'DBとconfig.ymlをバックアップしています');
             await this.createBackup(job.id);
 
-            const manager = requestedManager === 'auto' ? this.detectPackageManager() : requestedManager;
             job.packageManager = manager;
             this.state.preferredPackageManager = manager;
             this.writeState();
@@ -441,6 +444,7 @@ export default class UpdateManager {
     }
 
     private async getRemoteTargets(force: boolean): Promise<CachedRemoteTargets> {
+        if (this.remoteTargetsPromise !== undefined) return this.remoteTargetsPromise;
         if (
             !force &&
             this.state.remoteCache !== undefined &&
@@ -450,74 +454,88 @@ export default class UpdateManager {
         ) {
             return this.state.remoteCache;
         }
+        this.remoteTargetsPromise = this.refreshRemoteTargets();
         try {
+            return await this.remoteTargetsPromise;
+        } finally {
+            this.remoteTargetsPromise = undefined;
+        }
+    }
+
+    private async refreshRemoteTargets(): Promise<CachedRemoteTargets> {
+        try {
+            // Keep remote tag candidates in a prunable namespace without pruning the user's local tags.
             await this.git([
                 'fetch',
                 '--quiet',
                 '--force',
+                '--prune',
                 '--tags',
                 '--no-write-fetch-head',
                 REPOSITORY_URL,
                 '+refs/heads/develop:refs/remotes/neoe-update/develop',
                 '+refs/heads/nyanz-master:refs/remotes/neoe-update/nyanz-master',
+                '+refs/tags/*:refs/remotes/neoe-update/tags/*',
             ]);
-            const [heads, tags] = await Promise.all([
-                this.git(['ls-remote', '--heads', REPOSITORY_URL, 'develop']),
-                this.git(['ls-remote', '--tags', REPOSITORY_URL]),
+            const [developCommit, tags] = await Promise.all([
+                this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/develop']),
+                this.git([
+                    'for-each-ref',
+                    `--contains=${REACT_RELEASE_BASE_COMMIT}`,
+                    '--merged=refs/remotes/neoe-update/nyanz-master',
+                    '--format=%(refname)%09%(objectname)%09%(*objectname)',
+                    'refs/remotes/neoe-update/tags',
+                ]),
             ]);
-            const developMatch = /^([0-9a-f]{40})\s+refs\/heads\/develop$/im.exec(heads.stdout);
             const tagCommits = new Map<string, string>();
             for (const line of tags.stdout.split(/\r?\n/)) {
-                const match = /^([0-9a-f]{40})\s+refs\/tags\/(v?\d+\.\d+\.\d+)(\^\{\})?$/.exec(line);
-                if (match !== null) tagCommits.set(match[2], match[1]);
+                const match = /^refs\/remotes\/neoe-update\/tags\/([^\t]+)\t([0-9a-f]{40})\t([0-9a-f]{40})?$/.exec(
+                    line,
+                );
+                if (match !== null && STABLE_UPDATE_TAG_PATTERN.test(match[1])) {
+                    tagCommits.set(match[1], match[3] ?? match[2]);
+                }
             }
             const stableCandidates = [...tagCommits.keys()].sort((a, b) => {
                 const av = this.parseVersion(a)!;
                 const bv = this.parseVersion(b)!;
                 return this.compareVersion(bv, av);
             });
-            let stableTag: string | undefined;
+            const stableTag = stableCandidates[0];
             let previousStableTag: string | undefined;
-            for (const candidate of stableCandidates) {
-                const commit = tagCommits.get(candidate)!;
-                if (
-                    isSupportedStableUpdateTarget(
-                        candidate,
-                        (await this.isAncestor(REACT_RELEASE_BASE_COMMIT, commit)) === true,
-                    ) &&
-                    (await this.isAncestor(commit, 'refs/remotes/neoe-update/nyanz-master')) === true
-                ) {
-                    if (stableTag === undefined) {
-                        stableTag = candidate;
-                    } else if ((await this.isAncestor(commit, tagCommits.get(stableTag)!)) === true) {
-                        previousStableTag = candidate;
-                        break;
-                    }
-                }
+            if (stableTag !== undefined && stableCandidates.length > 1) {
+                // Check ancestry in bulk, including when stable contains merged release branches.
+                const ancestors = await this.git([
+                    'for-each-ref',
+                    `--merged=${tagCommits.get(stableTag)!}`,
+                    '--format=%(refname)',
+                    'refs/remotes/neoe-update/tags',
+                ]);
+                const ancestorRefs = new Set(ancestors.stdout.split(/\r?\n/));
+                previousStableTag = stableCandidates
+                    .slice(1)
+                    .find(candidate => ancestorRefs.has(`refs/remotes/neoe-update/tags/${candidate}`));
             }
             const stableHead =
                 stableTag === undefined
                     ? null
                     : await this.gitRequiredText(['rev-parse', 'refs/remotes/neoe-update/nyanz-master']);
             const targets: CachedRemoteTargets = {
-                develop:
-                    developMatch === null
-                        ? null
-                        : {
-                              label: `develop (${developMatch[1].slice(0, 8)})`,
-                              version: null,
-                              tag: null,
-                              commit: developMatch[1],
-                              relation: 'unknown',
-                              canApply: false,
-                              blockedReason: '現在のコミットと比較できません',
-                          },
+                develop: {
+                    label: `develop (${developCommit.slice(0, 8)})`,
+                    version: null,
+                    tag: null,
+                    commit: developCommit,
+                    relation: 'unknown',
+                    canApply: false,
+                    blockedReason: '現在のコミットと比較できません',
+                },
                 stable:
                     stableTag === undefined
                         ? null
                         : {
                               label: stableTag,
-                              version: stableTag.replace(/^v/, ''),
+                              version: stableTag.replace(/^(?:Neo-v|v)/, ''),
                               tag: stableTag,
                               commit: tagCommits.get(stableTag)!,
                               relation: 'unknown',
@@ -530,7 +548,7 @@ export default class UpdateManager {
                         ? null
                         : {
                               label: previousStableTag,
-                              version: previousStableTag.replace(/^v/, ''),
+                              version: previousStableTag.replace(/^(?:Neo-v|v)/, ''),
                               tag: previousStableTag,
                               commit: tagCommits.get(previousStableTag)!,
                               relation: 'unknown',
@@ -743,9 +761,34 @@ export default class UpdateManager {
         if (manager === 'pnpm') {
             await this.runLogged('pnpm', ['install', '--frozen-lockfile']);
         } else {
-            await this.runLogged('npm', ['ci', '--no-audit', '--no-fund']);
-            await this.runLogged('npm', ['ci', '--no-audit', '--no-fund'], path.join(this.rootDir, 'client'));
+            await this.runLogged('npm', ['i', '--no-save', '--no-audit', '--no-fund']);
+            await this.runLogged(
+                'npm',
+                ['i', '--no-save', '--no-audit', '--no-fund'],
+                path.join(this.rootDir, 'client'),
+            );
         }
+    }
+
+    private async assertWindowsServiceWinserUnchanged(
+        currentCommit: string,
+        targetCommit: string,
+        manager: 'npm' | 'pnpm',
+    ): Promise<void> {
+        if (process.platform !== 'win32') return;
+
+        const lockfile = manager === 'npm' ? 'package-lock.json' : 'pnpm-lock.yaml';
+        const [currentPackageJson, currentLockfile, targetPackageJson, targetLockfile] = await Promise.all([
+            this.gitOptional(['show', `${currentCommit}:package.json`]),
+            this.gitOptional(['show', `${currentCommit}:${lockfile}`]),
+            this.gitOptional(['show', `${targetCommit}:package.json`]),
+            this.gitOptional(['show', `${targetCommit}:${lockfile}`]),
+        ]);
+        const reason = getWinserChangeBlockReason(
+            resolveWinserResolution(currentPackageJson, currentLockfile, manager),
+            resolveWinserResolution(targetPackageJson, targetLockfile, manager),
+        );
+        if (reason !== null) throw new Error(reason);
     }
 
     private async build(manager: 'npm' | 'pnpm'): Promise<void> {
@@ -909,7 +952,7 @@ export default class UpdateManager {
     }
 
     private parseVersion(value: string): [number, number, number, number] | null {
-        const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-.]?beta\d*)?$/i.exec(value);
+        const match = STABLE_UPDATE_TAG_PATTERN.exec(value);
         return match === null
             ? null
             : [Number(match[1]), Number(match[2]), Number(match[3]), /beta/i.test(value) ? 0 : 1];

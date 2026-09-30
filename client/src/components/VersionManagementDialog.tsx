@@ -61,7 +61,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         queryFn: () => api.getSystemUpdateInfo(false),
         enabled: open,
         refetchOnMount: 'always',
-        refetchInterval: query => (query.state.data?.job?.status === 'running' ? 2_000 : false),
+        refetchInterval: query => (query.state.data?.job?.status === 'running' ? 2_000 : 60_000),
     });
     const job = info.data?.job;
     const running = job?.status === 'running';
@@ -73,26 +73,6 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         if (logElement === null || !followLogsRef.current) return;
         logElement.scrollTop = logElement.scrollHeight;
     }, [job?.id, job?.logs.length, open]);
-    useEffect(() => {
-        if (!open || running) return;
-        let cancelled = false;
-        const refreshRemote = (): void => {
-            void api
-                .getSystemUpdateInfo(true)
-                .then(data => {
-                    if (!cancelled) queryClient.setQueryData<SystemUpdateInfo>(['system-update'], data);
-                })
-                .catch(() => {
-                    // The regular query keeps its cached data and error handling available.
-                });
-        };
-        refreshRemote();
-        const timer = window.setInterval(refreshRemote, 60_000);
-        return () => {
-            cancelled = true;
-            window.clearInterval(timer);
-        };
-    }, [open, queryClient, running]);
     useEffect(() => {
         if (info.data?.rememberedPackageManager !== null && info.data?.rememberedPackageManager !== undefined) {
             setPackageManager(info.data.rememberedPackageManager);
@@ -190,6 +170,11 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                     ) : null
                 ) : (
                     <Stack spacing={2.5}>
+                        {!running && (info.isFetching || refresh.isPending) && (
+                            <Typography variant="body2" color="text.secondary" role="status">
+                                更新情報を取得しています…
+                            </Typography>
+                        )}
                         {adminAccess.status === 'checking' && <Alert severity="info">管理者権限を確認しています。確認が終わるまでWeb更新と再起動は利用できません。</Alert>}
                         {adminAccess.status === 'error' && (
                             <Alert
@@ -240,7 +225,18 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 </Box>
                             </Alert>
                         )}
-                        {info.data.targets.error !== null && <Alert severity="warning">最新情報の取得に失敗したため前回の情報を表示しています: {info.data.targets.error}</Alert>}
+                        {info.data.targets.error !== null && (
+                            <Alert
+                                severity="warning"
+                                action={
+                                    <Button color="inherit" size="small" disabled={running || info.isFetching || refresh.isPending} onClick={() => refresh.mutate()}>
+                                        再試行
+                                    </Button>
+                                }
+                            >
+                                最新情報を取得できませんでした。取得済みの情報がある場合は前回の情報を表示しています: {info.data.targets.error}
+                            </Alert>
+                        )}
                         {info.data.targets.stable?.relation === 'behind' && info.data.targets.stable.canApply && (
                             <Alert severity="warning">
                                 安定版 {info.data.targets.stable.label} は現在より古いバージョンですが、DB互換性を妨げる不可逆な変更がないためロールバックできます。
@@ -322,7 +318,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                 {info.data.targets.develop?.label ?? 'develop取得不可'}
                                 {relationSuffix(info.data.targets.develop?.relation)} へ更新
                             </Button>
-                            <Button disabled={running || refresh.isPending} onClick={() => refresh.mutate()}>
+                            <Button disabled={running || info.isFetching || refresh.isPending} onClick={() => refresh.mutate()}>
                                 更新情報を再取得
                             </Button>
                         </Stack>
@@ -356,22 +352,21 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                                     {job.logs.join('\n')}
                                 </Box>
                                 {job.restartRequired && (
-                                    <Alert
-                                        severity="success"
-                                        sx={{ '& .MuiAlert-action': { flexShrink: 0 } }}
-                                        action={
+                                    <Alert severity="success" sx={{ '& .MuiAlert-message': { width: '100%', minWidth: 0 } }}>
+                                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'flex-start', sm: 'center' } }}>
+                                            <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }}>
+                                                更新は完了しています。サービス管理下で再起動すると新しいバージョンが反映されます。手動起動中は端末から再起動してください。
+                                            </Typography>
                                             <Button
                                                 color="inherit"
                                                 startIcon={<RestartAltOutlined />}
                                                 disabled={!canManageVersion || restart.isPending || restartRequested}
                                                 onClick={() => restart.mutate()}
-                                                sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
+                                                sx={{ minWidth: 96, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: { xs: 'flex-end', sm: 'center' } }}
                                             >
                                                 {restartRequested ? '再起動中…' : '再起動'}
                                             </Button>
-                                        }
-                                    >
-                                        更新は完了しています。サービス管理下で再起動すると新しいバージョンが反映されます。手動起動中は端末から再起動してください。
+                                        </Stack>
                                     </Alert>
                                 )}
                             </Stack>
