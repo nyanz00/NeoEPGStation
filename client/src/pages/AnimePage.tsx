@@ -1002,9 +1002,6 @@ export function AnimePage(): ReactNode {
                             <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
                         )}
                         {works.data?.broadcastSupplementPending === true && <Alert severity="info">放送日時の補完情報を取得しています。取得できた情報を一覧へ反映します。</Alert>}
-                        {works.data?.broadcastSupplementError !== undefined && (
-                            <Alert severity="warning">放送日時を補完できませんでした。Annictから取得済みの情報を表示しています。</Alert>
-                        )}
                         {sortOrder === 'release-date' && works.data?.enrichmentPending === true && (
                             <Alert severity="info">受信可能な局の放送開始日時を取得しています。取得後に並び順を更新します。</Alert>
                         )}
