@@ -48,6 +48,7 @@ import { DiscordSettingsPanel, type DiscordSettingsPanelHandle } from '../compon
 import { SideNavigationSettings } from '../components/settings/SideNavigationSettings';
 import { ViewerProfilePasswordField } from '../components/ViewerProfilePasswordField';
 import { ViewerRecoveryCodeDialog } from '../components/ViewerRecoveryCodeDialog';
+import { programDialogPaper } from '../components/programDialogStyles';
 import { AlphaAIcon } from '../components/icons/AlphaAIcon';
 import { api } from '../core/api/queries';
 import { useActiveAdminAccess } from '../core/adminAccess';
@@ -429,6 +430,11 @@ export function SettingsPage(): ReactNode {
         },
         onError: error => notify(`管理者権限を変更できませんでした: ${error.message}`, 'error'),
     });
+    const closeGrantAdminDialog = (): void => {
+        if (updateUserAdmin.isPending) return;
+        setGrantAdminDialogOpen(false);
+        setSelectedAdminUserId('');
+    };
     const deleteUser = useMutation({
         mutationFn: async ({ userId, profileId, password }: { userId: number; profileId?: number; password?: string }) => {
             if (profileId !== undefined && password !== undefined) {
@@ -2582,18 +2588,25 @@ export function SettingsPage(): ReactNode {
             </Dialog>
             <Dialog
                 open={grantAdminDialogOpen}
-                onClose={() => {
-                    if (!updateUserAdmin.isPending) {
-                        setGrantAdminDialogOpen(false);
-                        setSelectedAdminUserId('');
-                    }
-                }}
+                onClose={closeGrantAdminDialog}
                 fullWidth
                 maxWidth="xs"
+                aria-labelledby="grant-admin-title"
+                aria-describedby="grant-admin-description"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                        }),
+                    },
+                }}
             >
-                <DialogTitle>管理者を追加</DialogTitle>
-                <DialogContent>
-                    <DialogContentText sx={{ mb: 2 }}>一般ユーザーを選択して、管理者権限を付与します。</DialogContentText>
+                <DialogTitle id="grant-admin-title">管理者を追加</DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <DialogContentText id="grant-admin-description" variant="body2" sx={{ mb: 2 }}>
+                        一般ユーザーを選択して、管理者権限を付与します。
+                    </DialogContentText>
                     {updateUserAdmin.isError && (
                         <Alert severity="error" sx={{ mb: 2 }}>
                             管理者権限を変更できませんでした: {updateUserAdmin.error.message}
@@ -2604,6 +2617,8 @@ export function SettingsPage(): ReactNode {
                         <Select
                             labelId="grant-admin-user-label"
                             label="ユーザー"
+                            displayEmpty
+                            renderValue={() => selectedAdminCandidate?.name ?? 'ユーザーを選択'}
                             value={selectedAdminCandidate?.id ?? ''}
                             disabled={
                                 updateUserAdmin.isPending || adminAccess.status !== 'admin' || users.isPending || users.isError || users.isFetching || nonAdminUsers.length === 0
@@ -2622,13 +2637,7 @@ export function SettingsPage(): ReactNode {
                     </FormControl>
                 </DialogContent>
                 <DialogActions>
-                    <Button
-                        disabled={updateUserAdmin.isPending}
-                        onClick={() => {
-                            setGrantAdminDialogOpen(false);
-                            setSelectedAdminUserId('');
-                        }}
-                    >
+                    <Button color="inherit" variant="outlined" disabled={updateUserAdmin.isPending} onClick={closeGrantAdminDialog}>
                         キャンセル
                     </Button>
                     <Button
