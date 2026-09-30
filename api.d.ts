@@ -965,6 +965,7 @@ export interface User {
     id: UserId;
     name: string;
     createdAt: UnixtimeMS;
+    isAdmin: boolean;
 }
 
 export interface Users {
@@ -977,6 +978,10 @@ export interface AddUserOption {
 
 export interface UpdateUserOption {
     name: string;
+}
+
+export interface UpdateUserAdminOption {
+    isAdmin: boolean;
 }
 
 export interface UpdateRecordedUserOption {

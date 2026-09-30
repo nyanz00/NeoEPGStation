@@ -2,6 +2,7 @@ import AddOutlined from '@mui/icons-material/AddOutlined';
 import ChatBubbleOutlineOutlined from '@mui/icons-material/ChatBubbleOutlineOutlined';
 import ContentPasteOutlined from '@mui/icons-material/ContentPasteOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
+import PersonRemoveOutlined from '@mui/icons-material/PersonRemoveOutlined';
 import LinkOutlined from '@mui/icons-material/LinkOutlined';
 import PlayCircleOutlineOutlined from '@mui/icons-material/PlayCircleOutlineOutlined';
 import RuleOutlined from '@mui/icons-material/RuleOutlined';
@@ -47,8 +48,10 @@ import { DiscordSettingsPanel, type DiscordSettingsPanelHandle } from '../compon
 import { SideNavigationSettings } from '../components/settings/SideNavigationSettings';
 import { ViewerProfilePasswordField } from '../components/ViewerProfilePasswordField';
 import { ViewerRecoveryCodeDialog } from '../components/ViewerRecoveryCodeDialog';
+import { programDialogPaper } from '../components/programDialogStyles';
 import { AlphaAIcon } from '../components/icons/AlphaAIcon';
 import { api } from '../core/api/queries';
+import { useActiveAdminAccess } from '../core/adminAccess';
 import { isAppleMobileWebKit } from '../core/platform/webkit';
 import { appIconAssetUrl, appIconSets, getAppIconSet, type AppIconSetId } from '../core/icons/appIcons';
 import { activeUserStore, useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
@@ -234,6 +237,7 @@ export function SettingsPage(): ReactNode {
     const isDesktopSettingsNavigation = useMediaQuery(theme.breakpoints.up('md'));
     const savedSettings = useSettings();
     const activeUser = useActiveUser();
+    const adminAccess = useActiveAdminAccess();
     const activeViewerProfile = useViewerProfile();
     const [draft, setDraft] = useState<AppSettings>(savedSettings);
     const [newUserName, setNewUserName] = useState('');
@@ -256,6 +260,9 @@ export function SettingsPage(): ReactNode {
     const [recoveryRotateConfirmOpen, setRecoveryRotateConfirmOpen] = useState(false);
     const [deleteUserConfirmOpen, setDeleteUserConfirmOpen] = useState(false);
     const [deleteUserPassword, setDeleteUserPassword] = useState('');
+    const [grantAdminDialogOpen, setGrantAdminDialogOpen] = useState(false);
+    const [selectedAdminUserId, setSelectedAdminUserId] = useState<number | ''>('');
+    const [revokeAdminUserId, setRevokeAdminUserId] = useState<number | null>(null);
     const [pasteTarget, setPasteTarget] = useState<'read' | 'write' | null>(null);
     const [pasteValue, setPasteValue] = useState('');
     const [pasteFallbackReason, setPasteFallbackReason] = useState<PasteFallbackReason>('failed');
@@ -296,6 +303,13 @@ export function SettingsPage(): ReactNode {
               ? `${users.data?.users.find(user => user.id === activeUser)?.name ?? '選択中のユーザー'}: 未連携`
               : `${users.data?.users.find(user => user.id === activeUser)?.name ?? linkedViewerProfile.name}: 連携済み`;
     const activeUserInfo = typeof activeUser === 'number' ? users.data?.users.find(user => user.id === activeUser) : undefined;
+    const adminUsers = useMemo(() => (users.data?.users ?? []).filter(user => user.isAdmin), [users.data?.users]);
+    const nonAdminUsers = useMemo(() => (users.data?.users ?? []).filter(user => !user.isAdmin), [users.data?.users]);
+    const activeAdminCount = adminUsers.length;
+    const activeUserIsLastAdmin = activeUserInfo?.isAdmin === true && activeAdminCount <= 1;
+    const selectedAdminCandidate = nonAdminUsers.find(user => user.id === selectedAdminUserId);
+    const revokeAdminUser = adminUsers.find(user => user.id === revokeAdminUserId);
+    const revokeAdminUserIsLastAdmin = revokeAdminUser !== undefined && activeAdminCount <= 1;
     const channelOptions = useMemo(
         () =>
             (channels.data ?? []).map(channel => ({
@@ -365,6 +379,9 @@ export function SettingsPage(): ReactNode {
         setPendingActiveUser(null);
         setDeleteUserPassword('');
         setDeleteUserConfirmOpen(false);
+        setGrantAdminDialogOpen(false);
+        setSelectedAdminUserId('');
+        setRevokeAdminUserId(null);
         setRecoveryRotateConfirmOpen(false);
         setPasteTarget(null);
         setPasteValue('');
@@ -372,6 +389,10 @@ export function SettingsPage(): ReactNode {
         setNiconicoCookies('');
     }, [activeUser, linkedViewerProfile?.id]);
     useEffect(() => setRecoveryCode(null), [activeUser]);
+    useEffect(() => {
+        if (selectedAdminUserId !== '' && !nonAdminUsers.some(user => user.id === selectedAdminUserId)) setSelectedAdminUserId('');
+        if (revokeAdminUserId !== null && !adminUsers.some(user => user.id === revokeAdminUserId)) setRevokeAdminUserId(null);
+    }, [adminUsers, nonAdminUsers, revokeAdminUserId, selectedAdminUserId]);
 
     const addUser = useMutation({
         mutationFn: api.addUser,
@@ -391,6 +412,29 @@ export function SettingsPage(): ReactNode {
         },
         onError: error => notify(`ユーザー名の変更に失敗しました: ${error.message}`, 'error'),
     });
+    const updateUserAdmin = useMutation({
+        mutationFn: async ({ userId, isAdmin }: { userId: number; isAdmin: boolean }) => {
+            if (adminAccess.status !== 'admin') throw new Error('管理者権限を確認できません');
+            await api.setUserAdmin(userId, isAdmin);
+        },
+        onSuccess: async (_, { userId, isAdmin }) => {
+            await queryClient.invalidateQueries({ queryKey: ['users'] });
+            const userName = users.data?.users.find(user => user.id === userId)?.name ?? 'ユーザー';
+            if (isAdmin) {
+                setGrantAdminDialogOpen(false);
+                setSelectedAdminUserId('');
+            } else {
+                setRevokeAdminUserId(null);
+            }
+            notify(`${userName}の管理者権限を${isAdmin ? '付与' : '解除'}しました`, 'success');
+        },
+        onError: error => notify(`管理者権限を変更できませんでした: ${error.message}`, 'error'),
+    });
+    const closeGrantAdminDialog = (): void => {
+        if (updateUserAdmin.isPending) return;
+        setGrantAdminDialogOpen(false);
+        setSelectedAdminUserId('');
+    };
     const deleteUser = useMutation({
         mutationFn: async ({ userId, profileId, password }: { userId: number; profileId?: number; password?: string }) => {
             if (profileId !== undefined && password !== undefined) {
@@ -1574,13 +1618,13 @@ export function SettingsPage(): ReactNode {
                                             />
                                             <SettingRow
                                                 title="ユーザーを削除"
-                                                description="現在のアクティブユーザーを削除します。録画済み、ルール、予約を所有するユーザーと最後の1ユーザーは削除できません。外部連携とユーザー別の視聴情報も削除されます。"
+                                                description={`現在のアクティブユーザーを削除します。録画済み、ルール、予約を所有するユーザーと最後の1ユーザーは削除できません。${activeUserIsLastAdmin ? '最後の管理者も削除できません。' : ''}外部連携とユーザー別の視聴情報も削除されます。`}
                                                 control={
                                                     <Button
                                                         color="error"
                                                         variant="outlined"
                                                         startIcon={<DeleteOutlineOutlined />}
-                                                        disabled={deleteUser.isPending || (users.data?.users.length ?? 0) <= 1}
+                                                        disabled={deleteUser.isPending || (users.data?.users.length ?? 0) <= 1 || activeUserIsLastAdmin}
                                                         onClick={() => {
                                                             setDeleteUserPassword('');
                                                             setDeleteUserConfirmOpen(true);
@@ -1608,6 +1652,98 @@ export function SettingsPage(): ReactNode {
                                             </Stack>
                                         }
                                     />
+                                    {activeUserInfo?.isAdmin === true && (
+                                        <>
+                                            <Divider sx={{ my: 1 }} />
+                                            <Stack direction="row" sx={{ mt: 1, mb: 0.5, alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                                                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                                    管理者権限
+                                                </Typography>
+                                                <Tooltip
+                                                    title={
+                                                        adminAccess.status !== 'admin'
+                                                            ? '管理者権限を確認できないため追加できません'
+                                                            : users.isError
+                                                              ? 'ユーザー一覧を取得できないため追加できません'
+                                                              : nonAdminUsers.length === 0
+                                                                ? '管理者に追加できるユーザーはいません'
+                                                                : '管理者を追加'
+                                                    }
+                                                >
+                                                    <span>
+                                                        <IconButton
+                                                            size="small"
+                                                            color="primary"
+                                                            aria-label="管理者を追加"
+                                                            disabled={
+                                                                adminAccess.status !== 'admin' ||
+                                                                updateUserAdmin.isPending ||
+                                                                users.isPending ||
+                                                                users.isError ||
+                                                                users.isFetching ||
+                                                                nonAdminUsers.length === 0
+                                                            }
+                                                            onClick={() => {
+                                                                updateUserAdmin.reset();
+                                                                setSelectedAdminUserId('');
+                                                                setGrantAdminDialogOpen(true);
+                                                            }}
+                                                            sx={{ border: 1, borderColor: 'divider' }}
+                                                        >
+                                                            <AddOutlined fontSize="small" />
+                                                        </IconButton>
+                                                    </span>
+                                                </Tooltip>
+                                            </Stack>
+                                            {adminAccess.status === 'checking' && <Alert severity="info">管理者権限を確認しています。</Alert>}
+                                            {adminAccess.status === 'error' && (
+                                                <Alert severity="error">管理者権限を確認できません: {adminAccess.error?.message ?? 'ユーザー情報の取得に失敗しました'}</Alert>
+                                            )}
+                                            {adminAccess.status === 'locked' && (
+                                                <Alert severity="warning">
+                                                    このユーザーの外部連携プロフィールがロックされています。既存のプロフィール選択画面でロックを解除してください。
+                                                </Alert>
+                                            )}
+                                            {adminAccess.status === 'not-admin' && (
+                                                <Alert severity="warning">現在のユーザーの管理者権限を確認できないため、変更操作を無効にしています。</Alert>
+                                            )}
+                                            {users.isPending && <Alert severity="info">ユーザー一覧を読み込んでいます。</Alert>}
+                                            {adminUsers.map(user => {
+                                                const isLastAdmin = activeAdminCount <= 1;
+                                                const disabled =
+                                                    adminAccess.status !== 'admin' ||
+                                                    updateUserAdmin.isPending ||
+                                                    users.isPending ||
+                                                    users.isError ||
+                                                    users.isFetching ||
+                                                    isLastAdmin;
+                                                return (
+                                                    <SettingRow
+                                                        key={user.id}
+                                                        title={user.name}
+                                                        control={
+                                                            <Tooltip title={isLastAdmin ? '最後の管理者の権限は解除できません' : `${user.name}の管理者権限を解除`}>
+                                                                <span>
+                                                                    <IconButton
+                                                                        size="small"
+                                                                        color="error"
+                                                                        aria-label={`${user.name}の管理者権限を解除`}
+                                                                        disabled={disabled}
+                                                                        onClick={() => {
+                                                                            updateUserAdmin.reset();
+                                                                            setRevokeAdminUserId(user.id);
+                                                                        }}
+                                                                    >
+                                                                        <PersonRemoveOutlined />
+                                                                    </IconButton>
+                                                                </span>
+                                                            </Tooltip>
+                                                        }
+                                                    />
+                                                );
+                                            })}
+                                        </>
+                                    )}
                                 </SettingSection>
                                 <SettingSection title="ユーザーの外部連携">
                                     {viewerProfiles.isError && (
@@ -2414,6 +2550,132 @@ export function SettingsPage(): ReactNode {
                     <Button onClick={() => setPendingActiveUser(null)}>キャンセル</Button>
                     <Button variant="contained" disabled={activeUserPasswordError !== null || switchActiveUser.isPending} onClick={() => switchActiveUser.mutate()}>
                         切り替え
+                    </Button>
+                </DialogActions>
+            </Dialog>
+            <Dialog
+                open={grantAdminDialogOpen}
+                onClose={closeGrantAdminDialog}
+                fullWidth
+                maxWidth="xs"
+                aria-labelledby="grant-admin-title"
+                aria-describedby="grant-admin-description"
+                slotProps={{
+                    paper: {
+                        sx: theme => ({
+                            ...programDialogPaper(theme),
+                            '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
+                        }),
+                    },
+                }}
+            >
+                <DialogTitle id="grant-admin-title">管理者を追加</DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <DialogContentText id="grant-admin-description" variant="body2" sx={{ mb: 2 }}>
+                        一般ユーザーを選択して、管理者権限を付与します。
+                    </DialogContentText>
+                    {updateUserAdmin.isError && (
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                            管理者権限を変更できませんでした: {updateUserAdmin.error.message}
+                        </Alert>
+                    )}
+                    <FormControl fullWidth size="small">
+                        <InputLabel id="grant-admin-user-label">ユーザー</InputLabel>
+                        <Select
+                            labelId="grant-admin-user-label"
+                            label="ユーザー"
+                            displayEmpty
+                            renderValue={() => selectedAdminCandidate?.name ?? 'ユーザーを選択'}
+                            value={selectedAdminCandidate?.id ?? ''}
+                            disabled={
+                                updateUserAdmin.isPending || adminAccess.status !== 'admin' || users.isPending || users.isError || users.isFetching || nonAdminUsers.length === 0
+                            }
+                            onChange={event => setSelectedAdminUserId(Number(event.target.value))}
+                        >
+                            <MenuItem value="" disabled>
+                                ユーザーを選択
+                            </MenuItem>
+                            {nonAdminUsers.map(user => (
+                                <MenuItem key={user.id} value={user.id}>
+                                    {user.name}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button color="inherit" variant="outlined" disabled={updateUserAdmin.isPending} onClick={closeGrantAdminDialog}>
+                        キャンセル
+                    </Button>
+                    <Button
+                        variant="contained"
+                        disabled={
+                            selectedAdminCandidate === undefined ||
+                            adminAccess.status !== 'admin' ||
+                            updateUserAdmin.isPending ||
+                            users.isPending ||
+                            users.isError ||
+                            users.isFetching
+                        }
+                        onClick={() => {
+                            if (selectedAdminCandidate === undefined || adminAccess.status !== 'admin' || users.isError || users.isFetching) return;
+                            updateUserAdmin.mutate({ userId: selectedAdminCandidate.id, isAdmin: true });
+                        }}
+                    >
+                        {updateUserAdmin.isPending ? '付与中…' : '管理者に追加'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+            <Dialog
+                open={revokeAdminUserId !== null}
+                onClose={() => {
+                    if (!updateUserAdmin.isPending) setRevokeAdminUserId(null);
+                }}
+                fullWidth
+                maxWidth="xs"
+            >
+                <DialogTitle>管理者権限を解除</DialogTitle>
+                <DialogContent>
+                    {revokeAdminUser === undefined ? (
+                        <DialogContentText>ユーザー一覧が更新されました。管理者の一覧を確認してください。</DialogContentText>
+                    ) : (
+                        <DialogContentText>「{revokeAdminUser.name}」の管理者権限を解除します。このユーザーは通常ユーザーになります。</DialogContentText>
+                    )}
+                    {revokeAdminUserIsLastAdmin && (
+                        <Alert severity="warning" sx={{ mt: 2 }}>
+                            最後の管理者の権限は解除できません。
+                        </Alert>
+                    )}
+                    {updateUserAdmin.isError && (
+                        <Alert severity="error" sx={{ mt: 2 }}>
+                            管理者権限を変更できませんでした: {updateUserAdmin.error.message}
+                        </Alert>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button disabled={updateUserAdmin.isPending} onClick={() => setRevokeAdminUserId(null)}>
+                        キャンセル
+                    </Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        disabled={
+                            revokeAdminUser === undefined ||
+                            revokeAdminUserIsLastAdmin ||
+                            adminAccess.status !== 'admin' ||
+                            updateUserAdmin.isPending ||
+                            users.isPending ||
+                            users.isError ||
+                            users.isFetching
+                        }
+                        onClick={() => {
+                            if (revokeAdminUser === undefined || revokeAdminUserIsLastAdmin || adminAccess.status !== 'admin' || users.isError || users.isFetching) {
+                                return;
+                            }
+                            updateUserAdmin.mutate({ userId: revokeAdminUser.id, isAdmin: false });
+                        }}
+                    >
+                        {updateUserAdmin.isPending ? '解除中…' : '権限を解除'}
                     </Button>
                 </DialogActions>
             </Dialog>

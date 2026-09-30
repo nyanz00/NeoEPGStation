@@ -15,6 +15,7 @@ import { VersionManagementDialog } from '../components/VersionManagementDialog';
 import { SystemLogsPanel } from '../components/SystemLogsPanel';
 import { SystemMirakurunPanel } from '../components/SystemMirakurunPanel';
 import { api } from '../core/api/queries';
+import { useActiveAdminAccess } from '../core/adminAccess';
 
 function fileSize(value: number): string {
     if (value <= 0) return '0 B';
@@ -44,6 +45,7 @@ function volumeTypeLabel(type: SystemStorageVolumeType): string {
 
 function VersionSection(): ReactNode {
     const [dialogOpen, setDialogOpen] = useState(false);
+    const adminAccess = useActiveAdminAccess();
     const version = useQuery({ queryKey: ['version'], queryFn: api.getVersion, staleTime: 60_000 });
     const updateInfo = useQuery({ queryKey: ['system-update'], queryFn: () => api.getSystemUpdateInfo(false), staleTime: 60_000 });
     const versionLabel = version.data?.version ?? updateInfo.data?.version;
@@ -70,6 +72,17 @@ function VersionSection(): ReactNode {
                             バージョン管理
                         </Button>
                     </Stack>
+                    {adminAccess.status !== 'admin' && (
+                        <Alert severity={adminAccess.status === 'error' || adminAccess.status === 'locked' ? 'warning' : 'info'} sx={{ mt: 1.5 }}>
+                            {adminAccess.status === 'checking'
+                                ? '管理者権限を確認しています。'
+                                : adminAccess.status === 'error'
+                                  ? `管理者権限を確認できません: ${adminAccess.error?.message ?? 'ユーザー情報の取得に失敗しました'}`
+                                  : adminAccess.status === 'locked'
+                                    ? '管理者ユーザーの外部連携プロフィールがロックされています。既存のプロフィール選択画面でロックを解除してください。'
+                                    : 'バージョン情報は閲覧できます。Web更新と再起動には管理者ユーザーが必要です。'}
+                        </Alert>
+                    )}
                     {(version.isError || updateInfo.isError) && (
                         <Alert severity="warning" sx={{ mt: 1.5 }}>
                             {version.isError && updateInfo.isError ? 'バージョン情報を取得できませんでした。' : 'バージョン情報の一部を取得できませんでした。'}

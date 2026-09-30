@@ -67,11 +67,12 @@ export default class TvUserDB implements ITvUserDB {
         return typeof result === 'undefined' ? null : result;
     }
 
-    public async insertOnce(name: string): Promise<apid.UserId> {
+    public async insertOnce(name: string, isAdmin = false): Promise<apid.UserId> {
         const connection = await this.op.getConnection();
         const queryBuilder = connection.createQueryBuilder().insert().into(TvUser).values({
             name,
             createdAt: Date.now(),
+            isAdmin,
         });
 
         const insertedResult = await this.promieRetry.run(() => {
@@ -107,10 +108,19 @@ export default class TvUserDB implements ITvUserDB {
     public async ensureDefaultUser(): Promise<TvUser> {
         const users = await this.findAll();
         if (users.length > 0) {
+            // Backups created before administrator roles have no isAdmin field.
+            // Keep at least one administrator after restoring such a backup.
+            if (!users.some(user => user.isAdmin)) {
+                const connection = await this.op.getConnection();
+                await this.promieRetry.run(() =>
+                    connection.getRepository(TvUser).update(users[0].id, { isAdmin: true }),
+                );
+                users[0].isAdmin = true;
+            }
             return users[0];
         }
 
-        const userId = await this.insertOnce('user1');
+        const userId = await this.insertOnce('user1', true);
         const user = await this.findId(userId);
         if (user === null) {
             throw new Error('TvUserIsNull');

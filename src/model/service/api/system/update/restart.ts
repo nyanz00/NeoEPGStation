@@ -1,13 +1,15 @@
 import { Operation } from '../../../ApiOperation';
 import UpdateManager from '../../../../update/UpdateManager';
 import * as api from '../../../api';
+import { AdminAccessError, requireActiveAdmin } from '../../adminAccess';
 
-export const post: Operation = async (_req, res) => {
+export const post: Operation = async (req, res) => {
     try {
+        await requireActiveAdmin(req);
         UpdateManager.getInstance().requestRestart();
         api.responseJSON(res, 202, { accepted: true });
     } catch (err: any) {
-        api.responseError(res, { code: 409, message: err.message });
+        api.responseError(res, { code: err instanceof AdminAccessError ? 403 : 409, message: err.message });
     }
 };
 
@@ -27,6 +29,7 @@ post.apiDoc = {
                 },
             },
         },
+        403: { description: '管理者ユーザーのみ再起動できます' },
         default: {
             description: '再起動できません',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },

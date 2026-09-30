@@ -2,6 +2,7 @@ import { Operation } from '../../ApiOperation';
 import UpdateManager from '../../../update/UpdateManager';
 import { isStartSystemUpdateOption } from '../../../update/UpdateValidation';
 import * as api from '../../api';
+import { AdminAccessError, requireActiveAdmin } from '../adminAccess';
 
 const manager = UpdateManager.getInstance();
 
@@ -21,9 +22,10 @@ export const post: Operation = async (req, res) => {
         return;
     }
     try {
+        await requireActiveAdmin(req);
         api.responseJSON(res, 202, manager.start(option.target, option.packageManager, option.preserveLocalChanges));
     } catch (err: any) {
-        api.responseError(res, { code: 409, message: err.message });
+        api.responseError(res, { code: err instanceof AdminAccessError ? 403 : 409, message: err.message });
     }
 };
 
@@ -55,6 +57,7 @@ post.apiDoc = {
             description: '更新処理を開始しました',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/SystemUpdateJob' } } },
         },
+        403: { description: '管理者ユーザーのみ更新できます' },
         default: {
             description: '更新を開始できません',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
