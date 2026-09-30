@@ -107,6 +107,7 @@ function encodeFromRule(rule: Rule | undefined, index: 1 | 2 | 3): EncodeSetting
 
 function initialState(rule: Rule | undefined, activeUser: ActiveUserId, settings: ReturnType<typeof useSettings>): RuleEditorState {
     const firstEncode = encodeFromRule(rule, 1);
+    const encodeStartDelayMinutes = rule === undefined ? settings.defaultRuleEncodeStartDelayMinutes : (rule.encodeOption?.startDelayMinutes ?? 0);
     if (rule === undefined && settings.isEnableEncodingSettingWhenCreateRule) firstEncode.mode = '';
     return {
         isTimeSpecification: rule?.isTimeSpecification ?? false,
@@ -125,8 +126,8 @@ function initialState(rule: Rule | undefined, activeUser: ActiveUserId, settings
         recordedFormat: rule?.saveOption?.recordedFormat ?? '',
         encodes: [firstEncode, encodeFromRule(rule, 2), encodeFromRule(rule, 3)],
         deleteOriginal: rule?.encodeOption?.isDeleteOriginalAfterEncode ?? settings.isCheckDeleteOriginalAfterEncode,
-        updateThumbnail: rule?.encodeOption?.updateThumbnail === true,
-        encodeStartDelayMinutes: rule?.encodeOption?.startDelayMinutes?.toString(10) ?? '0',
+        updateThumbnail: rule === undefined ? settings.isCheckUpdateThumbnailWhenCreateRule : rule.encodeOption?.updateThumbnail === true,
+        encodeStartDelayMinutes: encodeStartDelayMinutes === 0 ? '' : encodeStartDelayMinutes.toString(10),
         copyKeywordToDirectory: rule === undefined && settings.isEnableCopyKeywordToDirectory,
     };
 }
