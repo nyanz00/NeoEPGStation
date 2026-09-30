@@ -499,7 +499,8 @@ export function AnimePage(): ReactNode {
         queryKey: ['annict', 'works', season, mode, settings.annictExcludePaidChannels],
         queryFn: () => api.getAnnictWorks(season, false, mode === 'rerun', settings.annictExcludePaidChannels),
         enabled: status.data?.configured === true,
-        refetchInterval: query => (query.state.data?.refreshPending === true || query.state.data?.enrichmentPending === true ? 2_000 : false),
+        refetchInterval: query =>
+            query.state.data?.refreshPending === true || query.state.data?.enrichmentPending === true || query.state.data?.broadcastSupplementPending === true ? 2_000 : false,
         refetchIntervalInBackground: false,
     });
     const viewerStatusIds = useMemo(() => works.data?.works.map(work => work.annictId) ?? [], [works.data?.works]);
@@ -532,6 +533,17 @@ export function AnimePage(): ReactNode {
     const animeListSignature = `${season}:${mode}:${settings.annictExcludePaidChannels ? 'exclude-paid' : 'all'}`;
     const [revealedAnimeList, setRevealedAnimeList] = useState(() => ({ signature: animeListSignature, animate: false }));
     const selectedWorkSignature = [...selectedWorkIds].sort((left, right) => left - right).join(',');
+    const latestAnimeListSignature = useRef(animeListSignature);
+    latestAnimeListSignature.current = animeListSignature;
+    const latestSelectedWorkSignature = useRef(selectedWorkSignature);
+    latestSelectedWorkSignature.current = selectedWorkSignature;
+    const mountedRef = useRef(false);
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
     const markWatched = useMutation({
         mutationFn: (annictIds: number[]) => api.setAnnictViewerStatuses(annictIds, 'watched'),
         onSuccess: async result => {
@@ -551,15 +563,42 @@ export function AnimePage(): ReactNode {
         },
     });
     const prepareSelectedRules = useMutation({
-        mutationFn: async ({ annictIds }: { annictIds: number[]; listSignature: string; selectionSignature: string }): Promise<BulkRulePreparation> => {
+        mutationFn: async ({
+            annictIds,
+            listSignature,
+            selectionSignature,
+        }: {
+            annictIds: number[];
+            listSignature: string;
+            selectionSignature: string;
+        }): Promise<BulkRulePreparation> => {
             const requestedAnnictIds = [...new Set(annictIds)];
             const targets: BulkRuleTarget[] = [];
             const annictPriorityChannelIds: number[] = [];
             const detailFailures: BulkRulePreparation['detailFailures'] = [];
+            const supplementDeadline = Date.now() + 30_000;
+            const isPreparationCurrent = (): boolean =>
+                mountedRef.current && latestAnimeListSignature.current === listSignature && latestSelectedWorkSignature.current === selectionSignature;
             const fallbackChannels = settings.annictExcludePaidChannels ? await api.getChannels() : [];
             for (let index = 0; index < requestedAnnictIds.length; index += 4) {
+                if (!isPreparationCurrent()) throw new Error('一括ルール追加の準備が取り消されました');
                 const batchIds = requestedAnnictIds.slice(index, index + 4);
-                const batch = await Promise.allSettled(batchIds.map(annictId => api.getAnnictWork(annictId)));
+                const batch = await Promise.allSettled(
+                    batchIds.map(async annictId => {
+                        let work = await api.getAnnictWork(annictId);
+                        while (work.broadcastSupplementPending === true) {
+                            if (!isPreparationCurrent() || Date.now() >= supplementDeadline) {
+                                throw new Error('放送日時の補完が完了しませんでした');
+                            }
+                            await new Promise<void>(resolve => setTimeout(resolve, Math.min(2_000, supplementDeadline - Date.now())));
+                            if (!isPreparationCurrent() || Date.now() >= supplementDeadline) {
+                                throw new Error('放送日時の補完が完了しませんでした');
+                            }
+                            work = await api.getAnnictWork(annictId);
+                        }
+                        return work;
+                    }),
+                );
                 batch.forEach((result, offset) => {
                     const annictId = batchIds[offset];
                     if (result.status === 'fulfilled') {
@@ -578,7 +617,7 @@ export function AnimePage(): ReactNode {
             return { requestedAnnictIds, targets, annictPriorityChannelIds: Array.from(new Set(annictPriorityChannelIds)), detailFailures };
         },
         onSuccess: (preparation, variables) => {
-            if (variables.listSignature !== animeListSignature || variables.selectionSignature !== selectedWorkSignature) return;
+            if (!mountedRef.current || latestAnimeListSignature.current !== variables.listSignature || latestSelectedWorkSignature.current !== variables.selectionSignature) return;
             if (preparation.targets.length === 0) {
                 notify('作品情報を取得できなかったため、ルール追加ダイアログを開けませんでした', 'error');
                 return;
@@ -588,7 +627,11 @@ export function AnimePage(): ReactNode {
             }
             setBulkRulePreparation(preparation);
         },
-        onError: error => notify(`一括ルール追加の準備に失敗しました: ${error.message}`, 'error'),
+        onError: (error, variables) => {
+            if (mountedRef.current && latestAnimeListSignature.current === variables.listSignature && latestSelectedWorkSignature.current === variables.selectionSignature) {
+                notify(`一括ルール追加の準備に失敗しました: ${error.message}`, 'error');
+            }
+        },
     });
 
     const finishBulkRuleSave = (result: BulkRuleSaveResult): void => {
@@ -958,6 +1001,10 @@ export function AnimePage(): ReactNode {
                         {works.error !== null && works.data !== undefined && (
                             <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
                         )}
+                        {works.data?.broadcastSupplementPending === true && <Alert severity="info">放送日時の補完情報を取得しています。取得できた情報を一覧へ反映します。</Alert>}
+                        {works.data?.broadcastSupplementError !== undefined && (
+                            <Alert severity="warning">放送日時を補完できませんでした。Annictから取得済みの情報を表示しています。</Alert>
+                        )}
                         {sortOrder === 'release-date' && works.data?.enrichmentPending === true && (
                             <Alert severity="info">受信可能な局の放送開始日時を取得しています。取得後に並び順を更新します。</Alert>
                         )}
@@ -1095,7 +1142,13 @@ export function AnimeDetailPage(): ReactNode {
     const [selectedStationKeys, setSelectedStationKeys] = useState<Set<string>>(() => new Set());
     const [selectedSupplementalChannelIds, setSelectedSupplementalChannelIds] = useState<Set<number>>(() => new Set());
     const [selectionSource, setSelectionSource] = useState('');
-    const work = useQuery({ queryKey: ['annict', 'work', annictId], queryFn: () => api.getAnnictWork(annictId), enabled: Number.isFinite(annictId) });
+    const work = useQuery({
+        queryKey: ['annict', 'work', annictId],
+        queryFn: () => api.getAnnictWork(annictId),
+        enabled: Number.isFinite(annictId),
+        refetchInterval: query => (query.state.data?.broadcastSupplementPending === true ? 2_000 : false),
+        refetchIntervalInBackground: false,
+    });
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig, staleTime: Number.POSITIVE_INFINITY });
     const channels = useQuery({
         queryKey: ['channels'],
@@ -1221,6 +1274,7 @@ export function AnimeDetailPage(): ReactNode {
     );
     const titleOnlyFallback = firstPrograms.length === 0 && unscheduledChannels.length === 0 && selectedSupplementalChannelIds.size === 0;
     const canOpenSearch = selectedChannelIds.length > 0 || (titleOnlyFallback && (!settings.annictExcludePaidChannels || freeFallbackChannelIds.length > 0));
+    const broadcastSupplementPending = work.data?.broadcastSupplementPending === true;
     const searchOption = useMemo<RuleSearchOption>(
         () =>
             buildAnimeSearchOption(
@@ -1311,6 +1365,12 @@ export function AnimeDetailPage(): ReactNode {
                     <Stack spacing={2} sx={{ width: 'min(1000px, 100%)', mx: 'auto', p: { xs: 1.5, md: 3 } }}>
                         {work.data.stale && <Alert severity="warning">保存済みデータを表示しています。</Alert>}
                         {work.data.programsError && <Alert severity="warning">{work.data.programsError}</Alert>}
+                        {work.data.broadcastSupplementPending === true && (
+                            <Alert severity="info">放送日時の補完情報を取得しています。作品情報は表示したまま、取得後に放送予定と検索条件を更新します。</Alert>
+                        )}
+                        {work.data.broadcastSupplementError !== undefined && (
+                            <Alert severity="warning">放送日時を補完できませんでした。Annictから取得済みの情報を表示しています。</Alert>
+                        )}
                         <Card variant="outlined">
                             <CardContent>
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -1397,11 +1457,22 @@ export function AnimeDetailPage(): ReactNode {
                             </Stack>
                         )}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                            <Button variant="contained" startIcon={<SearchOutlined />} disabled={!canOpenSearch} onClick={openSearch}>
-                                {titleOnlyFallback ? (settings.annictExcludePaidChannels ? '無料局・全曜日で検索・予約候補' : '全局・全曜日で検索・予約候補') : '検索・予約候補'}
+                            <Button variant="contained" startIcon={<SearchOutlined />} disabled={!canOpenSearch || broadcastSupplementPending} onClick={openSearch}>
+                                {broadcastSupplementPending
+                                    ? '放送日時の補完中…'
+                                    : titleOnlyFallback
+                                      ? settings.annictExcludePaidChannels
+                                          ? '無料局・全曜日で検索・予約候補'
+                                          : '全局・全曜日で検索・予約候補'
+                                      : '検索・予約候補'}
                             </Button>
-                            <Button variant="outlined" startIcon={<CalendarMonthOutlined />} disabled={selectedChannelIds.length === 0} onClick={() => setRuleOpen(true)}>
-                                選択した局・曜日でルール作成
+                            <Button
+                                variant="outlined"
+                                startIcon={<CalendarMonthOutlined />}
+                                disabled={selectedChannelIds.length === 0 || broadcastSupplementPending}
+                                onClick={() => setRuleOpen(true)}
+                            >
+                                {broadcastSupplementPending ? '放送日時の補完中…' : '選択した局・曜日でルール作成'}
                             </Button>
                         </Stack>
                         <RuleEditorDialog

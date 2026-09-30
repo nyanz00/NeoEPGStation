@@ -54,6 +54,7 @@ test('undated registered TV stations remain selectable without web streaming dat
 
 test('work list start dates use receivable stations and respect paid-channel exclusion', async () => {
     const model = Object.create(AnnictApiModel.prototype);
+    model.readBroadcastSupplements = async works => works.map(() => ({ programs: [], pending: false }));
     const date = day => `2026-10-${String(day).padStart(2, '0')}T00:00:00+09:00`;
     model.getCachedWorks = async () => ({
         works: [
