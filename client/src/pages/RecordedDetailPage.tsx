@@ -632,11 +632,36 @@ export function RecordedDetailPage(): ReactNode {
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
                                 {channel?.name ?? item.channelId.toString(10)}
                             </Typography>
-                            {genres.map((genre, index) => (
-                                <Typography key={`${index.toString(10)}-${genre}`} variant="body2" color="text.secondary">
-                                    {genre}
-                                </Typography>
-                            ))}
+                            {genres.length > 0 && (
+                                <Tooltip
+                                    title={
+                                        genres.length > 1 ? (
+                                            <Stack spacing={0.5}>
+                                                {genres.map((genre, index) => (
+                                                    <Typography key={`${index.toString(10)}-${genre}`} variant="body2">
+                                                        {genre}
+                                                    </Typography>
+                                                ))}
+                                            </Stack>
+                                        ) : (
+                                            ''
+                                        )
+                                    }
+                                    arrow
+                                    describeChild
+                                    enterTouchDelay={0}
+                                    leaveTouchDelay={3000}
+                                >
+                                    <Typography
+                                        component={genres.length > 1 ? 'button' : 'div'}
+                                        variant="body2"
+                                        color="text.secondary"
+                                        sx={{ p: 0, border: 0, bgcolor: 'transparent', textAlign: 'left', cursor: genres.length > 1 ? 'help' : 'default' }}
+                                    >
+                                        {genres[0]}
+                                    </Typography>
+                                </Tooltip>
+                            )}
                             <Typography variant="body2" color="text.secondary">
                                 {formatProgramDate(item.startAt)} - {formatProgramTime(item.endAt)} ({programDuration(item)} m)
                             </Typography>
