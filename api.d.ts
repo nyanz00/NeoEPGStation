@@ -293,6 +293,7 @@ export interface AnnictLocalChannel {
 
 export interface AnnictWorkSummary {
     annictId: number;
+    syobocalTid?: number;
     title: string;
     titleKana?: string;
     seasonName?: string;
@@ -304,9 +305,13 @@ export interface AnnictWorkSummary {
     releasedOn?: string;
     releasedOnAbout?: string;
     firstProgramStartedAt?: string;
+    firstReceivableProgramStartedAt?: string;
 }
 
 export interface AnnictWorkList {
+    broadcastSupplementPending?: boolean;
+    broadcastSupplementError?: string;
+    broadcastDatesIncomplete?: boolean;
     season: string;
     works: AnnictWorkSummary[];
     rerun?: boolean;
@@ -318,6 +323,7 @@ export interface AnnictWorkList {
 
 export interface AnnictProgram {
     annictId: number;
+    source?: 'annict' | 'syoboi';
     startedAt: string;
     channelAnnictId?: number;
     channelName: string;
@@ -344,6 +350,8 @@ export interface AnnictStaff {
 }
 
 export interface AnnictWorkDetail extends AnnictWorkSummary {
+    broadcastSupplementPending?: boolean;
+    broadcastSupplementError?: string;
     titleEn?: string;
     synopsis?: string;
     synopsisSource?: string;
@@ -355,10 +363,10 @@ export interface AnnictWorkDetail extends AnnictWorkSummary {
     twitterHashtag?: string;
     wikipediaUrl?: string;
     wikipediaUrlEn?: string;
-    syobocalTid?: number;
     casts: AnnictCast[];
     staffs: AnnictStaff[];
     programs: AnnictProgram[];
+    unscheduledChannels?: AnnictLocalChannel[];
     programsError?: string;
     cachedAt: number;
     stale: boolean;

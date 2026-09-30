@@ -520,11 +520,17 @@ export function SearchPage(): ReactNode {
     };
 
     const handleRuleSaved = (): void => {
+        if (animeReturnContext !== null) {
+            const returnParams = new URLSearchParams({ focus: String(animeReturnContext.annictId) });
+            if (animeReturnContext.mode !== undefined) returnParams.set('mode', animeReturnContext.mode);
+            if (animeReturnContext.year !== undefined) returnParams.set('year', String(animeReturnContext.year));
+            if (animeReturnContext.season !== undefined) returnParams.set('season', animeReturnContext.season);
+            navigate(`/anime?${returnParams.toString()}`, { replace: true });
+            return;
+        }
         const historyState = window.history.state as { idx?: unknown } | null;
         if (typeof historyState?.idx === 'number' && historyState.idx > 0) {
             navigate(-1);
-        } else if (animeReturnPath !== null) {
-            navigate(animeReturnPath, { replace: true });
         } else if (ruleId !== null) {
             navigate('/rule', { replace: true });
         } else {

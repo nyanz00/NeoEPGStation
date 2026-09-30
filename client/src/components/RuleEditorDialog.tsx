@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AddRuleOption, ChannelId, ChannelItem, ReserveEncodedOption, ReserveSaveOption, Rule, RuleSearchOption } from '../../../api';
 import { type ReactNode, useEffect, useState } from 'react';
 import { api } from '../core/api/queries';
+import { sortRuleEncodeChannels } from '../core/channels';
 import { useNotifications } from '../core/notifications/Notifications';
 import { secondsToTime, timeRuleRangeSeconds } from '../core/search/timeRule';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
@@ -80,6 +81,7 @@ interface RuleEditorDialogProps {
     open: boolean;
     searchOption: RuleSearchOption;
     priorityChannelIds?: ChannelId[];
+    annictPriorityChannelIds?: ChannelId[];
     annictId?: number;
     rule?: Rule;
     bulkTargets?: BulkRuleTarget[];
@@ -268,7 +270,18 @@ function getInitialEncodeRowCount(state: RuleEditorState): number {
     return Math.max(1, count);
 }
 
-export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], annictId, rule, bulkTargets, onClose, onSaved, onBulkSaved }: RuleEditorDialogProps): ReactNode {
+export function RuleEditorDialog({
+    open,
+    searchOption,
+    priorityChannelIds = [],
+    annictPriorityChannelIds = [],
+    annictId,
+    rule,
+    bulkTargets,
+    onClose,
+    onSaved,
+    onBulkSaved,
+}: RuleEditorDialogProps): ReactNode {
     const { contentOffset } = useAppLayout();
     const activeUser = useActiveUser();
     const settings = useSettings();
@@ -280,14 +293,7 @@ export function RuleEditorDialog({ open, searchOption, priorityChannelIds = [], 
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
     const bulkMode = bulkTargets !== undefined;
-    const sortedChannels = [...(channels.data ?? [])].sort((a, b) => {
-        const aIndex = priorityChannelIds.indexOf(a.id);
-        const bIndex = priorityChannelIds.indexOf(b.id);
-        if (aIndex === -1 && bIndex === -1) return 0;
-        if (aIndex === -1) return 1;
-        if (bIndex === -1) return -1;
-        return aIndex - bIndex;
-    });
+    const sortedChannels = sortRuleEncodeChannels(channels.data ?? [], priorityChannelIds, annictPriorityChannelIds);
 
     useEffect(() => {
         if (!open) return;

@@ -18,6 +18,8 @@ import IChannelApiModel from '../channel/IChannelApiModel';
 import { RuleApiModelProvider } from '../rule/IRuleApiModel';
 import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel';
 import IAnnictApiModel from './IAnnictApiModel';
+import SyoboiCalendarClient, { SyoboiProgram } from './SyoboiCalendarClient';
+import SyoboiBroadcastSupplement, { SupplementState, SupplementWork } from './SyoboiBroadcastSupplement';
 
 interface TokenFile {
     accessToken: string;
@@ -122,6 +124,9 @@ interface AnnictRestWorkDetail {
 }
 
 interface SyoboiRerunProgram {
+    pid?: number;
+    channelId?: number;
+    channelGroup?: number;
     count: number;
     startedAt: string;
     channelName: string;
@@ -187,6 +192,8 @@ class AnnictApiModel implements IAnnictApiModel {
     private readonly workListRefreshFailures = new Map<string, number>();
     private readonly workListEnrichmentRequests = new Map<string, Promise<void>>();
     private readonly workListEnrichmentFailures = new Map<string, number>();
+    private syoboiClient?: SyoboiCalendarClient;
+    private broadcastSupplement?: SyoboiBroadcastSupplement;
 
     constructor(
         @inject('IChannelApiModel') channelApiModel: IChannelApiModel,
@@ -877,10 +884,69 @@ class AnnictApiModel implements IAnnictApiModel {
         rerun = false,
         excludePaidChannels = false,
     ): Promise<apid.AnnictWorkList> {
+        const result = await this.getCachedWorks(season, refresh, rerun, excludePaidChannels);
+        const channels = await this.channelApiModel.getChannels();
+        const startsFor = (work: apid.AnnictWorkSummary): { channelName: string; startedAt: string }[] =>
+            (work as apid.AnnictWorkSummary & { broadcastStarts?: { channelName: string; startedAt: string }[] })
+                .broadcastStarts ?? [];
+        const inputs = result.works.map(work => ({
+            ...work,
+            defer: !rerun && result.enrichmentPending === true && !Array.isArray((work as any).broadcastStarts),
+            hasTelevisionChannels: startsFor(work).some(
+                program => this.matchLocalChannels(program.channelName, channels).length > 0,
+            ),
+            missingBroadcasts: !startsFor(work).some(
+                program => this.matchLocalChannels(program.channelName, channels).length > 0,
+            ),
+        }));
+        const supplements = await this.readBroadcastSupplements(inputs, season, false, refresh);
+        return {
+            ...result,
+            broadcastSupplementPending: supplements.some(state => state.pending),
+            broadcastSupplementError:
+                [...new Set(supplements.flatMap(state => (state.error ? [state.error] : [])))].join(' / ') || undefined,
+            broadcastDatesIncomplete: result.works.some(work => !Array.isArray((work as any).broadcastStarts)),
+            works: result.works.map((work, index) => {
+                const { broadcastStarts = [], ...summary } = work as apid.AnnictWorkSummary & {
+                    broadcastStarts?: { channelName: string; startedAt: string }[];
+                };
+                const programs = this.mergeBroadcastPrograms(
+                    this.mapPrograms(
+                        broadcastStarts.map((program, index) => ({
+                            annictId: index,
+                            startedAt: program.startedAt,
+                            channel: { name: program.channelName },
+                        })),
+                        channels,
+                    ),
+                    supplements[index].programs,
+                    channels,
+                    rerun,
+                );
+                return {
+                    ...summary,
+                    syobocalTid: work.syobocalTid ?? supplements[index].tid,
+                    firstReceivableProgramStartedAt: programs.find(
+                        program =>
+                            program.localChannels.length > 0 &&
+                            (!excludePaidChannels ||
+                                !PAID_BROADCAST_CHANNEL_PATTERN.test(program.channelName.normalize('NFKC'))),
+                    )?.startedAt,
+                };
+            }),
+        };
+    }
+
+    private async getCachedWorks(
+        season: string,
+        refresh: boolean,
+        rerun = false,
+        excludePaidChannels = false,
+    ): Promise<apid.AnnictWorkList> {
         if (!/^\d{4}-(winter|spring|summer|autumn)$/.test(season)) throw new Error('seasonが不正です');
         if (rerun) return this.getRerunWorks(season, refresh, excludePaidChannels);
-        const enrichedFile = path.join(this.root, 'cache', `works-v11-${season}.json`);
-        const basicFile = path.join(this.root, 'cache', `works-basic-v1-${season}.json`);
+        const enrichedFile = path.join(this.root, 'cache', `works-v13-${season}.json`);
+        const basicFile = path.join(this.root, 'cache', `works-basic-v3-${season}.json`);
         const [cached, basicCached] = await Promise.all([
             this.readCache<apid.AnnictWorkSummary[]>(enrichedFile),
             this.readCache<apid.AnnictWorkSummary[]>(basicFile),
@@ -1052,7 +1118,7 @@ class AnnictApiModel implements IAnnictApiModel {
                         orderBy: { field: WATCHERS_COUNT, direction: DESC }
                     ) {
                         nodes {
-                            annictId title titleKana seasonName seasonYear media watchersCount malAnimeId
+                            annictId title titleKana seasonName seasonYear media watchersCount malAnimeId syobocalTid
                             image {
                                 recommendedImageUrl facebookOgImageUrl twitterAvatarUrl
                                 twitterBiggerAvatarUrl twitterNormalAvatarUrl twitterMiniAvatarUrl
@@ -1087,6 +1153,78 @@ class AnnictApiModel implements IAnnictApiModel {
             .map(this.mapWork);
     }
 
+    private async enrichWorkBroadcastStarts(
+        works: apid.AnnictWorkSummary[],
+        saveProgress?: (works: apid.AnnictWorkSummary[]) => Promise<void>,
+    ): Promise<apid.AnnictWorkSummary[]> {
+        const result = [...works];
+        const missing = works.filter(work => !Array.isArray((work as any).broadcastStarts));
+        for (let index = 0; index < missing.length; index += 50) {
+            const batch = missing.slice(index, index + 50);
+            const data = await this.requestWithSavedToken(
+                `query WorkBroadcastStartsBatch($ids: [Int!]) {
+                    searchWorks(annictIds: $ids, first: 50) {
+                        nodes {
+                            annictId
+                            programs(first: 100, orderBy: { field: STARTED_AT, direction: ASC }) {
+                                nodes { startedAt channel { name } }
+                                pageInfo { hasNextPage endCursor }
+                            }
+                        }
+                    }
+                }`,
+                { ids: batch.map(work => work.annictId) },
+                true,
+            );
+            for (const work of batch) {
+                const node = data.searchWorks?.nodes?.find((item: any) => item?.annictId === work.annictId);
+                if (node?.programs === undefined) throw new Error('Annict放送開始日時を取得できませんでした');
+                const updated = { ...work, broadcastStarts: await this.getWorkBroadcastStarts(node) };
+                result[works.indexOf(work)] = updated;
+                await saveProgress?.([...result]);
+            }
+        }
+        return result;
+    }
+
+    private async getWorkBroadcastStarts(work: any): Promise<{ channelName: string; startedAt: string }[]> {
+        const starts = new Map<string, string>();
+        const cursors = new Set<string>();
+        let programs = work.programs;
+        for (;;) {
+            for (const program of programs?.nodes ?? []) {
+                if (typeof program?.channel?.name !== 'string' || !Number.isFinite(Date.parse(program?.startedAt)))
+                    continue;
+                const previous = starts.get(program.channel.name);
+                if (previous === undefined || Date.parse(program.startedAt) < Date.parse(previous)) {
+                    starts.set(program.channel.name, program.startedAt);
+                }
+            }
+            if (programs !== undefined && programs?.pageInfo?.hasNextPage !== true) break;
+            const after = programs?.pageInfo?.endCursor;
+            if (programs !== undefined && (typeof after !== 'string' || after.length === 0 || cursors.has(after))) {
+                throw new Error('Annict放送開始日時の次ページカーソルを取得できませんでした');
+            }
+            if (after !== undefined) cursors.add(after);
+            const data = await this.requestWithSavedToken(
+                `query WorkBroadcastStarts($ids: [Int!], $after: String) {
+                    searchWorks(annictIds: $ids, first: 1) {
+                        nodes {
+                            programs(first: 100, after: $after, orderBy: { field: STARTED_AT, direction: ASC }) {
+                                nodes { startedAt channel { name } }
+                                pageInfo { hasNextPage endCursor }
+                            }
+                        }
+                    }
+                }`,
+                { ids: [work.annictId], after },
+            );
+            programs = data.searchWorks?.nodes?.[0]?.programs;
+            if (programs === undefined) throw new Error('Annict放送開始日時を取得できませんでした');
+        }
+        return Array.from(starts, ([channelName, startedAt]) => ({ channelName, startedAt }));
+    }
+
     private startWorkListEnrichment(
         season: string,
         works: apid.AnnictWorkSummary[],
@@ -1102,7 +1240,13 @@ class AnnictApiModel implements IAnnictApiModel {
 
         const request = Promise.resolve()
             .then(async () => {
-                const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(works));
+                const scheduled = await this.enrichWorkBroadcastStarts(works, async value => {
+                    const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                    if (current !== null && this.workListCacheGeneration(current) === generation) {
+                        await this.writeJson(basicFile, { cachedAt, generation, value });
+                    }
+                });
+                const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(scheduled));
                 const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
                 if (latestBasic === null || this.workListCacheGeneration(latestBasic) !== generation) return;
                 await this.writeJson(enrichedFile, { cachedAt, generation, value: enriched });
@@ -1126,7 +1270,7 @@ class AnnictApiModel implements IAnnictApiModel {
     }
 
     public async getWork(annictId: number, refresh: boolean): Promise<apid.AnnictWorkDetail> {
-        const file = path.join(this.root, 'cache', `work-v18-${annictId}.json`);
+        const file = path.join(this.root, 'cache', `work-v19-${annictId}.json`);
         const cached = await this.readCache<Omit<apid.AnnictWorkDetail, 'cachedAt' | 'stale'>>(file);
         if (!refresh && cached !== null && Date.now() - cached.cachedAt < 6 * 60 * 60 * 1000) {
             return {
@@ -1161,22 +1305,24 @@ class AnnictApiModel implements IAnnictApiModel {
             if (node === undefined) throw new Error('Annict作品が見つかりません');
             const channels = await this.channelApiModel.getChannels();
             const base = this.mapWork(node);
-            const [programResult, restWork, pageMetadata, pageReleasedOn, casts, staffs] = await Promise.all([
-                this.getPrograms(annictId, channels, base.seasonYear, base.seasonName),
-                this.getRestWorkDetail(annictId),
-                this.getAnnictPageMetadata(annictId),
-                this.getAnnictInfoPageReleasedOn(annictId),
-                this.getRestCasts(annictId),
-                this.getRestStaffs(annictId),
-            ]);
+            const [programResult, restWork, pageMetadata, pageReleasedOn, casts, staffs, registered] =
+                await Promise.all([
+                    this.getPrograms(annictId, channels, base.seasonYear, base.seasonName),
+                    this.getRestWorkDetail(annictId),
+                    this.getAnnictPageMetadata(annictId),
+                    this.getAnnictInfoPageReleasedOn(annictId),
+                    this.getRestCasts(annictId),
+                    this.getRestStaffs(annictId),
+                    this.getRegisteredWorkChannels(annictId, channels),
+                ]);
             const imageUrl =
                 (await this.resolveWorkImageUrl([pageMetadata.imageUrl, base.imageUrl, restWork?.imageUrl])) ??
                 (base.malAnimeId !== undefined ? await this.getJikanImageUrl(base.malAnimeId) : undefined) ??
                 pageMetadata.imageUrl;
             const value: Omit<apid.AnnictWorkDetail, 'cachedAt' | 'stale'> = {
                 ...base,
-                firstProgramStartedAt:
-                    base.firstProgramStartedAt ?? programResult.programs.map(program => program.startedAt).sort()[0],
+                firstProgramStartedAt: programResult.programs.find(program => program.localChannels.length > 0)
+                    ?.startedAt,
                 imageUrl,
                 titleEn: this.optionalString(node.titleEn),
                 synopsis: pageMetadata.synopsis,
@@ -1193,11 +1339,17 @@ class AnnictApiModel implements IAnnictApiModel {
                 casts,
                 staffs,
                 programs: programResult.programs,
-                programsError: programResult.error,
+                unscheduledChannels: registered.channels.filter(
+                    channel =>
+                        !programResult.programs.some(program =>
+                            program.localChannels.some(local => local.id === channel.id),
+                        ),
+                ),
+                programsError: [programResult.error, registered.error].filter(Boolean).join(' / ') || undefined,
             };
             const cachedAt = Date.now();
             await this.writeJson(file, { cachedAt, value });
-            return { ...(await this.addSyoboiProgramFallback(annictId, value)), cachedAt, stale: false };
+            return { ...(await this.addSyoboiProgramFallback(annictId, value, refresh)), cachedAt, stale: false };
         } catch (err) {
             if (cached !== null)
                 return {
@@ -1223,7 +1375,7 @@ class AnnictApiModel implements IAnnictApiModel {
         const file = path.join(
             this.root,
             'cache',
-            `rerun-works-v4-${season}-${excludePaidChannels ? 'paid-excluded' : 'all'}.json`,
+            `rerun-works-v5-${season}-${excludePaidChannels ? 'paid-excluded' : 'all'}.json`,
         );
         const cached = await this.readCache<apid.AnnictWorkSummary[]>(file);
         if (!refresh && cached !== null && Date.now() - cached.cachedAt < 24 * 60 * 60 * 1000) {
@@ -1304,9 +1456,44 @@ class AnnictApiModel implements IAnnictApiModel {
                         cachedAt: Date.now(),
                         value: this.uniqueSyoboiPrograms([...(existing?.value ?? []), ...candidate.programs]),
                     });
+                    await this.getBroadcastSupplement().seed(
+                        annictId,
+                        season,
+                        candidate.tid,
+                        candidate.programs.flatMap(program =>
+                            Number.isInteger(program.pid) &&
+                            program.pid! > 0 &&
+                            program.channelId !== undefined &&
+                            program.channelGroup !== undefined
+                                ? [
+                                      {
+                                          pid: program.pid!,
+                                          tid: candidate.tid,
+                                          channelId: program.channelId,
+                                          channelGroup: program.channelGroup,
+                                          channelName: program.channelName,
+                                          count: program.count,
+                                          startedAt: program.startedAt,
+                                          rebroadcast: true,
+                                      },
+                                  ]
+                                : [],
+                        ),
+                    );
                 }),
             );
-            const value = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(receivableWorks));
+            const value = await this.enrichWorkReleaseDates(
+                await this.fillMissingWorkImages(
+                    receivableWorks.map(work => ({
+                        ...work,
+                        syobocalTid: matchedCandidates.get(work.annictId)?.tid ?? work.syobocalTid,
+                        broadcastStarts: (matchedCandidates.get(work.annictId)?.programs ?? []).map(program => ({
+                            channelName: program.channelName,
+                            startedAt: program.startedAt,
+                        })),
+                    })),
+                ),
+            );
             const cachedAt = Date.now();
             await this.writeJson(file, { cachedAt, value });
             return { season, works: value, cachedAt, stale: false, rerun: true };
@@ -1388,11 +1575,12 @@ class AnnictApiModel implements IAnnictApiModel {
         const end = new Date(Date.UTC(year, month[name] + 3, 1));
         const items: any[] = [];
         for (const cursor = new Date(start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 14)) {
-            const response = await axios.get('https://cal.syoboi.jp/rss2.php', {
-                params: { start: this.syoboiDate(cursor), days: 14, alt: 'json' },
-                timeout: 20_000,
+            const response = await this.getSyoboiClient().getRss({
+                start: this.syoboiDate(cursor),
+                days: 14,
+                alt: 'json',
             });
-            this.collectSyoboiItems(response.data, items);
+            this.collectSyoboiItems(response, items);
         }
         const grouped = new Map<string, any[]>();
         for (const item of items) {
@@ -1416,7 +1604,16 @@ class AnnictApiModel implements IAnnictApiModel {
                 continue;
             const key = `${tid}:${channelId}`;
             const group = grouped.get(key) ?? [];
-            group.push({ tid, title, count, startedAt, channelName: channel });
+            group.push({
+                tid,
+                title,
+                count,
+                startedAt,
+                channelName: channel,
+                pid: Number(item.PID ?? item.pid),
+                channelId,
+                channelGroup,
+            });
             grouped.set(key, group);
         }
         const result = new Map<number, SyoboiRerunCandidate>();
@@ -1438,6 +1635,9 @@ class AnnictApiModel implements IAnnictApiModel {
                         count: program.count,
                         startedAt: new Date(program.startedAt).toISOString(),
                         channelName: program.channelName,
+                        pid: program.pid,
+                        channelId: program.channelId,
+                        channelGroup: program.channelGroup,
                     }));
                     result.set(first.tid, {
                         tid: first.tid,
@@ -1471,7 +1671,8 @@ class AnnictApiModel implements IAnnictApiModel {
     private mapSyoboiPrograms(programs: SyoboiRerunProgram[], channels: apid.ChannelItem[]): apid.AnnictProgram[] {
         return this.mapPrograms(
             programs.map((program, index) => ({
-                annictId: -(index + 1),
+                annictId: -(program.pid ?? index + 1),
+                source: 'syoboi',
                 startedAt: program.startedAt,
                 rebroadcast: true,
                 firstBroadcast: program.count === 1,
@@ -1485,25 +1686,170 @@ class AnnictApiModel implements IAnnictApiModel {
     private async addSyoboiProgramFallback(
         annictId: number,
         work: Omit<apid.AnnictWorkDetail, 'cachedAt' | 'stale'>,
+        refresh = false,
     ): Promise<Omit<apid.AnnictWorkDetail, 'cachedAt' | 'stale'>> {
-        const cached = await this.readCache<SyoboiRerunProgram[]>(this.syoboiProgramCacheFile(annictId));
-        if (cached === null || Date.now() - cached.cachedAt >= 24 * 60 * 60 * 1000) return work;
         const channels = await this.channelApiModel.getChannels();
-        const fallback = this.mapSyoboiPrograms(cached.value, channels);
-        const futureReceivable = fallback.filter(
-            program =>
-                program.localChannels.length > 0 &&
-                Date.parse(program.startedAt) >= Date.now() &&
-                !work.programs.some(
-                    current =>
-                        current.startedAt === program.startedAt &&
-                        current.localChannels.some(channel =>
-                            program.localChannels.some(fallbackChannel => fallbackChannel.id === channel.id),
-                        ),
+        const cached = await this.readCache<SyoboiRerunProgram[]>(this.syoboiProgramCacheFile(annictId));
+        const legacy =
+            cached !== null && Date.now() - cached.cachedAt < 24 * 60 * 60 * 1000
+                ? this.mapSyoboiPrograms(cached.value, channels).filter(
+                      program => program.localChannels.length > 0 && Date.parse(program.startedAt) >= Date.now(),
+                  )
+                : [];
+        const existing = [
+            ...work.programs,
+            ...legacy.filter(
+                program =>
+                    !work.programs.some(
+                        current =>
+                            current.startedAt === program.startedAt &&
+                            this.channelNamesMatch(current.channelName, program.channelName),
+                    ),
+            ),
+        ];
+        const rerun = existing.some(program => program.rebroadcast && Date.parse(program.startedAt) >= Date.now());
+        const nextRerun = rerun
+            ? existing.find(program => program.rebroadcast && Date.parse(program.startedAt) >= Date.now())
+            : undefined;
+        const season =
+            nextRerun !== undefined
+                ? this.broadcastSeasonFromDate(Date.parse(nextRerun.startedAt))
+                : this.broadcastSeason(work);
+        const [supplement] = await this.readBroadcastSupplements(
+            [
+                {
+                    ...work,
+                    hasTelevisionChannels:
+                        (work.unscheduledChannels?.length ?? 0) > 0 ||
+                        existing.some(program => program.localChannels.length > 0),
+                    missingBroadcasts:
+                        (work.unscheduledChannels?.length ?? 0) > 0 ||
+                        !existing.some(program => program.localChannels.length > 0),
+                },
+            ],
+            season,
+            true,
+            refresh,
+        );
+        const programs = this.mergeBroadcastPrograms(existing, supplement.programs, channels, rerun);
+        const stationCandidates = [
+            ...(work.unscheduledChannels ?? []),
+            ...programs.filter(program => program.source === 'syoboi').flatMap(program => program.localChannels),
+        ];
+        const unscheduledChannels = [
+            ...new Map(stationCandidates.map(channel => [channel.id, channel])).values(),
+        ].filter(
+            channel =>
+                !programs.some(
+                    program =>
+                        Date.parse(program.startedAt) >= Date.now() &&
+                        program.localChannels.some(local => local.id === channel.id),
                 ),
         );
-        if (futureReceivable.length === 0) return work;
-        return { ...work, programs: [...work.programs, ...futureReceivable], programsError: undefined };
+        return {
+            ...work,
+            syobocalTid: work.syobocalTid ?? supplement.tid,
+            programs,
+            firstProgramStartedAt: programs.find(program => program.localChannels.length > 0)?.startedAt,
+            unscheduledChannels,
+            broadcastSupplementPending: supplement.pending,
+            broadcastSupplementError: supplement.error,
+        };
+    }
+
+    private getSyoboiClient(): SyoboiCalendarClient {
+        return (this.syoboiClient ??= new SyoboiCalendarClient());
+    }
+
+    private getBroadcastSupplement(): SyoboiBroadcastSupplement {
+        return (this.broadcastSupplement ??= new SyoboiBroadcastSupplement(
+            path.join(this.root, 'cache'),
+            this.getSyoboiClient(),
+            message => this.log.system.warn(message),
+        ));
+    }
+
+    private async readBroadcastSupplements(
+        works: SupplementWork[],
+        season: string,
+        detail: boolean,
+        force = false,
+    ): Promise<SupplementState[]> {
+        try {
+            return await this.getBroadcastSupplement().readAndQueue(works, season, detail, force);
+        } catch (err) {
+            this.log.system.warn(`Syoboi broadcast cache failed: ${this.errorMessage(err)}`);
+            return works.map(() => ({
+                programs: [],
+                pending: false,
+                error: '放送情報の補完キャッシュを読み込めませんでした。',
+            }));
+        }
+    }
+
+    private broadcastSeason(work: apid.AnnictWorkSummary): string {
+        const season = `${work.seasonYear}-${work.seasonName?.toLowerCase()}`;
+        return /^\d{4}-(winter|spring|summer|autumn)$/.test(season) ? season : this.broadcastSeasonFromDate(Date.now());
+    }
+
+    private broadcastSeasonFromDate(time: number): string {
+        const date = new Date(time + 9 * 60 * 60 * 1000);
+        return `${date.getUTCFullYear()}-${['winter', 'spring', 'summer', 'autumn'][Math.floor(date.getUTCMonth() / 3)]}`;
+    }
+
+    private mergeBroadcastPrograms(
+        programs: apid.AnnictProgram[],
+        supplement: SyoboiProgram[],
+        channels: apid.ChannelItem[],
+        rerun: boolean,
+    ): apid.AnnictProgram[] {
+        const fallback = this.mapPrograms(
+            supplement
+                .filter(program => rerun || !program.rebroadcast)
+                .map(program => ({
+                    annictId: -program.pid,
+                    source: 'syoboi',
+                    startedAt: program.startedAt,
+                    rebroadcast: program.rebroadcast,
+                    firstBroadcast: program.count === 1,
+                    episode: { number: program.count, numberText: String(program.count) },
+                    channel: { name: program.channelName },
+                })),
+            channels,
+        ).map(program => {
+            const station = programs.find(
+                current =>
+                    current.channelAnnictId !== undefined &&
+                    this.channelNamesMatch(current.channelName, program.channelName),
+            );
+            return station === undefined ? program : { ...program, channelAnnictId: station.channelAnnictId };
+        });
+        const additions = fallback.filter(
+            program =>
+                !programs.some(
+                    current =>
+                        current.source !== 'syoboi' &&
+                        (this.channelNamesMatch(current.channelName, program.channelName) ||
+                            current.localChannels.some(channel =>
+                                program.localChannels.some(local => local.id === channel.id),
+                            )) &&
+                        (current.startedAt === program.startedAt ||
+                            current.episodeNumber === undefined ||
+                            current.episodeNumber === program.episodeNumber ||
+                            (current.firstBroadcast === true && program.firstBroadcast === true)),
+                ),
+        );
+        const retained = programs.filter(
+            current =>
+                current.source !== 'syoboi' ||
+                !additions.some(
+                    program =>
+                        current.annictId === program.annictId ||
+                        (this.channelNamesMatch(current.channelName, program.channelName) &&
+                            current.episodeNumber === program.episodeNumber),
+                ),
+        );
+        return [...retained, ...additions].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
     }
 
     private collectSyoboiItems(value: any, output: any[]): void {
@@ -1529,6 +1875,7 @@ class AnnictApiModel implements IAnnictApiModel {
 
     private readonly mapWork = (work: any): apid.AnnictWorkSummary => ({
         annictId: work.annictId,
+        syobocalTid: Number.isInteger(work.syobocalTid) && work.syobocalTid > 0 ? work.syobocalTid : undefined,
         title: work.title,
         titleKana: work.titleKana ?? undefined,
         seasonName: work.seasonName ?? undefined,
@@ -2237,6 +2584,7 @@ class AnnictApiModel implements IAnnictApiModel {
                 return [
                     {
                         annictId: program.annictId,
+                        ...(program.source === 'syoboi' ? { source: 'syoboi' as const } : {}),
                         startedAt: program.startedAt,
                         channelAnnictId: Number.isFinite(program.channel.annictId)
                             ? program.channel.annictId
@@ -2248,15 +2596,7 @@ class AnnictApiModel implements IAnnictApiModel {
                         episodeNumberEstimated: program.episodeNumberEstimated === true,
                         firstBroadcast: program.firstBroadcast === true,
                         rebroadcast: Boolean(program.rebroadcast),
-                        localChannels: channels
-                            .filter(channel => this.isSelectableLocalChannel(channel))
-                            .map(channel => ({ channel, name: this.localChannelName(channel) }))
-                            .filter(item => item.name !== undefined && this.channelNamesMatch(channelName, item.name))
-                            .map(channel => ({
-                                id: channel.channel.id,
-                                name: channel.name!,
-                                channelType: channel.channel.channelType,
-                            })),
+                        localChannels: this.matchLocalChannels(channelName, channels),
                     },
                 ];
             })
@@ -2268,6 +2608,47 @@ class AnnictApiModel implements IAnnictApiModel {
             if (typeof value === 'string' && value.trim().length > 0) return value.trim();
         }
         return undefined;
+    }
+
+    private matchLocalChannels(name: string, channels: apid.ChannelItem[]): apid.AnnictLocalChannel[] {
+        return channels
+            .filter(channel => this.isSelectableLocalChannel(channel))
+            .filter(channel => this.channelNamesMatch(name, this.localChannelName(channel) ?? ''))
+            .map(channel => ({
+                id: channel.id,
+                name: this.localChannelName(channel)!,
+                channelType: channel.channelType,
+            }));
+    }
+
+    private async getRegisteredWorkChannels(
+        annictId: number,
+        channels: apid.ChannelItem[],
+    ): Promise<{ channels: apid.AnnictLocalChannel[]; error?: string }> {
+        try {
+            // GraphQL programs are episode slots; the public DB also lists stations without slots or dates.
+            const response = await axios.get<string>(`https://annict.com/db/works/${annictId}/programs`, {
+                timeout: 20_000,
+            });
+            return { channels: this.parseRegisteredWorkChannels(response.data, channels) };
+        } catch (err) {
+            this.log.system.warn(`Annict work stations failed: annictId=${annictId}, error=${this.errorMessage(err)}`);
+            return { channels: [], error: 'Annictの登録局情報を取得できませんでした。時間をおいて更新してください。' };
+        }
+    }
+
+    private parseRegisteredWorkChannels(html: string, channels: apid.ChannelItem[]): apid.AnnictLocalChannel[] {
+        const headers = (html.match(/<th\b[^>]*>[\s\S]*?<\/th>/gi) ?? []).map(cell => this.htmlToText(cell).trim());
+        if (!headers.includes('チャンネルID') || !headers.includes('放送開始日時')) {
+            throw new Error('Annict登録局一覧の形式を確認できませんでした');
+        }
+        const result = new Map<number, apid.AnnictLocalChannel>();
+        for (const row of html.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) ?? []) {
+            const cells = (row.match(/<td\b[^>]*>[\s\S]*?<\/td>/gi) ?? []).map(cell => this.htmlToText(cell).trim());
+            if (cells.length < 8 || !/^\d+$/.test(cells[0]) || !/^\d+$/.test(cells[1]) || cells[7] !== '公開') continue;
+            for (const channel of this.matchLocalChannels(cells[2], channels)) result.set(channel.id, channel);
+        }
+        return [...result.values()];
     }
 
     private isSelectableLocalChannel(channel: apid.ChannelItem): boolean {
