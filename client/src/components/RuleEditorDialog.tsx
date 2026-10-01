@@ -1,5 +1,4 @@
 import {
-    Autocomplete,
     Box,
     Button,
     Checkbox,
@@ -32,6 +31,7 @@ import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 import { useAppLayout } from './AppLayout';
 import { dialogSurfacePaper, programDialogClose } from './programDialogStyles';
+import { RuleEncodeChannelSelector } from './RuleEncodeChannelSelector';
 import { UserSelector } from './UserSelector';
 
 interface EncodeSetting {
@@ -202,7 +202,6 @@ function EncodeRow({
     onChange: (value: EncodeSetting) => void;
     onDelete: () => void;
 }): ReactNode {
-    const selectedChannels = channels.filter(channel => value.channelIds.includes(channel.id));
     return (
         <Box sx={{ border: 1, borderColor: 'divider', borderRadius: '7px', overflow: 'hidden' }}>
             <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', px: 1.5, py: 0.75, bgcolor: 'action.hover' }}>
@@ -220,25 +219,7 @@ function EncodeRow({
                         </MenuItem>
                     ))}
                 </TextField>
-                <Autocomplete
-                    multiple
-                    disableCloseOnSelect
-                    options={channels}
-                    value={selectedChannels}
-                    getOptionLabel={channel => channel.name}
-                    isOptionEqualToValue={(a, b) => a.id === b.id}
-                    onChange={(_event, selected) => onChange({ ...value, channelIds: selected.map(channel => channel.id) })}
-                    renderOption={(props, channel, state) => {
-                        const { key, ...optionProps } = props;
-                        return (
-                            <li key={key} {...optionProps}>
-                                <Checkbox checked={state.selected} sx={{ mr: 1 }} />
-                                {channel.name}
-                            </li>
-                        );
-                    }}
-                    renderInput={params => <TextField {...params} size="small" label="対象局（未指定なら全局）" />}
-                />
+                <RuleEncodeChannelSelector channels={channels} channelIds={value.channelIds} onChange={channelIds => onChange({ ...value, channelIds })} />
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
                     <TextField
                         select
