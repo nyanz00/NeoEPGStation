@@ -328,6 +328,7 @@ export default class ProgramDB implements IProgramDB {
             isFree: program.isFree,
             name: name,
             halfWidthName: halfWidthName,
+            normalizedName: StrUtil.normalizeSearch(name),
             shortName: StrUtil.deleteBrackets(halfWidthName),
             genre1: genre1,
             subGenre1: subGenre1,
@@ -343,6 +344,7 @@ export default class ProgramDB implements IProgramDB {
         if (typeof program.description === 'undefined' || program.description.length === 0) {
             value.description = null;
             value.halfWidthDescription = null;
+            value.normalizedDescription = null;
         } else {
             const description =
                 this.config.needToReplaceEnclosingCharacters === true
@@ -350,18 +352,21 @@ export default class ProgramDB implements IProgramDB {
                     : StrUtil.toDBStr(program.description);
             value.description = description;
             value.halfWidthDescription = StrUtil.toHalf(description);
+            value.normalizedDescription = StrUtil.normalizeSearch(description);
         }
 
         // extended
         if (typeof program.extended === 'undefined') {
             value.extended = null;
             value.halfWidthExtended = null;
+            value.normalizedExtended = null;
             value.rawExtended = null;
             value.rawHalfWidthExtended = null;
         } else {
             const extended = this.createExtendedStr(program.extended);
             value.extended = extended;
             value.halfWidthExtended = StrUtil.toHalf(extended);
+            value.normalizedExtended = StrUtil.normalizeSearch(extended);
 
             value.rawExtended = JSON.stringify(program.extended);
             const halfRawExtended: { [key: string]: string } = {};
@@ -701,7 +706,7 @@ export default class ProgramDB implements IProgramDB {
             }
         } else {
             // あいまい検索
-            const keywords = StrUtil.toHalf(keyword).split(/ /);
+            const keywords = StrUtil.normalizeSearch(keyword).split(/ /);
             const like = this.op.getLikeStr(option.cs);
 
             const nameAnd: string[] = [];
@@ -712,17 +717,17 @@ export default class ProgramDB implements IProgramDB {
 
                 if (option.name === true) {
                     const valueName = `${valueBaseName}Name${i}`;
-                    nameAnd.push(`halfWidthName ${like} :${valueName}`);
+                    nameAnd.push(`normalizedName ${like} :${valueName}`);
                     query.param[valueName] = str;
                 }
                 if (option.description === true) {
                     const valueName = `${valueBaseName}Description${i}`;
-                    descriptionAnd.push(`COALESCE(halfWidthDescription,'') ${like} :${valueName}`);
+                    descriptionAnd.push(`COALESCE(normalizedDescription,'') ${like} :${valueName}`);
                     query.param[valueName] = str;
                 }
                 if (option.extended === true) {
                     const valueName = `${valueBaseName}Extended${i}`;
-                    extendedAnd.push(`COALESCE(halfWidthExtended,'') ${like} :${valueName}`);
+                    extendedAnd.push(`COALESCE(normalizedExtended,'') ${like} :${valueName}`);
                     query.param[valueName] = str;
                 }
             });

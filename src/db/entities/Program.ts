@@ -71,7 +71,10 @@ export default class Program extends BaseEntity {
     @Column({
         type: 'text',
     })
-    public halfWidthName!: string; // 番組名 (検索用)
+    public halfWidthName!: string; // 番組名 (半角表示・正規表現検索用)
+
+    @Column({ type: 'text', nullable: true, select: false })
+    public normalizedName!: string | null; // 番組名 (互換文字を統一した検索用)
 
     @Column({
         type: 'text',
@@ -90,6 +93,9 @@ export default class Program extends BaseEntity {
     })
     public halfWidthDescription!: string | null;
 
+    @Column({ type: 'text', nullable: true, select: false })
+    public normalizedDescription!: string | null;
+
     @Column({
         type: 'text',
         nullable: true,
@@ -101,6 +107,9 @@ export default class Program extends BaseEntity {
         nullable: true,
     })
     public halfWidthExtended!: string | null;
+
+    @Column({ type: 'text', nullable: true, select: false })
+    public normalizedExtended!: string | null;
 
     @Column({
         type: 'text',

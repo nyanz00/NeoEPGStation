@@ -78,6 +78,9 @@ namespace StrUtil {
         );
     };
 
+    /** 検索用に互換文字を統一し、既存の英数記号・波ダッシュ変換も維持する。 */
+    export const normalizeSearch = (str: string): string => toHalf(str).normalize('NFKC');
+
     /**
      * 半角英数記号を全角へ変換する
      * @param str: string
