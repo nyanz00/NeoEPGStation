@@ -38,6 +38,7 @@ import { DateTextInput, TimeTextInput } from '../components/DateTimeInput';
 import { ReserveProgramDialog } from '../components/ReserveProgramDialog';
 import { RuleEditorDialog } from '../components/RuleEditorDialog';
 import { api } from '../core/api/queries';
+import { ruleEncodePriorityChannelIds } from '../core/channels';
 import { useNotifications } from '../core/notifications/Notifications';
 import { channelName, channelTypeLabel, formatProgramDate, formatProgramTime, genreNames, programDuration, searchableGenreItems, subGenreNames, weekItems } from '../core/program';
 import {
@@ -236,6 +237,7 @@ export function SearchPage(): ReactNode {
     const parsedRuleId = Number(params.get('ruleId') ?? params.get('rule'));
     const ruleId = Number.isInteger(parsedRuleId) && parsedRuleId > 0 ? parsedRuleId : null;
     const animeReturnContext = parseAnimeReturnContext(params);
+    const isAnimeSearch = animeReturnContext !== null;
     const animeReturnPath = animeReturnContext === null ? null : animeDetailReturnPath(animeReturnContext);
     const fromAnimeDetail = (location.state as { fromAnimeDetail?: boolean } | null)?.fromAnimeDetail === true;
     const resetSearchRequested = (location.state as { resetPage?: string } | null)?.resetPage === 'search';
@@ -460,9 +462,8 @@ export function SearchPage(): ReactNode {
         timeRuleReserves.data?.reserves.forEach(reserve => {
             if (!ids.includes(reserve.channelId)) ids.push(reserve.channelId);
         });
-        if (ids.length === 0) form.channelIds.forEach(id => ids.push(id));
-        return ids;
-    }, [form.channelIds, programs, timeRuleReserves.data]);
+        return ruleEncodePriorityChannelIds(ids, form.channelIds, isAnimeSearch);
+    }, [form.channelIds, isAnimeSearch, programs, timeRuleReserves.data]);
     const patch = useCallback(<K extends keyof SearchFormState>(key: K, value: SearchFormState[K]) => setForm(current => ({ ...current, [key]: value })), []);
 
     const prepareForm = useCallback((): SearchFormState | null => {
@@ -1099,6 +1100,7 @@ export function SearchPage(): ReactNode {
                     open={ruleEditorOpen}
                     searchOption={isTimeRule && rule.data !== undefined ? rule.data.searchOption : toSearchOption(form)}
                     priorityChannelIds={priorityEncodeChannelIds}
+                    annictPriorityChannelIds={isAnimeSearch ? form.channelIds : undefined}
                     annictId={animeReturnContext?.annictId}
                     rule={rule.data}
                     onClose={() => setRuleEditorOpen(false)}
