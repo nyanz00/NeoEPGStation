@@ -48,6 +48,8 @@ test(
                 { id: 102, serviceId: 2, networkId: 1, name: 'ＢＳ１１', halfWidthName: 'BS11', hasLogoData: false, channelType: 'BS', channel: '11' },
                 { id: 103, serviceId: 3, networkId: 1, name: '東京MX', halfWidthName: '東京MX', hasLogoData: false, channelType: 'GR', channel: '16' },
                 { id: 104, serviceId: 4, networkId: 1, name: 'TVK', halfWidthName: 'TVK', hasLogoData: false, channelType: 'GR', channel: '18' },
+                { id: 105, serviceId: 5, networkId: 1, name: '東京MX携帯', type: 0xc0, halfWidthName: '東京MX携帯', hasLogoData: false, channelType: 'GR', channel: '16' },
+                { id: 106, serviceId: 6, networkId: 1, name: '東京MXデータ', type: 0x0c, halfWidthName: '東京MXデータ', hasLogoData: false, channelType: 'GR', channel: '16' },
             ];
 
             function Fixture() {
@@ -96,6 +98,21 @@ test(
             await page.getByRole('option', { name: 'ＢＳ１１', exact: true }).waitFor();
             await input.fill('');
             await assertAllChannelsVisible(page);
+
+            await input.fill('東京');
+            await page.getByRole('option', { name: '東京MX', exact: true }).waitFor();
+            assert.deepEqual(await page.getByRole('option').allTextContents(), ['東京MX']);
+            await input.fill('携帯');
+            await page.getByText('No options', { exact: true }).waitFor();
+            assert.equal(await page.getByRole('option').count(), 0);
+
+            // Existing rules keep their saved selection until the user explicitly removes it.
+            await page.evaluate(() => window.setSelectedForTest([105]));
+            await page.locator('.MuiChip-root').filter({ hasText: '東京MX携帯' }).waitFor();
+            await input.fill('東京');
+            await page.getByRole('option', { name: '東京MX', exact: true }).click();
+            assert.deepEqual(await selectedIds(page), [105, 103]);
+            await page.getByRole('button', { name: /clear/i }).click();
 
             // A parent refresh replaces both arrays while the selector is empty and while it has a selection.
             await input.fill('東京');
@@ -181,6 +198,7 @@ test(
             for (const name of ['BS11', 'ＢＳ１１', '東京MX', 'TVK']) {
                 await page.getByRole('option', { name, exact: true }).waitFor();
             }
+            assert.deepEqual(await page.getByRole('option').allTextContents(), ['BS11', 'ＢＳ１１', '東京MX', 'TVK']);
         }
     },
 );

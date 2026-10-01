@@ -1,6 +1,7 @@
 import { Autocomplete, Checkbox, TextField } from '@mui/material';
 import { type ReactNode, useMemo, useState } from 'react';
 import type { ChannelId, ChannelItem } from '../../../api';
+import { isAudioVideoChannel } from '../core/channels';
 import { normalizeChannelFilter } from '../core/program';
 
 export function RuleEncodeChannelSelector({
@@ -12,6 +13,7 @@ export function RuleEncodeChannelSelector({
     channelIds: ChannelId[];
     onChange: (channelIds: ChannelId[]) => void;
 }): ReactNode {
+    const selectableChannels = useMemo(() => channels.filter(isAudioVideoChannel), [channels]);
     const selectedChannels = useMemo(() => channels.filter(channel => channelIds.includes(channel.id)), [channels, channelIds]);
     const [inputValue, setInputValue] = useState('');
 
@@ -19,7 +21,7 @@ export function RuleEncodeChannelSelector({
         <Autocomplete
             multiple
             disableCloseOnSelect
-            options={channels}
+            options={selectableChannels}
             value={selectedChannels}
             inputValue={inputValue}
             onInputChange={(_event, nextInputValue, reason) => {
