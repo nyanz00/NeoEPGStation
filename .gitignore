@@ -3,6 +3,8 @@
 *.log.*
 *.log-*
 *.db
+*.db-shm
+*.db-wal
 .devcontainer/.vscode-server/*
 recorded/*
 thumbnail/*.jpg
