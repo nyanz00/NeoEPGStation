@@ -18,9 +18,54 @@ import IStorageManageModel from './model/operator/storage/IStorageManageModel';
 import IRuleManageModel from './model/operator/rule/IRuleManageModel';
 import { SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './model/service/ServiceProcess';
 import ProcessUtil from './util/ProcessUtil';
+import ProcessShutdown from './util/ProcessShutdown';
 install();
 
 containerSetter.set(container);
+
+let serviceChild: child_process.ChildProcess | null = null;
+const shutdown = new ProcessShutdown(
+    async reason => {
+        const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
+        log.system.info(`stop NeoEPGStation: ${reason}`);
+        // Allow the restart API response to reach the browser.
+        if (reason === 'Web UI update') await new Promise(resolve => setTimeout(resolve, 500));
+        await Promise.all([
+            stopService(),
+            container.get<IEPGUpdateExecutorManageModel>('IEPGUpdateExecutorManageModel').shutdown(),
+        ]);
+        await container.get<IDBOperator>('IDBOperator').closeConnection();
+        log.system.info('NeoEPGStation database connections closed');
+    },
+    err => container.get<ILoggerModel>('ILoggerModel').getLogger().system.fatal(`application shutdown failed: ${err}`),
+);
+
+const stopService = async (): Promise<void> => {
+    const child = serviceChild;
+    if (child === null || child.exitCode !== null || child.signalCode !== null) return;
+    const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
+    const stopped = new Promise<boolean>(resolve => {
+        const timeout = setTimeout(() => finish(false), 5_000);
+        const finish = (value: boolean): void => {
+            clearTimeout(timeout);
+            child.removeListener('exit', onExit);
+            resolve(value);
+        };
+        const onExit = (): void => finish(true);
+        child.once('exit', onExit);
+    });
+    try {
+        child.send({ type: 'update-shutdown-request' } satisfies ServiceProcessMessage, err => {
+            if (err !== null) log.system.warn(`service database shutdown IPC failed: ${err.message}`);
+        });
+    } catch (err) {
+        log.system.warn(`failed to request service database shutdown: ${err}`);
+    }
+    if ((await stopped) === false) {
+        log.system.warn('service database shutdown timed out; force terminating process');
+        await ProcessUtil.kill(child, 0);
+    }
+};
 
 /**
  * 初期処理
@@ -72,6 +117,7 @@ const init = async () => {
     const connectionChecker = container.get<IConnectionCheckModel>('IConnectionCheckModel');
     // wait mirakurun
     await connectionChecker.checkMirakurun();
+    if (shutdown.isStarted) return;
 
     // wait DB
     await connectionChecker.checkDB();
@@ -90,6 +136,7 @@ const runOperator = async () => {
     const recordingManager = container.get<IRecordingManageModel>('IRecordingManageModel');
 
     const tuners = await client.getTuners();
+    if (shutdown.isStarted) return;
     reservationManageModel.setTuners(tuners);
     recordingManager.setTuner(tuners);
 
@@ -108,6 +155,7 @@ const runOperator = async () => {
 const SERVICE_RESTART_LIMIT = 5;
 let serviceRestartCount = 0;
 const runService = async () => {
+    if (shutdown.isStarted) return;
     const startedAt = Date.now();
     const child = child_process.spawn(
         process.argv[0],
@@ -116,6 +164,7 @@ const runService = async () => {
             stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         },
     );
+    serviceChild = child;
 
     const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
     let isRestartScheduled = false;
@@ -125,7 +174,6 @@ const runService = async () => {
     });
     let lastHeartbeatAt = Date.now();
     let isHeartbeatTerminationStarted = false;
-    let isApplicationRestartRequested = false;
     const stopWithoutRestart = (reason: string): void => {
         log.system.fatal(reason);
         log.system.fatal('stop NeoEPGStation without restarting service');
@@ -138,73 +186,11 @@ const runService = async () => {
         if (serviceMessage.type === 'heartbeat') lastHeartbeatAt = Date.now();
         if (serviceMessage.type === 'ready') resolveReady();
         if (serviceMessage.type === 'update-restart-request') {
-            if (isApplicationRestartRequested) return;
-            isApplicationRestartRequested = true;
-            log.system.info('restart NeoEPGStation after Web UI update');
-            void (async () => {
-                // Allow the restart API response to reach the browser before stopping the service.
-                await new Promise(resolve => setTimeout(resolve, 500));
-                const serviceStoppedGracefully = new Promise<boolean>(resolve => {
-                    const timeout = setTimeout(() => finish(false), 5_000);
-                    const finish = (value: boolean): void => {
-                        clearTimeout(timeout);
-                        child.removeListener('message', onMessage);
-                        child.removeListener('exit', onExit);
-                        resolve(value);
-                    };
-                    const onMessage = (shutdownMessage: unknown): void => {
-                        if (
-                            typeof shutdownMessage === 'object' &&
-                            shutdownMessage !== null &&
-                            'type' in shutdownMessage &&
-                            shutdownMessage.type === 'update-shutdown-ready'
-                        ) {
-                            finish(true);
-                        }
-                    };
-                    const onExit = (): void => finish(true);
-                    child.on('message', onMessage);
-                    child.once('exit', onExit);
-                });
-                try {
-                    child.send({ type: 'update-shutdown-request' } satisfies ServiceProcessMessage, err => {
-                        if (err !== null) log.system.warn(`service database shutdown IPC failed: ${err.message}`);
-                    });
-                } catch (err) {
-                    log.system.warn(`failed to request service database shutdown: ${err}`);
-                }
-                if ((await serviceStoppedGracefully) === false) {
-                    log.system.warn('service database shutdown timed out; force terminating process');
-                    await ProcessUtil.kill(child, 0);
-                }
-
-                await container.get<IEPGUpdateExecutorManageModel>('IEPGUpdateExecutorManageModel').shutdownForUpdate();
-                const operatorDatabaseClosed = container
-                    .get<IDBOperator>('IDBOperator')
-                    .closeConnection()
-                    .then(() => true)
-                    .catch(err => {
-                        log.system.warn(`failed to close operator database connection: ${err}`);
-                        return true;
-                    });
-                if (
-                    (await Promise.race([
-                        operatorDatabaseClosed,
-                        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 5_000)),
-                    ])) === false
-                ) {
-                    log.system.warn('operator database shutdown timed out; continue Web UI update restart');
-                }
-                process.exitCode = 0;
-                setImmediate(() => process.exit(0));
-            })().catch(err => {
-                log.system.fatal(`Web UI update shutdown failed: ${err instanceof Error ? err.stack : err}`);
-                void ProcessUtil.kill(child, 0).finally(() => process.exit(1));
-            });
+            shutdown.request('Web UI update');
         }
     });
     const heartbeatMonitor = setInterval(() => {
-        if (Date.now() - lastHeartbeatAt <= 20_000 || isHeartbeatTerminationStarted) return;
+        if (shutdown.isStarted || Date.now() - lastHeartbeatAt <= 20_000 || isHeartbeatTerminationStarted) return;
         isHeartbeatTerminationStarted = true;
         log.system.fatal('service heartbeat timed out; terminate stalled service process');
         void ProcessUtil.kill(child).catch(err => {
@@ -213,7 +199,7 @@ const runService = async () => {
     }, 5_000);
     heartbeatMonitor.unref();
     const scheduleRestart = (reason: string): void => {
-        if (isRestartScheduled) return;
+        if (shutdown.isStarted || isRestartScheduled) return;
         isRestartScheduled = true;
         const uptime = Date.now() - startedAt;
         serviceRestartCount = uptime >= 30_000 ? 0 : serviceRestartCount + 1;
@@ -232,7 +218,8 @@ const runService = async () => {
     };
     child.once('exit', (code, signal) => {
         clearInterval(heartbeatMonitor);
-        if (isApplicationRestartRequested) return;
+        if (serviceChild === child) serviceChild = null;
+        if (shutdown.isStarted) return;
         if (code === SERVICE_EXIT_CODE_ADDRESS_IN_USE) {
             stopWithoutRestart('service listen address is already in use');
             return;
@@ -240,6 +227,7 @@ const runService = async () => {
         scheduleRestart(`code=${code?.toString(10) ?? 'null'}, signal=${signal ?? 'null'}`);
     });
     child.once('error', err => {
+        if (shutdown.isStarted) return;
         log.system.fatal(`service process spawn error: ${err.stack ?? err.message}`);
         scheduleRestart('spawn error');
     });
@@ -289,11 +277,19 @@ const runEPGUpdater = async () => {
         process.exit(1);
     }
 
+    if (shutdown.isStarted) return;
+
     await runOperator();
+
+    if (shutdown.isStarted) return;
 
     await runService();
 
+    if (shutdown.isStarted) return;
+
     await cleanup();
+
+    if (shutdown.isStarted) return;
 
     await runEPGUpdater();
 })();

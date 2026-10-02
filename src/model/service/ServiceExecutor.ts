@@ -12,6 +12,7 @@ import * as containerSetter from '../ModelContainerSetter';
 import IEncodeFinishModel from './encode/IEncodeFinishModel';
 import IServiceServer from './IServiceServer';
 import { isAddressInUseError, SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './ServiceProcess';
+import ProcessShutdown from '../../util/ProcessShutdown';
 install();
 
 containerSetter.set(container);
@@ -37,17 +38,31 @@ process.on('unhandledRejection', err => {
     scheduleFatalExit(err);
 });
 
+const shutdown = new ProcessShutdown(
+    async reason => {
+        log.system.info(`close service database connection: ${reason}`);
+        await container.get<IDBOperator>('IDBOperator').closeConnection();
+        if (reason === 'parent request' && process.connected && typeof process.send === 'function') {
+            await new Promise<void>(resolve => {
+                process.send?.({ type: 'update-shutdown-ready' } satisfies ServiceProcessMessage, () => resolve());
+            });
+        }
+    },
+    err => log.system.warn(`service database shutdown failed: ${err}`),
+    5_000,
+);
+
 if (typeof process.send === 'function') {
     const heartbeat = setInterval(() => {
-        process.send?.({ type: 'heartbeat' } satisfies ServiceProcessMessage);
+        if (shutdown.isStarted === false && process.connected) {
+            process.send?.({ type: 'heartbeat' } satisfies ServiceProcessMessage);
+        }
     }, 5_000);
     heartbeat.unref();
 }
 
-let isUpdateShutdownStarted = false;
 process.on('message', message => {
     if (
-        isUpdateShutdownStarted === true ||
         typeof message !== 'object' ||
         message === null ||
         !('type' in message) ||
@@ -55,19 +70,7 @@ process.on('message', message => {
     ) {
         return;
     }
-    isUpdateShutdownStarted = true;
-    log.system.info('close service database connection for Web UI update');
-    void container
-        .get<IDBOperator>('IDBOperator')
-        .closeConnection()
-        .catch(err => log.system.warn(`failed to close service database connection: ${err}`))
-        .finally(() => {
-            if (typeof process.send === 'function') {
-                process.send({ type: 'update-shutdown-ready' } satisfies ServiceProcessMessage, () => process.exit(0));
-            } else {
-                process.exit(0);
-            }
-        });
+    shutdown.request('parent request');
 });
 
 const isProcessRunning = (pid: number): boolean => {
@@ -126,7 +129,9 @@ const serviceServer = container.get<IServiceServer>('IServiceServer');
 void serviceServer
     .start()
     .then(() => {
-        process.send?.({ type: 'ready' } satisfies ServiceProcessMessage);
+        if (shutdown.isStarted === false && process.connected) {
+            process.send?.({ type: 'ready' } satisfies ServiceProcessMessage);
+        }
     })
     .catch((err: any) => {
         log.system.fatal(err);
@@ -137,7 +142,7 @@ void serviceServer
 const annictApiModel = container.get<IAnnictApiModel>('IAnnictApiModel');
 let isAnnictRetryRunning = false;
 const retryPendingAnnictWrites = async (): Promise<void> => {
-    if (isAnnictRetryRunning) return;
+    if (shutdown.isStarted || isAnnictRetryRunning) return;
     isAnnictRetryRunning = true;
     try {
         await annictApiModel.retryPendingEpisodeSyncs();

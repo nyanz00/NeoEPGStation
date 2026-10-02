@@ -107,12 +107,12 @@ export default class EPGUpdateExecutorManageModel implements IEPGUpdateExecutorM
         void this.execute();
     }
 
-    public async shutdownForUpdate(): Promise<void> {
+    public async shutdown(): Promise<void> {
         this.isShuttingDown = true;
         const executor = this.executor;
         if (executor === null || executor.exitCode !== null || executor.signalCode !== null) return;
 
-        this.log.system.info('request EPG updater database shutdown for Web UI update');
+        this.log.system.info('request EPG updater database shutdown');
         const exited = new Promise<boolean>(resolve => {
             const timeout = setTimeout(() => finish(false), 5_000);
             const finish = (value: boolean): void => {
