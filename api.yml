@@ -1846,6 +1846,36 @@ components:
                     items:
                         $ref: '#/components/schemas/RecordedPlaybackHistoryItem'
 
+        AutoEncodeSettings:
+            description: サーバー共通の自動エンコード設定
+            type: object
+            required:
+                - dropThreshold
+                - dropCheckEnabled
+            properties:
+                dropThreshold:
+                    description: この数以上のdropがある録画は自動エンコードしない。nullで無効
+                    type: integer
+                    nullable: true
+                    minimum: 1
+                    maximum: 9007199254740991
+                dropCheckEnabled:
+                    description: サーバーのdropチェックが有効か
+                    type: boolean
+
+        UpdateAutoEncodeSettingsOption:
+            description: サーバー共通の自動エンコード設定の変更
+            type: object
+            additionalProperties: false
+            required:
+                - dropThreshold
+            properties:
+                dropThreshold:
+                    type: integer
+                    nullable: true
+                    minimum: 1
+                    maximum: 9007199254740991
+
         RecordedPlaybackHistorySettings:
             description: アクティブユーザーの視聴履歴保存設定
             type: object

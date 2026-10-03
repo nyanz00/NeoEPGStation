@@ -268,6 +268,7 @@ export function SettingsPage(): ReactNode {
     const [pasteFallbackReason, setPasteFallbackReason] = useState<PasteFallbackReason>('failed');
     const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general');
     const [historyLimitDraft, setHistoryLimitDraft] = useState<{ userId: number; value: number } | null>(null);
+    const [autoEncodeDropThresholdDraft, setAutoEncodeDropThresholdDraft] = useState<string | undefined>(undefined);
     const [savingSettings, setSavingSettings] = useState(false);
     const discordSettingsRef = useRef<DiscordSettingsPanelHandle>(null);
     const { notify } = useNotifications();
@@ -286,6 +287,15 @@ export function SettingsPage(): ReactNode {
         enabled: typeof activeUser === 'number' && activeSettingsTab === 'display',
         retry: false,
     });
+    const autoEncodeSettings = useQuery({
+        queryKey: ['auto-encode-settings'],
+        queryFn: api.getAutoEncodeSettings,
+        enabled: activeSettingsTab === 'search-rule',
+        retry: false,
+    });
+    const autoEncodeDropThresholdValue = autoEncodeDropThresholdDraft ?? (autoEncodeSettings.data?.dropThreshold == null ? '' : String(autoEncodeSettings.data.dropThreshold));
+    const autoEncodeDropThresholdServerValue = autoEncodeSettings.data?.dropThreshold == null ? '' : String(autoEncodeSettings.data.dropThreshold);
+    const autoEncodeDropThresholdDirty = autoEncodeDropThresholdDraft !== undefined && autoEncodeDropThresholdDraft !== autoEncodeDropThresholdServerValue;
     const visibleHistoryLimit =
         typeof activeUser === 'number' && historySettings.data !== undefined
             ? historyLimitDraft?.userId === activeUser
@@ -389,6 +399,7 @@ export function SettingsPage(): ReactNode {
         setNiconicoCookies('');
     }, [activeUser, linkedViewerProfile?.id]);
     useEffect(() => setRecoveryCode(null), [activeUser]);
+    useEffect(() => setAutoEncodeDropThresholdDraft(undefined), [activeUser]);
     useEffect(() => {
         if (selectedAdminUserId !== '' && !nonAdminUsers.some(user => user.id === selectedAdminUserId)) setSelectedAdminUserId('');
         if (revokeAdminUserId !== null && !adminUsers.some(user => user.id === revokeAdminUserId)) setRevokeAdminUserId(null);
@@ -726,16 +737,36 @@ export function SettingsPage(): ReactNode {
         }
         setSavingSettings(true);
         try {
+            let dropThresholdToSave: number | null = null;
+            if (autoEncodeDropThresholdDirty) {
+                if (adminAccess.status !== 'admin' || !autoEncodeSettings.isSuccess || autoEncodeSettings.isError || autoEncodeSettings.isFetching) {
+                    throw new Error('drop閾値設定の取得または変更ができる状態ではありません');
+                }
+                const input = autoEncodeDropThresholdDraft ?? '';
+                if (input !== '') {
+                    if (!/^[0-9]+$/.test(input)) throw new Error('drop閾値は1以上の整数で入力してください');
+                    dropThresholdToSave = Number(input);
+                    if (!Number.isSafeInteger(dropThresholdToSave) || dropThresholdToSave < 1) {
+                        throw new Error('drop閾値は1以上の安全な整数で入力してください');
+                    }
+                }
+            }
             if (typeof activeUser === 'number' && visibleHistoryLimit !== null && historySettings.data !== undefined && visibleHistoryLimit !== historySettings.data.limit) {
                 const result = await api.updateRecordedPlaybackHistorySettings(activeUser, { limit: visibleHistoryLimit });
                 queryClient.setQueryData(['recorded-playback-history-settings', activeUser], result);
+                setHistoryLimitDraft(current => (current?.userId === activeUser ? null : current));
                 await queryClient.invalidateQueries({ queryKey: ['recorded-playback-history', activeUser] });
+            }
+            if (autoEncodeDropThresholdDirty) {
+                const result = await api.updateAutoEncodeSettings({ dropThreshold: dropThresholdToSave });
+                queryClient.setQueryData(['auto-encode-settings'], result);
+                setAutoEncodeDropThresholdDraft(undefined);
             }
             setHistoryLimitDraft(current => (current?.userId === activeUser ? null : current));
             settingsStore.save(draft);
             notify('設定を保存しました', 'success');
         } catch (error) {
-            notify(`視聴履歴の保存件数を更新できませんでした: ${error instanceof Error ? error.message : String(error)}`, 'error');
+            notify(`設定を保存できませんでした: ${error instanceof Error ? error.message : String(error)}`, 'error');
         } finally {
             setSavingSettings(false);
         }
@@ -1608,6 +1639,37 @@ export function SettingsPage(): ReactNode {
                                         />
                                     }
                                 />
+                                <SettingRow
+                                    title="自動エンコードを見送るdrop数"
+                                    description="サーバー共通の設定です。ルール・手動予約の録画で指定数以上のdropがあると自動エンコードを見送ります。drop情報がない録画と手動開始のエンコードは対象外です。変更は管理者のみ可能です。空欄で無効になります。"
+                                    control={
+                                        <TextField
+                                            type="number"
+                                            size="small"
+                                            label="drop数"
+                                            value={autoEncodeDropThresholdValue}
+                                            disabled={
+                                                savingSettings ||
+                                                adminAccess.status !== 'admin' ||
+                                                !autoEncodeSettings.isSuccess ||
+                                                autoEncodeSettings.isError ||
+                                                autoEncodeSettings.isFetching
+                                            }
+                                            onChange={event => setAutoEncodeDropThresholdDraft(event.target.value)}
+                                            slotProps={{ htmlInput: { min: 1, step: 1, 'aria-label': '自動エンコードを見送るdrop数' } }}
+                                            helperText={autoEncodeSettings.isPending ? 'サーバー設定を取得しています…' : undefined}
+                                            sx={{ width: 140 }}
+                                        />
+                                    }
+                                />
+                                {autoEncodeSettings.isError && (
+                                    <QueryLoadError label="自動エンコード設定" error={autoEncodeSettings.error} onRetry={() => void autoEncodeSettings.refetch()} />
+                                )}
+                                {autoEncodeSettings.data?.dropCheckEnabled === false && (
+                                    <Alert severity="warning" sx={{ my: 1 }}>
+                                        dropチェックが無効なため、録画のdrop数を判定できません。利用するにはサーバー設定のisEnabledDropCheckを有効にして再起動してください。
+                                    </Alert>
+                                )}
                             </SettingSection>
                         )}
 

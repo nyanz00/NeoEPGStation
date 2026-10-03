@@ -61,6 +61,8 @@ import TsInfoAnalyzer from './recorded/ts/TsInfoAnalyzer';
 import IVideoAnalysisModel from './video/IVideoAnalysisModel';
 import VideoAnalysisModel from './video/VideoAnalysisModel';
 import Configuration from './Configuration';
+import AutoEncodeSettingsModel from './encode/AutoEncodeSettingsModel';
+import IAutoEncodeSettingsModel from './encode/IAutoEncodeSettingsModel';
 import ConnectionCheckModel from './ConnectionCheckModel';
 import AnnictEpisodeDB from './db/AnnictEpisodeDB';
 import AnnictRuleLinkDB from './db/AnnictRuleLinkDB';
@@ -314,6 +316,7 @@ export const set = (container: Container): void => {
     container.bind<IStorageManageModel>('IStorageManageModel').to(StorageManageModel).inSingletonScope();
 
     container.bind<IEventSetter>('IEventSetter').to(EventSetter).inSingletonScope();
+    container.bind<IAutoEncodeSettingsModel>('IAutoEncodeSettingsModel').to(AutoEncodeSettingsModel).inSingletonScope();
 
     container.bind<ISocketIOManageModel>('ISocketIOManageModel').to(SocketIOManageModel).inSingletonScope();
 

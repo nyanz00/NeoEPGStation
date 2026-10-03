@@ -23,6 +23,7 @@ import IReserveEvent from './IReserveEvent';
 import IRuleEvent from './IRuleEvent';
 import IThumbnailEvent from './IThumbnailEvent';
 import IVideoAnalysisModel from '../video/IVideoAnalysisModel';
+import IAutoEncodeSettingsModel from '../encode/IAutoEncodeSettingsModel';
 
 @injectable()
 export default class EventSetter implements IEventSetter {
@@ -46,6 +47,7 @@ export default class EventSetter implements IEventSetter {
     private ipc: IIPCServer;
     private config: IConfigFile;
     private videoAnalysis: IVideoAnalysisModel;
+    private autoEncodeSettings: IAutoEncodeSettingsModel;
 
     private isFirstreserveationUpdate: boolean = true;
 
@@ -71,6 +73,7 @@ export default class EventSetter implements IEventSetter {
         @inject('IIPCServer') ipc: IIPCServer,
         @inject('IConfiguration') configure: IConfiguration,
         @inject('IVideoAnalysisModel') videoAnalysis: IVideoAnalysisModel,
+        @inject('IAutoEncodeSettingsModel') autoEncodeSettings: IAutoEncodeSettingsModel,
     ) {
         this.log = logger.getLogger();
         this.epgUpdateEvent = epgUpdateEvent;
@@ -92,6 +95,7 @@ export default class EventSetter implements IEventSetter {
         this.ipc = ipc;
         this.config = configure.getConfig();
         this.videoAnalysis = videoAnalysis;
+        this.autoEncodeSettings = autoEncodeSettings;
     }
 
     /**
@@ -234,8 +238,26 @@ export default class EventSetter implements IEventSetter {
                 // サムネイル作成
                 this.thumbnailManage.add(recorded.videoFiles[0].id);
 
+                let skipAutoEncode = false;
+                if ([reserve.encodeMode1, reserve.encodeMode2, reserve.encodeMode3].some(mode => mode !== null)) {
+                    try {
+                        const { dropThreshold } = await this.autoEncodeSettings.getSettings();
+                        const dropCount = recorded.dropLogFile?.dropCnt;
+                        skipAutoEncode =
+                            dropThreshold !== null && typeof dropCount === 'number' && dropCount >= dropThreshold;
+                        if (skipAutoEncode) {
+                            this.log.system.info(
+                                `skip automatic encoding: recordedId=${recorded.id}, drop=${dropCount}, threshold=${dropThreshold}`,
+                            );
+                        }
+                    } catch (err) {
+                        skipAutoEncode = true;
+                        this.log.system.error(`failed to read automatic encode settings; skip encoding: ${err}`);
+                    }
+                }
+
                 // エンコード追加 1
-                if (reserve.encodeMode1 !== null) {
+                if (skipAutoEncode === false && reserve.encodeMode1 !== null) {
                     this.ipc.setEncode({
                         recordedId: recorded.id,
                         sourceVideoFileId: recorded.videoFiles[0].id,
@@ -252,7 +274,7 @@ export default class EventSetter implements IEventSetter {
                 }
 
                 // エンコード追加 2
-                if (reserve.encodeMode2 !== null) {
+                if (skipAutoEncode === false && reserve.encodeMode2 !== null) {
                     this.ipc.setEncode({
                         recordedId: recorded.id,
                         sourceVideoFileId: recorded.videoFiles[0].id,
@@ -269,7 +291,7 @@ export default class EventSetter implements IEventSetter {
                 }
 
                 // エンコード追加 3
-                if (reserve.encodeMode3 !== null) {
+                if (skipAutoEncode === false && reserve.encodeMode3 !== null) {
                     this.ipc.setEncode({
                         recordedId: recorded.id,
                         sourceVideoFileId: recorded.videoFiles[0].id,
