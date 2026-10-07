@@ -565,6 +565,23 @@ components:
                 detail:
                     type: string
 
+        VideoComments:
+            description: PLAY・STREAMING共通のコメント一覧。timeは映像ファイル先頭からの秒数
+            allOf:
+                - $ref: '#/components/schemas/RecordedJikkyoComments'
+                - type: object
+                  required: [source, timeBase]
+                  properties:
+                      source:
+                          type: string
+                          enum: [jikkyo, ass]
+                      timeBase:
+                          type: string
+                          enum: [video]
+                      subtitleIndex:
+                          type: integer
+                          minimum: 0
+
         ScheduleChannleItem:
             description: 番組表の放送局データ
             required:

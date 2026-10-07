@@ -23,6 +23,8 @@ import IPTVApiModel from './api/iptv/IPTVApiModel';
 import IRecordedItemUtil from './api/IRecordedItemUtil';
 import IJikkyoApiModel from './api/jikkyo/IJikkyoApiModel';
 import JikkyoApiModel from './api/jikkyo/JikkyoApiModel';
+import IVideoCommentApiModel from './api/video/IVideoCommentApiModel';
+import VideoCommentApiModel from './api/video/VideoCommentApiModel';
 import IRecordedApiModel from './api/recorded/IRecordedApiModel';
 import IRecordedPlaybackApiModel from './api/recorded/IRecordedPlaybackApiModel';
 import RecordedApiModel from './api/recorded/RecordedApiModel';
@@ -362,6 +364,7 @@ export const set = (container: Container): void => {
     container.bind<IRecordedApiModel>('IRecordedApiModel').to(RecordedApiModel).inSingletonScope();
 
     container.bind<IJikkyoApiModel>('IJikkyoApiModel').to(JikkyoApiModel).inSingletonScope();
+    container.bind<IVideoCommentApiModel>('IVideoCommentApiModel').to(VideoCommentApiModel).inSingletonScope();
 
     container.bind<IRecordingApiModel>('IRecordingApiModel').to(RecordingApiModel).inSingletonScope();
 

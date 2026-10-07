@@ -43,6 +43,7 @@ export interface AppSettings {
     watchStreamingSubtitleOutlineSizePercent: number;
     watchStreamingSubtitleOutlineOpacityPercent: number;
     watchPlaySubtitleDanmaku: boolean;
+    watchStreamingSubtitleDanmaku: boolean;
     watchSelectSubtitleInPlayerSettings: boolean;
     watchDanmakuHighRefreshRate: boolean;
     watchDanmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
@@ -129,6 +130,7 @@ export const defaultSettings: AppSettings = {
     watchStreamingSubtitleOutlineSizePercent: 100,
     watchStreamingSubtitleOutlineOpacityPercent: 100,
     watchPlaySubtitleDanmaku: false,
+    watchStreamingSubtitleDanmaku: false,
     watchSelectSubtitleInPlayerSettings: false,
     watchDanmakuHighRefreshRate: false,
     watchDanmakuFrameRateLimit: 'auto',
@@ -238,6 +240,7 @@ function loadSettings(): AppSettings {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
+            watchStreamingSubtitleDanmaku: parsed.watchStreamingSubtitleDanmaku === true,
             watchSelectSubtitleInPlayerSettings: parsed.watchSelectSubtitleInPlayerSettings === true,
             watchDanmakuHighRefreshRate: parsed.watchDanmakuHighRefreshRate === true,
             watchDanmakuFrameRateLimit: normalizeDanmakuFrameRateLimit(parsed.watchDanmakuFrameRateLimit),
@@ -297,6 +300,7 @@ export const settingsStore = {
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
             watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
+            watchStreamingSubtitleDanmaku: value.watchStreamingSubtitleDanmaku === true,
             watchSelectSubtitleInPlayerSettings: value.watchSelectSubtitleInPlayerSettings === true,
             watchDanmakuHighRefreshRate: value.watchDanmakuHighRefreshRate === true,
             watchDanmakuFrameRateLimit: normalizeDanmakuFrameRateLimit(value.watchDanmakuFrameRateLimit),

@@ -556,7 +556,10 @@ export class RecordedPlayerCore {
                 this.player?.danmaku?.clear();
             },
             onStatus: detail => this.option.onCommentStatus?.(detail),
-            onError: error => this.option.onError?.(error),
+            onError: error => {
+                this.option.onCommentStatus?.('実況コメントを取得できませんでした。');
+                this.option.onError?.(error);
+            },
         });
         void this.jikkyoCore.start();
     }
