@@ -118,7 +118,7 @@ test('work detail does not expose an earliest streaming slot as its rule start d
 test('station start dates include later pages and keep the earliest date for each station', async () => {
     const model = Object.create(AnnictApiModel.prototype);
     const node = (name, startedAt) => ({ channel: { name }, startedAt });
-    model.requestWithSavedToken = async (_query, variables) => {
+    model.requestWorkListData = async (_query, variables) => {
         assert.deepEqual(variables, { ids: [1], after: 'next' });
         return {
             searchWorks: {
@@ -140,18 +140,22 @@ test('station start dates include later pages and keep the earliest date for eac
             pageInfo: { hasNextPage: true, endCursor: 'next' },
         },
     };
-    assert.deepEqual(await model.getWorkBroadcastStarts(work), [
+    assert.deepEqual((await model.getWorkBroadcastStarts(work, name => name === 'MBS')).starts, [
         { channelName: 'WEB', startedAt: '2026-10-01T00:00:00+09:00' },
         { channelName: 'MBS', startedAt: '2026-10-05T00:00:00+09:00' },
     ]);
-    model.requestWithSavedToken = async () => ({ searchWorks: { nodes: [work] } });
-    await assert.rejects(model.getWorkBroadcastStarts(work), /カーソル/);
+    model.requestWorkListData = async () => ({ searchWorks: { nodes: [work] } });
+    await assert.rejects(
+        model.getWorkBroadcastStarts(work, () => false),
+        /カーソル/,
+    );
 });
 
 test('background schedule enrichment fetches the first page and preserves work metadata', async () => {
     const model = Object.create(AnnictApiModel.prototype);
-    model.requestWithSavedToken = async (_query, variables) => {
-        assert.deepEqual(variables, { ids: [1] });
+    model.getBroadcastTargets = async () => name => name === 'MBS';
+    model.requestWorkListData = async (_query, variables) => {
+        assert.deepEqual(variables, { ids: [1], first: 1 });
         return {
             searchWorks: {
                 nodes: [
@@ -168,22 +172,24 @@ test('background schedule enrichment fetches the first page and preserves work m
     };
     const work = { annictId: 1, title: 'Test', imageUrl: 'https://example.com/image.jpg' };
     const result = await model.enrichWorkBroadcastStarts([work]);
-    assert.deepEqual(result, [
-        { ...work, broadcastStarts: [{ channelName: 'MBS', startedAt: '2026-10-05T00:00:00+09:00' }] },
-    ]);
+    assert.equal(result[0].title, work.title);
+    assert.equal(result[0].imageUrl, work.imageUrl);
+    assert.deepEqual(result[0].broadcastStarts, [{ channelName: 'MBS', startedAt: '2026-10-05T00:00:00+09:00' }]);
+    assert.equal(result[0].broadcastStartsComplete, true);
+    assert.ok(Number.isFinite(result[0].broadcastStartsCheckedAt));
 });
 
 test('schedule batches retain progress after rate limiting and resume only missing works', async () => {
     const model = Object.create(AnnictApiModel.prototype);
+    model.getBroadcastTargets = async () => name => name === 'MBS';
     const works = Array.from({ length: 127 }, (_, index) => ({ annictId: index + 1, title: `Work ${index}` }));
     let saved = works;
     let calls = 0;
     let fail = true;
-    model.requestWithSavedToken = async (_query, { ids }, strict) => {
+    model.requestWorkListData = async (_query, { ids }) => {
         calls++;
-        assert.equal(strict, true);
-        assert.ok(ids.length <= 50);
-        assert.match(_query, /searchWorks\(annictIds: \$ids, first: 50\)/);
+        assert.ok(ids.length <= 12);
+        assert.match(_query, /searchWorks\(annictIds: \$ids, first: \$first\)/);
         if (fail && calls === 2) throw new Error('HTTP 429');
         return {
             searchWorks: {
@@ -203,14 +209,14 @@ test('schedule batches retain progress after rate limiting and resume only missi
         }),
         /429/,
     );
-    assert.equal(saved.filter(work => work.broadcastStarts !== undefined).length, 50);
+    assert.equal(saved.filter(work => work.broadcastStarts !== undefined).length, 12);
     fail = false;
     calls = 0;
     const result = await model.enrichWorkBroadcastStarts(saved);
-    assert.equal(calls, 2);
+    assert.equal(calls, 10);
     assert.equal(result.filter(work => work.broadcastStarts !== undefined).length, 127);
     await model.enrichWorkBroadcastStarts(result);
-    assert.equal(calls, 2);
+    assert.equal(calls, 10);
 });
 
 test('work image fallback reads the Annict-hosted image and can refresh stale metadata', async t => {
