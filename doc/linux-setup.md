@@ -4,7 +4,7 @@
 
 ## セットアップ
 
-1. **Node.js, Mirakurun, FFmpeg/FFprobe, Python (2.7, v3.5, v3.6, or v3.7), GCC** がインストール済みであることを確認する
+1. **Node.js (20.19 以上の 20 系、22.13 以上の 22 系、または 24.11 以上), Mirakurun, FFmpeg/FFprobe, Python (2.7, v3.5, v3.6, or v3.7), GCC** がインストール済みであることを確認する
 
     ```bash
     $ node --version
@@ -55,23 +55,61 @@
     $ npm start
     ```
 
--   自動で起動する場合
+### 自動で起動する場合
 
-    -   [pm2](http://pm2.keymetrics.io/) を利用して自動起動設定が可能です
-    -   初回のみ以下の起動設定が必要です
+#### systemd を利用する場合（Linux）
 
-    ```
-    $ sudo npm install pm2 -g
-    $ sudo pm2 startup <OS名>
-    $ pm2 start dist/index.js --name "epgstation"
-    $ pm2 save
-    ```
+リポジトリには `scripts/systemd/neoepgstation.service` の unit ファイルが含まれています。以下の例では、EPGStation を `/opt/NeoEPGStation` に配置し、`epgstation` ユーザーで起動します。配置先や実行ユーザーが異なる場合は、unit 内の値を実環境に合わせてください。
+
+```bash
+$ command -v node npm pnpm
+$ sudo install -m 644 scripts/systemd/neoepgstation.service /etc/systemd/system/neoepgstation.service
+$ sudoedit /etc/systemd/system/neoepgstation.service
+```
+
+unit の `User`、`WorkingDirectory`、`ExecStart`、`PATH` を確認・編集します。`User` には既存の一般ユーザーを指定できます。そのユーザーが設定ファイル、データ、ログなどへアクセスできるようにしてください。`command -v node` で確認した Node.js のパスを `ExecStart` に設定し、`PATH` には Node.js と npm のディレクトリ、および pnpm を使う場合は pnpm のディレクトリも含めます。ログインシェルと systemd では `PATH` が異なることがあります。
+
+```bash
+$ sudo systemctl daemon-reload
+$ sudo systemd-analyze verify /etc/systemd/system/neoepgstation.service
+$ sudo systemctl enable --now neoepgstation
+$ sudo systemctl status neoepgstation
+$ sudo journalctl -u neoepgstation -f
+```
+
+`systemctl status` で状態を確認し、`journalctl` でログを確認できます。`journalctl` の追従表示は `Ctrl+C` で終了します。停止、再起動、自動起動登録の解除は次のコマンドを使います。
+
+```bash
+$ sudo systemctl stop neoepgstation
+$ sudo systemctl restart neoepgstation
+$ sudo systemctl disable --now neoepgstation
+```
+
+EPGStation の Web 更新を適用した後は、画面の再起動ボタン、または `systemctl restart` で再起動してください。unit は異常終了時に再起動しますが、`systemctl stop` による停止では再起動しません。
+
+PM2 から systemd へ移行する場合は、二重起動を避けるため、先に PM2 のプロセスを停止・削除し、保存済みのプロセス一覧を更新してください。
+
+```bash
+$ pm2 stop epgstation
+$ pm2 delete epgstation
+$ pm2 save
+```
+
+#### PM2 を利用する場合
+
+-   [pm2](http://pm2.keymetrics.io/) を利用して自動起動設定が可能です
+-   初回のみ以下の起動設定が必要です
+
+```
+$ sudo npm install pm2 -g
+$ sudo pm2 startup <OS名>
+$ pm2 start dist/index.js --name "epgstation"
+$ pm2 save
+```
 
 -   手動で終了する場合
 
-    ```
-    $ npm stop
-    ```
+    起動したターミナルで `Ctrl+C` を押します。
 
 -   自動起動した EPGStation を終了する場合
 
