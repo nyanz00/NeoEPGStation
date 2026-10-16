@@ -19,6 +19,7 @@ export function NotificationProvider({ children }: { children: ReactNode }): Rea
             <Snackbar
                 open={state !== null}
                 autoHideDuration={3_000}
+                disableWindowBlurListener
                 onClose={() => setState(null)}
                 // Keep notifications above the page and drawers, but below interactive
                 // modal surfaces so an overlapping Menu or Dialog remains clickable.

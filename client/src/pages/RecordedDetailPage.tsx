@@ -655,8 +655,7 @@ export function RecordedDetailPage(): ReactNode {
                                     <Typography
                                         component={genres.length > 1 ? 'button' : 'div'}
                                         variant="body2"
-                                        color="text.secondary"
-                                        sx={{ p: 0, border: 0, bgcolor: 'transparent', textAlign: 'left', cursor: genres.length > 1 ? 'help' : 'default' }}
+                                        sx={{ p: 0, border: 0, bgcolor: 'transparent', color: 'text.secondary', textAlign: 'left', cursor: genres.length > 1 ? 'help' : 'default' }}
                                     >
                                         {genres[0]}
                                     </Typography>

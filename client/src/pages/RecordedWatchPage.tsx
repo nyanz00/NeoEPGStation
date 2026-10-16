@@ -792,9 +792,18 @@ function RulePanel({
                                 />
                             )}
                             <Box sx={{ minWidth: 0, flex: 1, px: 1.25, py: 0.9 }}>
-                                <Typography noWrap sx={{ fontWeight: 750 }}>
-                                    {record.name}
-                                </Typography>
+                                <Tooltip
+                                    title={record.name}
+                                    placement="left"
+                                    arrow
+                                    enterDelay={500}
+                                    enterNextDelay={500}
+                                    slotProps={{ tooltip: { sx: { maxWidth: 360, fontSize: '0.875rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } } }}
+                                >
+                                    <Typography noWrap sx={{ fontWeight: 750 }}>
+                                        {record.name}
+                                    </Typography>
+                                </Tooltip>
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                                     {formatProgramDate(record.startAt)} - {formatProgramTime(record.endAt)}（{programDuration(record)}分）
                                 </Typography>
