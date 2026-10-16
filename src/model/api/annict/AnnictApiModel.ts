@@ -37,6 +37,26 @@ interface CacheFile<T> {
     value: T;
 }
 
+interface BroadcastStart {
+    channelName: string;
+    startedAt: string;
+}
+
+interface BroadcastScan {
+    starts: BroadcastStart[];
+    after?: string;
+    cursors: string[];
+    checkedAt?: number;
+}
+
+interface BroadcastWork extends apid.AnnictWorkSummary {
+    broadcastStarts?: BroadcastStart[];
+    broadcastStartsCheckedAt?: number;
+    broadcastStartsComplete?: boolean;
+    broadcastStartsNextCursor?: string;
+    broadcastScan?: BroadcastScan;
+}
+
 interface WorkListRefreshResult {
     works: apid.AnnictWorkSummary[];
     cachedAt: number;
@@ -192,6 +212,10 @@ class AnnictApiModel implements IAnnictApiModel {
     private readonly workListRefreshFailures = new Map<string, number>();
     private readonly workListEnrichmentRequests = new Map<string, Promise<void>>();
     private readonly workListEnrichmentFailures = new Map<string, number>();
+    private readonly workListCacheWriteQueues = new Map<string, Promise<void>>();
+    private workListRequestQueue: Promise<void> = Promise.resolve();
+    private workListLastRequestAt = 0;
+    private workListRateLimitedUntil = 0;
     private syoboiClient?: SyoboiCalendarClient;
     private broadcastSupplement?: SyoboiBroadcastSupplement;
 
@@ -907,9 +931,13 @@ class AnnictApiModel implements IAnnictApiModel {
                 [...new Set(supplements.flatMap(state => (state.error ? [state.error] : [])))].join(' / ') || undefined,
             broadcastDatesIncomplete: result.works.some(work => !Array.isArray((work as any).broadcastStarts)),
             works: result.works.map((work, index) => {
-                const { broadcastStarts = [], ...summary } = work as apid.AnnictWorkSummary & {
-                    broadcastStarts?: { channelName: string; startedAt: string }[];
-                };
+                const summary = { ...work } as BroadcastWork;
+                const broadcastStarts = summary.broadcastStarts ?? [];
+                delete summary.broadcastStarts;
+                delete summary.broadcastStartsCheckedAt;
+                delete summary.broadcastStartsComplete;
+                delete summary.broadcastStartsNextCursor;
+                delete summary.broadcastScan;
                 const programs = this.mergeBroadcastPrograms(
                     this.mapPrograms(
                         broadcastStarts.map((program, index) => ({
@@ -947,10 +975,22 @@ class AnnictApiModel implements IAnnictApiModel {
         if (rerun) return this.getRerunWorks(season, refresh, excludePaidChannels);
         const enrichedFile = path.join(this.root, 'cache', `works-v13-${season}.json`);
         const basicFile = path.join(this.root, 'cache', `works-basic-v3-${season}.json`);
-        const [cached, basicCached] = await Promise.all([
-            this.readCache<apid.AnnictWorkSummary[]>(enrichedFile),
-            this.readCache<apid.AnnictWorkSummary[]>(basicFile),
-        ]);
+        const [cached, basicCached] = await this.withWorkListCacheLock(basicFile, () =>
+            Promise.all([
+                this.readCache<apid.AnnictWorkSummary[]>(enrichedFile),
+                this.readCache<apid.AnnictWorkSummary[]>(basicFile),
+            ]),
+        );
+        const caches = [cached, basicCached].filter((cache): cache is CacheFile<BroadcastWork[]> => cache !== null);
+        const cachedBase =
+            cached !== null &&
+            basicCached !== null &&
+            basicCached.cachedAt >= cached.cachedAt &&
+            this.workListCacheGeneration(cached) === this.workListCacheGeneration(basicCached)
+                ? basicCached.value
+                : (cached?.value ?? []);
+        const cachedWorks = this.mergeCachedWorkList(cachedBase, caches);
+        const basicWorks = this.mergeCachedWorkList(basicCached?.value ?? [], caches);
         const maxAge = 24 * 60 * 60 * 1000;
         const now = Date.now();
         if (
@@ -959,21 +999,35 @@ class AnnictApiModel implements IAnnictApiModel {
             now - cached.cachedAt < maxAge &&
             (basicCached === null || this.workListCacheGeneration(cached) === this.workListCacheGeneration(basicCached))
         ) {
-            return { season, works: cached.value, cachedAt: cached.cachedAt, stale: false, enrichmentPending: false };
+            const targets = await this.getBroadcastTargets(excludePaidChannels);
+            const pending = cachedWorks.some(work => this.needsBroadcastCheck(work, targets));
+            const enrichmentPending =
+                pending &&
+                this.startWorkListEnrichment(
+                    season,
+                    cachedWorks,
+                    cached.cachedAt,
+                    this.workListCacheGeneration(cached),
+                    basicFile,
+                    enrichedFile,
+                    excludePaidChannels,
+                );
+            return { season, works: cachedWorks, cachedAt: cached.cachedAt, stale: false, enrichmentPending };
         }
         if (!refresh && basicCached !== null && now - basicCached.cachedAt < maxAge) {
             const generation = this.workListCacheGeneration(basicCached);
             const enrichmentPending = this.startWorkListEnrichment(
                 season,
-                basicCached.value,
+                basicWorks,
                 basicCached.cachedAt,
                 generation,
                 basicFile,
                 enrichedFile,
+                excludePaidChannels,
             );
             return {
                 season,
-                works: basicCached.value,
+                works: basicWorks,
                 cachedAt: basicCached.cachedAt,
                 stale: false,
                 enrichmentPending,
@@ -984,21 +1038,22 @@ class AnnictApiModel implements IAnnictApiModel {
                 basicCached !== null &&
                 (cached === null || this.workListCacheGeneration(basicCached) !== this.workListCacheGeneration(cached));
             const displayedCache = displayBasicCache ? basicCached : (cached ?? basicCached!);
-            const refreshPending = this.startWorkListRefresh(season, basicFile, enrichedFile);
+            const refreshPending = this.startWorkListRefresh(season, basicFile, enrichedFile, excludePaidChannels);
             const enrichmentPending =
                 displayBasicCache && basicCached !== null
                     ? this.startWorkListEnrichment(
                           season,
-                          basicCached.value,
+                          basicWorks,
                           basicCached.cachedAt,
                           this.workListCacheGeneration(basicCached),
                           basicFile,
                           enrichedFile,
+                          excludePaidChannels,
                       )
                     : false;
             return {
                 season,
-                works: displayedCache.value,
+                works: displayBasicCache ? basicWorks : cachedWorks,
                 cachedAt: displayedCache.cachedAt,
                 stale: true,
                 refreshPending,
@@ -1006,7 +1061,13 @@ class AnnictApiModel implements IAnnictApiModel {
             };
         }
         try {
-            const result = await this.getOrStartWorkListRefresh(season, basicFile, enrichedFile, true)!;
+            const result = await this.getOrStartWorkListRefresh(
+                season,
+                basicFile,
+                enrichedFile,
+                true,
+                excludePaidChannels,
+            )!;
             return { season, ...result, stale: false, refreshPending: false };
         } catch (err) {
             if (
@@ -1016,15 +1077,16 @@ class AnnictApiModel implements IAnnictApiModel {
                 const generation = this.workListCacheGeneration(basicCached);
                 const enrichmentPending = this.startWorkListEnrichment(
                     season,
-                    basicCached.value,
+                    basicWorks,
                     basicCached.cachedAt,
                     generation,
                     basicFile,
                     enrichedFile,
+                    excludePaidChannels,
                 );
                 return {
                     season,
-                    works: basicCached.value,
+                    works: basicWorks,
                     cachedAt: basicCached.cachedAt,
                     stale: true,
                     refreshPending: false,
@@ -1034,7 +1096,7 @@ class AnnictApiModel implements IAnnictApiModel {
             if (cached !== null) {
                 return {
                     season,
-                    works: cached.value,
+                    works: cachedWorks,
                     cachedAt: cached.cachedAt,
                     stale: true,
                     refreshPending: false,
@@ -1045,8 +1107,13 @@ class AnnictApiModel implements IAnnictApiModel {
         }
     }
 
-    private startWorkListRefresh(season: string, basicFile: string, enrichedFile: string): boolean {
-        const request = this.getOrStartWorkListRefresh(season, basicFile, enrichedFile, false);
+    private startWorkListRefresh(
+        season: string,
+        basicFile: string,
+        enrichedFile: string,
+        excludePaidChannels = false,
+    ): boolean {
+        const request = this.getOrStartWorkListRefresh(season, basicFile, enrichedFile, false, excludePaidChannels);
         if (request === null) return false;
         void request.catch(() => undefined);
         return true;
@@ -1057,13 +1124,14 @@ class AnnictApiModel implements IAnnictApiModel {
         basicFile: string,
         enrichedFile: string,
         force: boolean,
+        excludePaidChannels = false,
     ): Promise<WorkListRefreshResult> | null {
         const active = this.workListRefreshRequests.get(season);
         if (active !== undefined) return active;
         const failedAt = this.workListRefreshFailures.get(season);
         if (!force && failedAt !== undefined && Date.now() - failedAt < 5 * 60 * 1000) return null;
 
-        const request = this.refreshWorkList(season, basicFile, enrichedFile)
+        const request = this.refreshWorkList(season, basicFile, enrichedFile, excludePaidChannels)
             .then(result => {
                 this.workListRefreshFailures.delete(season);
                 return result;
@@ -1088,11 +1156,33 @@ class AnnictApiModel implements IAnnictApiModel {
         season: string,
         basicFile: string,
         enrichedFile: string,
+        excludePaidChannels = false,
     ): Promise<WorkListRefreshResult> {
-        const works = await this.fetchBasicWorkList(season);
+        const existing = (
+            await this.withWorkListCacheLock(basicFile, () =>
+                Promise.all([
+                    this.readCache<BroadcastWork[]>(enrichedFile),
+                    this.readCache<BroadcastWork[]>(basicFile),
+                ]),
+            )
+        ).filter((cache): cache is CacheFile<BroadcastWork[]> => cache !== null);
+        const initial = existing.length === 0;
+        const fresh = await this.fetchBasicWorkList(season, initial ? 100 : 50);
+        // Include progress completed while the list was being fetched. Older jobs are
+        // stopped by the generation check instead of making this refresh wait for them.
         const cachedAt = Date.now();
         const generation = randomUUID();
-        await this.writeJson(basicFile, { cachedAt, generation, value: works });
+        const works = await this.withWorkListCacheLock(basicFile, async () => {
+            const caches = (
+                await Promise.all([
+                    this.readCache<BroadcastWork[]>(enrichedFile),
+                    this.readCache<BroadcastWork[]>(basicFile),
+                ])
+            ).filter((cache): cache is CacheFile<BroadcastWork[]> => cache !== null);
+            const value = this.mergeCachedWorkList(fresh, caches);
+            await this.writeJson(basicFile, { cachedAt, generation, value });
+            return value;
+        });
         const enrichmentPending = this.startWorkListEnrichment(
             season,
             works,
@@ -1100,20 +1190,23 @@ class AnnictApiModel implements IAnnictApiModel {
             generation,
             basicFile,
             enrichedFile,
+            excludePaidChannels,
+            initial,
+            true,
         );
         return { works, cachedAt, enrichmentPending };
     }
 
-    private async fetchBasicWorkList(season: string): Promise<apid.AnnictWorkSummary[]> {
+    private async fetchBasicWorkList(season: string, pageSize = 100): Promise<apid.AnnictWorkSummary[]> {
         const nodes: any[] = [];
         let after: string | undefined;
         const seenCursors = new Set<string>();
         for (;;) {
-            const data = await this.requestWithSavedToken(
-                `query Works($season: [String!], $after: String) {
+            const data = await this.requestWorkListData(
+                `query Works($season: [String!], $after: String, $first: Int!) {
                     searchWorks(
                         seasons: $season
-                        first: 100
+                        first: $first
                         after: $after
                         orderBy: { field: WATCHERS_COUNT, direction: DESC }
                     ) {
@@ -1130,8 +1223,7 @@ class AnnictApiModel implements IAnnictApiModel {
                         pageInfo { hasNextPage endCursor }
                     }
                 }`,
-                { season: [season], after },
-                true,
+                { season: [season], after, first: pageSize },
             );
             nodes.push(...(Array.isArray(data.searchWorks?.nodes) ? data.searchWorks.nodes : []));
             const pageInfo = data.searchWorks?.pageInfo;
@@ -1156,43 +1248,99 @@ class AnnictApiModel implements IAnnictApiModel {
     private async enrichWorkBroadcastStarts(
         works: apid.AnnictWorkSummary[],
         saveProgress?: (works: apid.AnnictWorkSummary[]) => Promise<void>,
+        initial = false,
+        excludePaidChannels = false,
     ): Promise<apid.AnnictWorkSummary[]> {
-        const result = [...works];
-        const missing = works.filter(work => !Array.isArray((work as any).broadcastStarts));
-        for (let index = 0; index < missing.length; index += 50) {
-            const batch = missing.slice(index, index + 50);
-            const data = await this.requestWithSavedToken(
-                `query WorkBroadcastStartsBatch($ids: [Int!]) {
-                    searchWorks(annictIds: $ids, first: 50) {
-                        nodes {
-                            annictId
-                            programs(first: 100, orderBy: { field: STARTED_AT, direction: ASC }) {
-                                nodes { startedAt channel { name } }
-                                pageInfo { hasNextPage endCursor }
+        const result = [...works] as BroadcastWork[];
+        const targets = await this.getBroadcastTargets(excludePaidChannels);
+        const pending = result.filter(work => this.needsBroadcastCheck(work, targets));
+        const missing = pending.filter(work => !work.broadcastStarts?.some(start => targets(start.channelName)));
+        const acquired = pending.filter(work => !missing.includes(work));
+        for (const [items, batchSize] of [
+            [missing, initial ? 25 : 12],
+            [acquired, 5],
+        ] as const) {
+            for (let index = 0; index < items.length; index += batchSize) {
+                const batch = items.slice(index, index + batchSize);
+                const fresh = batch.filter(work => work.broadcastScan === undefined);
+                const data =
+                    fresh.length === 0
+                        ? undefined
+                        : await this.requestWorkListData(
+                              `query WorkBroadcastStartsBatch($ids: [Int!], $first: Int!) {
+                        searchWorks(annictIds: $ids, first: $first) {
+                            nodes {
+                                annictId
+                                programs(first: 10, orderBy: { field: STARTED_AT, direction: ASC }) {
+                                    nodes { startedAt channel { name } }
+                                    pageInfo { hasNextPage endCursor }
+                                }
                             }
                         }
+                    }`,
+                              { ids: fresh.map(work => work.annictId), first: fresh.length },
+                          );
+                for (const work of batch) {
+                    const node = data?.searchWorks?.nodes?.find((item: any) => item?.annictId === work.annictId);
+                    if (work.broadcastScan === undefined && node?.programs === undefined) {
+                        throw new Error('Annict放送開始日時を取得できませんでした');
                     }
-                }`,
-                { ids: batch.map(work => work.annictId) },
-                true,
-            );
-            for (const work of batch) {
-                const node = data.searchWorks?.nodes?.find((item: any) => item?.annictId === work.annictId);
-                if (node?.programs === undefined) throw new Error('Annict放送開始日時を取得できませんでした');
-                const updated = { ...work, broadcastStarts: await this.getWorkBroadcastStarts(node) };
-                result[works.indexOf(work)] = updated;
-                await saveProgress?.([...result]);
+                    const position = result.indexOf(work);
+                    const scanned = await this.getWorkBroadcastStarts(
+                        { annictId: work.annictId, programs: node?.programs },
+                        targets,
+                        work.broadcastScan,
+                        async scan => {
+                            result[position] = { ...work, broadcastScan: scan };
+                            await saveProgress?.([...result]);
+                        },
+                    );
+                    result[position] = {
+                        ...work,
+                        broadcastStarts: scanned.starts,
+                        broadcastStartsComplete: scanned.complete,
+                        broadcastStartsNextCursor: scanned.after,
+                        broadcastStartsCheckedAt: Date.now(),
+                        broadcastScan: undefined,
+                    };
+                    await saveProgress?.([...result]);
+                }
             }
         }
         return result;
     }
 
-    private async getWorkBroadcastStarts(work: any): Promise<{ channelName: string; startedAt: string }[]> {
-        const starts = new Map<string, string>();
-        const cursors = new Set<string>();
+    private async getWorkBroadcastStarts(
+        work: any,
+        targets: (channelName: string) => boolean,
+        saved?: BroadcastScan,
+        saveProgress?: (scan: BroadcastScan) => Promise<void>,
+    ): Promise<{ starts: BroadcastStart[]; complete: boolean; after?: string }> {
+        const starts = new Map((saved?.starts ?? []).map(start => [start.channelName, start.startedAt]));
+        const cursors = new Set(saved?.cursors ?? []);
         let programs = work.programs;
+        let after = saved?.after;
         for (;;) {
-            for (const program of programs?.nodes ?? []) {
+            if (programs === undefined) {
+                const data = await this.requestWorkListData(
+                    `query WorkBroadcastStarts($ids: [Int!], $after: String) {
+                        searchWorks(annictIds: $ids, first: 1) {
+                            nodes {
+                                programs(first: 10, after: $after, orderBy: { field: STARTED_AT, direction: ASC }) {
+                                    nodes { startedAt channel { name } }
+                                    pageInfo { hasNextPage endCursor }
+                                }
+                            }
+                        }
+                    }`,
+                    { ids: [work.annictId], after },
+                );
+                programs = data.searchWorks?.nodes?.[0]?.programs;
+            }
+            if (!Array.isArray(programs?.nodes) || typeof programs?.pageInfo?.hasNextPage !== 'boolean') {
+                throw new Error('Annict放送開始日時を取得できませんでした');
+            }
+            for (const program of programs.nodes) {
                 if (typeof program?.channel?.name !== 'string' || !Number.isFinite(Date.parse(program?.startedAt)))
                     continue;
                 const previous = starts.get(program.channel.name);
@@ -1200,29 +1348,19 @@ class AnnictApiModel implements IAnnictApiModel {
                     starts.set(program.channel.name, program.startedAt);
                 }
             }
-            if (programs !== undefined && programs?.pageInfo?.hasNextPage !== true) break;
-            const after = programs?.pageInfo?.endCursor;
-            if (programs !== undefined && (typeof after !== 'string' || after.length === 0 || cursors.has(after))) {
+            const complete = !programs.pageInfo.hasNextPage;
+            after = complete ? undefined : programs.pageInfo.endCursor;
+            const value = Array.from(starts, ([channelName, startedAt]) => ({ channelName, startedAt }));
+            if (complete || value.some(start => targets(start.channelName))) {
+                return { starts: value, complete, after: typeof after === 'string' ? after : undefined };
+            }
+            if (!complete && (typeof after !== 'string' || after.length === 0 || cursors.has(after))) {
                 throw new Error('Annict放送開始日時の次ページカーソルを取得できませんでした');
             }
             if (after !== undefined) cursors.add(after);
-            const data = await this.requestWithSavedToken(
-                `query WorkBroadcastStarts($ids: [Int!], $after: String) {
-                    searchWorks(annictIds: $ids, first: 1) {
-                        nodes {
-                            programs(first: 100, after: $after, orderBy: { field: STARTED_AT, direction: ASC }) {
-                                nodes { startedAt channel { name } }
-                                pageInfo { hasNextPage endCursor }
-                            }
-                        }
-                    }
-                }`,
-                { ids: [work.annictId], after },
-            );
-            programs = data.searchWorks?.nodes?.[0]?.programs;
-            if (programs === undefined) throw new Error('Annict放送開始日時を取得できませんでした');
+            await saveProgress?.({ starts: value, after, cursors: [...cursors], checkedAt: Date.now() });
+            programs = undefined;
         }
-        return Array.from(starts, ([channelName, startedAt]) => ({ channelName, startedAt }));
     }
 
     private startWorkListEnrichment(
@@ -1232,7 +1370,11 @@ class AnnictApiModel implements IAnnictApiModel {
         generation: string,
         basicFile: string,
         enrichedFile: string,
+        excludePaidChannels = false,
+        initial = false,
+        refreshOwner = false,
     ): boolean {
+        if (this.workListRefreshRequests.has(season) && !refreshOwner) return true;
         const key = `${season}:${generation}`;
         if (this.workListEnrichmentRequests.has(key)) return true;
         const failedAt = this.workListEnrichmentFailures.get(key);
@@ -1240,17 +1382,28 @@ class AnnictApiModel implements IAnnictApiModel {
 
         const request = Promise.resolve()
             .then(async () => {
-                const scheduled = await this.enrichWorkBroadcastStarts(works, async value => {
-                    const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
-                    if (current !== null && this.workListCacheGeneration(current) === generation) {
-                        await this.writeJson(basicFile, { cachedAt, generation, value });
-                    }
-                });
+                const scheduled = await this.enrichWorkBroadcastStarts(
+                    works,
+                    async value => {
+                        await this.withWorkListCacheLock(basicFile, async () => {
+                            const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                            if (current === null || this.workListCacheGeneration(current) === generation) {
+                                await this.writeJson(basicFile, { cachedAt, generation, value });
+                            } else {
+                                throw new Error('更新済みの作品一覧への古い補完処理を中止しました');
+                            }
+                        });
+                    },
+                    initial,
+                    excludePaidChannels,
+                );
                 const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(scheduled));
-                const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
-                if (latestBasic === null || this.workListCacheGeneration(latestBasic) !== generation) return;
-                await this.writeJson(enrichedFile, { cachedAt, generation, value: enriched });
-                this.workListEnrichmentFailures.delete(key);
+                await this.withWorkListCacheLock(basicFile, async () => {
+                    const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                    if (latestBasic === null || this.workListCacheGeneration(latestBasic) !== generation) return;
+                    await this.writeJson(enrichedFile, { cachedAt, generation, value: enriched });
+                    this.workListEnrichmentFailures.delete(key);
+                });
             })
             .catch(err => {
                 this.workListEnrichmentFailures.set(key, Date.now());
@@ -1267,6 +1420,112 @@ class AnnictApiModel implements IAnnictApiModel {
 
     private workListCacheGeneration(cache: CacheFile<apid.AnnictWorkSummary[]>): string {
         return cache.generation ?? `legacy:${cache.cachedAt.toString(10)}`;
+    }
+
+    private async withWorkListCacheLock<T>(file: string, operation: () => Promise<T>): Promise<T> {
+        const previous = this.workListCacheWriteQueues.get(file) ?? Promise.resolve();
+        const request = previous.then(operation);
+        const tail = request.then(
+            () => undefined,
+            () => undefined,
+        );
+        this.workListCacheWriteQueues.set(file, tail);
+        try {
+            return await request;
+        } finally {
+            if (this.workListCacheWriteQueues.get(file) === tail) this.workListCacheWriteQueues.delete(file);
+        }
+    }
+
+    private mergeCachedWorkList(
+        fresh: apid.AnnictWorkSummary[],
+        caches: CacheFile<BroadcastWork[]>[],
+    ): BroadcastWork[] {
+        const previous = new Map<number, BroadcastWork>();
+        for (const cache of [...caches].sort((a, b) => a.cachedAt - b.cachedAt)) {
+            for (const work of cache.value) {
+                const old = previous.get(work.annictId);
+                const fields = Object.fromEntries(Object.entries(work).filter(([, value]) => value !== undefined));
+                const score = (value: BroadcastWork, fallback = 0): number =>
+                    Math.max(value.broadcastScan?.checkedAt ?? 0, value.broadcastStartsCheckedAt ?? fallback);
+                const state =
+                    old !== undefined &&
+                    ((work.broadcastStarts === undefined && work.broadcastScan === undefined) ||
+                        score(old) > score(work, cache.cachedAt))
+                        ? old
+                        : work;
+                previous.set(work.annictId, {
+                    ...old,
+                    ...fields,
+                    broadcastStarts: state.broadcastStarts ?? old?.broadcastStarts,
+                    broadcastStartsCheckedAt:
+                        state.broadcastStartsCheckedAt ?? old?.broadcastStartsCheckedAt ?? cache.cachedAt,
+                    broadcastStartsComplete: state.broadcastStartsComplete,
+                    broadcastStartsNextCursor: state.broadcastStartsNextCursor,
+                    broadcastScan: state.broadcastScan,
+                } as BroadcastWork);
+            }
+        }
+        return fresh.map(work => {
+            const summary = { ...work } as BroadcastWork;
+            delete summary.broadcastStarts;
+            delete summary.broadcastStartsCheckedAt;
+            delete summary.broadcastStartsComplete;
+            delete summary.broadcastStartsNextCursor;
+            delete summary.broadcastScan;
+            return {
+                ...previous.get(work.annictId),
+                ...Object.fromEntries(Object.entries(summary).filter(([, value]) => value !== undefined)),
+            } as BroadcastWork;
+        });
+    }
+
+    private async getBroadcastTargets(excludePaidChannels: boolean): Promise<(channelName: string) => boolean> {
+        const channels = await this.channelApiModel.getChannels();
+        return name =>
+            this.matchLocalChannels(name, channels).length > 0 &&
+            (!excludePaidChannels || !PAID_BROADCAST_CHANNEL_PATTERN.test(name.normalize('NFKC')));
+    }
+
+    private needsBroadcastCheck(work: BroadcastWork, targets: (name: string) => boolean): boolean {
+        if (work.broadcastScan !== undefined || !Array.isArray(work.broadcastStarts)) return true;
+        const receivable = work.broadcastStarts.filter(start => targets(start.channelName));
+        // Older caches scanned every page. New early-stop caches must be checked again
+        // if the receiver settings no longer match any channel they contain.
+        if (receivable.length === 0 && work.broadcastStartsComplete === false) return true;
+        const future = receivable.length === 0 || receivable.some(start => Date.parse(start.startedAt) > Date.now());
+        const maxAge = (future ? 1 : 7) * 24 * 60 * 60 * 1000;
+        return Date.now() - (work.broadcastStartsCheckedAt ?? 0) >= maxAge;
+    }
+
+    private requestWorkListData(query: string, variables: object): Promise<any> {
+        const request = this.workListRequestQueue.then(async () => {
+            if (Date.now() < this.workListRateLimitedUntil) {
+                throw new Error('Annictのアクセス制限解除を待っています。取得済みの情報は保持しています。');
+            }
+            const wait = 1_000 - (Date.now() - this.workListLastRequestAt);
+            if (wait > 0) await new Promise<void>(resolve => setTimeout(resolve, wait));
+            this.workListLastRequestAt = Date.now();
+            try {
+                return await this.requestWithSavedToken(query, variables, true);
+            } catch (err: any) {
+                if (err?.response?.status === 429) {
+                    const retryAfter = err.response.headers?.['retry-after'];
+                    const seconds = Number(retryAfter);
+                    const until = Number.isFinite(seconds) ? Date.now() + seconds * 1_000 : Date.parse(retryAfter);
+                    this.workListRateLimitedUntil = Math.max(
+                        Date.now() + 5 * 60_000,
+                        Number.isFinite(until) ? until : 0,
+                    );
+                }
+                throw err;
+            }
+        });
+        this.workListRequestQueue = request.then(
+            () => undefined,
+            () => undefined,
+        );
+        return request;
     }
 
     public async getWork(annictId: number, refresh: boolean): Promise<apid.AnnictWorkDetail> {
@@ -2881,7 +3140,11 @@ class AnnictApiModel implements IAnnictApiModel {
             this.log.system.warn(`Annict REST work dates failed: error=${this.errorMessage(err)}`);
             return works;
         }
-        return works.map(work => ({ ...work, ...dates.get(work.annictId) }));
+        return works.map(work => ({
+            ...work,
+            releasedOn: dates.get(work.annictId)?.releasedOn ?? work.releasedOn,
+            releasedOnAbout: dates.get(work.annictId)?.releasedOnAbout ?? work.releasedOnAbout,
+        }));
     }
 
     private async getAnnictInfoPageReleasedOn(annictId: number): Promise<string | undefined> {
