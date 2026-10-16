@@ -489,6 +489,13 @@ export interface RecordedJikkyoComments {
     detail: string;
 }
 
+/** Comments for either PLAY or STREAMING; time is seconds from the video file start. */
+export interface VideoComments extends RecordedJikkyoComments {
+    source: 'jikkyo' | 'ass';
+    timeBase: 'video';
+    subtitleIndex?: number;
+}
+
 /**
  * 手動予約編集オプション
  */

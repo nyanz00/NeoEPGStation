@@ -1189,8 +1189,18 @@ export function SettingsPage(): ReactNode {
                                         control={<Switch checked={draft.watchPlaySubtitleDanmaku} onChange={event => patch('watchPlaySubtitleDanmaku', event.target.checked)} />}
                                     />
                                     <SettingRow
+                                        title="STREAMING字幕をdanmakuで表示"
+                                        description="オンにするとエンコード済みSTREAMINGの実況字幕をdanmakuで表示します。通常字幕はlibassで表示し、オフにすると選択した字幕を映像へ焼き込みます。"
+                                        control={
+                                            <Switch
+                                                checked={draft.watchStreamingSubtitleDanmaku}
+                                                onChange={event => patch('watchStreamingSubtitleDanmaku', event.target.checked)}
+                                            />
+                                        }
+                                    />
+                                    <SettingRow
                                         title="弾幕と字幕をプレイヤー設定欄から選択する"
-                                        description="PLAY再生の選択欄を映像上部から歯車の設定パネルへ移動します。danmaku表示が有効な場合は、弾幕と字幕を個別に選択できます。"
+                                        description="PLAY再生とdanmaku表示を有効にしたSTREAMINGの選択欄を映像上部から歯車の設定パネルへ移動します。danmaku表示が有効な場合は、弾幕と字幕を個別に選択できます。"
                                         control={
                                             <Switch
                                                 checked={draft.watchSelectSubtitleInPlayerSettings}

@@ -53,6 +53,7 @@ import { RecordedPlayerCore, type RecordedPlayerSourceType, type RecordedPlayerS
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/player/RecordedPlaybackTracker';
 import type { JikkyoComment } from '../core/player/jikkyoComment';
+import { getRecordedCommentPolicy } from '../core/player/recordedCommentPolicy';
 import { formatProgramDate, formatProgramTime, programDuration, programGenrePathLabels } from '../core/program';
 import { useActiveUser } from '../core/storage/activeUser';
 import { useSettings, type WatchDanmakuFrameRateLimit, type WebKitPlaybackMode } from '../core/storage/settings';
@@ -825,6 +826,7 @@ function CommentPanel({
     autoFollow,
     onScroll,
     onReturnToCurrent,
+    subtitleError,
 }: {
     comments: JikkyoComment[];
     status: string;
@@ -832,6 +834,7 @@ function CommentPanel({
     autoFollow: boolean;
     onScroll: (list: HTMLDivElement) => void;
     onReturnToCurrent: () => void;
+    subtitleError?: { message: string; onRetry: () => void };
 }): ReactNode {
     return (
         <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
@@ -841,6 +844,19 @@ function CommentPanel({
                     コメント
                 </Typography>
             </Stack>
+            {subtitleError && (
+                <Alert
+                    severity="error"
+                    sx={{ mb: 1.5 }}
+                    action={
+                        <Button color="inherit" size="small" onClick={subtitleError.onRetry}>
+                            再試行
+                        </Button>
+                    }
+                >
+                    {subtitleError.message}
+                </Alert>
+            )}
             {!autoFollow && comments.length > 0 && (
                 <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
                     現在位置に戻る
@@ -1072,23 +1088,25 @@ export function RecordedWatchPage(): ReactNode {
     settingsRef.current = settings;
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000, enabled: validIds });
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig, staleTime: Number.POSITIVE_INFINITY, enabled: streaming });
+    const selectedVideo = recorded.data?.videoFiles?.find(video => video.id === videoFileId);
+    const { usesJikkyo, usesClientSubtitles, subtitleDanmaku } = getRecordedCommentPolicy(selectedVideo?.type, streaming, settings);
     const subtitles = useQuery({
         queryKey: ['video-subtitles', videoFileId],
         queryFn: () => api.getVideoSubtitles(videoFileId),
-        enabled: validIds && (!streaming || recorded.data?.videoFiles?.some(video => video.id === videoFileId && video.type === 'encoded') === true),
+        enabled: validIds && selectedVideo?.type === 'encoded',
         staleTime: Number.POSITIVE_INFINITY,
     });
     const subtitleItems = subtitles.data?.items ?? [];
     const danmakuSubtitleItems = useMemo(() => subtitleItems.filter(subtitle => isDanmakuSubtitle(subtitle)), [subtitleItems]);
     const selectableSubtitleItems = useMemo(
-        () => (settings.watchPlaySubtitleDanmaku && !streaming ? subtitleItems.filter(subtitle => !isDanmakuSubtitle(subtitle)) : subtitleItems),
-        [settings.watchPlaySubtitleDanmaku, streaming, subtitleItems],
+        () => (subtitleDanmaku ? subtitleItems.filter(subtitle => !isDanmakuSubtitle(subtitle)) : subtitleItems),
+        [subtitleDanmaku, subtitleItems],
     );
     const playerTrackSettings = useMemo<DPlayerTrackSetting[]>(() => {
-        if (!settings.watchSelectSubtitleInPlayerSettings || streaming) return [];
+        if (!settings.watchSelectSubtitleInPlayerSettings || !usesClientSubtitles) return [];
 
         const controls: DPlayerTrackSetting[] = [];
-        if (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0) {
+        if (subtitleDanmaku && danmakuSubtitleItems.length > 0) {
             controls.push({
                 id: 'danmaku',
                 label: '弾幕',
@@ -1118,26 +1136,24 @@ export function RecordedWatchPage(): ReactNode {
         selectableSubtitleItems,
         selectedDanmakuSubtitleIndex,
         selectedSubtitleIndex,
-        settings.watchPlaySubtitleDanmaku,
+        subtitleDanmaku,
         settings.watchSelectSubtitleInPlayerSettings,
-        streaming,
+        usesClientSubtitles,
     ]);
     const showOverlayTrackSettings =
-        !streaming &&
-        !settings.watchSelectSubtitleInPlayerSettings &&
-        (selectableSubtitleItems.length > 0 || (settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0));
+        usesClientSubtitles && !settings.watchSelectSubtitleInPlayerSettings && (selectableSubtitleItems.length > 0 || (subtitleDanmaku && danmakuSubtitleItems.length > 0));
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
     const selectedDanmakuSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedDanmakuSubtitleIndex);
-    const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${settings.watchPlaySubtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
+    const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${usesClientSubtitles ? 'client' : 'server'}:${subtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
     const subtitleSelectionReady = subtitleSelectionSignature === currentSubtitleSelectionSignature;
     const subtitlePreviewStartAt = Math.max(0, (resumePosition ?? storedResumePosition ?? 0) - PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND);
     const normalSubtitleEnabled =
         validIds &&
-        !streaming &&
+        usesClientSubtitles &&
         subtitleSelectionReady &&
         selectedSubtitleIndex !== null &&
         selectedSubtitle !== undefined &&
-        (!settings.watchPlaySubtitleDanmaku || !isDanmakuSubtitle(selectedSubtitle));
+        (!subtitleDanmaku || !isDanmakuSubtitle(selectedSubtitle));
     const normalSubtitleTextQueryKey = ['video-subtitle-text', videoFileId, 'normal', selectedSubtitleIndex] as const;
     const normalSubtitleTextCached = queryClient.getQueryData(normalSubtitleTextQueryKey) !== undefined;
     const subtitleTextPreview = useQuery({
@@ -1153,9 +1169,9 @@ export function RecordedWatchPage(): ReactNode {
     });
     const danmakuSubtitleEnabled =
         validIds &&
-        !streaming &&
+        usesClientSubtitles &&
         subtitleSelectionReady &&
-        settings.watchPlaySubtitleDanmaku &&
+        subtitleDanmaku &&
         selectedDanmakuSubtitleIndex !== null &&
         selectedDanmakuSubtitle !== undefined &&
         isDanmakuSubtitle(selectedDanmakuSubtitle);
@@ -1198,10 +1214,11 @@ export function RecordedWatchPage(): ReactNode {
         (!danmakuSubtitleEnabled || danmakuSubtitleText.isSuccess || danmakuSubtitleText.isError);
     const startupSubtitleExtractionsSettled = subtitles.isError || (subtitleSelectionReady && !subtitles.isPending && startupSubtitlePreviewsSettled);
     useEffect(() => {
-        if (streaming || !settings.watchWaitForPlaySubtitleExtraction || !startupSubtitleExtractionsSettled) return;
+        if (streaming || !usesClientSubtitles || !settings.watchWaitForPlaySubtitleExtraction || !startupSubtitleExtractionsSettled) return;
         setSubtitleExtractionReadyIdentity(currentSubtitleSelectionSignature);
-    }, [currentSubtitleSelectionSignature, settings.watchWaitForPlaySubtitleExtraction, startupSubtitleExtractionsSettled, streaming]);
-    const playbackBlockedForSubtitleExtraction = !streaming && settings.watchWaitForPlaySubtitleExtraction && subtitleExtractionReadyIdentity !== currentSubtitleSelectionSignature;
+    }, [currentSubtitleSelectionSignature, settings.watchWaitForPlaySubtitleExtraction, startupSubtitleExtractionsSettled, streaming, usesClientSubtitles]);
+    const playbackBlockedForSubtitleExtraction =
+        !streaming && usesClientSubtitles && settings.watchWaitForPlaySubtitleExtraction && subtitleExtractionReadyIdentity !== currentSubtitleSelectionSignature;
     useEffect(() => {
         if (streaming || !subtitleSelectionReady || !prioritySubtitleFullExtractionsSettled) return;
 
@@ -1214,7 +1231,7 @@ export function RecordedWatchPage(): ReactNode {
         const prefetchRemainingSubtitles = async (): Promise<void> => {
             for (const subtitle of remainingSubtitles) {
                 if (disposed) return;
-                const role = settings.watchPlaySubtitleDanmaku && isDanmakuSubtitle(subtitle) ? 'danmaku' : 'normal';
+                const role = subtitleDanmaku && isDanmakuSubtitle(subtitle) ? 'danmaku' : 'normal';
                 try {
                     await queryClient.prefetchQuery({
                         queryKey: ['video-subtitle-text', videoFileId, role, subtitle.subtitleIndex],
@@ -1239,7 +1256,7 @@ export function RecordedWatchPage(): ReactNode {
         queryClient,
         selectedDanmakuSubtitleIndex,
         selectedSubtitleIndex,
-        settings.watchPlaySubtitleDanmaku,
+        subtitleDanmaku,
         streaming,
         subtitleItems,
         subtitleSelectionReady,
@@ -1254,11 +1271,9 @@ export function RecordedWatchPage(): ReactNode {
         enabled: relatedSearch !== undefined,
     });
     const item = recorded.data;
-    const selectedVideo = item?.videoFiles?.find(video => video.id === videoFileId);
     const streamingOptions = useMemo(() => getRecordedStreamOptions(selectedVideo ?? null, config.data), [config.data, selectedVideo]);
     const selectedStreamingOption = streamingOptions.find(option => option.type === streamType);
     const streamingQualityOptions = useMemo(() => (selectedStreamingOption?.qualities ?? []).map((name, index) => ({ index, name })), [selectedStreamingOption?.qualities]);
-    const streamingUsesJikkyo = streaming && selectedVideo?.type === 'ts';
 
     const replaceComments = useCallback((nextComments: JikkyoComment[]): void => setComments(nextComments), []);
     const updateCommentPosition = useCallback((index: number): void => setNextCommentIndex(index), []);
@@ -1425,8 +1440,8 @@ export function RecordedWatchPage(): ReactNode {
         setResumePlaying(true);
     }, [activeUser, recordedId, streaming, videoFileId]);
     useEffect(() => {
-        if (streaming || subtitles.data === undefined) return;
-        if (!settings.watchPlaySubtitleDanmaku) {
+        if (!usesClientSubtitles || subtitles.data === undefined) return;
+        if (!subtitleDanmaku) {
             setSelectedSubtitleIndex(preferredSubtitleIndex(subtitles.data.items, settings.watchSubtitlePreferredKeywords));
             setSelectedDanmakuSubtitleIndex(null);
             setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
@@ -1442,26 +1457,26 @@ export function RecordedWatchPage(): ReactNode {
         // accidentally reuse that track as an ordinary subtitle.
         setSelectedSubtitleIndex(preferredNormal);
         setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
-    }, [currentSubtitleSelectionSignature, settings.watchPlaySubtitleDanmaku, settings.watchSubtitlePreferredKeywords, streaming, subtitles.data]);
+    }, [currentSubtitleSelectionSignature, subtitleDanmaku, settings.watchSubtitlePreferredKeywords, usesClientSubtitles, subtitles.data]);
     useEffect(() => {
         resetComments();
         setCommentStatus(
-            !streaming
-                ? settings.watchPlaySubtitleDanmaku
-                    ? 'PLAY字幕を選択すると、danmakuで表示した内容をここにも表示します。'
-                    : 'ASS実況字幕を選択すると、再生中のコメントをここにも表示します。'
-                : streamingUsesJikkyo
-                  ? 'TS録画の実況過去ログを取得しています…'
+            usesJikkyo
+                ? 'TS録画の実況過去ログを取得しています…'
+                : usesClientSubtitles
+                  ? subtitleDanmaku
+                      ? '弾幕字幕を選択すると、danmakuで表示した内容をここにも表示します。'
+                      : 'ASS実況字幕を選択すると、再生中のコメントをここにも表示します。'
                   : selectedVideo?.type === 'encoded'
                     ? 'エンコード済みSTREAMINGでは、選択した字幕を映像へ焼き込んで再生します。'
                     : '録画ファイル情報を確認しています…',
         );
-    }, [recordedId, resetComments, selectedVideo?.type, settings.watchPlaySubtitleDanmaku, streaming, streamingUsesJikkyo, videoFileId]);
+    }, [recordedId, resetComments, selectedVideo?.type, subtitleDanmaku, usesClientSubtitles, usesJikkyo, videoFileId]);
     useEffect(() => {
-        if (!streaming) {
+        if (usesClientSubtitles) {
             resetComments();
             setCommentStatus(
-                settings.watchPlaySubtitleDanmaku
+                subtitleDanmaku
                     ? selectedDanmakuSubtitleIndex === null
                         ? '弾幕字幕を選択すると、danmakuで表示します。'
                         : '選択中の字幕をdanmakuで再生しています…'
@@ -1472,7 +1487,7 @@ export function RecordedWatchPage(): ReactNode {
                         : '選択中のASS字幕は実況コメントではありません。',
             );
         }
-    }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, settings.watchPlaySubtitleDanmaku, streaming]);
+    }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, subtitleDanmaku, usesClientSubtitles]);
     const scrollCommentsToCurrent = useCallback((): number | null => {
         const list = commentList.current;
         if (panelTab !== 'comments' || list === null || nextCommentIndex === null || comments.length === 0) return null;
@@ -1528,7 +1543,13 @@ export function RecordedWatchPage(): ReactNode {
     );
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;
-        if (!streaming) return { src: getRecordedVideoPlayURL(videoFileId), type: 'normal', enableAribSubtitle: false };
+        if (!streaming)
+            return {
+                src: getRecordedVideoPlayURL(videoFileId),
+                type: 'normal',
+                enableAribSubtitle: false,
+                commentsUrl: usesJikkyo ? withBasePath(`/api/videos/${videoFileId.toString(10)}/comments`) : undefined,
+            };
         if (selectedVideo === undefined) return null;
         const vodSessionId = createSessionId();
         return {
@@ -1538,14 +1559,14 @@ export function RecordedWatchPage(): ReactNode {
                 mode,
                 quality,
                 settings,
-                streamSubtitleIndex,
-                streamSubtitleFileKey,
+                usesClientSubtitles ? -1 : streamSubtitleIndex,
+                usesClientSubtitles ? undefined : streamSubtitleFileKey,
                 resumePosition ?? storedResumePosition ?? 0,
                 vodSessionId,
             ),
             type: 'hls',
             enableAribSubtitle: selectedVideo.type === 'ts' && streamType === 'HLS-TS',
-            commentsUrl: selectedVideo.type === 'ts' ? withBasePath(`/api/recorded/${recordedId.toString(10)}/jikkyo?videoFileId=${selectedVideo.id.toString(10)}`) : undefined,
+            commentsUrl: usesJikkyo ? withBasePath(`/api/videos/${videoFileId.toString(10)}/comments`) : undefined,
             vodSessionId,
         };
     }, [
@@ -1562,6 +1583,8 @@ export function RecordedWatchPage(): ReactNode {
         streaming,
         valid,
         videoFileId,
+        usesJikkyo,
+        usesClientSubtitles,
     ]);
 
     const changeStreamingSubtitle = async (index: number | null): Promise<void> => {
@@ -1601,7 +1624,7 @@ export function RecordedWatchPage(): ReactNode {
             );
         }
         if (panelTab === 'comments') {
-            return streaming && !streamingUsesJikkyo ? (
+            return streaming && !usesJikkyo && !usesClientSubtitles ? (
                 <SubtitlePanel
                     subtitles={subtitles.data?.items ?? []}
                     selectedIndex={streamSubtitleIndex}
@@ -1617,6 +1640,11 @@ export function RecordedWatchPage(): ReactNode {
                     autoFollow={commentAutoFollow}
                     onScroll={handleCommentScroll}
                     onReturnToCurrent={returnCommentsToCurrent}
+                    subtitleError={
+                        danmakuSubtitleEnabled && danmakuSubtitleText.isError
+                            ? { message: '弾幕字幕の全体を取得できませんでした。', onRetry: () => void danmakuSubtitleText.refetch() }
+                            : undefined
+                    }
                 />
             );
         }
@@ -1656,10 +1684,10 @@ export function RecordedWatchPage(): ReactNode {
                     <Box component="section" sx={{ minWidth: 0, minHeight: 0, height: { lg: '100dvh' }, overflow: 'hidden', bgcolor: 'background.default' }}>
                         <RecordedPlayer
                             source={source}
-                            subtitleText={!streaming ? (subtitleText.data?.subtitleText ?? subtitleTextPreview.data?.subtitleText ?? null) : null}
-                            subtitleIsNicoJk={!streaming && !settings.watchPlaySubtitleDanmaku && isNicoJkSubtitle(selectedSubtitle)}
-                            danmakuSubtitleText={!streaming ? (danmakuSubtitleText.data?.subtitleText ?? danmakuSubtitleTextPreview.data?.subtitleText ?? null) : null}
-                            subtitleDanmaku={!streaming && settings.watchPlaySubtitleDanmaku}
+                            subtitleText={usesClientSubtitles ? (subtitleText.data?.subtitleText ?? subtitleTextPreview.data?.subtitleText ?? null) : null}
+                            subtitleIsNicoJk={usesClientSubtitles && !subtitleDanmaku && isNicoJkSubtitle(selectedSubtitle)}
+                            danmakuSubtitleText={usesClientSubtitles ? (danmakuSubtitleText.data?.subtitleText ?? danmakuSubtitleTextPreview.data?.subtitleText ?? null) : null}
+                            subtitleDanmaku={subtitleDanmaku}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
                             danmakuFrameRateLimit={settings.watchDanmakuFrameRateLimit}
@@ -1729,7 +1757,7 @@ export function RecordedWatchPage(): ReactNode {
                                 </Box>
                                 {showOverlayTrackSettings && (
                                     <Stack direction="column" spacing={0.15} sx={{ width: { xs: 112, sm: 170 }, flex: '0 0 auto' }}>
-                                        {settings.watchPlaySubtitleDanmaku && danmakuSubtitleItems.length > 0 && (
+                                        {subtitleDanmaku && danmakuSubtitleItems.length > 0 && (
                                             <FormControl variant="filled" size="small" sx={{ bgcolor: 'rgba(0,0,0,.38)', borderRadius: 1 }}>
                                                 <InputLabel sx={{ color: 'rgba(255,255,255,.72)' }}>弾幕</InputLabel>
                                                 <Select
@@ -1824,8 +1852,8 @@ export function RecordedWatchPage(): ReactNode {
                                     <BottomNavigationAction value="rules" label="ルール" icon={<RuleOutlined />} />
                                     <BottomNavigationAction
                                         value="comments"
-                                        label={streaming && !streamingUsesJikkyo ? '字幕' : 'コメント'}
-                                        icon={streaming && !streamingUsesJikkyo ? <SubtitlesOutlined /> : <ChatBubbleOutlineOutlined />}
+                                        label={streaming && !usesJikkyo && !usesClientSubtitles ? '字幕' : 'コメント'}
+                                        icon={streaming && !usesJikkyo && !usesClientSubtitles ? <SubtitlesOutlined /> : <ChatBubbleOutlineOutlined />}
                                     />
                                     <BottomNavigationAction value="twitter" label="Twitter" icon={<Twitter />} />
                                 </BottomNavigation>
