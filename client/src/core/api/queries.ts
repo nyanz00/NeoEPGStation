@@ -16,6 +16,7 @@ import type {
     ChannelJikkyoStatus,
     AddManualEncodeProgramOption,
     AddRuleOption,
+    AutoEncodeSettings,
     Config,
     CreateNewRecordedOption,
     DiscordNotificationSettings,
@@ -40,6 +41,7 @@ import type {
     RecordedPlaybackHistory,
     RecordedPlaybackHistorySettings,
     UpdateRecordedPlaybackHistorySettingsOption,
+    UpdateAutoEncodeSettingsOption,
     RecordedListPosition,
     RecordingDropLogStatus,
     RecordedSearchOptions,
@@ -144,6 +146,12 @@ function playbackUserHeader(userId: number): Record<string, string> {
 }
 
 export const api = {
+    async getAutoEncodeSettings(): Promise<AutoEncodeSettings> {
+        return (await apiClient.get<AutoEncodeSettings>('/encode/settings')).data;
+    },
+    async updateAutoEncodeSettings(option: UpdateAutoEncodeSettingsOption): Promise<AutoEncodeSettings> {
+        return (await apiClient.put<AutoEncodeSettings>('/encode/settings', option)).data;
+    },
     async getViewerProfiles(): Promise<ViewerProfiles> {
         return (await apiClient.get<ViewerProfiles>('/viewer-profiles')).data;
     },

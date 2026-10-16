@@ -1098,6 +1098,16 @@ export interface M2TSStreamParam {
     isUnconverted: boolean; // 無変換か
 }
 
+export interface AutoEncodeSettings {
+    /** null disables the automatic-encode drop limit. */
+    dropThreshold: number | null;
+    dropCheckEnabled: boolean;
+}
+
+export interface UpdateAutoEncodeSettingsOption {
+    dropThreshold: number | null;
+}
+
 /**
  * クライアントが受け取る設定情報
  */
