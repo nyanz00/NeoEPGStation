@@ -42,6 +42,10 @@ export function isMainBroadcastChannel(channel: Pick<ChannelItem, 'channelType' 
     );
 }
 
+export function ruleEncodePriorityChannelIds(resultChannelIds: ChannelId[], searchChannelIds: ChannelId[], fromAnime: boolean): ChannelId[] {
+    return Array.from(new Set([...resultChannelIds, ...(fromAnime || resultChannelIds.length === 0 ? searchChannelIds : [])]));
+}
+
 export function sortRuleEncodeChannels(channels: ChannelItem[], priorityChannelIds: ChannelId[], annictPriorityChannelIds: ChannelId[]): ChannelItem[] {
     const annictChannelIds = new Set(annictPriorityChannelIds);
     const mainAnnictChannelIds = new Set(channels.filter(channel => annictChannelIds.has(channel.id) && isMainBroadcastChannel(channel)).map(channel => channel.id));

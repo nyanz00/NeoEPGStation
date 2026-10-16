@@ -12,7 +12,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const loaded = { exports: {} };
 Function('exports', 'module', output)(loaded.exports, loaded);
-const { isMainBroadcastChannel, sortRuleEncodeChannels } = loaded.exports;
+const { isMainBroadcastChannel, ruleEncodePriorityChannelIds, sortRuleEncodeChannels } = loaded.exports;
 
 const channels = [
     { id: 4, channelType: 'BS', serviceId: 102 },
@@ -25,12 +25,45 @@ const channels = [
 
 test('Annict channel priority includes main channels but leaves subchannels in the normal list', () => {
     const sorted = sortRuleEncodeChannels(channels, [2, 3], [1, 2, 3, 4, 5]);
-    assert.deepEqual(sorted.map(channel => channel.id), [3, 1, 5, 4, 2, 6]);
+    assert.deepEqual(
+        sorted.map(channel => channel.id),
+        [3, 1, 5, 4, 2, 6],
+    );
+});
+
+test('anime priorities include selected stations that have no matching EPG programs', () => {
+    assert.deepEqual(ruleEncodePriorityChannelIds([3], [3, 1, 2], true), [3, 1, 2]);
+});
+
+test('anime priorities retain selected stations when every station matches or none match', () => {
+    assert.deepEqual(ruleEncodePriorityChannelIds([3, 1, 2], [3, 1, 2], true), [3, 1, 2]);
+    assert.deepEqual(ruleEncodePriorityChannelIds([], [3, 1, 2], true), [3, 1, 2]);
+});
+
+test('priority IDs are unique with result order first and selected station order appended', () => {
+    assert.deepEqual(ruleEncodePriorityChannelIds([1, 3, 1], [3, 2, 1, 2], true), [1, 3, 2]);
+});
+
+test('general searches prioritize result stations and fall back to selected stations only with no results', () => {
+    assert.deepEqual(ruleEncodePriorityChannelIds([3], [1, 2], false), [3]);
+    assert.deepEqual(ruleEncodePriorityChannelIds([], [1, 2], false), [1, 2]);
+});
+
+test('anime candidate main stations sort before unrelated stations while subchannels stay in normal order', () => {
+    const priorityIds = ruleEncodePriorityChannelIds([3], [3, 1, 2], true);
+    const sorted = sortRuleEncodeChannels(channels, priorityIds, [3, 1, 2]);
+    assert.deepEqual(
+        sorted.map(channel => channel.id),
+        [3, 1, 4, 5, 2, 6],
+    );
 });
 
 test('non-Annict reservation priorities retain their existing order', () => {
     const sorted = sortRuleEncodeChannels(channels, [2, 3], []);
-    assert.deepEqual(sorted.map(channel => channel.id), [2, 3, 4, 5, 1, 6]);
+    assert.deepEqual(
+        sorted.map(channel => channel.id),
+        [2, 3, 4, 5, 1, 6],
+    );
 });
 
 test('non-video and known terrestrial or BS subchannels are not main channels', () => {
