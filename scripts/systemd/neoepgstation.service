@@ -1,0 +1,21 @@
+[Unit]
+Description=NeoEPGStation
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=epgstation
+WorkingDirectory=/opt/NeoEPGStation
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/node /opt/NeoEPGStation/dist/index.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+SyslogIdentifier=neoepgstation
+
+[Install]
+WantedBy=multi-user.target

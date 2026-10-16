@@ -71,7 +71,11 @@ export default class IPCServer implements IIPCServer {
         this.child = child;
 
         this.child.on('message', async (msg: SendMessage) => {
-            if ((msg as any)?.type === 'heartbeat' || (msg as any)?.type === 'ready') return;
+            if (
+                ['heartbeat', 'ready', 'update-restart-request', 'update-shutdown-ready'].includes((msg as any)?.type)
+            ) {
+                return;
+            }
             if (
                 typeof this.functions[msg.model] !== 'undefined' &&
                 typeof this.functions[msg.model][msg.func] !== 'undefined'

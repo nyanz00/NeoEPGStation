@@ -5,6 +5,7 @@ import IDBOperator from '../db/IDBOperator';
 import container from '../ModelContainer';
 import * as containerSetter from '../ModelContainerSetter';
 import IEPGUpdater from './IEPGUpdater';
+import ProcessShutdown from '../../util/ProcessShutdown';
 
 containerSetter.set(container);
 
@@ -21,10 +22,16 @@ process.on('unhandledRejection', err => {
 });
 
 const updater = container.get<IEPGUpdater>('IEPGUpdater');
-let isUpdateShutdownStarted = false;
+const shutdown = new ProcessShutdown(
+    async reason => {
+        log.system.info(`close EPG updater database connection: ${reason}`);
+        await container.get<IDBOperator>('IDBOperator').closeConnection();
+    },
+    err => log.system.warn(`EPG updater database shutdown failed: ${err}`),
+    5_000,
+);
 process.on('message', message => {
     if (
-        isUpdateShutdownStarted === true ||
         typeof message !== 'object' ||
         message === null ||
         !('type' in message) ||
@@ -32,12 +39,7 @@ process.on('message', message => {
     ) {
         return;
     }
-    isUpdateShutdownStarted = true;
-    void container
-        .get<IDBOperator>('IDBOperator')
-        .closeConnection()
-        .catch(err => log.system.warn(`failed to close EPG updater database connection: ${err}`))
-        .finally(() => process.exit(0));
+    shutdown.request('parent request');
 });
 
 (async () => {
