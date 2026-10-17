@@ -618,7 +618,10 @@ export default class UpdateManager {
         if (stableTarget !== null && targets.stableHead !== null && currentCommit !== null) {
             if (currentCommit === targets.stableHead) {
                 stableTarget = targets.previousStable ?? { ...stableTarget, commit: targets.stableHead };
-            } else if ((await this.isAncestor(currentCommit, targets.stableHead)) === true) {
+            } else if ((await this.isAncestor(stableTarget.commit, targets.stableHead)) === true) {
+                // Follow reviewed fixes after the release tag for develop users
+                // too. The tag's original tree may have no develop counterpart
+                // after a release-note correction was synchronized separately.
                 stableTarget = { ...stableTarget, commit: targets.stableHead };
             }
         }
