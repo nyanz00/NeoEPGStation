@@ -48,7 +48,7 @@ import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { AssCommentCore } from '../core/player/AssCommentCore';
 import { type DPlayerTrackSetting, updateDPlayerTrackSettings } from '../core/player/DPlayerUi';
-import { JassubSubtitleRenderer } from '../core/player/JassubSubtitleRenderer';
+import { CanvasSubtitleRenderer } from '../core/player/CanvasSubtitleRenderer';
 import { RecordedPlayerCore, type RecordedPlayerSourceType, type RecordedPlayerState } from '../core/player/RecordedPlayerCore';
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/player/RecordedPlaybackTracker';
@@ -172,7 +172,7 @@ function RecordedPlayer({
     const theme = useTheme();
     const container = useRef<HTMLDivElement | null>(null);
     const coreRef = useRef<RecordedPlayerCore | null>(null);
-    const rendererRef = useRef(new JassubSubtitleRenderer());
+    const rendererRef = useRef(new CanvasSubtitleRenderer());
     const assCommentRef = useRef<AssCommentCore | null>(null);
     const assCommentModeRef = useRef<'danmaku' | 'subtitle' | null>(null);
     const assCommentVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -358,10 +358,8 @@ function RecordedPlayer({
             return;
         }
 
-        // In danmaku mode the ordinary subtitle selector must still render
-        // through libass/JASSUB.  The danmaku selector is an additional track,
-        // not a replacement for the ordinary subtitle track.
-        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
+        // Ordinary captions and the optional danmaku track can be shown together.
+        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:subtitles]', error));
     }, [subtitleIsNicoJk, subtitleText, video]);
 
     useEffect(() => {
@@ -441,19 +439,15 @@ function RecordedPlayer({
                 '& .recorded-dplayer .dplayer-video-wrap-aspect, & .recorded-dplayer video': { width: '100%', height: '100%' },
                 '& .recorded-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
                 // DPlayer's WebGL danmaku renderer composites the video into
-                // its own canvas and makes the native video transparent.  A
-                // JASSUB canvas inserted immediately after the video would
+                // its own canvas and makes the native video transparent.
+                // A subtitle canvas inserted immediately after the video would
                 // otherwise remain behind that opaque composite canvas, so
                 // keep subtitle layers above danmaku while leaving controls
                 // above them. The native video remains visible underneath as a
                 // fallback while the WebGL canvas is resized.
                 '& .recorded-dplayer .dplayer-danmaku': { zIndex: 2 },
                 '& .recorded-dplayer .neo-player-arib-canvas': { zIndex: 3 },
-                '& .recorded-dplayer .JASSUB': {
-                    position: 'absolute !important',
-                    inset: '0 !important',
-                    width: '100% !important',
-                    height: '100% !important',
+                '& .recorded-dplayer .neo-player-ass-canvas': {
                     zIndex: 3,
                     pointerEvents: 'none',
                 },

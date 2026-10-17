@@ -15,6 +15,7 @@ import {
 } from './PlayerCompositeScreenshot';
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
+import { getSubtitleFontFamily } from './subtitleFont';
 
 interface DPlayerDanmakuItem {
     text: string;
@@ -104,10 +105,7 @@ function isAppleSafari(): boolean {
 }
 
 function aribb24Option(forceSubtitleStroke: boolean): Record<string, unknown> {
-    const windowsFirefox = /Windows/.test(navigator.userAgent) && /Firefox/.test(navigator.userAgent);
-    const font = windowsFirefox
-        ? '"Windows TV MaruGothic", "MS Gothic", "Yu Gothic", sans-serif'
-        : '"Windows TV MaruGothic", "Hiragino Maru Gothic Pro", "HGMaruGothicMPRO", "Yu Gothic Medium", sans-serif';
+    const font = getSubtitleFontFamily();
     return {
         normalFont: font,
         gaijiFont: font,

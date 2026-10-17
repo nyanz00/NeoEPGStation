@@ -233,9 +233,6 @@ importers:
       hls.js:
         specifier: 1.6.17
         version: 1.6.17
-      jassub:
-        specifier: 1.8.8
-        version: 1.8.8
       mpegts.js:
         specifier: https://github.com/tsukumijima/mpegts.js/archive/cc58169d2b61f0d27588fd31593b8739abe7b0ab.tar.gz
         version: https://github.com/tsukumijima/mpegts.js/archive/cc58169d2b61f0d27588fd31593b8739abe7b0ab.tar.gz
@@ -1888,9 +1885,6 @@ packages:
     peerDependencies:
       ws: '*'
 
-  jassub@1.8.8:
-    resolution: {integrity: sha512-Vtw27Z0/hN2Tm2Qs4HAR+eONwwSD5ULo/hisPvmiaW9Ya6aFCt7esvWQSZy6nvBASbRyKmpghgeioIPqXGHA0Q==}
-
   js-levenshtein@1.1.6:
     resolution: {integrity: sha512-X2BB11YZtrRqY4EnQcLX5Rh373zbK4alC1FW7D7MBhL2gtcC17cTnr6DmfHZeS0s2rTHjUTMMHfG7gO8SSdw+g==}
     engines: {node: '>=0.10.0'}
@@ -2584,9 +2578,6 @@ packages:
   router@2.2.0:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
-
-  rvfc-polyfill@1.0.8:
-    resolution: {integrity: sha512-uA+0wwTkZ4OT8v45pfDfH+7Yq8mY6MvNngiF5Sq6VBgjJsvsfgt7Q18cyZqZjfAhW9rhkgXPX0cW0R9uw7yElA==}
 
   safe-buffer@5.1.2:
     resolution: {integrity: sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==}
@@ -4723,10 +4714,6 @@ snapshots:
     dependencies:
       ws: 8.21.3
 
-  jassub@1.8.8:
-    dependencies:
-      rvfc-polyfill: 1.0.8
-
   js-levenshtein@1.1.6: {}
 
   js-tokens@4.0.0: {}
@@ -5484,8 +5471,6 @@ snapshots:
       path-to-regexp: 8.4.2
     transitivePeerDependencies:
       - supports-color
-
-  rvfc-polyfill@1.0.8: {}
 
   safe-buffer@5.1.2: {}
 

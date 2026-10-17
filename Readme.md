@@ -76,7 +76,7 @@
 - Webプレイヤーの刷新
   - 共通Webプレイヤーを[tsukumijima版DPlayer](https://github.com/tsukumijima/DPlayer)をNeoEPGStation用に最適化したプレイヤーに変更
   - STREAMING視聴時のHLSをVOD HLS方式に変更し、プレイヤー制御やシーク精度を改善
-  - JASSUBやDPlayerのdanmakuを使用し、mkv内の字幕やNicoJKコメント字幕のweb上での再生に対応
+  - ブラウザのシステムフォントによるCanvas描画とDPlayerのdanmakuを使用し、動画内のASS・SRT字幕やNicoJKコメント字幕のWeb上での再生に対応
 - ユーザー機能の追加
   - 各録画に対して所有ユーザーの概念を追加し、フィルタリング機能を向上
   - ユーザーごとに視聴履歴を保存する機能を追加し、リジューム再生にも対応
