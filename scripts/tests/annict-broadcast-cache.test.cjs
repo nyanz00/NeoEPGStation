@@ -21,6 +21,7 @@ require.extensions['.ts'] = (module, filename) => {
     module._compile(output, filename);
 };
 const AnnictApiModel = require('../../src/model/api/annict/AnnictApiModel.ts').default;
+const { workStartDateValue } = require('../../client/src/core/animeReleaseSort.ts');
 if (previousTypeScriptLoader === undefined) delete require.extensions['.ts'];
 else require.extensions['.ts'] = previousTypeScriptLoader;
 
@@ -121,39 +122,151 @@ test('noncurrent work-list GraphQL requests omit programs while current-season r
     );
 });
 
-test('noncurrent initial enrichment skips schedule scans and still caches images and release dates', async t => {
+test('release dates reach the basic cache and release-date sort before slow image enrichment finishes', async t => {
     const root = temporaryRoot(t);
     const model = createModel(root);
     model.broadcastSeasonFromDate = () => '2026-autumn';
     model.fetchBasicWorkList = async (value, pageSize) => {
         assert.equal(value, '2026-summer');
         assert.equal(pageSize, 100);
-        return [work(1, { title: 'Summer', seasonYear: 2026, seasonName: 'SUMMER' })];
+        return [
+            work(1, { title: 'Later', seasonYear: 2026, seasonName: 'SUMMER' }),
+            work(2, { title: 'Earlier', seasonYear: 2026, seasonName: 'SUMMER' }),
+        ];
     };
-    let scans = 0;
-    model.enrichWorkBroadcastStarts = async works => {
-        scans += 1;
-        return works;
+    model.enrichWorkBroadcastStarts = async () => {
+        assert.fail('a noncurrent season must skip program scans');
     };
-    model.fillMissingWorkImages = async works =>
-        works.map(item => ({ ...item, imageUrl: 'https://image.example/1.jpg' }));
-    model.enrichWorkReleaseDates = async works => works.map(item => ({ ...item, releasedOn: '2026-07-01' }));
-    const basicFile = path.join(root, 'cache', `works-basic-v3-2026-summer.json`);
-    const enrichedFile = path.join(root, 'cache', `works-v13-2026-summer.json`);
+    const releaseImages = deferred();
+    const imageEnrichmentStarted = deferred();
+    model.requestRest = async (resource, parameters) => {
+        assert.equal(resource, 'works');
+        assert.equal(parameters.filter_ids, '1,2');
+        return {
+            works: [
+                { id: 1, released_on: '2026-07-03' },
+                { id: 2, released_on: '2026-07-01' },
+            ],
+        };
+    };
+    model.fillMissingWorkImages = async works => {
+        imageEnrichmentStarted.resolve();
+        await releaseImages.promise;
+        return works.map(item => ({ ...item, imageUrl: `https://image.example/${item.annictId}.jpg` }));
+    };
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
 
     const result = await model.refreshWorkList('2026-summer', basicFile, enrichedFile);
-    await Promise.all(model.workListEnrichmentRequests.values());
+    await imageEnrichmentStarted.promise;
 
-    assert.equal(scans, 0);
     assert.equal(result.enrichmentPending, true);
     const basic = await model.readCache(basicFile);
+    assert.equal(basic.releaseDatesCheckedAt > 0, true);
+    assert.deepEqual(
+        basic.value.map(item => item.releasedOn),
+        ['2026-07-03', '2026-07-01'],
+    );
+
+    const list = await model.getWorks('2026-summer', false);
+    assert.equal(list.broadcastDateSource, 'work');
+    assert.deepEqual(
+        [...list.works]
+            .sort(
+                (left, right) =>
+                    workStartDateValue(left, list.broadcastDateSource) -
+                    workStartDateValue(right, list.broadcastDateSource),
+            )
+            .map(item => item.title),
+        ['Earlier', 'Later'],
+    );
+
+    releaseImages.resolve();
+    await Promise.all(model.workListEnrichmentRequests.values());
     const enriched = await model.readCache(enrichedFile);
-    assert.equal(basic.value[0].annictId, 1);
     assert.equal(enriched.value[0].imageUrl, 'https://image.example/1.jpg');
-    assert.equal(enriched.value[0].releasedOn, '2026-07-01');
+    assert.equal(enriched.value[0].releasedOn, '2026-07-03');
 });
 
-test('a warm noncurrent cache keeps acquired broadcast metadata without starting enrichment', async t => {
+function deferred() {
+    let resolve;
+    const promise = new Promise(done => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
+test('a warm noncurrent cache without a date-check marker performs one REST check even when no dates are returned', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedAt = Date.now();
+    const value = [work(1, { title: 'Undated' })];
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', value });
+    let calls = 0;
+    model.requestRest = async () => {
+        calls += 1;
+        return { works: [] };
+    };
+    model.fillMissingWorkImages = async works => works;
+
+    const first = await model.getCachedWorks('2026-summer', false);
+    assert.equal(first.enrichmentPending, true);
+    await Promise.all(model.workListEnrichmentRequests.values());
+    const checked = await model.readCache(basicFile);
+    assert.equal(checked.releaseDatesCheckedAt > 0, true);
+    assert.equal(checked.value[0].releasedOn, undefined);
+
+    const second = await model.getCachedWorks('2026-summer', false);
+    assert.equal(second.enrichmentPending, false);
+    assert.equal(calls, 1);
+});
+
+test('failed warm-cache date enrichment preserves cached data and retries after its cooldown', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedAt = Date.now();
+    const value = [work(1, { releasedOn: '2026-07-01', title: 'Saved' })];
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', value });
+    let fail = true;
+    let calls = 0;
+    model.requestRest = async () => {
+        calls += 1;
+        if (fail) throw new Error('temporary REST error');
+        return { works: [{ id: 1, released_on: '2026-07-02' }] };
+    };
+    model.fillMissingWorkImages = async works => works;
+
+    const first = await model.getCachedWorks('2026-summer', false);
+    assert.equal(first.enrichmentPending, true);
+    const key = `2026-summer:same`;
+    await model.workListEnrichmentRequests.get(key);
+    assert.equal((await model.readCache(basicFile)).value[0].releasedOn, '2026-07-01');
+    assert.equal((await model.readCache(enrichedFile)).value[0].releasedOn, '2026-07-01');
+    assert.equal((await model.readCache(basicFile)).releaseDatesCheckedAt, undefined);
+
+    const duringCooldown = await model.getCachedWorks('2026-summer', false);
+    assert.equal(duringCooldown.enrichmentPending, false);
+    assert.equal(calls, 1);
+
+    fail = false;
+    model.workListEnrichmentFailures.set(key, Date.now() - 5 * 60 * 1000 - 1);
+    const retry = await model.getCachedWorks('2026-summer', false);
+    assert.equal(retry.enrichmentPending, true);
+    await Promise.all(model.workListEnrichmentRequests.values());
+    assert.equal((await model.readCache(basicFile)).value[0].releasedOn, '2026-07-02');
+    assert.equal((await model.readCache(basicFile)).releaseDatesCheckedAt > 0, true);
+    assert.equal(calls, 2);
+});
+
+test('a warm noncurrent cache keeps acquired broadcast metadata without starting date enrichment when marked complete', async t => {
     const root = temporaryRoot(t);
     const model = createModel(root);
     model.broadcastSeasonFromDate = () => '2026-autumn';
@@ -169,10 +282,10 @@ test('a warm noncurrent cache keeps acquired broadcast metadata without starting
     ];
     const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
     const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
-    await model.writeJson(basicFile, { cachedAt, generation: 'same', value });
-    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', value });
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', releaseDatesCheckedAt: cachedAt, value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', releaseDatesCheckedAt: cachedAt, value });
     model.startWorkListEnrichment = () => {
-        throw new Error('warm noncurrent cache must not start enrichment');
+        throw new Error('warm fully checked cache must not start enrichment');
     };
 
     const result = await model.getCachedWorks('2026-summer', false);

@@ -34,6 +34,7 @@ interface RuleLinksFile {
 interface CacheFile<T> {
     cachedAt: number;
     generation?: string;
+    releaseDatesCheckedAt?: number;
     value: T;
 }
 
@@ -1023,18 +1024,22 @@ class AnnictApiModel implements IAnnictApiModel {
                 season === this.broadcastSeasonFromDate(now)
                     ? await this.getBroadcastTargets(excludePaidChannels)
                     : undefined;
-            const pending = targets !== undefined && cachedWorks.some(work => this.needsBroadcastCheck(work, targets));
+            const pending =
+                targets !== undefined
+                    ? cachedWorks.some(work => this.needsBroadcastCheck(work, targets))
+                    : cached.releaseDatesCheckedAt === undefined && basicCached?.releaseDatesCheckedAt === undefined;
             const enrichmentPending =
-                pending &&
-                this.startWorkListEnrichment(
-                    season,
-                    cachedWorks,
-                    cached.cachedAt,
-                    this.workListCacheGeneration(cached),
-                    basicFile,
-                    enrichedFile,
-                    excludePaidChannels,
-                );
+                this.workListEnrichmentRequests.has(`${season}:${this.workListCacheGeneration(cached)}`) ||
+                (pending &&
+                    this.startWorkListEnrichment(
+                        season,
+                        cachedWorks,
+                        cached.cachedAt,
+                        this.workListCacheGeneration(cached),
+                        basicFile,
+                        enrichedFile,
+                        excludePaidChannels,
+                    ));
             return { season, works: cachedWorks, cachedAt: cached.cachedAt, stale: false, enrichmentPending };
         }
         if (!refresh && basicCached !== null && now - basicCached.cachedAt < maxAge) {
@@ -1410,29 +1415,46 @@ class AnnictApiModel implements IAnnictApiModel {
 
         const request = Promise.resolve()
             .then(async () => {
+                let releaseDatesCheckedAt: number | undefined;
+                const saveProgress = async (value: apid.AnnictWorkSummary[], datesComplete = false): Promise<void> => {
+                    await this.withWorkListCacheLock(basicFile, async () => {
+                        const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                        if (current !== null && this.workListCacheGeneration(current) !== generation) {
+                            throw new Error('更新済みの作品一覧への古い補完処理を中止しました');
+                        }
+                        releaseDatesCheckedAt = datesComplete ? Date.now() : current?.releaseDatesCheckedAt;
+                        await this.writeJson(basicFile, { cachedAt, generation, releaseDatesCheckedAt, value });
+                    });
+                };
+                const basic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                if (basic !== null && this.workListCacheGeneration(basic) === generation) {
+                    releaseDatesCheckedAt = basic.releaseDatesCheckedAt;
+                }
                 const scheduled =
                     season === this.broadcastSeasonFromDate(Date.now())
                         ? await this.enrichWorkBroadcastStarts(
                               works,
-                              async value => {
-                                  await this.withWorkListCacheLock(basicFile, async () => {
-                                      const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
-                                      if (current === null || this.workListCacheGeneration(current) === generation) {
-                                          await this.writeJson(basicFile, { cachedAt, generation, value });
-                                      } else {
-                                          throw new Error('更新済みの作品一覧への古い補完処理を中止しました');
-                                      }
-                                  });
-                              },
+                              value => saveProgress(value),
                               initial,
                               excludePaidChannels,
                           )
                         : works;
-                const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(scheduled));
+                // Publish sorting dates before potentially slow image fallbacks.
+                // A successful check also records genuinely unregistered dates.
+                const dated =
+                    releaseDatesCheckedAt === undefined
+                        ? await this.enrichWorkReleaseDates(scheduled, saveProgress)
+                        : scheduled;
+                const enriched = await this.fillMissingWorkImages(dated);
                 await this.withWorkListCacheLock(basicFile, async () => {
                     const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
                     if (latestBasic === null || this.workListCacheGeneration(latestBasic) !== generation) return;
-                    await this.writeJson(enrichedFile, { cachedAt, generation, value: enriched });
+                    await this.writeJson(enrichedFile, {
+                        cachedAt,
+                        generation,
+                        releaseDatesCheckedAt,
+                        value: enriched,
+                    });
                     this.workListEnrichmentFailures.delete(key);
                 });
             })
@@ -3148,9 +3170,13 @@ class AnnictApiModel implements IAnnictApiModel {
         }
     }
 
-    private async enrichWorkReleaseDates(works: apid.AnnictWorkSummary[]): Promise<apid.AnnictWorkSummary[]> {
-        const dates = new Map<number, Pick<apid.AnnictWorkSummary, 'releasedOn' | 'releasedOnAbout'>>();
+    private async enrichWorkReleaseDates(
+        works: apid.AnnictWorkSummary[],
+        saveProgress?: (works: apid.AnnictWorkSummary[], complete: boolean) => Promise<void>,
+    ): Promise<apid.AnnictWorkSummary[]> {
+        let result = [...works];
         try {
+            if (works.length === 0) await saveProgress?.(result, true);
             for (let index = 0; index < works.length; index += 50) {
                 const batch = works.slice(index, index + 50);
                 const data = await this.requestRest('works', {
@@ -3158,24 +3184,28 @@ class AnnictApiModel implements IAnnictApiModel {
                     page: 1,
                     per_page: 50,
                 });
-                const restWorks = Array.isArray(data?.works) ? data.works : [];
-                restWorks.forEach((work: any) => {
-                    if (!Number.isFinite(work?.id)) return;
+                if (!Array.isArray(data?.works)) throw new Error('Annict作品開始日を取得できませんでした');
+                const dates = new Map<number, Pick<apid.AnnictWorkSummary, 'releasedOn' | 'releasedOnAbout'>>();
+                for (const work of data.works) {
+                    if (!Number.isFinite(work?.id)) continue;
                     dates.set(work.id, {
                         releasedOn: this.optionalString(work.released_on),
                         releasedOnAbout: this.optionalString(work.released_on_about),
                     });
-                });
+                }
+                result = result.map(work => ({
+                    ...work,
+                    releasedOn: dates.get(work.annictId)?.releasedOn ?? work.releasedOn,
+                    releasedOnAbout: dates.get(work.annictId)?.releasedOnAbout ?? work.releasedOnAbout,
+                }));
+                await saveProgress?.(result, index + 50 >= works.length);
             }
         } catch (err) {
             this.log.system.warn(`Annict REST work dates failed: error=${this.errorMessage(err)}`);
-            return works;
+            if (saveProgress !== undefined) throw err;
+            return result;
         }
-        return works.map(work => ({
-            ...work,
-            releasedOn: dates.get(work.annictId)?.releasedOn ?? work.releasedOn,
-            releasedOnAbout: dates.get(work.annictId)?.releasedOnAbout ?? work.releasedOnAbout,
-        }));
+        return result;
     }
 
     private async getAnnictInfoPageReleasedOn(annictId: number): Promise<string | undefined> {
