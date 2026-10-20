@@ -67,6 +67,7 @@ export const get: Operation = async (req, res) => {
                 playPosition: parseFloat(req.query.ss as string),
                 mode: parseInt(req.query.mode as string, 10),
                 vodSessionId: typeof req.query.vodSessionId === 'string' ? req.query.vodSessionId : undefined,
+                client: req.query.client === 'ios' ? 'ios' : undefined,
                 quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
                 encoder: parseWatchEncoder(req.query.encoder),
                 isHevc: parseBoolean(req.query.hevc),
@@ -137,6 +138,13 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/WatchStreamQuality',
+        },
+        {
+            name: 'client',
+            in: 'query',
+            required: false,
+            description: 'プレイリストと同じiOSアプリ向け互換設定',
+            schema: { type: 'string', enum: ['ios'] },
         },
         {
             $ref: '#/components/parameters/WatchStreamEncoder',

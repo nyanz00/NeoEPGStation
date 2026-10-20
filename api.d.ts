@@ -1341,6 +1341,7 @@ export interface RecordedStreanOption {
     playPosition: number; // 再生位置 (秒)
     mode: number; // config 設定
     vodSessionId?: string; // VOD HLS 視聴クライアント識別子
+    client?: 'ios'; // 明示指定時のみiOSアプリ向けHLS互換設定を使用
     quality?: string;
     encoder?: 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
     isHevc?: boolean;

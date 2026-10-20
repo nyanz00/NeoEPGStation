@@ -52,6 +52,7 @@ interface EncodedVodHlsContinuousCommandOption extends Omit<RecordedVodHlsSegmen
     inputPixelFormat?: string;
     frameRate?: number;
     duration?: number;
+    client?: 'ios';
     playlistPath: string;
     segmentDuration: number;
     segmentPath: string;
@@ -553,10 +554,10 @@ namespace WatchStreamProfileUtil {
                 : []),
             '-force_key_frames',
             `expr:eq(mod(n,${timing.gopFrames.toString(10)}),0)`,
-            '-muxdelay',
-            '0',
-            '-muxpreload',
-            '0',
+            // VLCKit needs the standard TS clock lead when reordered frames
+            // have DTS before the HLS segment's nominal start. Keep Web's
+            // existing timing unless the application explicitly opts in.
+            ...(option.client === 'ios' ? [] : ['-muxdelay', '0', '-muxpreload', '0']),
             '-f',
             'hls',
             '-hls_time',
@@ -589,6 +590,10 @@ namespace WatchStreamProfileUtil {
 
     export const usesEncodedVodHlsNVEnc = (config: IConfigFile, encoder?: WatchStreamEncoder): boolean => {
         return getEncoder(config, encoder) === 'NVEncC';
+    };
+
+    export const usesRecordedVodHlsFFmpeg = (config: IConfigFile, encoder?: WatchStreamEncoder): boolean => {
+        return getEncoder(config, encoder) === 'FFmpeg';
     };
 
     export const buildEncodedVodHlsNVEncCommand = (

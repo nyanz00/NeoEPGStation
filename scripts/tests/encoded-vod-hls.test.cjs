@@ -3,12 +3,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const ts = require('typescript');
 require('reflect-metadata');
 
-function loadTypeScript(sourcePath, stubs = {}) {
+function loadTypeScript(sourcePath, stubs = {}, append = '') {
     const absolutePath = path.resolve(__dirname, sourcePath);
     const source = fs.readFileSync(absolutePath, 'utf8');
     const compiled = ts.transpileModule(source, {
@@ -32,7 +33,7 @@ function loadTypeScript(sourcePath, stubs = {}) {
         return load.call(this, request, parent, isMain);
     };
     try {
-        loadedModule._compile(compiled, absolutePath);
+        loadedModule._compile(`${compiled}\n${append}`, absolutePath);
     } finally {
         Module._load = load;
     }
@@ -45,10 +46,15 @@ const { default: WatchStreamProfileUtil } = loadTypeScript('../../src/model/serv
     '../../../util/ProcessUtil': { ROOT_PATH: process.cwd() },
     './EncodedVodHlsTiming': timingModule,
 });
-const { default: StreamApiModel } = loadTypeScript('../../src/model/api/stream/StreamApiModel.ts', {
-    '../../service/stream/WatchStreamProfileUtil': { __esModule: true, default: WatchStreamProfileUtil },
-    '../../service/stream/EncodedVodHlsTiming': timingModule,
-});
+const { default: StreamApiModel, RecordedSession } = loadTypeScript(
+    '../../src/model/api/stream/StreamApiModel.ts',
+    {
+        '../../service/stream/WatchStreamProfileUtil': { __esModule: true, default: WatchStreamProfileUtil },
+        '../../service/stream/EncodedVodHlsTiming': timingModule,
+        '../../../util/MpegTsTimeUtil': { findMpegTsByteOffset: async () => 0 },
+    },
+    'exports.RecordedSession = RecordedVodHlsMuxSession;',
+);
 const { default: VideoAnalysisModel } = loadTypeScript('../../src/model/video/VideoAnalysisModel.ts');
 
 const frameRates = [
@@ -114,6 +120,36 @@ test('FFmpeg encoded HLS command derives frame rate, GOP, and segment cut from o
         assert.equal(argumentValue(args, '-force_key_frames'), `expr:eq(mod(n,${expected.gop}),0)`);
         assert.equal(argumentValue(args, '-fps_mode'), 'cfr');
     }
+});
+
+test('iOS timing is opt-in on the FFmpeg transform path, including NVENC subtitle burn-in', () => {
+    for (const encoder of ['FFmpeg', 'NVEncC']) {
+        const option = encodedCommandOption(25, 4, { encoder, subtitlePath: 'subtitle.ass' });
+        const web = WatchStreamProfileUtil.buildEncodedVodHlsContinuousCommand(config(), option);
+        const ios = WatchStreamProfileUtil.buildEncodedVodHlsContinuousCommand(config(), { ...option, client: 'ios' });
+        assert.equal(argumentValue(web.args, '-muxdelay'), '0');
+        assert.equal(argumentValue(web.args, '-muxpreload'), '0');
+        assert.equal(ios.args.includes('-muxdelay'), false);
+        assert.equal(ios.args.includes('-muxpreload'), false);
+        assert.equal(argumentValue(ios.args, '-c:v'), argumentValue(web.args, '-c:v'));
+        assert.equal(argumentValue(ios.args, '-g'), argumentValue(web.args, '-g'));
+    }
+});
+
+test('iOS request leaves native NVEncC encoding and copy-only HLS mux commands unchanged', () => {
+    const option = encodedCommandOption(25, 4);
+    assert.deepEqual(
+        WatchStreamProfileUtil.buildEncodedVodHlsNVEncCommand(config(), { ...option, client: 'ios' }, 0, 'keys.txt'),
+        WatchStreamProfileUtil.buildEncodedVodHlsNVEncCommand(config(), option, 0, 'keys.txt'),
+    );
+    assert.deepEqual(
+        WatchStreamProfileUtil.buildEncodedVodHlsCopyMuxCommand(config(), { ...option, client: 'ios' }, 0),
+        WatchStreamProfileUtil.buildEncodedVodHlsCopyMuxCommand(config(), option, 0),
+    );
+    assert.equal(WatchStreamProfileUtil.usesRecordedVodHlsFFmpeg(config(), 'FFmpeg'), true);
+    assert.equal(WatchStreamProfileUtil.usesRecordedVodHlsFFmpeg(config(), 'NVEncC'), false);
+    assert.equal(WatchStreamProfileUtil.usesRecordedVodHlsFFmpeg(config()), false);
+    assert.equal(WatchStreamProfileUtil.usesRecordedVodHlsFFmpeg({ ...config(), watch: { encoder: 'FFmpeg' } }), true);
 });
 
 test('software-decoded 10-bit H.264 is converted to an 8-bit H.264 profile', () => {
@@ -205,6 +241,48 @@ const playlistOption = {
     playPosition: 0,
     vodSessionId: 'test-session',
 };
+
+test('iOS selection propagates to segment URLs and isolates the reusable session profile', async () => {
+    const model = createPlaylistModel({ duration: 12, frameRate: 25 }, true);
+    const ios = await model.getRecordedVODHLSPlaylist({ ...playlistOption, client: 'ios' });
+    const web = await model.getRecordedVODHLSPlaylist(playlistOption);
+    const segmentUrls = ios.split('\n').filter(line => line.startsWith('segments/'));
+    assert.equal(segmentUrls.length, 3);
+    for (const url of segmentUrls) assert.equal(new URL(url, 'http://localhost/').searchParams.get('client'), 'ios');
+    assert.doesNotMatch(web, /client=/);
+    assert.notEqual(
+        model.createRecordedVodHlsSessionProfileKey(playlistOption, 'recording.mkv', 4),
+        model.createRecordedVodHlsSessionProfileKey({ ...playlistOption, client: 'ios' }, 'recording.mkv', 4),
+    );
+});
+
+test('TS HLS timestamp preservation is limited to explicit iOS requests using FFmpeg for conversion', async t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ios-ts-hls-options-'));
+    const prefetch = RecordedSession.prototype.prefetch;
+    RecordedSession.prototype.prefetch = () => {};
+    t.after(() => {
+        RecordedSession.prototype.prefetch = prefetch;
+        fs.rmSync(directory, { recursive: true, force: true });
+    });
+    const model = Object.create(StreamApiModel.prototype);
+    Object.assign(model, {
+        configure: { getConfig: () => ({ ...config(), temporaryDir: directory }) },
+        recordedVodHlsSessions: new Map(),
+        vodHlsCleanupPromises: new Map(),
+        cleanupRecordedVodHlsSessions() {},
+        cleanupEncodedVodHlsSessions() {},
+        buildRecordedTsPreprocessor: async () => ({ bin: 'preprocessor', args: [] }),
+        log: { stream: { info() {} } },
+    });
+    const info = { duration: 60, size: 1000, filePath: path.join(directory, 'recording.ts') };
+    for (const encoder of ['FFmpeg', 'NVEncC']) {
+        for (const client of [undefined, 'ios']) {
+            const session = await model.getRecordedVodHlsSession({ ...playlistOption, encoder, client }, info, 6.006);
+            assert.equal(session.option.preserveTimestamps, client === 'ios' && encoder === 'FFmpeg');
+            await session.cleanup();
+        }
+    }
+});
 
 function playlistDurations(playlist) {
     return [...playlist.matchAll(/^#EXTINF:([0-9.]+),$/gm)].map(match => Number(match[1]));

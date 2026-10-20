@@ -240,6 +240,7 @@ interface RecordedVodHlsMuxSessionOption {
     preprocessor: ProcessUtil.Cmds;
     command: string;
     fallbackCommand?: string;
+    preserveTimestamps?: boolean;
     log: ILogger;
     temporaryDir: string;
 }
@@ -367,6 +368,7 @@ class RecordedVodHlsMuxSession {
                 '-hide_banner',
                 '-loglevel',
                 'warning',
+                ...(this.option.preserveTimestamps === true ? ['-copyts'] : []),
                 '-fflags',
                 '+genpts',
                 '-f',
@@ -550,6 +552,7 @@ interface EncodedVodHlsMuxSessionOption {
     startSequence: number;
     qualityName?: string;
     encoder?: apid.RecordedStreanOption['encoder'];
+    client?: apid.RecordedStreanOption['client'];
     isHevc?: boolean;
     subtitleIndex?: number;
     subtitlePath?: string;
@@ -688,6 +691,7 @@ class EncodedVodHlsMuxSession {
             inputPixelFormat: this.option.videoInfo.videoPixelFormat,
             frameRate: this.option.videoInfo.frameRate,
             duration: Math.max(0.001, this.option.videoInfo.duration - this.option.startPosition),
+            client: this.option.client,
         };
         if (
             subtitlePath === undefined &&
@@ -1861,6 +1865,8 @@ export default class StreamApiModel implements IStreamApiModel {
             preprocessor: preprocessor,
             command: command,
             fallbackCommand: fallbackCommand,
+            preserveTimestamps:
+                option.client === 'ios' && WatchStreamProfileUtil.usesRecordedVodHlsFFmpeg(config, option.encoder),
             log: this.log,
             temporaryDir: config.temporaryDir ?? os.tmpdir(),
         });
@@ -1914,6 +1920,7 @@ export default class StreamApiModel implements IStreamApiModel {
             startSequence: startSequence,
             qualityName: option.quality,
             encoder: option.encoder,
+            client: option.client,
             isHevc: option.isHevc,
             subtitleIndex: option.subtitleIndex,
             subtitlePath: preparedSubtitlePath,
@@ -1971,6 +1978,7 @@ export default class StreamApiModel implements IStreamApiModel {
             option.subtitleOpacity ?? 100,
             option.subtitleOutlineSize ?? 100,
             option.subtitleOutlineOpacity ?? 100,
+            ...(option.client === 'ios' ? ['client:ios'] : []),
         ].join('|');
     }
 
@@ -2175,6 +2183,7 @@ export default class StreamApiModel implements IStreamApiModel {
         if (typeof option.vodSessionId !== 'undefined') {
             params.set('vodSessionId', option.vodSessionId);
         }
+        if (option.client === 'ios') params.set('client', 'ios');
 
         return params.toString();
     }

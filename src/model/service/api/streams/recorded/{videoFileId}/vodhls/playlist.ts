@@ -51,6 +51,7 @@ export const get: Operation = async (req, res) => {
                 playPosition: parseFloat(req.query.ss as string),
                 mode: parseInt(req.query.mode as string, 10),
                 vodSessionId: typeof req.query.vodSessionId === 'string' ? req.query.vodSessionId : undefined,
+                client: req.query.client === 'ios' ? 'ios' : undefined,
                 quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
                 encoder: parseWatchEncoder(req.query.encoder),
                 isHevc: parseBoolean(req.query.hevc),
@@ -94,6 +95,13 @@ get.apiDoc = {
         },
         {
             $ref: '#/components/parameters/WatchStreamQuality',
+        },
+        {
+            name: 'client',
+            in: 'query',
+            required: false,
+            description: 'ios指定時、FFmpegで映像変換する経路にiOSアプリ向け時刻互換設定を適用する',
+            schema: { type: 'string', enum: ['ios'] },
         },
         {
             $ref: '#/components/parameters/WatchStreamEncoder',
