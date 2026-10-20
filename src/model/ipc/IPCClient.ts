@@ -20,6 +20,7 @@ import {
     ClientMessageOption,
     OperatorEncodeEventFunctions,
     ModelName,
+    NotifyClientMessage,
     ParentMessage,
     PushEncodeMessage,
     RecordedFunctions,
@@ -92,7 +93,7 @@ export default class IPCClient implements IIPCClient {
                 else pending.reject(new Error(replay.error));
             } else if ((<ParentMessage>msg).type === 'notifyClient') {
                 // socket.io によるクライアントへの状態更新通知
-                this.socketIO.notifyClient();
+                this.socketIO.notifyClient((msg as NotifyClientMessage).value);
             } else if ((<ParentMessage>msg).type === 'pushEncode') {
                 // エンコード依頼
                 this.encodeManage.push((<PushEncodeMessage>msg).value);

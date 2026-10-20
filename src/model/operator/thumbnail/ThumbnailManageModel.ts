@@ -330,6 +330,9 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
             throw err;
         });
 
+        // The visible DB state has changed even if deleting the file later fails.
+        this.thumbnailEvent.emitDeleted(thumbnail.recordedId);
+
         // サムネイルファイルを削除
         const filePath = path.join(this.config.thumbnail, thumbnail.filePath);
         await FileUtil.unlink(filePath).catch(err => {
@@ -337,8 +340,6 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
             this.log.system.error(err);
             throw err;
         });
-
-        this.thumbnailEvent.emitDeleted();
     }
 
     /**

@@ -4,6 +4,7 @@ import IRecordedDB from '../../db/IRecordedDB';
 import IRecordedPlaybackDB from '../../db/IRecordedPlaybackDB';
 import ITvUserDB from '../../db/ITvUserDB';
 import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
+import ISocketIOManageModel from '../../service/socketio/ISocketIOManageModel';
 import IRecordedItemUtil from '../IRecordedItemUtil';
 import IRecordedPlaybackApiModel from './IRecordedPlaybackApiModel';
 
@@ -15,6 +16,7 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
         @inject('IRecordedItemUtil') private recordedItemUtil: IRecordedItemUtil,
         @inject('IEncodeManageModel') private encodeManage: IEncodeManageModel,
         @inject('ITvUserDB') private userDB: ITvUserDB,
+        @inject('ISocketIOManageModel') private socketIO: ISocketIOManageModel,
     ) {}
 
     public async get(recordedId: apid.RecordedId, userId: number): Promise<apid.RecordedPlayback> {
@@ -81,14 +83,20 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
             throw new Error('視聴履歴設定が不正です');
         if (option.limit !== undefined) this.historyLimit(option.limit);
         await this.userDB.updateRecordedHistorySettings(userId, option);
-        if (option.limit !== undefined && option.limit < user.recordedHistoryLimit)
-            await this.playbackDB.trimHistory(userId, option.limit);
-        return this.getHistorySettings(userId);
+        try {
+            if (option.limit !== undefined && option.limit < user.recordedHistoryLimit)
+                await this.playbackDB.trimHistory(userId, option.limit);
+            return await this.getHistorySettings(userId);
+        } finally {
+            // The saved settings may already have changed even if trimming fails.
+            this.socketIO.notifyRecordedPlaybackHistory(userId, true);
+        }
     }
 
     public async removeFromHistory(recordedId: apid.RecordedId, userId: number): Promise<void> {
         this.validateIds(recordedId, userId);
         await this.playbackDB.removeFromHistory(recordedId, userId);
+        this.socketIO.notifyRecordedPlaybackHistory(userId);
     }
 
     public async update(
@@ -127,6 +135,7 @@ export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiMod
             historyLimit: user.recordedHistoryLimit,
             historyEnabled: user.isRecordedHistoryEnabled,
         });
+        if (value.historyUpdatedAt !== null) this.socketIO.notifyRecordedPlaybackHistory(userId);
         return {
             position: value.position,
             duration: value.duration,

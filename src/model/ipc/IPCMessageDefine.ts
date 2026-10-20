@@ -15,6 +15,7 @@ export interface ParentMessage {
  */
 export interface NotifyClientMessage extends ParentMessage {
     type: 'notifyClient';
+    value?: number;
 }
 
 export interface PushEncodeMessage extends ParentMessage {

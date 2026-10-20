@@ -3,6 +3,6 @@ import { AddEncodeOption } from '../service/encode/IEncoderModel';
 
 export default interface IIPCServer {
     register(child: ChildProcess): void;
-    notifyClient(): void;
+    notifyClient(recordedId?: number): void;
     setEncode(addOption: AddEncodeOption): void;
 }

@@ -168,16 +168,20 @@ export function WatchHistoryPage(): ReactNode {
     });
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
     const channelNames = new Map((channels.data ?? []).map(channel => [channel.id, channel.name]));
-    const refreshHistory = () => {
-        void Promise.all([history.refetch(), historySettings.refetch()]);
-    };
+    const refreshHistory = useMutation({
+        mutationFn: () => Promise.all([history.refetch({ cancelRefetch: false }), historySettings.refetch({ cancelRefetch: false })]),
+    });
 
     return (
         <>
             <PageHeader
                 title="視聴履歴"
                 actions={
-                    <IconButton aria-label="視聴履歴を更新" disabled={userId === null || history.isFetching || historySettings.isFetching} onClick={refreshHistory}>
+                    <IconButton
+                        aria-label="視聴履歴を更新"
+                        disabled={userId === null || history.isPending || historySettings.isPending || refreshHistory.isPending}
+                        onClick={() => refreshHistory.mutate()}
+                    >
                         <RefreshOutlined />
                     </IconButton>
                 }

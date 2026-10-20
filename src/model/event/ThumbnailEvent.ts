@@ -26,8 +26,8 @@ class ThumbnailEvent implements IThumbnailEvent {
     /**
      * サムネイル削除イベント発行
      */
-    public emitDeleted(): void {
-        this.emitter.emit(ThumbnailEvent.DELETED_EVENT);
+    public emitDeleted(recordedId: apid.RecordedId): void {
+        this.emitter.emit(ThumbnailEvent.DELETED_EVENT, recordedId);
     }
 
     /**
@@ -49,12 +49,12 @@ class ThumbnailEvent implements IThumbnailEvent {
 
     /**
      * サムネイル削除イベント登録
-     * @param callback: () => void
+     * @param callback: (recordedId: apid.RecordedId) => void
      */
-    public setDeleted(callback: () => void): void {
-        this.emitter.on(ThumbnailEvent.DELETED_EVENT, async () => {
+    public setDeleted(callback: (recordedId: apid.RecordedId) => void): void {
+        this.emitter.on(ThumbnailEvent.DELETED_EVENT, async (recordedId: apid.RecordedId) => {
             try {
-                await callback();
+                await callback(recordedId);
             } catch (err: any) {
                 this.log.system.error(err);
             }

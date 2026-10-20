@@ -342,18 +342,18 @@ export default class EventSetter implements IEventSetter {
         });
 
         // サムネイル作成完了
-        this.thumbnailEvent.setAdded((_videoFileId, _recordedId) => {
-            this.ipc.notifyClient();
+        this.thumbnailEvent.setAdded((_videoFileId, recordedId) => {
+            this.ipc.notifyClient(recordedId);
         });
 
         // サムネイル削除
-        this.thumbnailEvent.setDeleted(() => {
-            this.ipc.notifyClient();
+        this.thumbnailEvent.setDeleted(recordedId => {
+            this.ipc.notifyClient(recordedId);
         });
 
         // 録画削除
         this.recordedEvent.setDeleteRecorded(recorded => {
-            this.ipc.notifyClient();
+            this.ipc.notifyClient(recorded.id);
 
             if (typeof recorded.videoFiles !== 'undefined') {
                 for (const videoFile of recorded.videoFiles) {

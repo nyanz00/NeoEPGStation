@@ -6,7 +6,7 @@ import IConfigFile from '../../IConfigFile';
 import IConfiguration from '../../IConfiguration';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
-import ISocketIOManageModel from './ISocketIOManageModel';
+import ISocketIOManageModel, { RecordedPlaybackHistoryUpdate } from './ISocketIOManageModel';
 
 @injectable()
 export default class SocketIOManageModel implements ISocketIOManageModel {
@@ -17,6 +17,7 @@ export default class SocketIOManageModel implements ISocketIOManageModel {
     private encodeProgressCallTimer: NodeJS.Timeout | null = null;
     private isClientNotificationPending: boolean = false;
     private isEncodeNotificationPending: boolean = false;
+    private historyRecordedIds = new Set<number>();
 
     constructor(@inject('ILoggerModel') logger: ILoggerModel, @inject('IConfiguration') configuration: IConfiguration) {
         this.log = logger.getLogger();
@@ -52,9 +53,17 @@ export default class SocketIOManageModel implements ISocketIOManageModel {
     /**
      * client へ状態変更通知
      */
-    public notifyClient(): void {
+    public notifyClient(recordedId?: number): void {
         this.isClientNotificationPending = true;
+        if (typeof recordedId === 'number' && Number.isSafeInteger(recordedId) && recordedId > 0) {
+            this.historyRecordedIds.add(recordedId);
+        }
         this.scheduleClientNotification();
+    }
+
+    public notifyRecordedPlaybackHistory(userId: number, settings = false): void {
+        const update: RecordedPlaybackHistoryUpdate = { userId, settings };
+        for (const io of this.ios) io.sockets.emit('updateRecordedPlaybackHistory', update);
     }
 
     /**
@@ -76,8 +85,15 @@ export default class SocketIOManageModel implements ISocketIOManageModel {
                 return;
             }
             this.isClientNotificationPending = false;
+            const recordedIds = [...this.historyRecordedIds];
+            this.historyRecordedIds.clear();
             for (const io of this.ios) {
                 io.sockets.emit('updateStatus');
+                if (recordedIds.length > 0) {
+                    io.sockets.emit('updateRecordedPlaybackHistory', {
+                        recordedIds,
+                    } satisfies RecordedPlaybackHistoryUpdate);
+                }
             }
         }, 200);
     }

@@ -36,13 +36,17 @@ function loadTypeScript(sourcePath) {
 const RecordedPlaybackApiModel = loadTypeScript('../../src/model/api/recorded/RecordedPlaybackApiModel.ts');
 const TvUserDB = loadTypeScript('../../src/model/db/TvUserDB.ts');
 
-function createApiModelFixture(userValues = [{ id: 7, isRecordedHistoryEnabled: true, recordedHistoryLimit: 8 }]) {
+function createApiModelFixture(
+    userValues = [{ id: 7, isRecordedHistoryEnabled: true, recordedHistoryLimit: 8 }],
+    { historyUpdatedAt = 123, updateError = null, settingsError = null, trimError = null } = {},
+) {
     const users = new Map(userValues.map(user => [user.id, { ...user }]));
-    const calls = { history: [], progress: [], trims: [], settings: [] };
+    const calls = { history: [], progress: [], removals: [], trims: [], settings: [], notifications: [] };
     const userDB = {
         findId: async userId => users.get(userId) ?? null,
         updateRecordedHistorySettings: async (userId, option) => {
             calls.settings.push({ userId, option: { ...option } });
+            if (settingsError !== null) throw settingsError;
             const user = users.get(userId);
             users.set(userId, {
                 ...user,
@@ -57,14 +61,20 @@ function createApiModelFixture(userValues = [{ id: 7, isRecordedHistoryEnabled: 
             calls.history.push({ userId, limit });
             return [];
         },
-        trimHistory: async (userId, limit) => calls.trims.push({ userId, limit }),
+        removeFromHistory: async (recordedId, userId) => calls.removals.push({ recordedId, userId }),
+        trimHistory: async (userId, limit) => {
+            calls.trims.push({ userId, limit });
+            if (trimError !== null) throw trimError;
+        },
         update: async (recordedId, userId, value) => {
             calls.progress.push({ recordedId, userId, value: { ...value } });
+            if (updateError !== null) throw updateError;
             return {
                 position: value.position,
                 duration: value.duration,
                 watchedSeconds: 0,
                 updatedAt: value.observedAt,
+                historyUpdatedAt,
             };
         },
     };
@@ -74,6 +84,10 @@ function createApiModelFixture(userValues = [{ id: 7, isRecordedHistoryEnabled: 
         { convertRecordedToRecordedItem: () => assert.fail('No history items should be converted') },
         { waitUntilReady: async () => {}, getRecordedIndex: () => new Map() },
         userDB,
+        {
+            notifyRecordedPlaybackHistory: async (userId, settings = false) =>
+                calls.notifications.push({ userId, settings }),
+        },
     );
     return { model, calls, users };
 }
@@ -91,12 +105,14 @@ test('history retrieval takes its limit from each server user record', async () 
         { userId: 7, limit: 3 },
         { userId: 9, limit: 17 },
     ]);
+    assert.deepEqual(calls.notifications, []);
 });
 
 test('playback updates ignore a client history limit and use the saved user settings', async () => {
-    const { model, calls } = createApiModelFixture([
-        { id: 7, isRecordedHistoryEnabled: false, recordedHistoryLimit: 11 },
-    ]);
+    const { model, calls } = createApiModelFixture(
+        [{ id: 7, isRecordedHistoryEnabled: false, recordedHistoryLimit: 11 }],
+        { historyUpdatedAt: null },
+    );
 
     await model.update(42, 7, {
         position: 30,
@@ -114,6 +130,58 @@ test('playback updates ignore a client history limit and use the saved user sett
     assert.equal(calls.progress[0].value.sessionId, 'session-alpha-0001');
     assert.equal(calls.progress[0].value.sessionWatchedSeconds, 12);
     assert.equal(calls.progress[0].value.watchedSecondsDelta, 0);
+    assert.deepEqual(calls.notifications, []);
+});
+
+test('playback updates notify only users whose saved history row exists', async () => {
+    const { model, calls } = createApiModelFixture(
+        [
+            { id: 7, isRecordedHistoryEnabled: false, recordedHistoryLimit: 11 },
+            { id: 9, isRecordedHistoryEnabled: true, recordedHistoryLimit: 5 },
+        ],
+        { historyUpdatedAt: 456 },
+    );
+
+    await model.update(42, 7, { position: 30, duration: 600, watchedSecondsDelta: 0 });
+    assert.deepEqual(calls.notifications, [{ userId: 7, settings: false }]);
+
+    // The DB's BIGINT timestamp can also be represented as a string. Membership
+    // is defined by null, independently of the driver's numeric conversion.
+    const stringTimestamp = createApiModelFixture(undefined, { historyUpdatedAt: '456' });
+    await stringTimestamp.model.update(42, 7, { position: 30, duration: 600, watchedSecondsDelta: 0 });
+    assert.deepEqual(stringTimestamp.calls.notifications, [{ userId: 7, settings: false }]);
+
+    calls.notifications.length = 0;
+    const untracked = createApiModelFixture([{ id: 9, isRecordedHistoryEnabled: false, recordedHistoryLimit: 5 }], {
+        historyUpdatedAt: null,
+    });
+    await untracked.model.update(42, 9, { position: 30, duration: 600, watchedSecondsDelta: 0 });
+    assert.deepEqual(untracked.calls.notifications, []);
+});
+
+test('failed playback and history settings writes do not notify', async () => {
+    const updateFailure = createApiModelFixture(undefined, { updateError: new Error('progress write failed') });
+    await assert.rejects(
+        updateFailure.model.update(42, 7, { position: 30, duration: 600, watchedSecondsDelta: 0 }),
+        /progress write failed/,
+    );
+    assert.deepEqual(updateFailure.calls.notifications, []);
+
+    const settingsFailure = createApiModelFixture(undefined, { settingsError: new Error('settings write failed') });
+    await assert.rejects(settingsFailure.model.updateHistorySettings(7, { enabled: false }), /settings write failed/);
+    assert.deepEqual(settingsFailure.calls.notifications, []);
+});
+
+test('removing a history entry notifies only the requested user', async () => {
+    const { model, calls } = createApiModelFixture([
+        { id: 7, isRecordedHistoryEnabled: true, recordedHistoryLimit: 8 },
+        { id: 9, isRecordedHistoryEnabled: true, recordedHistoryLimit: 8 },
+    ]);
+
+    await model.removeFromHistory(42, 9);
+
+    assert.deepEqual(calls.removals, [{ recordedId: 42, userId: 9 }]);
+    assert.deepEqual(calls.notifications, [{ userId: 9, settings: false }]);
 });
 
 test('lowering history settings updates that user and trims to the new saved limit', async () => {
@@ -126,6 +194,15 @@ test('lowering history settings updates that user and trims to the new saved lim
     assert.deepEqual(calls.settings, [{ userId: 7, option: { enabled: false, limit: 4 } }]);
     assert.deepEqual(calls.trims, [{ userId: 7, limit: 4 }]);
     assert.deepEqual(settings, { enabled: false, limit: 4 });
+    assert.deepEqual(calls.notifications, [{ userId: 7, settings: true }]);
+});
+
+test('history settings notify after a partial trim failure', async () => {
+    const { model, calls } = createApiModelFixture(undefined, { trimError: new Error('trim failed') });
+
+    await assert.rejects(model.updateHistorySettings(7, { limit: 4 }), /trim failed/);
+
+    assert.deepEqual(calls.notifications, [{ userId: 7, settings: true }]);
 });
 
 test('TvUserDB writes history settings to the requested server user', async () => {

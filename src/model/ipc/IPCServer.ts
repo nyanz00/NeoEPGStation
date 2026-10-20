@@ -105,13 +105,14 @@ export default class IPCServer implements IIPCServer {
     /**
      * 子プロセスに socket.io による状態更新通知を依頼する
      */
-    public notifyClient(): void {
+    public notifyClient(recordedId?: number): void {
         if (this.child === null) {
             return;
         }
 
         this.child.send(<any>(<NotifyClientMessage>{
             type: 'notifyClient',
+            value: recordedId,
         }));
     }
 
