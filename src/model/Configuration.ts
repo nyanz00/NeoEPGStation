@@ -3,7 +3,7 @@ import { inject, injectable } from 'inversify';
 import * as yaml from 'js-yaml';
 import * as path from 'path';
 import urljoin from 'url-join';
-import IConfigFile from './IConfigFile';
+import IConfigFile, { WatchStreamEncoder } from './IConfigFile';
 import IConfiguration from './IConfiguration';
 import ILogger from './ILogger';
 import ILoggerModel from './ILoggerModel';
@@ -98,6 +98,13 @@ class Configuration implements IConfiguration {
      */
     private formatConfig(newConfig: IConfigFile): IConfigFile {
         this.setTemplateValues(newConfig);
+
+        if (typeof newConfig.watch?.encoder === 'string') {
+            const encoders: WatchStreamEncoder[] = ['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC'];
+            const encoderName = newConfig.watch.encoder.trim().toLowerCase();
+            const encoder = encoders.find(value => value.toLowerCase() === encoderName);
+            if (encoder !== undefined) newConfig.watch.encoder = encoder;
+        }
 
         const isTailscaleHttpsEnabled = newConfig.tailscaleHttps?.enabled === true;
         if (isTailscaleHttpsEnabled && typeof newConfig.https !== 'undefined') {
