@@ -46,6 +46,9 @@ test('Canvas lifecycle keeps paused/seeking captions current, resizes letterboxe
         },
         translate() {},
         fillRect() {},
+        beginPath() {},
+        rect() {},
+        fill() {},
         strokeText() {},
         fillText(text) {
             painted.push(text);

@@ -136,6 +136,10 @@ function parseStyle(f: Record<string, string>): AssStyle {
     // ARIB fonts use a 36px cell; keep its pos/fscx/fscy/fsp geometry intact.
     if (/^yu gothic$/i.test(f.fontname?.trim() ?? '') && result.fontSize === 46 && result.spacing === 4 && result.marginL === 0 && result.marginV === 0) {
         result.fontSizeFactor = 36 / 46;
+        // The formatter's default bold compensates for Yu Gothic. Native ARIB
+        // fonts use normal weight and a 2px outline per 36px cell instead.
+        result.bold = false;
+        result.outline = 2;
     }
     return result;
 }
@@ -371,8 +375,72 @@ function layoutLines(ctx: CanvasRenderingContext2D, event: AssEvent, family: str
     return lines;
 }
 
+interface SubtitleBackground {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    color: string;
+    cellHeight: number;
+    opacity: number;
+    event: AssEvent;
+}
+
+function drawSubtitleBackgrounds(ctx: CanvasRenderingContext2D, backgrounds: SubtitleBackground[], connectRuby: boolean): void {
+    if (connectRuby) {
+        for (const ruby of backgrounds) {
+            if (!ruby.event.position || ruby.event.move) continue;
+            let bodyTop = Number.POSITIVE_INFINITY;
+            for (const body of backgrounds) {
+                // ASS has no semantic ruby tag. Limit joining to small, nearby
+                // positioned fragments belonging to the same caption interval.
+                if (
+                    body.event === ruby.event ||
+                    !body.event.position ||
+                    body.event.move ||
+                    body.event.start !== ruby.event.start ||
+                    body.event.end !== ruby.event.end ||
+                    body.event.layer !== ruby.event.layer ||
+                    body.color !== ruby.color ||
+                    body.opacity !== ruby.opacity ||
+                    ruby.cellHeight > body.cellHeight * 0.65 ||
+                    ruby.left >= body.right ||
+                    ruby.right <= body.left ||
+                    body.top < ruby.bottom ||
+                    body.top - ruby.bottom > body.cellHeight
+                )
+                    continue;
+                bodyTop = Math.min(bodyTop, body.top);
+            }
+            if (Number.isFinite(bodyTop)) ruby.bottom = bodyTop;
+        }
+    }
+    const groups = new Map<string, SubtitleBackground[]>();
+    for (const box of backgrounds) {
+        const key = `${box.event.layer}:${box.opacity}:${box.color}`;
+        const group = groups.get(key);
+        if (group) group.push(box);
+        else groups.set(key, [box]);
+    }
+    for (const boxes of groups.values()) {
+        ctx.fillStyle = boxes[0].color;
+        ctx.globalAlpha = boxes[0].opacity;
+        if (boxes.length === 1) {
+            const box = boxes[0];
+            ctx.fillRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
+        } else {
+            // One fill of the union prevents translucent overlaps becoming darker.
+            ctx.beginPath();
+            for (const box of boxes) ctx.rect(box.left, box.top, box.right - box.left, box.bottom - box.top);
+            ctx.fill();
+        }
+    }
+}
+
 export function drawAssSubtitles(ctx: CanvasRenderingContext2D, doc: AssSubtitleDocument, time: number, isNicoJk: boolean, family: string): void {
     const occupied: { left: number; top: number; right: number; bottom: number; layer: number }[] = [];
+    const backgrounds: SubtitleBackground[] = [];
+    const renderedLines: { line: Line; baseline: number; x: number; opacity: number; layer: number }[] = [];
     ctx.save();
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
@@ -406,15 +474,13 @@ export function drawAssSubtitles(ctx: CanvasRenderingContext2D, doc: AssSubtitle
             } while (collision);
             occupied.push({ left, right: left + width, top, bottom: top + height, layer: event.layer });
         }
-        ctx.globalAlpha = event.fade
+        const opacity = event.fade
             ? Math.max(0, Math.min(1, event.fade.in ? (time - event.start) / event.fade.in : 1, event.fade.out ? (event.end - time) / event.fade.out : 1))
             : 1;
         for (const line of lines) {
             const baseline = top + line.ascent;
             let cursor = x - (line.width * horizontal) / 2;
-            // Draw each contiguous formatted run's background before any glyphs.
-            // Ruby is a separate positioned event and never extends the main band.
-            const backgrounds: { x: number; right: number; top: number; bottom: number; color: string; padding: number; cellHeight: number }[] = [];
+            const lineBackgrounds: { x: number; right: number; top: number; bottom: number; color: string; padding: number; cellHeight: number }[] = [];
             for (const glyph of line.glyphs) {
                 const s = glyph.style;
                 if (!isNicoJk || s.borderStyle === 3) {
@@ -423,13 +489,13 @@ export function drawAssSubtitles(ctx: CanvasRenderingContext2D, doc: AssSubtitle
                     // FFmpeg's default SRT style supplies an opaque black shadow.
                     // Use the same translucent band as broadcast captions instead.
                     const background = !isNicoJk && s.background === '#000000ff' ? '#00000080' : s.background;
-                    const previous = backgrounds.at(-1);
+                    const previous = lineBackgrounds.at(-1);
                     if (previous && previous.color === background && previous.cellHeight === cellHeight) {
                         previous.right = cursor + glyph.width;
                         previous.top = Math.min(previous.top, baseline - glyph.ascent);
                         previous.bottom = Math.max(previous.bottom, baseline + glyph.descent);
                     } else
-                        backgrounds.push({
+                        lineBackgrounds.push({
                             x: cursor,
                             right: cursor + glyph.width,
                             top: baseline - glyph.ascent,
@@ -441,11 +507,32 @@ export function drawAssSubtitles(ctx: CanvasRenderingContext2D, doc: AssSubtitle
                 }
                 cursor += glyph.advance;
             }
-            for (const box of backgrounds) {
-                ctx.fillStyle = box.color;
-                ctx.fillRect(box.x - box.padding, box.top - box.padding, box.right - box.x + box.padding * 2, box.bottom - box.top + box.padding * 2);
-            }
-            cursor = x - (line.width * horizontal) / 2;
+            backgrounds.push(
+                ...lineBackgrounds.map(box => ({
+                    left: box.x - box.padding,
+                    right: box.right + box.padding,
+                    top: box.top - box.padding,
+                    bottom: box.bottom + box.padding,
+                    color: box.color,
+                    cellHeight: box.cellHeight,
+                    event,
+                    opacity,
+                })),
+            );
+            renderedLines.push({ line, baseline, x: x - (line.width * horizontal) / 2, opacity, layer: event.layer });
+            top += line.ascent + line.descent;
+        }
+    }
+    for (const layer of new Set(renderedLines.map(line => line.layer))) {
+        drawSubtitleBackgrounds(
+            ctx,
+            backgrounds.filter(box => box.event.layer === layer),
+            !isNicoJk,
+        );
+        // Paint each layer's bands first so the body cannot cover ruby glyphs.
+        for (const { line, baseline, x, opacity } of renderedLines.filter(line => line.layer === layer)) {
+            ctx.globalAlpha = opacity;
+            let cursor = x;
             for (const glyph of line.glyphs) {
                 const s = glyph.style;
                 if (s.scaleX <= 0 || s.scaleY <= 0) {
@@ -477,7 +564,6 @@ export function drawAssSubtitles(ctx: CanvasRenderingContext2D, doc: AssSubtitle
                 ctx.restore();
                 cursor += glyph.advance;
             }
-            top += line.ascent + line.descent;
         }
     }
     ctx.restore();

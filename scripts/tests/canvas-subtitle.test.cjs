@@ -36,6 +36,7 @@ const amatsukazeAss = [
 function makeContext(measuredWidth = 80) {
     const calls = [];
     const stack = [];
+    let currentPath = [];
     const ctx = {
         calls,
         font: '',
@@ -94,6 +95,17 @@ function makeContext(measuredWidth = 80) {
         fillRect(x, y, width, height) {
             calls.push({ type: 'fillRect', x, y, width, height, fillStyle: this.fillStyle });
         },
+        beginPath() {
+            currentPath = [];
+            calls.push({ type: 'beginPath' });
+        },
+        rect(x, y, width, height) {
+            currentPath.push({ x, y, width, height });
+            calls.push({ type: 'rect', x, y, width, height });
+        },
+        fill() {
+            calls.push({ type: 'fill', fillStyle: this.fillStyle, rects: currentPath.slice() });
+        },
         strokeText(text, x, y) {
             calls.push({ type: 'strokeText', text, x: this.tx + x, y: this.ty + y });
         },
@@ -107,6 +119,33 @@ function makeContext(measuredWidth = 80) {
         },
     };
     return ctx;
+}
+
+function makePositionedPair({
+    rubyX = 172,
+    rubyY = 443,
+    bodyX = 172,
+    bodyY = 497,
+    rubyStart = '0:00:10.58',
+    bodyStart = rubyStart,
+    rubyLayer = 0,
+    bodyLayer = 0,
+    rubyScale = 50,
+    bodyScale = 100,
+} = {}) {
+    const header = amatsukazeAss.split('\n').filter(line => !line.startsWith('Dialogue:'));
+    header.push(
+        `Dialogue: ${rubyLayer},${rubyStart},0:00:14.61,Default,,0000,0000,0000,,{\\pos(${rubyX},${rubyY})\\c&H00FFFF00\\fscx${rubyScale}\\fscy${rubyScale}}ふりがな`,
+        `Dialogue: ${bodyLayer},${bodyStart},0:00:14.61,Default,,0000,0000,0000,,{\\pos(${bodyX},${bodyY})\\c&H00FFFF00\\fscx${bodyScale}\\fscy${bodyScale}}本文`,
+    );
+    return parseAssSubtitle(header.join('\n'));
+}
+
+function backgroundRects(ctx) {
+    return [
+        ...ctx.calls.filter(call => call.type === 'fillRect'),
+        ...ctx.calls.filter(call => call.type === 'fill').flatMap(call => call.rects),
+    ];
 }
 
 test('parses Amatsukaze Yu Gothic 46 captions, run overrides, and positioned ruby/body events', () => {
@@ -125,7 +164,8 @@ test('parses Amatsukaze Yu Gothic 46 captions, run overrides, and positioned rub
     assert.equal(doc.events[0].runs[0].style.scaleX, 0.5);
     assert.equal(doc.events[0].runs[0].style.scaleY, 0.5);
     assert.equal(doc.events[0].runs[0].style.spacing, 4);
-    assert.equal(doc.events[0].runs[0].style.bold, true);
+    assert.equal(doc.events[0].runs[0].style.bold, false, 'Amatsukaze Yu Gothic 46 uses normal weight');
+    assert.equal(doc.events[0].runs[0].style.outline, 2, 'the outline stays at two pixels per 36px ARIB cell');
     assert.equal(doc.events[0].runs[0].style.fontSizeFactor, 36 / 46);
 
     const bodyRuns = doc.events[1].runs;
@@ -141,8 +181,8 @@ test('parses Amatsukaze Yu Gothic 46 captions, run overrides, and positioned rub
     assert.ok(doc.events[0].runs[0].style.background);
 });
 
-test('keeps separate ruby and body events and paints their backgrounds independently', () => {
-    const doc = parseAssSubtitle(amatsukazeAss);
+test('bridges a positioned Amatsukaze ruby background to its matching body band', () => {
+    const doc = makePositionedPair();
     const ctx = makeContext();
 
     drawAssSubtitles(ctx, doc, 12, false, 'sans-serif');
@@ -151,10 +191,12 @@ test('keeps separate ruby and body events and paints their backgrounds independe
         .filter(call => call.type === 'fillText')
         .map(call => call.text)
         .join('');
-    assert.ok(painted.includes('ふしぐろめぐみ'));
-    assert.ok(painted.includes('伏黒恵'));
-    const backgrounds = ctx.calls.filter(call => call.type === 'fillRect');
-    assert.ok(backgrounds.length >= 2, 'each event/run background should be painted separately');
+    assert.ok(painted.includes('ふりがな'));
+    assert.ok(painted.includes('本文'));
+    const fills = ctx.calls.filter(call => call.type === 'fill');
+    assert.equal(fills.length, 1, 'same-color caption bands should be painted in one path');
+    const backgrounds = fills[0].rects;
+    assert.equal(backgrounds.length, 2, 'the ruby and body remain separate rectangles in the union path');
 
     const [ruby, body] = doc.events;
     const rubyContext = makeContext();
@@ -165,13 +207,81 @@ test('keeps separate ruby and body events and paints their backgrounds independe
     const bodyBackground = bodyContext.calls.find(call => call.type === 'fillRect');
     assert.ok(rubyBackground, 'ruby should receive its own background band');
     assert.ok(bodyBackground, 'body should receive its own background band');
-    assert.ok(
-        Math.abs(rubyBackground.y - bodyBackground.y) > 40,
-        'ruby and body bands should follow their distinct ASS positions',
-    );
+    assert.ok(rubyBackground.y < bodyBackground.y, 'the ruby band should remain above the body band');
     assert.ok(
         rubyBackground.width < bodyBackground.width,
         'the half-scale ruby band should be narrower than the body band',
+    );
+    const [combinedRuby, combinedBody] = backgrounds;
+    assert.ok(combinedRuby.y + combinedRuby.height >= combinedBody.y, 'the ruby band should reach the body band top');
+    assert.ok(combinedRuby.width === rubyBackground.width, 'the bridge should preserve the ruby band width');
+    assert.ok(
+        combinedRuby.y + combinedRuby.height <= combinedBody.y + combinedBody.height,
+        'the ruby extension must stop within the body band',
+    );
+    assert.ok(
+        ctx.calls.findIndex(call => call.type === 'fill') < ctx.calls.findIndex(call => call.type === 'fillText'),
+        'all caption backgrounds must be painted before glyphs',
+    );
+});
+
+test('does not bridge ruby-like bands across layer, interval, distance, horizontal position, or size', () => {
+    const cases = [
+        ['different layer', { bodyLayer: 1 }],
+        ['different interval', { bodyStart: '0:00:10.59' }],
+        ['too far vertically', { bodyY: 540 }],
+        ['no horizontal overlap', { bodyX: 900 }],
+        ['similar size', { rubyScale: 100 }],
+    ];
+    for (const [name, options] of cases) {
+        const ctx = makeContext();
+        drawAssSubtitles(ctx, makePositionedPair(options), 12, false, 'sans-serif');
+        const [ruby, body] = backgroundRects(ctx);
+        assert.ok(ruby && body, `${name}: both bands should still be painted`);
+        assert.ok(ruby.y + ruby.height < body.y, `${name}: the bands should remain disconnected`);
+    }
+});
+
+test('fills overlapping same-color caption bands once before painting any glyphs', () => {
+    const ctx = makeContext();
+    drawAssSubtitles(ctx, makePositionedPair({ bodyY: 455 }), 12, false, 'sans-serif');
+    assert.equal(ctx.calls.filter(call => call.type === 'fill').length, 1);
+    assert.equal(ctx.calls.filter(call => call.type === 'fill')[0].rects.length, 2);
+    assert.ok(
+        ctx.calls.findIndex(call => call.type === 'fill') < ctx.calls.findIndex(call => call.type === 'fillText'),
+        'the union background must be painted before the ruby and body glyphs',
+    );
+});
+
+test('normalizes only recognized Amatsukaze styles and keeps explicit bold and unrelated styles', () => {
+    const inline = parseAssSubtitle(
+        amatsukazeAss.replace(
+            /Dialogue:[^\n]+ふしぐろめぐみ/,
+            'Dialogue: 0,0:00:10.58,0:00:14.61,Default,,0000,0000,0000,,{\\pos(172,443)\\c&H00FFFF00\\fscx50\\fscy50}normal{\\b1}bold',
+        ),
+    );
+    assert.equal(inline.events[0].runs[0].style.bold, false);
+    assert.equal(inline.events[0].runs[1].style.bold, true, 'inline \\b1 must override the normalized style');
+    const inlineContext = makeContext();
+    drawAssSubtitles(inlineContext, inline, 12, false, 'sans-serif');
+    const inlineFonts = inlineContext.calls.filter(call => call.type === 'fillText');
+    assert.match(inlineFonts.find(call => call.text === 'n').font, /^\d+(?:\.\d+)?px /);
+    assert.match(inlineFonts.find(call => call.text === 'b').font, /^bold \d+(?:\.\d+)?px /);
+
+    const unrelatedAss = amatsukazeAss
+        .replace('Yu Gothic,46', 'Arial,46')
+        .replace(/Dialogue:[\s\S]*/, 'Dialogue: 0,0:00:10.00,0:00:14.00,Default,,0,0,0,,still bold');
+    const unrelated = parseAssSubtitle(unrelatedAss);
+    assert.equal(unrelated.events[0].runs[0].style.bold, true, 'non-Amatsukaze style weight must be preserved');
+    const unrelatedContext = makeContext();
+    drawAssSubtitles(unrelatedContext, unrelated, 12, false, 'sans-serif');
+    assert.match(unrelatedContext.calls.find(call => call.type === 'fillText').font, /^bold /);
+    const nicoContext = makeContext();
+    drawAssSubtitles(nicoContext, unrelated, 12, true, 'sans-serif');
+    assert.match(
+        nicoContext.calls.find(call => call.type === 'fillText').font,
+        /^bold /,
+        'NicoJk rendering must retain the supplied style weight',
     );
 });
 
@@ -183,8 +293,8 @@ test('uses measured glyph width for background bounds', () => {
     drawAssSubtitles(narrow, doc, 12, false, 'sans-serif');
     drawAssSubtitles(wide, doc, 12, false, 'sans-serif');
 
-    const narrowRects = narrow.calls.filter(call => call.type === 'fillRect');
-    const wideRects = wide.calls.filter(call => call.type === 'fillRect');
+    const narrowRects = backgroundRects(narrow);
+    const wideRects = backgroundRects(wide);
     assert.ok(narrowRects.length > 0);
     assert.ok(wideRects.length > 0);
     assert.notEqual(wideRects[0].width, narrowRects[0].width);
