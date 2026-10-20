@@ -306,6 +306,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
                 width: this.number(stream.width) ?? undefined,
                 height: this.number(stream.height) ?? undefined,
                 frameRate: this.ratio(stream.avg_frame_rate ?? stream.r_frame_rate) ?? undefined,
+                duration: this.streamDuration(stream),
                 pixelFormat: this.string(stream.pix_fmt) ?? undefined,
                 bitDepth:
                     this.number(stream.bits_per_raw_sample) ??
@@ -316,6 +317,18 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
                 isForced: Number(stream.disposition?.forced) === 1,
             };
         });
+    }
+
+    private streamDuration(stream: Record<string, any>): number | null {
+        const duration = this.number(stream.duration);
+        if (duration !== null && duration > 0) return duration;
+        // Matroska stores track lengths in DURATION tags instead of stream.duration.
+        const tagged = this.string(stream.tags?.DURATION);
+        const match = tagged === null ? null : /^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/.exec(tagged);
+        if (match === null) return null;
+        const end = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        const value = end - (this.number(stream.start_time) ?? 0);
+        return value > 0 ? value : null;
     }
 
     private async toResult(video: VideoFile): Promise<VideoAnalysis> {

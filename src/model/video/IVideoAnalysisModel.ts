@@ -13,6 +13,8 @@ export interface VideoStreamAnalysis {
     width?: number;
     height?: number;
     frameRate?: number;
+    // null means the metadata was checked but did not contain a duration.
+    duration?: number | null;
     pixelFormat?: string;
     bitDepth?: number;
     hdr?: string;

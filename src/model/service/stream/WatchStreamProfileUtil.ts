@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import IConfigFile, { WatchStreamConfig, WatchStreamEncoder, WatchStreamQuality } from '../../IConfigFile';
 import ProcessUtil from '../../../util/ProcessUtil';
+import { getEncodedVodHlsTiming } from './EncodedVodHlsTiming';
 
 interface LiveCommandOption {
     type: 'm2ts' | 'm2tsll';
@@ -49,6 +50,8 @@ interface EncodedVodHlsContinuousCommandOption extends Omit<RecordedVodHlsSegmen
     input: string;
     inputVideoCodec?: string;
     inputPixelFormat?: string;
+    frameRate?: number;
+    duration?: number;
     playlistPath: string;
     segmentDuration: number;
     segmentPath: string;
@@ -481,12 +484,15 @@ namespace WatchStreamProfileUtil {
         const encoder = getEncoder(config, option.encoder);
         const videoCodec = getFFmpegVideoCodec(encoder, quality);
         const hardwareDecode = getHardwareDecodeConfig(encoder, option.inputVideoCodec, option.inputPixelFormat);
+        const timing = getEncodedVodHlsTiming(option.frameRate);
+        const is10bit = quality.isHevc === true && config.watch?.hevc10bit === true;
         const videoFilter = buildEncodedVideoFilter(
             option.subtitlePath,
             quality,
             undefined,
             option.start,
             hardwareDecode?.filterType,
+            is10bit,
         );
         const args = [
             '-hide_banner',
@@ -498,10 +504,11 @@ namespace WatchStreamProfileUtil {
             '-fflags',
             '+genpts',
             '-ss',
-            Math.max(0, option.start).toFixed(3),
+            Math.max(0, option.start).toFixed(6),
             ...(hardwareDecode?.inputOptions ?? []),
             '-i',
             option.input,
+            ...(option.duration === undefined ? [] : ['-t', option.duration.toFixed(6)]),
             '-map',
             '0:v:0',
             '-map',
@@ -528,9 +535,24 @@ namespace WatchStreamProfileUtil {
             quality.videoBitrate,
             '-maxrate',
             quality.videoBitrateMax,
-            ...flatCommandOptions(getFFmpegVideoCodecOptions(encoder, quality, 'hls')),
+            ...flatCommandOptions(getFFmpegVideoCodecOptions(encoder, quality, 'hls', is10bit)),
+            '-r',
+            timing.frameRateOption,
+            '-fps_mode',
+            'cfr',
+            '-g',
+            timing.gopFrames.toString(10),
+            '-flags',
+            '+cgop',
+            ...(encoder === 'NVEncC' ? ['-forced-idr', '1', '-no-scenecut', '1'] : []),
+            ...(encoder === 'QSVEncC' ? ['-forced_idr', '1'] : []),
+            ...(encoder === 'FFmpeg'
+                ? quality.isHevc === true
+                    ? ['-x265-params', 'open-gop=0:scenecut=0']
+                    : ['-sc_threshold', '0']
+                : []),
             '-force_key_frames',
-            `expr:gte(t,n_forced*${option.segmentDuration.toFixed(6)})`,
+            `expr:eq(mod(n,${timing.gopFrames.toString(10)}),0)`,
             '-muxdelay',
             '0',
             '-muxpreload',
@@ -538,7 +560,9 @@ namespace WatchStreamProfileUtil {
             '-f',
             'hls',
             '-hls_time',
-            option.segmentDuration.toFixed(6),
+            // Keep the cut threshold slightly below the exact rational boundary;
+            // rounding a repeating decimal upwards must not skip an entire GOP.
+            (option.segmentDuration - 0.00001).toFixed(6),
             '-hls_list_size',
             '0',
             '-hls_playlist_type',
@@ -546,11 +570,11 @@ namespace WatchStreamProfileUtil {
             '-hls_segment_type',
             'mpegts',
             '-hls_flags',
-            'independent_segments',
+            'independent_segments+temp_file',
             '-start_number',
             option.startSequence.toString(10),
             '-output_ts_offset',
-            Math.max(0, option.start).toFixed(3),
+            Math.max(0, option.start).toFixed(6),
             '-hls_segment_filename',
             option.segmentPath,
             '-y',
@@ -562,6 +586,135 @@ namespace WatchStreamProfileUtil {
             args: args,
         };
     };
+
+    export const usesEncodedVodHlsNVEnc = (config: IConfigFile, encoder?: WatchStreamEncoder): boolean => {
+        return getEncoder(config, encoder) === 'NVEncC';
+    };
+
+    export const buildEncodedVodHlsNVEncCommand = (
+        config: IConfigFile,
+        option: EncodedVodHlsContinuousCommandOption,
+        seekPosition: number,
+        keyFile: string,
+    ): ProcessUtil.Cmds => {
+        const qualityName = option.qualityName ?? getRecordedDisplayQualityNames(config)[0];
+        if (qualityName === undefined) throw new Error('ConfigIsUndefined');
+        const quality = getQualityForRequest(config.watch, qualityName, option.isHevc);
+        const timing = getEncodedVodHlsTiming(option.frameRate);
+        const is10bit = quality.isHevc === true && config.watch?.hevc10bit === true;
+        const hardwareDecode = getHardwareDecodeConfig('NVEncC', option.inputVideoCodec, option.inputPixelFormat);
+        return {
+            bin: getEncoderPath(config.watch, 'NVEncC'),
+            args: [
+                '--input',
+                option.input,
+                hardwareDecode === undefined ? '--avsw' : '--avhw',
+                // NVEncC's fast seek selects the next input keyframe. The caller
+                // probes that keyframe first and cuts the remaining preroll in
+                // the copy muxer, rather than skipping the requested scene.
+                ...(seekPosition > 0 ? ['--seek', Math.max(0, seekPosition - 0.001).toFixed(6)] : []),
+                '--avsync',
+                'forcecfr',
+                '--fps',
+                timing.frameRateOption,
+                '--codec',
+                quality.isHevc === true ? 'hevc' : 'h264',
+                '--profile',
+                quality.isHevc === true ? (is10bit ? 'main10' : 'main') : 'high',
+                '--output-depth',
+                is10bit ? '10' : '8',
+                '--vbr',
+                quality.videoBitrate,
+                '--max-bitrate',
+                quality.videoBitrateMax,
+                ...flatCommandOptions(buildHWEncCQualityOptions('NVEncC', quality)),
+                '--preset',
+                'default',
+                // Copy-mode output seeking compares packet DTS. Reordered B
+                // frames could otherwise discard the IDR at the cut point.
+                '--bframes',
+                '0',
+                '--gop-len',
+                timing.gopFrames.toString(10),
+                '--no-i-adapt',
+                '--repeat-headers',
+                '--keyfile',
+                keyFile,
+                '--vpp-deband',
+                '--output-res',
+                `${quality.width}x${quality.height}`,
+                '--audio-stream',
+                '1?:stereo',
+                '--audio-codec',
+                'aac',
+                '--audio-bitrate',
+                quality.audioBitrate,
+                '--audio-samplerate',
+                '48000',
+                '--disable-nvml',
+                '1',
+                '--disable-dx11',
+                '--disable-vulkan',
+                '--output-format',
+                'mpegts',
+                '--output',
+                '-',
+            ],
+        };
+    };
+
+    export const buildEncodedVodHlsCopyMuxCommand = (
+        config: IConfigFile,
+        option: EncodedVodHlsContinuousCommandOption,
+        preroll: number,
+    ): ProcessUtil.Cmds => ({
+        bin: config.ffmpeg,
+        args: [
+            '-hide_banner',
+            '-loglevel',
+            'warning',
+            '-f',
+            'mpegts',
+            '-i',
+            'pipe:0',
+            // Output seeking discards encoded preroll up to the forced IDR.
+            '-ss',
+            // MPEG-TS timestamps have a 1/90000 second timebase. Include the
+            // boundary IDR even when its timestamp was rounded down by one tick.
+            Math.max(0, preroll - 1 / 90000).toFixed(6),
+            ...(option.duration === undefined ? [] : ['-t', option.duration.toFixed(6)]),
+            '-map',
+            '0:v:0',
+            '-map',
+            '0:a:0?',
+            '-c',
+            'copy',
+            '-muxdelay',
+            '0',
+            '-muxpreload',
+            '0',
+            '-f',
+            'hls',
+            '-hls_time',
+            (option.segmentDuration - 0.00001).toFixed(6),
+            '-hls_list_size',
+            '0',
+            '-hls_playlist_type',
+            'vod',
+            '-hls_segment_type',
+            'mpegts',
+            '-hls_flags',
+            'independent_segments+temp_file',
+            '-start_number',
+            option.startSequence.toString(10),
+            '-output_ts_offset',
+            Math.max(0, option.start).toFixed(6),
+            '-hls_segment_filename',
+            option.segmentPath,
+            '-y',
+            option.playlistPath,
+        ],
+    });
 
     const getTsreadexPath = (config: IConfigFile): string | undefined => {
         if (config.watch?.tsreadex !== undefined) {
@@ -591,19 +744,20 @@ namespace WatchStreamProfileUtil {
         subtitleIndex?: number,
         subtitleTimeOffset = 0,
         hardwareFilter?: HardwareFilterType,
+        is10bit = false,
     ): string => {
         const filters: string[] = [];
         const hardwareScale =
             hardwareFilter === 'qsv'
-                ? `scale_qsv=w=${quality.width}:h=${quality.height}:format=nv12`
+                ? `scale_qsv=w=${quality.width}:h=${quality.height}:format=${is10bit ? 'p010le' : 'nv12'}`
                 : hardwareFilter === 'cuda'
-                  ? `scale_cuda=w=${quality.width}:h=${quality.height}:format=nv12`
+                  ? `scale_cuda=w=${quality.width}:h=${quality.height}:format=${is10bit ? 'p010le' : 'nv12'}`
                   : undefined;
         if (typeof subtitleSource !== 'undefined' && typeof hardwareScale !== 'undefined') {
             // Resize and convert on the GPU first. libass still needs a software
             // frame, but downloading the final-size NV12 frame is substantially
             // cheaper than copying the source frame and scaling it on the CPU.
-            filters.push(hardwareScale, 'hwdownload', 'format=nv12');
+            filters.push(hardwareScale, 'hwdownload', `format=${is10bit ? 'p010le' : 'nv12'}`);
         }
         if (typeof subtitleSource !== 'undefined') {
             const offset = Math.max(0, subtitleTimeOffset);
@@ -626,7 +780,7 @@ namespace WatchStreamProfileUtil {
         if (typeof subtitleSource === 'undefined' && typeof hardwareScale !== 'undefined') {
             filters.push(hardwareScale);
         } else if (typeof hardwareScale === 'undefined') {
-            filters.push(`scale=${quality.width}:${quality.height}`);
+            filters.push(`scale=${quality.width}:${quality.height}`, `format=${is10bit ? 'yuv420p10le' : 'yuv420p'}`);
         }
 
         return filters.join(',');
@@ -667,6 +821,9 @@ namespace WatchStreamProfileUtil {
         if (is8Bit420 === false && is10Bit420 === false) {
             return undefined;
         }
+        // High 10 AVC is not supported by many deployed GPU decoders. Keep
+        // software decoding available while still encoding on the selected GPU.
+        if (codecName.toLowerCase() === 'h264' && is10Bit420) return undefined;
 
         const filterType: HardwareFilterType = encoder === 'QSVEncC' ? 'qsv' : 'cuda';
         const deviceName = filterType;
@@ -936,18 +1093,28 @@ namespace WatchStreamProfileUtil {
         encoder: WatchStreamEncoder,
         quality: WatchQuality,
         type: 'webm' | 'mp4' | 'hls' | 'm2ts' | 'm2tsll',
+        is10bit = false,
     ): string[] => {
         if (encoder === 'QSVEncC') {
-            return ['-preset veryfast', quality.isHevc === true ? '-profile:v main' : '-profile:v high'];
+            return [
+                '-preset veryfast',
+                quality.isHevc === true ? `-profile:v ${is10bit ? 'main10' : 'main'}` : '-profile:v high',
+            ];
         }
         if (encoder === 'NVEncC') {
-            return ['-preset p4', quality.isHevc === true ? '-profile:v main' : '-profile:v high'];
+            return [
+                '-preset p4',
+                quality.isHevc === true ? `-profile:v ${is10bit ? 'main10' : 'main'}` : '-profile:v high',
+            ];
         }
         if (encoder === 'VCEEncC') {
-            return ['-quality balanced', quality.isHevc === true ? '-profile:v main' : '-profile:v high'];
+            return [
+                '-quality balanced',
+                quality.isHevc === true ? `-profile:v ${is10bit ? 'main10' : 'main'}` : '-profile:v high',
+            ];
         }
         if (quality.isHevc === true) {
-            return ['-preset veryfast', '-profile:v main'];
+            return ['-preset veryfast', `-profile:v ${is10bit ? 'main10' : 'main'}`];
         }
 
         return type === 'mp4'
