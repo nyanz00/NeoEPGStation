@@ -54,12 +54,25 @@ function createModel(root = '/unused') {
     model.workListEnrichmentRequests = new Map();
     model.workListEnrichmentFailures = new Map();
     model.workListCacheWriteQueues = new Map();
+    model.broadcastSeasonFromDate = () => season;
     return model;
 }
 
 function receivedProgramPage(nodes, { hasNextPage = false, endCursor } = {}) {
     return { nodes, pageInfo: { hasNextPage, ...(endCursor === undefined ? {} : { endCursor }) } };
 }
+
+test('season boundaries follow the actual quarter in Japan time', () => {
+    const model = Object.create(AnnictApiModel.prototype);
+    for (const [time, expected] of [
+        ['2026-09-25T00:00:00Z', '2026-summer'],
+        ['2026-09-30T14:59:59Z', '2026-summer'],
+        ['2026-09-30T15:00:00Z', '2026-autumn'],
+        ['2026-12-31T14:59:59Z', '2026-autumn'],
+        ['2026-12-31T15:00:00Z', '2027-winter'],
+    ])
+        assert.equal(model.broadcastSeasonFromDate(Date.parse(time)), expected);
+});
 
 test('initial and cached work-list refreshes request 100 and 50 works per page', async t => {
     const root = temporaryRoot(t);
@@ -84,6 +97,150 @@ test('initial and cached work-list refreshes request 100 and 50 works per page',
         [100, 50],
     );
     assert.ok(requests.every(request => request.query.includes('first: $first')));
+});
+
+test('noncurrent work-list GraphQL requests omit programs while current-season requests include them', async () => {
+    const model = createModel();
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    model.mapWork = node => node;
+    const requests = [];
+    model.requestWorkListData = async (query, variables) => {
+        requests.push({ query, variables });
+        return { searchWorks: { nodes: [], pageInfo: { hasNextPage: false } } };
+    };
+
+    await model.fetchBasicWorkList('2026-summer');
+    await model.fetchBasicWorkList('2027-winter');
+    await model.fetchBasicWorkList('2026-autumn');
+
+    assert.ok(requests.every(({ query }) => query.includes('programs(first: 1')));
+    assert.ok(requests.every(({ query }) => query.includes('@include(if: $includePrograms)')));
+    assert.deepEqual(
+        requests.map(({ variables }) => variables.includePrograms),
+        [false, false, true],
+    );
+});
+
+test('noncurrent initial enrichment skips schedule scans and still caches images and release dates', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    model.fetchBasicWorkList = async (value, pageSize) => {
+        assert.equal(value, '2026-summer');
+        assert.equal(pageSize, 100);
+        return [work(1, { title: 'Summer', seasonYear: 2026, seasonName: 'SUMMER' })];
+    };
+    let scans = 0;
+    model.enrichWorkBroadcastStarts = async works => {
+        scans += 1;
+        return works;
+    };
+    model.fillMissingWorkImages = async works =>
+        works.map(item => ({ ...item, imageUrl: 'https://image.example/1.jpg' }));
+    model.enrichWorkReleaseDates = async works => works.map(item => ({ ...item, releasedOn: '2026-07-01' }));
+    const basicFile = path.join(root, 'cache', `works-basic-v3-2026-summer.json`);
+    const enrichedFile = path.join(root, 'cache', `works-v13-2026-summer.json`);
+
+    const result = await model.refreshWorkList('2026-summer', basicFile, enrichedFile);
+    await Promise.all(model.workListEnrichmentRequests.values());
+
+    assert.equal(scans, 0);
+    assert.equal(result.enrichmentPending, true);
+    const basic = await model.readCache(basicFile);
+    const enriched = await model.readCache(enrichedFile);
+    assert.equal(basic.value[0].annictId, 1);
+    assert.equal(enriched.value[0].imageUrl, 'https://image.example/1.jpg');
+    assert.equal(enriched.value[0].releasedOn, '2026-07-01');
+});
+
+test('a warm noncurrent cache keeps acquired broadcast metadata without starting enrichment', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedAt = Date.now();
+    const value = [
+        work(1, {
+            releasedOn: '2026-07-01',
+            imageUrl: 'https://image.example/old.jpg',
+            broadcastStarts: [{ channelName: 'BS11', startedAt }],
+            broadcastStartsCheckedAt: cachedAt,
+            broadcastStartsComplete: true,
+        }),
+    ];
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', value });
+    model.startWorkListEnrichment = () => {
+        throw new Error('warm noncurrent cache must not start enrichment');
+    };
+
+    const result = await model.getCachedWorks('2026-summer', false);
+
+    assert.equal(result.works[0].releasedOn, '2026-07-01');
+    assert.equal(result.works[0].imageUrl, 'https://image.example/old.jpg');
+    assert.deepEqual(result.works[0].broadcastStarts, [{ channelName: 'BS11', startedAt }]);
+});
+
+test('getWorks skips channel and Syoboi reads for noncurrent seasons and marks work release-date source', async () => {
+    const model = createModel();
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedWork = work(1, {
+        seasonYear: 2026,
+        seasonName: 'SUMMER',
+        releasedOn: '2026-07-01',
+        broadcastStarts: [{ channelName: 'BS11', startedAt }],
+        broadcastStartsCheckedAt: 123,
+        broadcastScan: { starts: [], after: 'saved-cursor', cursors: [] },
+        firstReceivableProgramStartedAt: startedAt,
+    });
+    const original = structuredClone(cachedWork);
+    model.getCachedWorks = async () => ({
+        works: [cachedWork],
+    });
+    model.channelApiModel.getChannels = async () => {
+        throw new Error('noncurrent season must not load channels');
+    };
+    model.readBroadcastSupplements = async () => {
+        throw new Error('noncurrent season must not read Syoboi supplements');
+    };
+
+    const result = await model.getWorks('2026-summer', false);
+
+    assert.equal(result.broadcastDateSource, 'work');
+    assert.equal(result.works[0].firstReceivableProgramStartedAt, undefined);
+    assert.equal(result.works[0].broadcastStarts, undefined);
+    assert.equal(result.works[0].broadcastScan, undefined);
+    assert.deepEqual(cachedWork, original, 'response projection must not remove cached broadcast metadata');
+    assert.equal(result.broadcastSupplementPending, false);
+});
+
+test('current-season initial lists and reruns keep receivable-program as the date source', async () => {
+    const model = createModel();
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    model.getCachedWorks = async (_season, _refresh, rerun) => ({
+        works: [
+            work(1, {
+                seasonYear: 2026,
+                seasonName: 'AUTUMN',
+                releasedOn: '2026-10-05',
+                broadcastStarts: [{ channelName: 'BS11', startedAt }],
+            }),
+        ],
+    });
+    model.channelApiModel.getChannels = async () => [{ id: 1, name: 'BS11' }];
+    model.matchLocalChannels = name => (name === 'BS11' ? [{ id: 1, name }] : []);
+    model.readBroadcastSupplements = async works => works.map(() => ({ programs: [], pending: false }));
+
+    for (const [selectedSeason, rerun] of [
+        ['2026-autumn', false],
+        ['2026-autumn', true],
+        ['2026-summer', true],
+    ]) {
+        const result = await model.getWorks(selectedSeason, false, rerun);
+        assert.equal(result.broadcastDateSource, 'receivable-program');
+        assert.equal(result.works[0].firstReceivableProgramStartedAt, startedAt);
+    }
 });
 
 test('initial missing broadcast starts use batches of 25 works', async () => {

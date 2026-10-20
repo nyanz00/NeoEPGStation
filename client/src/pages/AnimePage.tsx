@@ -41,6 +41,7 @@ import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { type BulkRuleSaveResult, type BulkRuleTarget, RuleEditorDialog } from '../components/RuleEditorDialog';
+import { workStartDateValue } from '../core/animeReleaseSort';
 import { animeStationKey, annictLocalChannelIds, buildAnimeSearchOption, buildBulkAnimeSearchOption, localDateFromIso } from '../core/animeRules';
 import { api } from '../core/api/queries';
 import { isAudioVideoChannel, isPaidBroadcastChannel } from '../core/channels';
@@ -103,14 +104,6 @@ function isSameAnimeListContext(position: ReturnType<typeof loadAnimeReturnPosit
     if (year !== undefined && year !== position.year) return false;
     if (season !== null && isSeasonName(season) && season !== position.seasonName) return false;
     return true;
-}
-
-function workStartDateValue(work: AnnictWorkSummary): number {
-    if (work.firstReceivableProgramStartedAt !== undefined) {
-        const startedAt = Date.parse(work.firstReceivableProgramStartedAt);
-        if (Number.isFinite(startedAt)) return startedAt;
-    }
-    return Number.POSITIVE_INFINITY;
 }
 
 function Loading(): ReactNode {
@@ -679,14 +672,14 @@ export function AnimePage(): ReactNode {
             }) ?? [];
         return [...filtered].sort((left, right) => {
             if (sortOrder === 'release-date') {
-                const leftDate = workStartDateValue(left);
-                const rightDate = workStartDateValue(right);
+                const leftDate = workStartDateValue(left, works.data?.broadcastDateSource);
+                const rightDate = workStartDateValue(right, works.data?.broadcastDateSource);
                 if (leftDate !== rightDate) return leftDate - rightDate;
             }
             const popularityDifference = (right.watchersCount ?? -1) - (left.watchersCount ?? -1);
             return popularityDifference !== 0 ? popularityDifference : left.title.localeCompare(right.title, 'ja');
         });
-    }, [filterKeyword, showNonTv, sortOrder, viewerStatuses.error, viewerStatusMap, watchingOnly, works.data?.works, writeAvailable]);
+    }, [filterKeyword, showNonTv, sortOrder, viewerStatuses.error, viewerStatusMap, watchingOnly, works.data?.works, works.data?.broadcastDateSource, writeAvailable]);
     const animeListWaiting = works.isPending || (watchingOnly && writeAvailable && viewerStatuses.isPending);
     useLayoutEffect(() => {
         if (animeListWaiting || revealedAnimeList.signature === animeListSignature) return;
@@ -1001,15 +994,20 @@ export function AnimePage(): ReactNode {
                         {works.error !== null && works.data !== undefined && (
                             <Alert severity="warning">一覧の補完状態を更新できませんでした。表示済みの作品情報を継続して表示しています。</Alert>
                         )}
-                        {works.data?.broadcastSupplementPending === true && <Alert severity="info">放送日時の補完情報を取得しています。取得できた情報を一覧へ反映します。</Alert>}
-                        {sortOrder === 'release-date' && works.data?.enrichmentPending === true && (
+                        {works.data?.broadcastDateSource !== 'work' && works.data?.broadcastSupplementPending === true && (
+                            <Alert severity="info">放送日時の補完情報を取得しています。取得できた情報を一覧へ反映します。</Alert>
+                        )}
+                        {works.data?.broadcastDateSource !== 'work' && sortOrder === 'release-date' && works.data?.enrichmentPending === true && (
                             <Alert severity="info">受信可能な局の放送開始日時を取得しています。取得後に並び順を更新します。</Alert>
                         )}
-                        {sortOrder === 'release-date' && works.data?.broadcastDatesIncomplete === true && works.data.enrichmentPending !== true && (
-                            <Alert severity="warning" action={<Button onClick={refreshWorks}>再試行</Button>}>
-                                放送開始日時を一部取得できませんでした。取得できた作品を日時順に表示し、未取得の作品は末尾に表示しています。
-                            </Alert>
-                        )}
+                        {works.data?.broadcastDateSource !== 'work' &&
+                            sortOrder === 'release-date' &&
+                            works.data?.broadcastDatesIncomplete === true &&
+                            works.data.enrichmentPending !== true && (
+                                <Alert severity="warning" action={<Button onClick={refreshWorks}>再試行</Button>}>
+                                    放送開始日時を一部取得できませんでした。取得できた作品を日時順に表示し、未取得の作品は末尾に表示しています。
+                                </Alert>
+                            )}
                         {viewerStatuses.error !== null && writeAvailable && (
                             <Alert severity="warning">Annictの視聴ステータスを取得できませんでした。作品一覧はそのまま利用できます。</Alert>
                         )}

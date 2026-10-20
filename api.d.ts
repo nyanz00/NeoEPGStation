@@ -309,6 +309,7 @@ export interface AnnictWorkSummary {
 }
 
 export interface AnnictWorkList {
+    broadcastDateSource?: 'receivable-program' | 'work';
     broadcastSupplementPending?: boolean;
     broadcastSupplementError?: string;
     broadcastDatesIncomplete?: boolean;

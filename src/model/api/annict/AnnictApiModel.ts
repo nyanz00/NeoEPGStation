@@ -909,6 +909,25 @@ class AnnictApiModel implements IAnnictApiModel {
         excludePaidChannels = false,
     ): Promise<apid.AnnictWorkList> {
         const result = await this.getCachedWorks(season, refresh, rerun, excludePaidChannels);
+        if (!rerun && season !== this.broadcastSeasonFromDate(Date.now())) {
+            return {
+                ...result,
+                broadcastDateSource: 'work',
+                broadcastDatesIncomplete: false,
+                broadcastSupplementPending: false,
+                broadcastSupplementError: undefined,
+                works: result.works.map(work => {
+                    const summary = { ...work } as BroadcastWork;
+                    delete summary.broadcastStarts;
+                    delete summary.broadcastStartsCheckedAt;
+                    delete summary.broadcastStartsComplete;
+                    delete summary.broadcastStartsNextCursor;
+                    delete summary.broadcastScan;
+                    delete summary.firstReceivableProgramStartedAt;
+                    return summary;
+                }),
+            };
+        }
         const channels = await this.channelApiModel.getChannels();
         const startsFor = (work: apid.AnnictWorkSummary): { channelName: string; startedAt: string }[] =>
             (work as apid.AnnictWorkSummary & { broadcastStarts?: { channelName: string; startedAt: string }[] })
@@ -926,6 +945,7 @@ class AnnictApiModel implements IAnnictApiModel {
         const supplements = await this.readBroadcastSupplements(inputs, season, false, refresh);
         return {
             ...result,
+            broadcastDateSource: 'receivable-program',
             broadcastSupplementPending: supplements.some(state => state.pending),
             broadcastSupplementError:
                 [...new Set(supplements.flatMap(state => (state.error ? [state.error] : [])))].join(' / ') || undefined,
@@ -999,8 +1019,11 @@ class AnnictApiModel implements IAnnictApiModel {
             now - cached.cachedAt < maxAge &&
             (basicCached === null || this.workListCacheGeneration(cached) === this.workListCacheGeneration(basicCached))
         ) {
-            const targets = await this.getBroadcastTargets(excludePaidChannels);
-            const pending = cachedWorks.some(work => this.needsBroadcastCheck(work, targets));
+            const targets =
+                season === this.broadcastSeasonFromDate(now)
+                    ? await this.getBroadcastTargets(excludePaidChannels)
+                    : undefined;
+            const pending = targets !== undefined && cachedWorks.some(work => this.needsBroadcastCheck(work, targets));
             const enrichmentPending =
                 pending &&
                 this.startWorkListEnrichment(
@@ -1203,7 +1226,7 @@ class AnnictApiModel implements IAnnictApiModel {
         const seenCursors = new Set<string>();
         for (;;) {
             const data = await this.requestWorkListData(
-                `query Works($season: [String!], $after: String, $first: Int!) {
+                `query Works($season: [String!], $after: String, $first: Int!, $includePrograms: Boolean!) {
                     searchWorks(
                         seasons: $season
                         first: $first
@@ -1216,14 +1239,19 @@ class AnnictApiModel implements IAnnictApiModel {
                                 recommendedImageUrl facebookOgImageUrl twitterAvatarUrl
                                 twitterBiggerAvatarUrl twitterNormalAvatarUrl twitterMiniAvatarUrl
                             }
-                            programs(first: 1, orderBy: { field: STARTED_AT, direction: ASC }) {
+                            programs(first: 1, orderBy: { field: STARTED_AT, direction: ASC }) @include(if: $includePrograms) {
                                 nodes { startedAt }
                             }
                         }
                         pageInfo { hasNextPage endCursor }
                     }
                 }`,
-                { season: [season], after, first: pageSize },
+                {
+                    season: [season],
+                    after,
+                    first: pageSize,
+                    includePrograms: season === this.broadcastSeasonFromDate(Date.now()),
+                },
             );
             nodes.push(...(Array.isArray(data.searchWorks?.nodes) ? data.searchWorks.nodes : []));
             const pageInfo = data.searchWorks?.pageInfo;
@@ -1382,21 +1410,24 @@ class AnnictApiModel implements IAnnictApiModel {
 
         const request = Promise.resolve()
             .then(async () => {
-                const scheduled = await this.enrichWorkBroadcastStarts(
-                    works,
-                    async value => {
-                        await this.withWorkListCacheLock(basicFile, async () => {
-                            const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
-                            if (current === null || this.workListCacheGeneration(current) === generation) {
-                                await this.writeJson(basicFile, { cachedAt, generation, value });
-                            } else {
-                                throw new Error('更新済みの作品一覧への古い補完処理を中止しました');
-                            }
-                        });
-                    },
-                    initial,
-                    excludePaidChannels,
-                );
+                const scheduled =
+                    season === this.broadcastSeasonFromDate(Date.now())
+                        ? await this.enrichWorkBroadcastStarts(
+                              works,
+                              async value => {
+                                  await this.withWorkListCacheLock(basicFile, async () => {
+                                      const current = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
+                                      if (current === null || this.workListCacheGeneration(current) === generation) {
+                                          await this.writeJson(basicFile, { cachedAt, generation, value });
+                                      } else {
+                                          throw new Error('更新済みの作品一覧への古い補完処理を中止しました');
+                                      }
+                                  });
+                              },
+                              initial,
+                              excludePaidChannels,
+                          )
+                        : works;
                 const enriched = await this.enrichWorkReleaseDates(await this.fillMissingWorkImages(scheduled));
                 await this.withWorkListCacheLock(basicFile, async () => {
                     const latestBasic = await this.readCache<apid.AnnictWorkSummary[]>(basicFile);
