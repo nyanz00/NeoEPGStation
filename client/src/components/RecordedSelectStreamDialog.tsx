@@ -12,7 +12,7 @@ import {
     saveRecordedSelectStreamSettings,
     type RecordedStreamType,
 } from '../core/media/recorded';
-import { preferredSubtitleIndex } from '../core/media/subtitles';
+import { isDanmakuSubtitle, preferredSubtitleIndex } from '../core/media/subtitles';
 import type { AppSettings } from '../core/storage/settings';
 
 interface RecordedSelectStreamDialogProps {
@@ -41,6 +41,7 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
     const [type, setType] = useState<RecordedStreamType>('HLS');
     const [mode, setMode] = useState(0);
     const [subtitleIndex, setSubtitleIndex] = useState<number | null>(null);
+    const [danmakuSubtitleIndex, setDanmakuSubtitleIndex] = useState<number | null>(null);
     const [preparing, setPreparing] = useState(false);
     const subtitlePreparation = useRef<{
         videoFileId: number;
@@ -56,6 +57,9 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
         enabled: video !== null && video.type === 'encoded',
         staleTime: Number.POSITIVE_INFINITY,
     });
+    const separateTracks = video?.type === 'encoded' && settings.watchStreamingSubtitleDanmaku;
+    const danmakuItems = useMemo(() => (subtitles.data?.items ?? []).filter(isDanmakuSubtitle), [subtitles.data]);
+    const subtitleItems = useMemo(() => (subtitles.data?.items ?? []).filter(item => !separateTracks || !isDanmakuSubtitle(item)), [separateTracks, subtitles.data]);
     const prepareSubtitle = useCallback((videoFileId: number, index: number) => {
         const current = subtitlePreparation.current;
         if (current?.videoFileId === videoFileId && current.subtitleIndex === index) return current.promise;
@@ -80,11 +84,17 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
     useEffect(() => {
         if (video?.type !== 'encoded' || subtitles.data === undefined) {
             setSubtitleIndex(null);
+            setDanmakuSubtitleIndex(null);
             return;
         }
         const saved = loadRecordedSelectStreamSettings();
-        setSubtitleIndex(preferredSubtitle(subtitles.data.items, settings, saved.subtitleIndex));
-    }, [settings, subtitles.data, video]);
+        setSubtitleIndex(preferredSubtitle(subtitleItems, settings, saved.subtitleIndex));
+        setDanmakuSubtitleIndex(
+            separateTracks
+                ? preferredSubtitle(danmakuItems, settings, saved.danmakuSubtitleIndex === undefined ? (danmakuItems[0]?.subtitleIndex ?? null) : saved.danmakuSubtitleIndex)
+                : null,
+        );
+    }, [danmakuItems, separateTracks, settings, subtitleItems, subtitles.data, video]);
 
     useEffect(() => {
         if (video?.type !== 'encoded' || subtitleIndex === null) return;
@@ -99,7 +109,12 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
         setMode(nextOption === undefined ? 0 : initialMode(nextOption.qualities, settings, 0));
     };
     const close = (): void => {
-        saveRecordedSelectStreamSettings({ type: selectedOption?.type ?? type, mode, subtitleIndex });
+        saveRecordedSelectStreamSettings({
+            type: selectedOption?.type ?? type,
+            mode,
+            subtitleIndex,
+            danmakuSubtitleIndex: separateTracks ? danmakuSubtitleIndex : loadRecordedSelectStreamSettings().danmakuSubtitleIndex,
+        });
         onClose();
     };
     const watch = async (): Promise<void> => {
@@ -110,8 +125,25 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
         try {
             const selectedIndex = video.type === 'encoded' ? subtitleIndex : null;
             const prepared = selectedIndex === null ? undefined : await prepareSubtitle(video.id, selectedIndex);
-            saveRecordedSelectStreamSettings({ type: selectedOption.type, mode, subtitleIndex });
-            onWatch(getRecordedStreamWatchPath(recordedId, video.id, selectedOption.type, mode, quality, settings, selectedIndex, prepared?.subtitleFileKey));
+            saveRecordedSelectStreamSettings({
+                type: selectedOption.type,
+                mode,
+                subtitleIndex,
+                danmakuSubtitleIndex: separateTracks ? danmakuSubtitleIndex : loadRecordedSelectStreamSettings().danmakuSubtitleIndex,
+            });
+            onWatch(
+                getRecordedStreamWatchPath(
+                    recordedId,
+                    video.id,
+                    selectedOption.type,
+                    mode,
+                    quality,
+                    settings,
+                    selectedIndex,
+                    prepared?.subtitleFileKey,
+                    separateTracks ? danmakuSubtitleIndex : undefined,
+                ),
+            );
             onClose();
         } catch (error) {
             notify(`字幕の準備に失敗しました: ${error instanceof Error ? error.message : String(error)}`, 'error');
@@ -168,20 +200,38 @@ export function RecordedSelectStreamDialog({ recordedId, video, config, settings
                                 </FormControl>
                             </Stack>
                             {video.type === 'encoded' && (
-                                <FormControl variant="standard" fullWidth>
-                                    <InputLabel>字幕</InputLabel>
-                                    <Select
-                                        value={subtitleIndex === null ? 'none' : subtitleIndex}
-                                        onChange={event => setSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
-                                    >
-                                        <MenuItem value="none">字幕なし</MenuItem>
-                                        {(subtitles.data?.items ?? []).map(subtitle => (
-                                            <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
-                                                {subtitle.displayName}
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
+                                <Stack direction="row" spacing={1.5}>
+                                    {separateTracks && (
+                                        <FormControl variant="standard" sx={{ flex: 1, minWidth: 0 }}>
+                                            <InputLabel>弾幕</InputLabel>
+                                            <Select
+                                                value={danmakuSubtitleIndex === null ? 'none' : danmakuSubtitleIndex}
+                                                onChange={event => setDanmakuSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
+                                            >
+                                                <MenuItem value="none">弾幕なし</MenuItem>
+                                                {danmakuItems.map(subtitle => (
+                                                    <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
+                                                        {subtitle.displayName}
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                    )}
+                                    <FormControl variant="standard" sx={{ flex: 1, minWidth: 0 }}>
+                                        <InputLabel>字幕</InputLabel>
+                                        <Select
+                                            value={subtitleIndex === null ? 'none' : subtitleIndex}
+                                            onChange={event => setSubtitleIndex(event.target.value === 'none' ? null : Number(event.target.value))}
+                                        >
+                                            <MenuItem value="none">字幕なし</MenuItem>
+                                            {subtitleItems.map(subtitle => (
+                                                <MenuItem key={subtitle.subtitleIndex} value={subtitle.subtitleIndex}>
+                                                    {subtitle.displayName}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                </Stack>
                             )}
                         </Stack>
                     ))}

@@ -26,3 +26,9 @@ export function preferredSubtitleIndex(subtitles: VideoSubtitle[], keywords: str
     }
     return null;
 }
+
+export function initialSubtitleIndex(subtitles: VideoSubtitle[], requested: string | null, fallback: number | null): number | null {
+    if (requested === null) return fallback;
+    const index = Number(requested);
+    return requested.trim() !== '' && Number.isSafeInteger(index) && index >= 0 && subtitles.some(item => item.subtitleIndex === index) ? index : null;
+}
