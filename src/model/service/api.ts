@@ -22,6 +22,10 @@ export const responseError = (res: express.Response, reason: IError): express.Re
 };
 
 export const responseServerError = (res: express.Response, err?: string): express.Response => {
+    if (err === 'InvalidSubDirectory' || err === 'ReservationNotEditable') {
+        const code = err === 'InvalidSubDirectory' ? 400 : 409;
+        return res.status(code).json({ code, message: err, errors: err });
+    }
     const error: IError = {
         code: 500,
         message: 'Internal Server Error',

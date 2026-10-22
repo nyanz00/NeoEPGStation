@@ -7,6 +7,21 @@ const test = require('node:test');
 const ts = require('typescript');
 require('reflect-metadata');
 
+function loadTypeScript(relativePath) {
+    const absolutePath = path.resolve(__dirname, relativePath);
+    const source = fs.readFileSync(absolutePath, 'utf8');
+    const compiled = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 },
+    }).outputText;
+    const loaded = new Module(absolutePath, module);
+    loaded.filename = absolutePath;
+    loaded.paths = Module._nodeModulePaths(path.dirname(absolutePath));
+    loaded._compile(compiled, absolutePath);
+    return loaded.exports;
+}
+
+const subDirectoryUtil = loadTypeScript('../../src/util/SubDirectoryUtil.ts');
+
 const sourcePath = path.resolve(__dirname, '../../src/model/operator/reservation/ReservationManageModel.ts');
 const source = fs.readFileSync(sourcePath, 'utf8');
 const compiled = ts.transpileModule(source, {
@@ -26,6 +41,7 @@ Module._load = function (request, parent, isMain) {
         if (request === 'inversify') {
             return { inject: () => () => {}, injectable: () => target => target };
         }
+        if (request === '../../../util/SubDirectoryUtil') return subDirectoryUtil;
         if (request.startsWith('.')) return {};
     }
     return originalLoad.call(this, request, parent, isMain);
@@ -113,6 +129,119 @@ test('invalid edit encode options reject before reserve lookup; valid manual opt
 
     assert.equal(model.checkManualReserveOption({ programId: 777 }), true);
     assert.equal(model.checkManualReserveOption({ timeSpecifiedOption: {} }), true);
+});
+
+test('invalid save and encode directories reject add and edit before reserve database access', async () => {
+    const invalidOptions = [
+        { saveOption: { directory: '../outside' } },
+        { saveOption: { directory: 'nested/../../outside' } },
+        { encodeOption: { directory1: '../outside', isDeleteOriginalAfterEncode: false } },
+    ];
+
+    for (const invalid of invalidOptions) {
+        const calls = { findId: 0, insertOnce: 0, updateOnce: 0, execution: 0 };
+        const { model } = createModel({
+            optionChecker: { checkEncodeOption: () => true },
+            executeManagementModel: {
+                getExecution: async () => {
+                    calls.execution++;
+                    return 1;
+                },
+                unLockExecution: () => {},
+            },
+            reserveDB: {
+                findId: async () => {
+                    calls.findId++;
+                    return createReserve({ ruleId: null });
+                },
+                insertOnce: async () => {
+                    calls.insertOnce++;
+                    return 1;
+                },
+                updateOnce: async () => {
+                    calls.updateOnce++;
+                },
+            },
+        });
+        const manualOption = {
+            timeSpecifiedOption: { name: 'Manual', channelId: 2, startAt: 100, endAt: 200 },
+            ...invalid,
+        };
+        await assert.rejects(model.add(manualOption), /InvalidSubDirectory/);
+        await assert.rejects(model.edit(1, { allowEndLack: false, ...invalid }), /InvalidSubDirectory/);
+        assert.equal(calls.findId, 0);
+        assert.equal(calls.insertOnce, 0);
+        assert.equal(calls.updateOnce, 0);
+    }
+});
+
+test('safe manually requested root-relative save directory still reaches insert', async () => {
+    const calls = { insertOnce: 0 };
+    const { model } = createModel({
+        optionChecker: { checkEncodeOption: () => true },
+        reserveDB: {
+            insertOnce: async () => {
+                calls.insertOnce++;
+                return 17;
+            },
+        },
+    });
+    model.createManualReserveWithSpecifiedTime = async option =>
+        createReserve({ name: option.timeSpecifiedOption.name, ruleId: null });
+    model.checkSingleReserveConflict = async () => {};
+
+    const id = await model.add({
+        timeSpecifiedOption: { name: '手動予約', channelId: 2, startAt: 100, endAt: 200 },
+        saveOption: { directory: 'a/../b' },
+    });
+
+    assert.equal(id, 17);
+    assert.equal(calls.insertOnce, 1);
+});
+
+test('rule-created and event-relay reservations reject manual edits without updating the row', async () => {
+    for (const reserve of [createReserve({ ruleId: 9 }), createReserve({ ruleId: null, isEventRelay: true })]) {
+        const calls = { updateOnce: 0 };
+        const { model } = createModel({
+            reserveDB: {
+                findId: async () => reserve,
+                updateOnce: async () => {
+                    calls.updateOnce++;
+                },
+            },
+        });
+        await assert.rejects(model.edit(reserve.id, { allowEndLack: false }), /ReservationNotEditable/);
+        assert.equal(calls.updateOnce, 0);
+        assert.equal(reserve.name, 'Program');
+    }
+});
+
+test('API errors map invalid directories to 400 and noneditable reservations to 409', () => {
+    const { responseServerError } = loadTypeScript('../../src/model/service/api.ts');
+    const respond = error => {
+        const result = { statusCode: null, body: null };
+        const response = {
+            status(code) {
+                result.statusCode = code;
+                return this;
+            },
+            json(body) {
+                result.body = body;
+                return this;
+            },
+        };
+        responseServerError(response, error);
+        return result;
+    };
+
+    assert.deepEqual(respond('InvalidSubDirectory'), {
+        statusCode: 400,
+        body: { code: 400, message: 'InvalidSubDirectory', errors: 'InvalidSubDirectory' },
+    });
+    assert.deepEqual(respond('ReservationNotEditable'), {
+        statusCode: 409,
+        body: { code: 409, message: 'ReservationNotEditable', errors: 'ReservationNotEditable' },
+    });
 });
 
 test('createReserves keeps skips, manual and relay entries, while suppressing regular and overlap matches', () => {

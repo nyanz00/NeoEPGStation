@@ -7,6 +7,7 @@ import Recorded from '../../../db/entities/Recorded';
 import DateUtil from '../../../util/DateUtil';
 import FileUtil from '../../../util/FileUtil';
 import StrUtil from '../../../util/StrUtil';
+import { safeSubDirectory } from '../../../util/SubDirectoryUtil';
 import IVideoUtil from '../../api/video/IVideoUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IProgramDB from '../../db/IProgramDB';
@@ -118,6 +119,7 @@ class RecordingUtilModel implements IRecordingUtilModel {
         if (subDir.length > 0) {
             subDir = await this.formatFilePathString(subDir, reserve);
         }
+        subDir = safeSubDirectory(subDir);
 
         // ディレクトリ
         const dir = path.join(parentDir.path, subDir);

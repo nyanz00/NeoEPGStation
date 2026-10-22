@@ -7,6 +7,7 @@ import Reserve from '../../../db/entities/Reserve';
 import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
 import DateUtil from '../../../util/DateUtil';
 import StrUtil from '../../../util/StrUtil';
+import { hasSubDirectoryOutsideRoot, INVALID_SUB_DIRECTORY_ERROR } from '../../../util/SubDirectoryUtil';
 import Util from '../../../util/Util';
 import IChannelDB from '../../db/IChannelDB';
 import IProgramDB, { ProgramWithOverlap } from '../../db/IProgramDB';
@@ -449,6 +450,9 @@ class ReservationManageModel implements IReservationManageModel {
      * @return 正しくセットされていれば true を返す
      */
     private checkManualReserveOption(option: apid.ManualReserveOption, isEdit: boolean = false): boolean {
+        if (hasSubDirectoryOutsideRoot(option.saveOption, option.encodeOption)) {
+            throw new Error(INVALID_SUB_DIRECTORY_ERROR);
+        }
         // エンコードオプションチェック
         if (
             typeof option.encodeOption !== 'undefined' &&
@@ -1561,6 +1565,10 @@ class ReservationManageModel implements IReservationManageModel {
             finalize();
             this.log.system.error(`reservation is not found: ${reserveId}`);
             throw new Error('ReservationIsNotFound');
+        }
+
+        if (newReserve.ruleId !== null || newReserve.isEventRelay) {
+            throw new Error('ReservationNotEditable');
         }
 
         // option から必要な情報をセットする

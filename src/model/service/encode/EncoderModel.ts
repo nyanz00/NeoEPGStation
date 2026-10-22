@@ -10,6 +10,7 @@ import * as apid from '../../../../api';
 import FileUtil from '../../../util/FileUtil';
 import ProcessUtil from '../../../util/ProcessUtil';
 import Util from '../../../util/Util';
+import { safeSubDirectory } from '../../../util/SubDirectoryUtil';
 import IVideoUtil, { VideoInfo } from '../../api/video/IVideoUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IRecordedDB from '../../db/IRecordedDB';
@@ -2146,7 +2147,8 @@ class EncoderModel implements IEncoderModel {
             }
         }
 
-        return typeof queueItem.directory === 'undefined' ? parentDir : path.join(parentDir, queueItem.directory);
+        if (queueItem.directory !== undefined) queueItem.directory = safeSubDirectory(queueItem.directory);
+        return queueItem.directory === undefined ? parentDir : path.join(parentDir, queueItem.directory);
     }
 
     /**
