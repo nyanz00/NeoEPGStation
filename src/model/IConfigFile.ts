@@ -128,6 +128,8 @@ export default interface IConfigFile {
     sqlite?: {
         extensions?: string[];
         regexp?: boolean;
+        enableWAL?: boolean;
+        busyTimeout?: number;
     };
     mysql?: {
         host: string;
@@ -136,6 +138,15 @@ export default interface IConfigFile {
         password: string;
         database: string;
         charset?: string;
+        socketPath?: string;
+        ssl?:
+            | string
+            | {
+                  ca?: string | string[];
+                  cert?: string;
+                  key?: string;
+                  rejectUnauthorized?: boolean;
+              };
     };
     postgres?: {
         host: string;
@@ -212,6 +223,16 @@ export default interface IConfigFile {
 
     // エンコード設定
     encodeProcessNum: number; // エンコード、ストリーミング最大プロセス数
+    encodeMaxPending?: number;
+    thumbnailMaxPending?: number;
+    externalCommandMaxPending?: number;
+    uploadMaxConcurrent?: number;
+    uploadTimeout?: number;
+    externalCommandTimeout?: number;
+    storageCommandTimeout?: number;
+    tunerRequestTimeout?: number;
+    iptvDocumentTimeout?: number;
+    encodeSuspendTime?: Array<{ start: string; end: string }>;
     concurrentEncodeNum: number; // 同時エンコード数
     amatsukaze?: AmatsukazeEncodeConfig;
     encode: {

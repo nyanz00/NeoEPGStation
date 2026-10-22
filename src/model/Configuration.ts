@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
-import * as yaml from 'js-yaml';
 import * as path from 'path';
 import urljoin from 'url-join';
 import IConfigFile, { WatchStreamEncoder } from './IConfigFile';
 import IConfiguration from './IConfiguration';
 import ILogger from './ILogger';
 import ILoggerModel from './ILoggerModel';
+import { loadConfigYaml } from '../util/ConfigYamlUtil';
 
 function cloneConfigValue<T>(value: T): T {
     return typeof value === 'undefined' ? value : JSON.parse(JSON.stringify(value));
@@ -38,7 +38,9 @@ class Configuration implements IConfiguration {
         fs.watchFile(Configuration.CONFIG_FILE_PATH, async () => {
             this.log.system.info('updated config file');
             try {
-                const newConfig = <any>yaml.load(await fs.promises.readFile(Configuration.CONFIG_FILE_PATH, 'utf-8'));
+                const newConfig = <any>(
+                    loadConfigYaml(await fs.promises.readFile(Configuration.CONFIG_FILE_PATH, 'utf-8'))
+                );
                 this.config = this.formatConfig(newConfig);
             } catch (err: any) {
                 this.log.system.error('read config error');
@@ -90,7 +92,7 @@ class Configuration implements IConfiguration {
         }
 
         // parse configFile
-        const newConfig: IConfigFile = <any>yaml.load(str);
+        const newConfig: IConfigFile = <any>loadConfigYaml(str);
 
         return this.formatConfig(newConfig);
     }
@@ -102,6 +104,31 @@ class Configuration implements IConfiguration {
      */
     private formatConfig(newConfig: IConfigFile): IConfigFile {
         this.setTemplateValues(newConfig);
+
+        const limits = [
+            'encodeMaxPending',
+            'thumbnailMaxPending',
+            'externalCommandMaxPending',
+            'uploadMaxConcurrent',
+            'uploadTimeout',
+            'externalCommandTimeout',
+            'storageCommandTimeout',
+            'tunerRequestTimeout',
+            'iptvDocumentTimeout',
+        ] as const;
+        for (const key of limits) {
+            const value = newConfig[key];
+            if (!Number.isSafeInteger(value) || (value as number) < 1) throw new Error(`InvalidConfigLimit: ${key}`);
+        }
+        if (
+            newConfig.sqlite?.busyTimeout !== undefined &&
+            (!Number.isSafeInteger(newConfig.sqlite.busyTimeout) || newConfig.sqlite.busyTimeout < 0)
+        ) {
+            throw new Error('InvalidConfigLimit: sqlite.busyTimeout');
+        }
+        if (newConfig.sqlite?.enableWAL !== undefined && typeof newConfig.sqlite.enableWAL !== 'boolean') {
+            throw new Error('InvalidConfigValue: sqlite.enableWAL');
+        }
 
         if (typeof newConfig.watch?.encoder === 'string') {
             const encoders: WatchStreamEncoder[] = ['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC'];
@@ -327,6 +354,16 @@ namespace Configuration {
         ffprobe: '/usr/local/bin/ffprobe',
         encodeProcessNum: 0,
         concurrentEncodeNum: 0,
+        encodeMaxPending: 1024,
+        thumbnailMaxPending: 32,
+        externalCommandMaxPending: 64,
+        uploadMaxConcurrent: 3,
+        uploadTimeout: 300000,
+        externalCommandTimeout: 300000,
+        storageCommandTimeout: 300000,
+        tunerRequestTimeout: 30000,
+        iptvDocumentTimeout: 30000,
+        encodeSuspendTime: [],
         encode: [],
         isSuppressReservesUpdateAllLog: false,
         urlscheme: {
