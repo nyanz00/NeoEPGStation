@@ -597,14 +597,12 @@ export default class RuleDB implements IRuleDB {
             this.setReserveTypeQuery(queryBuilder, option.type);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder = queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder = queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder = queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder = queryBuilder.take(pagination.limit);
         }
 
         // order by
@@ -719,14 +717,12 @@ export default class RuleDB implements IRuleDB {
             queryBuilder = queryBuilder.andWhere(DBUtil.createOrQuery(or), values);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder = queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder = queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder = queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder = queryBuilder.take(pagination.limit);
         }
 
         const result = await this.promieRetry.run(() => {

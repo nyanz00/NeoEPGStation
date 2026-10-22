@@ -528,14 +528,12 @@ export default class RecordedDB implements IRecordedDB {
             queryBuilder = queryBuilder.andWhere(q.query, q.values);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder.take(pagination.limit);
         }
 
         // order by

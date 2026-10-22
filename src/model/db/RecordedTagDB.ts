@@ -257,14 +257,12 @@ export default class RecordedTagDB implements IRecordedTagDB {
             queryBuilder = queryBuilder.andWhere(q.query, q.values);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder = queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder = queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder = queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder = queryBuilder.take(pagination.limit);
         }
 
         return await this.promieRetry.run(() => {

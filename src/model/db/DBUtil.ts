@@ -1,4 +1,35 @@
 namespace DBUtil {
+    export interface Pagination {
+        offset?: number;
+        limit?: number;
+    }
+
+    /**
+     * Resolve pagination for the configured database. MySQL requires LIMIT when
+     * OFFSET is present, while a zero limit means "unlimited" in the API.
+     */
+    export const resolvePagination = (
+        offset: number | undefined,
+        limit: number | undefined,
+        databaseType: string,
+    ): Pagination => {
+        const pagination: Pagination = {};
+
+        if (typeof offset !== 'undefined') {
+            pagination.offset = offset;
+        }
+
+        if (typeof limit !== 'undefined' && limit > 0) {
+            pagination.limit = limit;
+        } else if (typeof offset !== 'undefined' && databaseType === 'mysql') {
+            // MySQL does not accept OFFSET without LIMIT. Keep this above the
+            // practical row counts while staying within signed 32-bit range.
+            pagination.limit = 2147483647;
+        }
+
+        return pagination;
+    };
+
     /**
      * and query 作成
      * @param strs: string[]
