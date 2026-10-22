@@ -29,12 +29,15 @@ import IDropCheckerModel from './IDropCheckerModel';
 import IRecorderModel, { RecordingDropLogFile } from './IRecorderModel';
 import IRecordingStreamCreator from './IRecordingStreamCreator';
 import IRecordingUtilModel, { RecFilePathInfo } from './IRecordingUtilModel';
+import { recordingScheduler } from './RecordingScheduler';
+import { recordedUseRegistry } from '../../RecordedUseRegistry';
 
 /**
  * Recorder
  */
 @injectable()
 class RecorderModel implements IRecorderModel {
+    private recordingUse: string | null = null;
     private log: ILogger;
     private config: IConfigFile;
     private programDB: IProgramDB;
@@ -53,7 +56,9 @@ class RecorderModel implements IRecorderModel {
     private recordedId: apid.RecordedId | null = null;
     private videoFileId: apid.VideoFileId | null = null;
     private videoFileFulPath: string | null = null;
-    private timerId: NodeJS.Timeout | null = null;
+    private timerId: (() => void) | null = null;
+    private readonly startScheduleKey = {};
+    private readonly relayScheduleKey = {};
     private stream: http.IncomingMessage | null = null;
     private recFile: fs.WriteStream | null = null;
     private isStopPrepRec: boolean = false;
@@ -70,7 +75,7 @@ class RecorderModel implements IRecorderModel {
     private abortController: AbortController | null = null;
 
     // イベントリレータイマー
-    private eventRelayTimerId: NodeJS.Timeout | null = null;
+    private eventRelayTimerId: (() => void) | null = null;
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -130,19 +135,23 @@ class RecorderModel implements IRecorderModel {
 
         // タイマーをセット
         if (this.timerId !== null) {
-            clearTimeout(this.timerId);
+            this.timerId();
         }
 
         if (isSuppressLog === false) {
             this.log.system.info(`set timer: ${this.reserve.id}, ${time}`);
         }
-        this.timerId = setTimeout(async () => {
-            try {
-                this.prepRecord();
-            } catch (err: any) {
-                this.log.system.error(`failed prep record: ${this.reserve.id}`);
-            }
-        }, time);
+        this.timerId = recordingScheduler.schedule(
+            this.startScheduleKey,
+            reserve.startAt - IRecordingStreamCreator.PREP_TIME,
+            async () => {
+                try {
+                    await this.prepRecord();
+                } catch (err: any) {
+                    this.log.system.error(`failed prep record: ${this.reserve.id}`);
+                }
+            },
+        );
 
         return true;
     }
@@ -532,6 +541,10 @@ class RecorderModel implements IRecorderModel {
         try {
             const recorded = await this.createRecorded();
             this.recordedId = await this.recordedDB.insertOnce(recorded);
+            this.recordingUse = recordedUseRegistry.acquire('operator:recording', {
+                recordedId: this.recordedId,
+                purpose: 'recording',
+            });
             recorded.id = this.recordedId;
             this.log.system.info(`recording added reserveId: ${this.reserve.id}, recordedId: ${this.recordedId}`);
 
@@ -569,6 +582,10 @@ class RecorderModel implements IRecorderModel {
                 this.log.system.error(err);
             });
 
+            if (this.recordingUse !== null) {
+                recordedUseRegistry.release('operator:recording', this.recordingUse);
+                this.recordingUse = null;
+            }
             throw new Error('AddRecordedDBError');
         }
     }
@@ -719,6 +736,18 @@ class RecorderModel implements IRecorderModel {
      * 録画終了処理
      */
     private async recEnd(result: 'success' | 'failed' = 'success'): Promise<void> {
+        try {
+            await this.finishRecording(result);
+        } finally {
+            await this.waitForRecordingFileClosed();
+            if (this.recordingUse !== null) {
+                recordedUseRegistry.release('operator:recording', this.recordingUse);
+                this.recordingUse = null;
+            }
+        }
+    }
+
+    private async finishRecording(result: 'success' | 'failed'): Promise<void> {
         this.log.system.info(`start recEnd reserveId: ${this.reserve.id} recordedId: ${this.recordedId}`);
 
         // stream 停止
@@ -727,7 +756,7 @@ class RecorderModel implements IRecorderModel {
 
         // イベントリレーのチェック用タイマーをクリア
         if (this.eventRelayTimerId !== null) {
-            clearTimeout(this.eventRelayTimerId);
+            this.eventRelayTimerId();
         }
 
         // 削除予定か?
@@ -806,7 +835,12 @@ class RecorderModel implements IRecorderModel {
                 this.log.system.info(
                     `emit finish recording reserveId: ${this.reserve.id}, recordedId: ${this.recordedId}, isNeedDeleteReservation: ${this.isNeedDeleteReservation}`,
                 );
-                this.recordingEvent.emitFinishRecording(this.reserve, recorded, this.isNeedDeleteReservation, result);
+                await this.recordingEvent.emitFinishRecording(
+                    this.reserve,
+                    recorded,
+                    this.isNeedDeleteReservation,
+                    result,
+                );
             }
         } else {
             this.log.system.info('failed to recording: recorded id is null');
@@ -874,7 +908,7 @@ class RecorderModel implements IRecorderModel {
         if (this.isPrepRecording === false && this.isRecording === false) {
             // 録画処理が開始されていない
             if (this.timerId !== null) {
-                clearTimeout(this.timerId);
+                this.timerId();
             }
         } else if (this.isPrepRecording === true) {
             this.log.system.info(`cancel preprec: ${this.reserve.id}`);
@@ -1097,11 +1131,15 @@ class RecorderModel implements IRecorderModel {
 
         // タイマーをセットする
         if (this.eventRelayTimerId !== null) {
-            clearTimeout(this.eventRelayTimerId);
+            this.eventRelayTimerId();
         }
-        this.eventRelayTimerId = setTimeout(async () => {
-            await this.checkEventRelay();
-        }, time);
+        this.eventRelayTimerId = recordingScheduler.schedule(
+            this.relayScheduleKey,
+            reserve.endAt - RecorderModel.EVENT_RELAY_CHECK_TIME,
+            async () => {
+                await this.checkEventRelay();
+            },
+        );
     }
 
     /**
@@ -1186,6 +1224,8 @@ class RecorderModel implements IRecorderModel {
      * @return boolean セットに成功したら true を返す
      */
     public resetTimer(): boolean {
+        recordingScheduler.refresh();
+        if (this.isPrepRecording) return true;
         // 録画中ならイベントリレーのチェック用のタイマーを再設定
         if (this.isRecording === true) {
             if (this.eventRelayTimerId !== null) {

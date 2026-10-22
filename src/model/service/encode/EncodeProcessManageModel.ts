@@ -1,4 +1,5 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess } from 'child_process';
+import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess';
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
 import ProcessUtil from '../../../util/ProcessUtil';
@@ -193,7 +194,7 @@ class EncodeProcessManageModel implements IEncodeProcessManageModel {
                             return;
                         }
                         this.log.encode.info(`kill child: ${processId}`);
-                        await ProcessUtil.kill(this.childs[i].child);
+                        await killManaged(this.childs[i].child);
                     } else {
                         this.childs.splice(i, 1);
                     }

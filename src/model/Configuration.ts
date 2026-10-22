@@ -7,6 +7,7 @@ import IConfiguration from './IConfiguration';
 import ILogger from './ILogger';
 import ILoggerModel from './ILoggerModel';
 import { loadConfigYaml } from '../util/ConfigYamlUtil';
+import { validateEncodeSuspendTimes } from '../util/EncodeSuspendTime';
 
 function cloneConfigValue<T>(value: T): T {
     return typeof value === 'undefined' ? value : JSON.parse(JSON.stringify(value));
@@ -104,6 +105,7 @@ class Configuration implements IConfiguration {
      */
     private formatConfig(newConfig: IConfigFile): IConfigFile {
         this.setTemplateValues(newConfig);
+        validateEncodeSuspendTimes(newConfig.encodeSuspendTime);
 
         const limits = [
             'encodeMaxPending',
@@ -118,7 +120,12 @@ class Configuration implements IConfiguration {
         ] as const;
         for (const key of limits) {
             const value = newConfig[key];
-            if (!Number.isSafeInteger(value) || (value as number) < 1) throw new Error(`InvalidConfigLimit: ${key}`);
+            if (
+                !Number.isSafeInteger(value) ||
+                (value as number) < 1 ||
+                (key.endsWith('Timeout') && (value as number) > 2147483647)
+            )
+                throw new Error(`InvalidConfigLimit: ${key}`);
         }
         if (
             newConfig.sqlite?.busyTimeout !== undefined &&

@@ -85,25 +85,23 @@ const isProcessRunning = (pid: number): boolean => {
 const cleanupVodHlsTempDirs = (): void => {
     const tmpDir = container.get<IConfiguration>('IConfiguration').getConfig().temporaryDir ?? os.tmpdir();
     const webPlaybackPrefix = 'neoepgstation-web-playback-';
-    const targetPrefixes = ['epgstation-vodhls-', 'epgstation-encoded-vodhls-', webPlaybackPrefix];
-    const targetNames = new Set(['epgstation-vodhls-subtitles']);
+    const targetPrefixes = [
+        'epgstation-vodhls-subtitles-',
+        'epgstation-vodhls-',
+        'epgstation-encoded-vodhls-',
+        webPlaybackPrefix,
+    ];
     let removedCount = 0;
 
     fs.mkdirSync(tmpDir, { recursive: true });
     for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
-        if (
-            entry.isDirectory() === false ||
-            (targetNames.has(entry.name) === false &&
-                targetPrefixes.some(prefix => entry.name.startsWith(prefix)) === false)
-        ) {
+        if (entry.isDirectory() === false || targetPrefixes.some(prefix => entry.name.startsWith(prefix)) === false) {
             continue;
         }
-        if (entry.name.startsWith(webPlaybackPrefix)) {
-            const ownerPid = Number(entry.name.slice(webPlaybackPrefix.length));
-            if (Number.isSafeInteger(ownerPid) && ownerPid > 0 && isProcessRunning(ownerPid)) {
-                continue;
-            }
-        }
+        const prefix = targetPrefixes.find(prefix => entry.name.startsWith(prefix))!;
+        const ownerPid = Number(/^(\d+)(?:-|$)/.exec(entry.name.slice(prefix.length))?.[1]);
+        // Directories without ownership information may belong to another instance.
+        if (!Number.isSafeInteger(ownerPid) || ownerPid <= 0 || isProcessRunning(ownerPid)) continue;
 
         const targetPath = path.join(tmpDir, entry.name);
         try {

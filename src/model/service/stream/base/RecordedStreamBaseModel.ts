@@ -1,4 +1,5 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess } from 'child_process';
+import { spawnManaged as spawn, killManaged } from '../../../../util/ManagedProcess';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import internal, { Readable } from 'stream';
@@ -331,11 +332,11 @@ export default abstract class RecordedStreamBaseModel
         }
 
         if (this.preProcessProcess !== null) {
-            await ProcessUtil.kill(this.preProcessProcess, 0);
+            await killManaged(this.preProcessProcess, 0);
         }
 
         if (this.streamProcess !== null) {
-            await ProcessUtil.kill(this.streamProcess, 0);
+            await killManaged(this.streamProcess, 0);
         }
 
         if (this.getStreamType() === 'RecordedHLS') {

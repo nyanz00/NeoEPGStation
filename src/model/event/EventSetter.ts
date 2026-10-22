@@ -258,53 +258,65 @@ export default class EventSetter implements IEventSetter {
 
                 // エンコード追加 1
                 if (skipAutoEncode === false && reserve.encodeMode1 !== null) {
-                    this.ipc.setEncode({
-                        recordedId: recorded.id,
-                        sourceVideoFileId: recorded.videoFiles[0].id,
-                        parentDir:
-                            reserve.encodeParentDirectoryName1 === null
-                                ? this.config.recorded[0].name
-                                : reserve.encodeParentDirectoryName1,
-                        directory: reserve.encodeDirectory1 === null ? undefined : reserve.encodeDirectory1,
-                        mode: reserve.encodeMode1,
-                        removeOriginal: reserve.isDeleteOriginalAfterEncode,
-                        updateThumbnail: reserve.updateThumbnail,
-                        scheduledAt,
-                    });
+                    await this.ipc
+                        .setEncode({
+                            recordedId: recorded.id,
+                            sourceVideoFileId: recorded.videoFiles[0].id,
+                            parentDir:
+                                reserve.encodeParentDirectoryName1 === null
+                                    ? this.config.recorded[0].name
+                                    : reserve.encodeParentDirectoryName1,
+                            directory: reserve.encodeDirectory1 === null ? undefined : reserve.encodeDirectory1,
+                            mode: reserve.encodeMode1,
+                            removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                            updateThumbnail: reserve.updateThumbnail,
+                            scheduledAt,
+                        })
+                        .catch(error =>
+                            this.log.system.error(`automatic encode intake failed: ${recorded.id}: ${error}`),
+                        );
                 }
 
                 // エンコード追加 2
                 if (skipAutoEncode === false && reserve.encodeMode2 !== null) {
-                    this.ipc.setEncode({
-                        recordedId: recorded.id,
-                        sourceVideoFileId: recorded.videoFiles[0].id,
-                        parentDir:
-                            reserve.encodeParentDirectoryName2 === null
-                                ? this.config.recorded[0].name
-                                : reserve.encodeParentDirectoryName2,
-                        directory: reserve.encodeDirectory2 === null ? undefined : reserve.encodeDirectory2,
-                        mode: reserve.encodeMode2,
-                        removeOriginal: reserve.isDeleteOriginalAfterEncode,
-                        updateThumbnail: reserve.updateThumbnail,
-                        scheduledAt,
-                    });
+                    await this.ipc
+                        .setEncode({
+                            recordedId: recorded.id,
+                            sourceVideoFileId: recorded.videoFiles[0].id,
+                            parentDir:
+                                reserve.encodeParentDirectoryName2 === null
+                                    ? this.config.recorded[0].name
+                                    : reserve.encodeParentDirectoryName2,
+                            directory: reserve.encodeDirectory2 === null ? undefined : reserve.encodeDirectory2,
+                            mode: reserve.encodeMode2,
+                            removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                            updateThumbnail: reserve.updateThumbnail,
+                            scheduledAt,
+                        })
+                        .catch(error =>
+                            this.log.system.error(`automatic encode intake failed: ${recorded.id}: ${error}`),
+                        );
                 }
 
                 // エンコード追加 3
                 if (skipAutoEncode === false && reserve.encodeMode3 !== null) {
-                    this.ipc.setEncode({
-                        recordedId: recorded.id,
-                        sourceVideoFileId: recorded.videoFiles[0].id,
-                        parentDir:
-                            reserve.encodeParentDirectoryName3 === null
-                                ? this.config.recorded[0].name
-                                : reserve.encodeParentDirectoryName3,
-                        directory: reserve.encodeDirectory3 === null ? undefined : reserve.encodeDirectory3,
-                        mode: reserve.encodeMode3,
-                        removeOriginal: reserve.isDeleteOriginalAfterEncode,
-                        updateThumbnail: reserve.updateThumbnail,
-                        scheduledAt,
-                    });
+                    await this.ipc
+                        .setEncode({
+                            recordedId: recorded.id,
+                            sourceVideoFileId: recorded.videoFiles[0].id,
+                            parentDir:
+                                reserve.encodeParentDirectoryName3 === null
+                                    ? this.config.recorded[0].name
+                                    : reserve.encodeParentDirectoryName3,
+                            directory: reserve.encodeDirectory3 === null ? undefined : reserve.encodeDirectory3,
+                            mode: reserve.encodeMode3,
+                            removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                            updateThumbnail: reserve.updateThumbnail,
+                            scheduledAt,
+                        })
+                        .catch(error =>
+                            this.log.system.error(`automatic encode intake failed: ${recorded.id}: ${error}`),
+                        );
                 }
             }
 

@@ -22,6 +22,9 @@ export const responseError = (res: express.Response, reason: IError): express.Re
 };
 
 export const responseServerError = (res: express.Response, err?: string): express.Response => {
+    if (err === 'RecordedResourceBusy' || err === 'RecordedResourceDeleting') {
+        return res.status(409).json({ code: 409, message: err });
+    }
     if (err === 'InvalidSubDirectory' || err === 'ReservationNotEditable') {
         const code = err === 'InvalidSubDirectory' ? 400 : 409;
         return res.status(code).json({ code, message: err, errors: err });
@@ -64,13 +67,18 @@ export const responsePlayList = (req: express.Request, res: express.Response, li
     res.end();
 };
 
+export interface FileResponseHandle {
+    closed: Promise<void>;
+    stop(): Promise<void>;
+}
+
 export const responseFile = (
     req: express.Request,
     res: express.Response,
     filePath: string,
     mime: string,
     download = false,
-): void => {
+): FileResponseHandle => {
     const stat = fs.statSync(filePath);
     if (stat.isDirectory()) {
         throw new Error('file path is derectory');
@@ -91,17 +99,13 @@ export const responseFile = (
     if (rangeRequest === null) {
         responseHeaders['Content-Length'] = stat.size;
         responseHeaders['Accept-Ranges'] = 'bytes';
-        sendResponse(200, req, res, responseHeaders, req.method === 'HEAD' ? null : fs.createReadStream(filePath));
-
-        return;
+        return sendResponse(200, res, responseHeaders, req.method === 'HEAD' ? null : fs.createReadStream(filePath));
     }
     if (rangeRequest === false) {
         responseHeaders['Content-Range'] = `bytes */${stat.size.toString(10)}`;
         responseHeaders['Content-Length'] = 0;
         responseHeaders['Accept-Ranges'] = 'bytes';
-        sendResponse(416, req, res, responseHeaders, null);
-
-        return;
+        return sendResponse(416, res, responseHeaders, null);
     }
 
     const start: number = rangeRequest.start;
@@ -113,7 +117,7 @@ export const responseFile = (
 
     const option = { start: start, end: end };
     const stream = req.method === 'HEAD' ? null : fs.createReadStream(filePath, option);
-    sendResponse(206, req, res, responseHeaders, stream);
+    return sendResponse(206, res, responseHeaders, stream);
 };
 
 const readRangeHeader = (
@@ -164,29 +168,52 @@ const readRangeHeader = (
 
 const sendResponse = (
     code: number,
-    req: express.Request,
     res: express.Response,
     responseHeaders: Record<string, string | number>,
     readable: fs.ReadStream | null,
-): void => {
+): FileResponseHandle => {
     res.status(code);
     res.set(responseHeaders);
 
     if (readable === null) {
         res.end();
+        return { closed: Promise.resolve(), stop: () => Promise.resolve() };
     } else {
-        readable.on('open', () => {
+        let resolveClosed!: () => void;
+        let didClose = false;
+        const closed = new Promise<void>(resolve => {
+            resolveClosed = resolve;
+        });
+        readable.once('close', () => {
+            didClose = true;
+            resolveClosed();
+        });
+        const stop = (): Promise<void> => {
+            if (!didClose) readable.destroy();
+            return closed;
+        };
+
+        readable.once('error', error => {
+            if (!res.destroyed) res.destroy(error);
+        });
+        readable.once('open', () => {
+            if (res.destroyed) {
+                void stop();
+                return;
+            }
             readable.pipe(res);
         });
 
-        readable.on('end', () => {
+        readable.once('end', () => {
             readable.close(); // ファイルを開放する
         });
 
-        // 接続切断時もファイルを開放する
-        req.on('close', () => {
-            readable.close();
+        // 接続切断時もファイルを開放し、file leaseはclose後まで保持する
+        res.once('close', () => {
+            void stop();
         });
+
+        return { closed, stop };
     }
 };
 

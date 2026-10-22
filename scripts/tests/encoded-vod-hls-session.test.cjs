@@ -93,6 +93,13 @@ const { TestSession: EncodedVodHlsMuxSession } = loadTypeScript(
                 return activeSpawnHarness.spawn(...args);
             },
         },
+        '../../../util/ManagedProcess': {
+            spawnManaged: (...args) => {
+                if (activeSpawnHarness === undefined) throw new Error('SpawnHarnessIsNotSet');
+                return activeSpawnHarness.spawn(...args);
+            },
+            killManaged: async child => child.kill('SIGTERM'),
+        },
         '../../../util/ProcessUtil': {
             __esModule: true,
             default: {

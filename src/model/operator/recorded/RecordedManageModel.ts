@@ -25,6 +25,8 @@ import ILoggerModel from '../../ILoggerModel';
 import IRecordingManageModel from '../recording/IRecordingManageModel';
 import IRecordedManageModel, { AddVideoFileOption, UploadedVideoFileOption } from './IRecordedManageModel';
 import IRecordingUtilModel from '../recording/IRecordingUtilModel';
+import { recordedUseRegistry } from '../../RecordedUseRegistry';
+import EncodeTask from '../../../db/entities/EncodeTask';
 
 @injectable()
 export default class RecordedManageModel implements IRecordedManageModel {
@@ -77,6 +79,38 @@ export default class RecordedManageModel implements IRecordedManageModel {
      * @return Promise<void>
      */
     public async delete(recordedId: apid.RecordedId, isIgnoreProtection: boolean = false): Promise<void> {
+        const current = await this.recordedDB.findId(recordedId);
+        if (current?.isProtected) throw new Error('RecordedIsProtected');
+        if (
+            current?.isRecording &&
+            current.reserveId !== null &&
+            this.recordingManageModel.hasReserve(current.reserveId)
+        ) {
+            await this.recordingManageModel.cancel(current.reserveId, true);
+        }
+        const token = recordedUseRegistry.tryBeginDeletion(recordedId);
+        if (token === null) throw new Error('RecordedResourceBusy');
+        try {
+            // Reserve deletion before awaiting the DB, so intake cannot slip between the check and deletion.
+            const repository = (await this.dbOperator.getConnection()).getRepository(EncodeTask);
+            const tasks = await repository.find();
+            if (
+                tasks.some(task => {
+                    try {
+                        return JSON.parse(task.optionJson).recordedId === recordedId;
+                    } catch {
+                        return true;
+                    }
+                })
+            )
+                throw new Error('RecordedResourceBusy');
+            await this.deleteWithoutUseGate(recordedId, isIgnoreProtection);
+        } finally {
+            recordedUseRegistry.endDeletion(token);
+        }
+    }
+
+    private async deleteWithoutUseGate(recordedId: apid.RecordedId, isIgnoreProtection: boolean): Promise<void> {
         this.log.system.info(`delete recorded: ${recordedId}`);
         const recorded = await this.recordedDB.findId(recordedId);
         if (recorded === null) {
@@ -454,6 +488,25 @@ export default class RecordedManageModel implements IRecordedManageModel {
      * @return Promise<void>
      */
     public async deleteVideoFile(videoFileid: apid.VideoFileId, isIgnoreProtection: boolean = false): Promise<void> {
+        const video = await this.videoFileDB.findId(videoFileid);
+        if (video === null) throw new Error('VideoFileIsNotFound');
+        const recorded = await this.recordedDB.findId(video.recordedId);
+        if (recorded?.isRecording) return this.delete(video.recordedId, false);
+        const token = recordedUseRegistry.tryBeginDeletion(video.recordedId, videoFileid);
+        if (token === null) throw new Error('RecordedResourceBusy');
+        try {
+            await this.deleteVideoFileWithoutUseGate(videoFileid, isIgnoreProtection);
+        } finally {
+            recordedUseRegistry.endDeletion(token);
+        }
+        const remaining = await this.recordedDB.findId(video.recordedId);
+        if (remaining?.videoFiles?.length === 0) await this.delete(video.recordedId, false);
+    }
+
+    private async deleteVideoFileWithoutUseGate(
+        videoFileid: apid.VideoFileId,
+        isIgnoreProtection: boolean,
+    ): Promise<void> {
         this.log.system.info(`delete video file: ${videoFileid}`);
 
         const video = await this.videoFileDB.findId(videoFileid);
@@ -494,7 +547,7 @@ export default class RecordedManageModel implements IRecordedManageModel {
         if (recorded !== null && typeof recorded.videoFiles !== 'undefined' && recorded.videoFiles.length === 0) {
             // 空だったので recorded も削除
             this.log.system.info(`empty video files: ${video.recordedId}`);
-            await this.delete(video.recordedId, false);
+            // The outer method releases the video deletion gate before deleting the empty recording.
         } else {
             this.recordedEvent.emitDeleteVideoFile(videoFileid);
         }

@@ -72,13 +72,17 @@ class RecordingEvent implements IRecordingEvent {
      * @param recorded: Recorded
      * @param isNeedDeleteReservation: boolean true 予約の削除が必要
      */
-    public emitFinishRecording(
+    public async emitFinishRecording(
         reserve: Reserve,
         recorded: Recorded,
         isNeedDeleteReservation: boolean,
         result: RecordingResult = 'success',
-    ): void {
-        this.emitter.emit(RecordingEvent.FINISH_RECORDING_EVENT, reserve, recorded, isNeedDeleteReservation, result);
+    ): Promise<void> {
+        await Promise.all(
+            this.emitter
+                .listeners(RecordingEvent.FINISH_RECORDING_EVENT)
+                .map(listener => listener(reserve, recorded, isNeedDeleteReservation, result)),
+        );
     }
 
     /**

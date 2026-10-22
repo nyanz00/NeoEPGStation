@@ -6,6 +6,8 @@ import ILoggerModel from '../../../ILoggerModel';
 import ISocketIOManageModel from '../../socketio/ISocketIOManageModel';
 import IStreamBaseModel, { LiveStreamInfo, RecordedStreamInfo } from '../base/IStreamBaseModel';
 import IStreamManageModel, { StreamInfoWithStreamId } from './IStreamManageModel';
+import { recordedUseClient } from '../../../RecordedUseClient';
+import IVideoFileDB from '../../../db/IVideoFileDB';
 
 @injectable()
 class StreamManageModel implements IStreamManageModel {
@@ -13,11 +15,13 @@ class StreamManageModel implements IStreamManageModel {
     private executeManagementModel: IExecutionManagementModel;
     private socketIO: ISocketIOManageModel;
     private streams: { [streamId: number]: IStreamBaseModel<any> } = {};
+    private uses = new Map<number, { release(): Promise<void> }>();
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
         @inject('IExecutionManagementModel') executeManagementModel: IExecutionManagementModel,
         @inject('ISocketIOManageModel') socketIO: ISocketIOManageModel,
+        @inject('IVideoFileDB') private videoFileDB: IVideoFileDB,
     ) {
         this.log = logger.getLogger();
         this.executeManagementModel = executeManagementModel;
@@ -56,6 +60,22 @@ class StreamManageModel implements IStreamManageModel {
         });
 
         try {
+            const info = stream.getInfo();
+            if ('videoFileId' in info) {
+                const video = await this.videoFileDB.findId(info.videoFileId);
+                if (video === null) throw new Error('VideoFileIsNotFound');
+                this.uses.set(
+                    streamId,
+                    await recordedUseClient.acquire(
+                        {
+                            recordedId: video.recordedId,
+                            videoFileId: video.id,
+                            purpose: 'stream',
+                        },
+                        () => this.stop(streamId),
+                    ),
+                );
+            }
             await stream.start(streamId);
         } catch (err: any) {
             this.log.stream.error('start stream error');
@@ -113,15 +133,19 @@ class StreamManageModel implements IStreamManageModel {
             return;
         }
 
+        let stopped = false;
         try {
             await stream.stop();
+            await this.uses.get(streamId)?.release();
+            this.uses.delete(streamId);
+            stopped = true;
         } catch (err: any) {
             this.log.stream.error(`stop stream error ${streamId}`);
             this.log.stream.error(err);
             throw err;
         } finally {
-            // 停止処理の一部が失敗しても管理表と実行ロックを残さない。
-            if (this.streams[streamId] === stream) {
+            // Keep failed stops tracked for retry, while always releasing the execution lock.
+            if (stopped && this.streams[streamId] === stream) {
                 delete this.streams[streamId];
             }
             finalize();

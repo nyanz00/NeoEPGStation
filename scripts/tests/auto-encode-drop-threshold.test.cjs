@@ -73,7 +73,7 @@ function makeEventSetter(autoEncodeSettings, calls, errors) {
         {
             get: (_target, property) => (...args) => {
                 calls.push([String(property), ...args]);
-                if (['cancel', 'updateRule', 'matchRecordedEpisode'].includes(String(property))) {
+                if (['cancel', 'updateRule', 'matchRecordedEpisode', 'setEncode'].includes(String(property))) {
                     return Promise.resolve();
                 }
             },

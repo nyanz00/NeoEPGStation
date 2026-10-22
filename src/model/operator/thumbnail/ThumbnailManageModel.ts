@@ -17,6 +17,7 @@ import IConfiguration from '../../IConfiguration';
 import ILogger from '../../ILogger';
 import ILoggerModel from '../../ILoggerModel';
 import IThumbnailManageModel from './IThumbnailManageModel';
+import { acquireRecordedFileUse } from '../../RecordedFileUse';
 
 @injectable()
 export default class ThumbnailManageModel implements IThumbnailManageModel {
@@ -134,6 +135,17 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
      * @param videoFileId: apid.VideoFileId
      */
     private async create(videoFileId: apid.VideoFileId, isDuringRecording: boolean = false): Promise<void> {
+        const video = await this.videoFileDB.findId(videoFileId);
+        if (video === null) throw new Error('VideoFileIsNotFound');
+        const use = await acquireRecordedFileUse({ recordedId: video.recordedId, videoFileId, purpose: 'thumbnail' });
+        try {
+            await this.createProtected(videoFileId, isDuringRecording);
+        } finally {
+            await use.release();
+        }
+    }
+
+    private async createProtected(videoFileId: apid.VideoFileId, isDuringRecording: boolean): Promise<void> {
         const videoFile = await this.videoFileDB.findId(videoFileId);
         const videoFilePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
         if (videoFile === null || videoFilePath === null) {

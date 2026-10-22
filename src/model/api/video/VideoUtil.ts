@@ -1,4 +1,5 @@
-import { execFile, spawn } from 'child_process';
+import { execFile } from 'child_process';
+import { spawnManaged as spawn } from '../../../util/ManagedProcess';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
@@ -39,7 +40,10 @@ export default class VideoUtil implements IVideoUtil {
         @inject('IVideoFileDB') videoFileDB: IVideoFileDB,
     ) {
         this.config = configuration.getConfig();
-        this.preparedSubtitleRoot = path.join(this.config.temporaryDir ?? os.tmpdir(), 'epgstation-vodhls-subtitles');
+        this.preparedSubtitleRoot = path.join(
+            this.config.temporaryDir ?? os.tmpdir(),
+            `epgstation-vodhls-subtitles-${process.pid}`,
+        );
         this.videoFileDB = videoFileDB;
         this.cleanupPreparedSubtitleRoot();
     }

@@ -19,8 +19,19 @@ const compiled = ts.transpileModule(source, {
 const loadedModule = new Module(sourcePath, module);
 loadedModule.filename = sourcePath;
 loadedModule.paths = Module._nodeModulePaths(path.dirname(sourcePath));
+const recordedUseClient = {
+    async acquire() {
+        return { release: async () => {} };
+    },
+};
 const load = Module._load;
 Module._load = function (request, parent, isMain) {
+    if (parent?.filename === sourcePath && request === '../../RecordedUseClient') {
+        return { recordedUseClient };
+    }
+    if (parent?.filename === sourcePath && request === '../../encode/EncodeTaskIntake') {
+        return { persistEncodeRequest: async () => assert.fail('push is outside this test file scope') };
+    }
     if (parent?.filename === sourcePath && request.startsWith('.')) return {};
     return load.call(this, request, parent, isMain);
 };
@@ -58,6 +69,10 @@ function createModel(encoder) {
         concurrentEncodeNum: 1,
         waitQueue: [encoder],
         runningQueue: [],
+        activeUses: new Map(),
+        deletingRecordedIds: new Map(),
+        deletingVideoFileIds: new Map(),
+        configure: { getConfig: () => ({ encode: [{ name: 'test', type: 'normal' }] }) },
         executeManagementModel: {
             getExecution: async () => 1,
             unLockExecution() {},

@@ -19,11 +19,14 @@ import IRuleManageModel from './model/operator/rule/IRuleManageModel';
 import { SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './model/service/ServiceProcess';
 import ProcessUtil from './util/ProcessUtil';
 import ProcessShutdown from './util/ProcessShutdown';
+import { ServiceChildProcessRegistry } from './model/service/ServiceChildProcessRegistry';
+import { recordedUseRegistry } from './model/RecordedUseRegistry';
 install();
 
 containerSetter.set(container);
 
 let serviceChild: child_process.ChildProcess | null = null;
+const serviceProcessRegistries = new WeakMap<child_process.ChildProcess, ServiceChildProcessRegistry>();
 const shutdown = new ProcessShutdown(
     async reason => {
         const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
@@ -42,7 +45,11 @@ const shutdown = new ProcessShutdown(
 
 const stopService = async (): Promise<void> => {
     const child = serviceChild;
-    if (child === null || child.exitCode !== null || child.signalCode !== null) return;
+    if (child === null) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+        await serviceProcessRegistries.get(child)?.stopOwnedProcesses();
+        return;
+    }
     const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
     const stopped = new Promise<boolean>(resolve => {
         const timeout = setTimeout(() => finish(false), 5_000);
@@ -65,6 +72,7 @@ const stopService = async (): Promise<void> => {
         log.system.warn('service database shutdown timed out; force terminating process');
         await ProcessUtil.kill(child, 0);
     }
+    await serviceProcessRegistries.get(child)?.stopOwnedProcesses();
 };
 
 /**
@@ -165,6 +173,8 @@ const runService = async () => {
         },
     );
     serviceChild = child;
+    const ownedProcesses = new ServiceChildProcessRegistry(child);
+    serviceProcessRegistries.set(child, ownedProcesses);
 
     const log = container.get<ILoggerModel>('ILoggerModel').getLogger();
     let isRestartScheduled = false;
@@ -213,7 +223,15 @@ const runService = async () => {
         log.system.fatal(`service process is down: ${reason}`);
         log.system.fatal(`restart service in ${delay.toString(10)} ms`);
         setTimeout(() => {
-            void runService().then(resolveReady);
+            void ownedProcesses
+                .stopOwnedProcesses()
+                .then(() => {
+                    const peer = container.get<IIPCServer>('IIPCServer').getRecordedUsePeer(child);
+                    if (peer !== undefined) recordedUseRegistry.clearPeer(peer, true);
+                    return runService();
+                })
+                .then(resolveReady)
+                .catch(error => stopWithoutRestart(`service cleanup failed; restart withheld: ${error}`));
         }, delay);
     };
     child.once('exit', (code, signal) => {

@@ -82,6 +82,7 @@ export default class IPCClient implements IIPCClient {
      */
     private ipcInit(): void {
         process.on('message', async (msg: ReplayMessage | ParentMessage) => {
+            if (typeof msg !== 'object' || msg === null || (msg as any).type === 'recorded-use-result') return;
             if (typeof (<ReplayMessage>msg).id !== 'undefined') {
                 // 送信したメッセージの応答
                 const replay = msg as ReplayMessage;
@@ -96,7 +97,9 @@ export default class IPCClient implements IIPCClient {
                 this.socketIO.notifyClient((msg as NotifyClientMessage).value);
             } else if ((<ParentMessage>msg).type === 'pushEncode') {
                 // エンコード依頼
-                this.encodeManage.push((<PushEncodeMessage>msg).value);
+                await this.encodeManage
+                    .pushPersisted((<PushEncodeMessage>msg).value)
+                    .catch(error => this.log.encode.error(error));
             }
         });
         process.once('disconnect', () => {

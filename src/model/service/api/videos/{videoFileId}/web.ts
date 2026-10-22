@@ -2,21 +2,18 @@ import { Operation } from '../../../ApiOperation';
 import IVideoApiModel from '../../../../api/video/IVideoApiModel';
 import container from '../../../../ModelContainer';
 import * as api from '../../../api';
+import { responseRecordedVideo, resolveWebVideoPath } from '../../../RecordedVideoResponse';
 
 export const get: Operation = async (req, res) => {
     const videoFileApiModel = container.get<IVideoApiModel>('IVideoApiModel');
 
     try {
-        const fileInfo = await videoFileApiModel.getWebPlaybackFilePath(parseInt(req.params.videoFileId, 10));
-        if (fileInfo === null) {
-            api.responseError(res, {
-                code: 404,
-                message: 'video file is not found',
-            });
-            return;
-        }
-
-        api.responseFile(req, res, fileInfo.path, fileInfo.mime, false);
+        await responseRecordedVideo(
+            req,
+            res,
+            parseInt(req.params.videoFileId, 10),
+            resolveWebVideoPath(videoFileApiModel),
+        );
     } catch (err: any) {
         api.responseServerError(res, err.message);
     }

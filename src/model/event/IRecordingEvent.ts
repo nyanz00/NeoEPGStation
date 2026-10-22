@@ -16,7 +16,7 @@ export default interface IRecordingEvent {
         recorded: Recorded,
         isNeedDeleteReservation: boolean,
         result?: RecordingResult,
-    ): void;
+    ): Promise<void>;
     emitEventRelay(programs: { programId: apid.ProgramId; parentReserve: Reserve }[]): void;
     setStartPrepRecording(callback: (reserve: Reserve) => void): void;
     setCancelPrepRecording(callback: (reserve: Reserve) => void): void;

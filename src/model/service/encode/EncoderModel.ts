@@ -9,6 +9,7 @@ import { TextDecoder } from 'util';
 import * as apid from '../../../../api';
 import FileUtil from '../../../util/FileUtil';
 import ProcessUtil from '../../../util/ProcessUtil';
+import { killManaged } from '../../../util/ManagedProcess';
 import Util from '../../../util/Util';
 import { safeSubDirectory } from '../../../util/SubDirectoryUtil';
 import IVideoUtil, { VideoInfo } from '../../api/video/IVideoUtil';
@@ -2316,6 +2317,7 @@ class EncoderModel implements IEncoderModel {
         if (this.isFinished === true) {
             return;
         }
+        if (this.childProcess !== null) await killManaged(this.childProcess, 0);
         this.isFinished = true;
 
         // exit code
@@ -2412,9 +2414,10 @@ class EncoderModel implements IEncoderModel {
                 `kill encode process encodeId: ${this.encodeOption.encodeId}, pid: ${this.childProcess.pid}`,
             );
 
-            await ProcessUtil.kill(this.childProcess).catch(err => {
+            await killManaged(this.childProcess).catch(err => {
                 this.log.encode.error(`kill encode process failed: ${this.encodeOption?.encodeId}`);
                 this.log.encode.error(err);
+                throw err;
             });
         }
 

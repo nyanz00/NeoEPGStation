@@ -25,6 +25,7 @@ Module._load = function (request, parent, isMain) {
         if (request === 'inversify') return { inject: () => () => {}, injectable: () => target => target };
         if (request === 'js-yaml') return {};
         if (request === 'url-join') return (...parts) => parts.join('/');
+        if (request === '../util/EncodeSuspendTime') return { validateEncodeSuspendTimes: () => {} };
         if (request.startsWith('.')) return {};
     }
     return originalLoad.call(this, request, parent, isMain);

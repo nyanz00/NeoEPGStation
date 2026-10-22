@@ -1,4 +1,5 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess } from 'child_process';
+import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
@@ -27,6 +28,7 @@ import IApiUtil from '../IApiUtil';
 import IPlayList from '../IPlayList';
 import IVideoUtil from '../video/IVideoUtil';
 import IStreamApiModel, { SegmentStreamResponse, StreamResponse } from './IStreamApiModel';
+import { recordedUseClient } from '../../RecordedUseClient';
 
 interface StreamConfig {
     cmd?: string;
@@ -272,7 +274,7 @@ class RecordedVodHlsMuxSession {
         this.highestReadySequence = option.startSequence - 1;
         this.directoryPromise = fs.promises
             .mkdir(option.temporaryDir, { recursive: true })
-            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-vodhls-')));
+            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, `epgstation-vodhls-${process.pid}-`)));
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -324,7 +326,8 @@ class RecordedVodHlsMuxSession {
         this.isStopping = true;
         this.fileStream?.destroy();
 
-        await Promise.all(this.processes.map(process => ProcessUtil.kill(process).catch(() => {})));
+        await this.startPromise?.catch(() => {});
+        await Promise.all(this.processes.map(process => killManaged(process)));
 
         const dir = await this.directoryPromise.catch(() => null);
         if (dir !== null) {
@@ -337,6 +340,7 @@ class RecordedVodHlsMuxSession {
     }
 
     private async start(): Promise<void> {
+        if (this.isStopping) throw new Error('RecordedVodHlsSessionStopped');
         if (this.startPromise !== null) {
             return this.startPromise;
         }
@@ -349,6 +353,7 @@ class RecordedVodHlsMuxSession {
     private async startMuxer(command: string): Promise<void> {
         const generation = ++this.processGeneration;
         const dir = await this.directoryPromise;
+        if (this.isStopping) throw new Error('RecordedVodHlsSessionStopped');
         const segmentPath = path.join(dir, 'segment-%d.ts');
         const playlistPath = path.join(dir, 'playlist.m3u8');
         const preprocessor = this.option.preprocessor;
@@ -508,7 +513,7 @@ class RecordedVodHlsMuxSession {
             this.processGeneration += 1;
             this.fileStream?.destroy();
             const processes = this.processes.splice(0);
-            await Promise.all(processes.map(process => ProcessUtil.kill(process).catch(() => {})));
+            await Promise.all(processes.map(process => killManaged(process)));
             const dir = await this.directoryPromise;
             const files = await fs.promises.readdir(dir).catch(() => []);
             await Promise.all(files.map(file => fs.promises.rm(path.join(dir, file), { force: true }).catch(() => {})));
@@ -588,7 +593,9 @@ class EncodedVodHlsMuxSession {
         this.highestReadySequence = option.startSequence - 1;
         this.directoryPromise = fs.promises
             .mkdir(option.temporaryDir, { recursive: true })
-            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-encoded-vodhls-')));
+            .then(() =>
+                fs.promises.mkdtemp(path.join(option.temporaryDir, `epgstation-encoded-vodhls-${process.pid}-`)),
+            );
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -981,35 +988,8 @@ class EncodedVodHlsMuxSession {
     }
 }
 
-const waitStreamProcessExit = (process: ChildProcess, timeout: number): Promise<boolean> => {
-    if (process.exitCode !== null || process.signalCode !== null) return Promise.resolve(true);
-
-    return new Promise(resolve => {
-        let finished = false;
-        const finish = (exited: boolean): void => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            process.removeListener('exit', handleExit);
-            resolve(exited);
-        };
-        const handleExit = (): void => finish(true);
-        const timer = setTimeout(() => finish(false), timeout);
-        timer.unref();
-        process.once('exit', handleExit);
-    });
-};
-
 const stopStreamProcess = async (process: ChildProcess): Promise<void> => {
-    if (process.exitCode !== null || process.signalCode !== null) return;
-    await ProcessUtil.kill(process).catch(() => {});
-    if (await waitStreamProcessExit(process, 2_000)) return;
-    try {
-        if (process.exitCode === null && process.signalCode === null) process.kill('SIGKILL');
-    } catch {
-        // The process may have exited between the timeout and the forced stop.
-    }
-    await waitStreamProcessExit(process, 1_000);
+    await killManaged(process);
 };
 
 @injectable()
@@ -1049,6 +1029,9 @@ export default class StreamApiModel implements IStreamApiModel {
     private vodHlsCleanupPromises: Map<string, Promise<void>> = new Map();
     private recordedVodHlsVideoInfoCache: Map<apid.VideoFileId, RecordedVODHLSVideoInfoCacheEntry> = new Map();
     private sharedLiveStreams: Map<string, SharedLiveStreamSlot> = new Map();
+    private vodUses = new Map<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession, { release(): Promise<void> }>();
+    private creatingVodSessions = new Map<string, Promise<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession>>();
+    private vodSessionCleanup = new WeakMap<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession, Promise<void>>();
 
     constructor(
         @inject('IConfiguration') configure: IConfiguration,
@@ -1746,8 +1729,9 @@ export default class StreamApiModel implements IStreamApiModel {
         return undefined;
     }
 
-    private cleanupVodHlsSession(session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession): void {
-        if (this.cleaningVodHlsSessions.has(session)) return;
+    private cleanupVodHlsSession(session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession): Promise<void> {
+        const pendingCleanup = this.vodSessionCleanup.get(session);
+        if (pendingCleanup !== undefined) return pendingCleanup;
         this.cleaningVodHlsSessions.add(session);
         const cleanupKeys: string[] = [];
         for (const [key, value] of this.recordedVodHlsSessions.entries()) {
@@ -1766,15 +1750,26 @@ export default class StreamApiModel implements IStreamApiModel {
             if (client.session === session) this.vodHlsClients.delete(sessionId);
         }
         this.managedVodHlsSessions.delete(session);
-        const cleanupPromise = session.cleanup().catch(() => {});
+        const cleanupPromise = session.cleanup().then(async () => {
+            await this.vodUses.get(session)?.release();
+            this.vodUses.delete(session);
+        });
+        this.vodSessionCleanup.set(session, cleanupPromise);
+        void cleanupPromise.catch(error => {
+            this.vodSessionCleanup.delete(session);
+            this.log.stream.error(error);
+        });
         for (const key of cleanupKeys) {
             this.vodHlsCleanupPromises.set(key, cleanupPromise);
-            void cleanupPromise.finally(() => {
-                if (this.vodHlsCleanupPromises.get(key) === cleanupPromise) {
-                    this.vodHlsCleanupPromises.delete(key);
-                }
-            });
+            void cleanupPromise
+                .finally(() => {
+                    if (this.vodHlsCleanupPromises.get(key) === cleanupPromise) {
+                        this.vodHlsCleanupPromises.delete(key);
+                    }
+                })
+                .catch(() => {});
         }
+        return cleanupPromise;
     }
 
     private cleanupVodHlsSessions(): void {
@@ -1792,6 +1787,68 @@ export default class StreamApiModel implements IStreamApiModel {
     }
 
     private async getRecordedVodHlsSession(
+        option: apid.RecordedStreanOption,
+        videoInfo: RecordedVODHLSVideoInfo,
+        segmentDuration: number,
+    ): Promise<RecordedVodHlsMuxSession> {
+        return this.getLeasedVodSession('recorded', option, videoInfo, segmentDuration, () =>
+            this.createRecordedVodHlsSession(option, videoInfo, segmentDuration),
+        ) as Promise<RecordedVodHlsMuxSession>;
+    }
+
+    private async getLeasedVodSession(
+        kind: 'recorded' | 'encoded',
+        option: apid.RecordedStreanOption,
+        videoInfo: RecordedVODHLSVideoInfo,
+        segmentDuration: number,
+        create: () => Promise<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession>,
+    ): Promise<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession> {
+        const profile = this.createRecordedVodHlsSessionProfileKey(option, videoInfo.filePath, segmentDuration);
+        const key = this.createRecordedVodHlsSessionKey(option, profile, segmentDuration);
+        const existing =
+            kind === 'recorded' ? this.recordedVodHlsSessions.get(key) : this.encodedVodHlsSessions.get(key);
+        if (existing !== undefined) {
+            existing.keep();
+            return existing;
+        }
+        const pendingKey = `${kind}:${key}`;
+        const pending = this.creatingVodSessions.get(pendingKey);
+        if (pending !== undefined) return pending;
+        let canceled = false;
+        let session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession | undefined;
+        const creation = (async () => {
+            const video = await this.videoFileDB.findId(option.videoFileId);
+            if (video === null) throw new Error('VideoFileIsNotFound');
+            const use = await recordedUseClient.acquire(
+                { recordedId: video.recordedId, videoFileId: video.id, purpose: 'vod-hls' },
+                async () => {
+                    canceled = true;
+                    await creation.catch(() => undefined);
+                    if (session !== undefined) await this.cleanupVodHlsSession(session);
+                },
+            );
+            try {
+                session = await create();
+                this.vodUses.set(session, use);
+                if (canceled) {
+                    await this.cleanupVodHlsSession(session);
+                    throw new Error('RecordedStreamCanceled');
+                }
+                return session;
+            } catch (error) {
+                if (session === undefined) await use.release();
+                throw error;
+            }
+        })();
+        this.creatingVodSessions.set(pendingKey, creation);
+        try {
+            return await creation;
+        } finally {
+            if (this.creatingVodSessions.get(pendingKey) === creation) this.creatingVodSessions.delete(pendingKey);
+        }
+    }
+
+    private async createRecordedVodHlsSession(
         option: apid.RecordedStreanOption,
         videoInfo: RecordedVODHLSVideoInfo,
         segmentDuration: number,
@@ -1878,6 +1935,16 @@ export default class StreamApiModel implements IStreamApiModel {
     }
 
     private async getEncodedVodHlsSession(
+        option: apid.RecordedStreanOption,
+        videoInfo: RecordedVODHLSVideoInfo,
+        segmentDuration: number,
+    ): Promise<EncodedVodHlsMuxSession> {
+        return this.getLeasedVodSession('encoded', option, videoInfo, segmentDuration, () =>
+            this.createEncodedVodHlsSession(option, videoInfo, segmentDuration),
+        ) as Promise<EncodedVodHlsMuxSession>;
+    }
+
+    private async createEncodedVodHlsSession(
         option: apid.RecordedStreanOption,
         videoInfo: RecordedVODHLSVideoInfo,
         segmentDuration: number,

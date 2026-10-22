@@ -179,7 +179,7 @@ class RecordingManageModel implements IRecordingManageModel {
             // 終了処理
             const newRecorded = await this.recordedDB.findId(r.id);
             if (newRecorded !== null) {
-                this.recordingEvent.emitFinishRecording(reserve, newRecorded, true);
+                await this.recordingEvent.emitFinishRecording(reserve, newRecorded, true);
             }
         }
 

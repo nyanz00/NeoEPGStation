@@ -1,8 +1,9 @@
-import { spawn } from 'child_process';
+import { spawnManaged as spawn } from '../../../util/ManagedProcess';
 import { createHash, randomUUID } from 'crypto';
 import * as fileType from 'file-type';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
+import { recordedUseClient } from '../../RecordedUseClient';
 import * as os from 'os';
 import * as path from 'path';
 import * as apid from '../../../../api';
@@ -382,6 +383,7 @@ export default class VideoApiModel implements IVideoApiModel {
         // この場合は同じ recordedId のエンコードをすべて停止してから削除する。
         if (recorded?.isRecording === true) {
             await this.encodeManage.withRecordedDeletion(videoFile.recordedId, async () => {
+                await recordedUseClient.stopUses(videoFile.recordedId);
                 if ((await this.recordedDB.findId(videoFile.recordedId)) === null) return;
                 await this.ipc.recorded.deleteVideoFile(videoFileId);
             });
@@ -390,6 +392,7 @@ export default class VideoApiModel implements IVideoApiModel {
 
         // 入力元を削除する場合だけ対象エンコードの完了処理まで待つ。
         await this.encodeManage.withVideoFileDeletion(videoFile.recordedId, videoFileId, async () => {
+            await recordedUseClient.stopUses(videoFile.recordedId, videoFileId);
             if ((await this.videoFileDB.findId(videoFileId)) === null) return;
             await this.ipc.recorded.deleteVideoFile(videoFileId);
         });

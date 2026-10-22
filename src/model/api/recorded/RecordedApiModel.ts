@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
+import { recordedUseClient } from '../../RecordedUseClient';
 import * as path from 'path';
 import * as apid from '../../../../api';
 import VideoFile from '../../../db/entities/VideoFile';
@@ -202,6 +203,7 @@ export default class RecordedApiModel implements IRecordedApiModel {
         }
 
         return this.encodeManage.withRecordedDeletion(recordedId, async () => {
+            await recordedUseClient.stopUses(recordedId);
             if ((await this.recordedDB.findId(recordedId)) === null) return;
             await this.ipc.recorded.delete(recordedId);
         });

@@ -15,6 +15,7 @@ import IConfiguration from '../IConfiguration';
 import ILogger from '../ILogger';
 import ILoggerModel from '../ILoggerModel';
 import ITsInfoAnalyzer from '../recorded/ts/ITsInfoAnalyzer';
+import { acquireRecordedFileUse } from '../RecordedFileUse';
 import IVideoUtil from '../api/video/IVideoUtil';
 import IVideoAnalysisModel, { VideoAnalysis, VideoStreamAnalysis } from './IVideoAnalysisModel';
 
@@ -66,6 +67,21 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
     }
 
     public async get(videoFileId: apid.VideoFileId, force = false, includeEit = false): Promise<VideoAnalysis> {
+        const video = await this.videoFileDB.findId(videoFileId);
+        if (video === null) throw new Error('VideoFileIsNull');
+        const use = await acquireRecordedFileUse({ recordedId: video.recordedId, videoFileId, purpose: 'analysis' });
+        try {
+            return await this.getProtected(videoFileId, force, includeEit);
+        } finally {
+            await use.release();
+        }
+    }
+
+    private async getProtected(
+        videoFileId: apid.VideoFileId,
+        force: boolean,
+        includeEit: boolean,
+    ): Promise<VideoAnalysis> {
         let video = await this.videoFileDB.findId(videoFileId);
         if (video === null) throw new Error('VideoFileIsNull');
         const filePath = this.videoUtil.getFullFilePathFromVideoFile(video);
