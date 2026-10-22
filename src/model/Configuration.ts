@@ -8,6 +8,10 @@ import IConfiguration from './IConfiguration';
 import ILogger from './ILogger';
 import ILoggerModel from './ILoggerModel';
 
+function cloneConfigValue<T>(value: T): T {
+    return typeof value === 'undefined' ? value : JSON.parse(JSON.stringify(value));
+}
+
 /**
  * Configuration
  * コンフィグ設定取得
@@ -208,7 +212,7 @@ class Configuration implements IConfiguration {
     private setTemplateValues(config: IConfigFile): void {
         for (const key in Configuration.DEFAULT_VALUE) {
             if (typeof (<any>config)[key] === 'undefined') {
-                (<any>config)[key] = (<any>Configuration.DEFAULT_VALUE)[key];
+                (<any>config)[key] = cloneConfigValue((<any>Configuration.DEFAULT_VALUE)[key]);
             }
         }
 
@@ -216,43 +220,51 @@ class Configuration implements IConfiguration {
         if (this.templateConfig !== null && typeof config.stream !== 'undefined') {
             if (typeof config.stream.live !== 'undefined' && typeof config.stream.live.ts !== 'undefined') {
                 if (typeof config.stream.live.ts.m2ts === 'undefined') {
-                    config.stream.live.ts.m2ts = this.templateConfig.stream?.live?.ts?.m2ts;
+                    config.stream.live.ts.m2ts = cloneConfigValue(this.templateConfig.stream?.live?.ts?.m2ts);
                 }
                 if (typeof config.stream.live.ts.m2tsll === 'undefined') {
-                    config.stream.live.ts.m2tsll = this.templateConfig.stream?.live?.ts?.m2tsll;
+                    config.stream.live.ts.m2tsll = cloneConfigValue(this.templateConfig.stream?.live?.ts?.m2tsll);
                 }
                 if (typeof config.stream.live.ts.webm === 'undefined') {
-                    config.stream.live.ts.webm = this.templateConfig.stream?.live?.ts?.webm;
+                    config.stream.live.ts.webm = cloneConfigValue(this.templateConfig.stream?.live?.ts?.webm);
                 }
                 if (typeof config.stream.live.ts.mp4 === 'undefined') {
-                    config.stream.live.ts.mp4 = this.templateConfig.stream?.live?.ts?.mp4;
+                    config.stream.live.ts.mp4 = cloneConfigValue(this.templateConfig.stream?.live?.ts?.mp4);
                 }
                 if (typeof config.stream.live.ts.hls === 'undefined') {
-                    config.stream.live.ts.hls = this.templateConfig.stream?.live?.ts?.hls;
+                    config.stream.live.ts.hls = cloneConfigValue(this.templateConfig.stream?.live?.ts?.hls);
                 }
             }
 
             if (typeof config.stream.recorded !== 'undefined') {
                 if (typeof config.stream.recorded.ts !== 'undefined') {
                     if (typeof config.stream.recorded.ts.webm === 'undefined') {
-                        config.stream.recorded.ts.webm = this.templateConfig.stream?.recorded?.ts?.webm;
+                        config.stream.recorded.ts.webm = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.ts?.webm,
+                        );
                     }
                     if (typeof config.stream.recorded.ts.mp4 === 'undefined') {
-                        config.stream.recorded.ts.mp4 = this.templateConfig.stream?.recorded?.ts?.mp4;
+                        config.stream.recorded.ts.mp4 = cloneConfigValue(this.templateConfig.stream?.recorded?.ts?.mp4);
                     }
                     if (typeof config.stream.recorded.ts.hls === 'undefined') {
-                        config.stream.recorded.ts.hls = this.templateConfig.stream?.recorded?.ts?.hls;
+                        config.stream.recorded.ts.hls = cloneConfigValue(this.templateConfig.stream?.recorded?.ts?.hls);
                     }
                 }
                 if (typeof config.stream.recorded.encoded !== 'undefined') {
                     if (typeof config.stream.recorded.encoded.webm === 'undefined') {
-                        config.stream.recorded.encoded.webm = this.templateConfig.stream?.recorded?.encoded?.webm;
+                        config.stream.recorded.encoded.webm = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.encoded?.webm,
+                        );
                     }
                     if (typeof config.stream.recorded.encoded.mp4 === 'undefined') {
-                        config.stream.recorded.encoded.mp4 = this.templateConfig.stream?.recorded?.encoded?.mp4;
+                        config.stream.recorded.encoded.mp4 = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.encoded?.mp4,
+                        );
                     }
                     if (typeof config.stream.recorded.encoded.hls === 'undefined') {
-                        config.stream.recorded.encoded.hls = this.templateConfig.stream?.recorded?.encoded?.hls;
+                        config.stream.recorded.encoded.hls = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.encoded?.hls,
+                        );
                     }
                 }
             }
