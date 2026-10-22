@@ -21,6 +21,8 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
     private log: ILogger;
     private config: IConfigFile;
     private queue: IPromiseQueue;
+    private maxPendingCommands: number;
+    private pendingCommands: number = 0;
     private channelDB: IChannelDB;
     private recordedDB: IRecordedDB;
     private videoUtil: IVideoUtil;
@@ -36,6 +38,7 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
         this.log = logger.getLogger();
         this.config = configuration.getConfig();
         this.queue = queue;
+        this.maxPendingCommands = this.config.externalCommandMaxPending ?? 64;
         this.channelDB = channelDB;
         this.recordedDB = recordedDB;
         this.videoUtil = videoUtil;
@@ -165,12 +168,7 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
      * @param reserve: Reserve
      */
     private addReserve(cmd: string, reserve: Reserve): void {
-        this.queue.add<void>(() => {
-            return this.createReserveCmd(cmd, reserve).catch(err => {
-                this.log.system.error(`execute cmd error: ${cmd}`);
-                this.log.system.error(err);
-            });
-        });
+        this.enqueueCommand(cmd, () => this.createReserveCmd(cmd, reserve));
     }
 
     /**
@@ -179,12 +177,7 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
      * @param reserve: Recorded
      */
     private addRecorded(cmd: string, reserve: Recorded): void {
-        this.queue.add<void>(() => {
-            return this.createRecordedCmd(cmd, reserve).catch(err => {
-                this.log.system.error(`execute cmd error: ${cmd}`);
-                this.log.system.error(err);
-            });
-        });
+        this.enqueueCommand(cmd, () => this.createRecordedCmd(cmd, reserve));
     }
 
     /**
@@ -193,12 +186,37 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
      * @param info OperatorFinishEncodeInfo
      */
     private addFinishEncode(cmd: string, info: OperatorFinishEncodeInfo): void {
-        this.queue.add<void>(() => {
-            return this.createFinishEncodeCmd(cmd, info).catch(err => {
-                this.log.system.error(`execute cmd error: ${cmd}`);
-                this.log.system.error(err);
-            });
-        });
+        this.enqueueCommand(cmd, () => this.createFinishEncodeCmd(cmd, info));
+    }
+
+    /** Keep the shared FIFO queue while bounding only external-command jobs waiting in it. */
+    private enqueueCommand(cmd: string, execute: () => Promise<void>): void {
+        if (this.pendingCommands >= this.maxPendingCommands) {
+            this.log.system.error(`external command queue full; rejected: ${cmd}`);
+            return;
+        }
+
+        this.pendingCommands++;
+        try {
+            void this.queue
+                .add<void>(async () => {
+                    this.pendingCommands--;
+                    try {
+                        await execute();
+                    } catch (err) {
+                        this.log.system.error(`execute cmd error: ${cmd}`);
+                        this.log.system.error(err);
+                    }
+                })
+                .catch(err => {
+                    this.log.system.error(`execute cmd queue error: ${cmd}`);
+                    this.log.system.error(err);
+                });
+        } catch (err) {
+            this.pendingCommands--;
+            this.log.system.error(`execute cmd queue error: ${cmd}`);
+            this.log.system.error(err);
+        }
     }
 
     /**

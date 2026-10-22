@@ -6,6 +6,7 @@ import * as apid from '../../../../api';
 import Thumbnail from '../../../db/entities/Thumbnail';
 import FileUtil from '../../../util/FileUtil';
 import ProcessUtil from '../../../util/ProcessUtil';
+import BoundedWorkQueue from '../../../util/BoundedWorkQueue';
 import IVideoUtil from '../../api/video/IVideoUtil';
 import IRecordedDB from '../../db/IRecordedDB';
 import IThumbnailDB from '../../db/IThumbnailDB';
@@ -21,7 +22,7 @@ import IThumbnailManageModel from './IThumbnailManageModel';
 export default class ThumbnailManageModel implements IThumbnailManageModel {
     private log: ILogger;
     private config: IConfigFile;
-    private queue: Promise<void> = Promise.resolve();
+    private queue: BoundedWorkQueue;
     private recordingTimers: Map<apid.VideoFileId, NodeJS.Timeout> = new Map();
     private recordingAttempts: Map<apid.VideoFileId, number> = new Map();
     private recordingProcesses: Map<apid.VideoFileId, ChildProcess> = new Map();
@@ -42,6 +43,7 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     ) {
         this.log = logger.getLogger();
         this.config = configuration.getConfig();
+        this.queue = new BoundedWorkQueue(this.config.thumbnailMaxPending ?? 32);
         this.recordedDB = recordedDB;
         this.videoFileDB = videoFileDB;
         this.thumbnailDB = thumbnailDB;
@@ -90,12 +92,7 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     }
 
     private enqueue<T>(job: () => Promise<T>): Promise<T> {
-        const result = this.queue.then(job);
-        this.queue = result.then(
-            () => undefined,
-            () => undefined,
-        );
-        return result;
+        return this.queue.enqueue(job);
     }
 
     private scheduleRecordingThumbnail(videoFileId: apid.VideoFileId, delay: number): void {
