@@ -7,7 +7,8 @@ export const get: Operation = async (req, res) => {
     const iptvApiModel = container.get<IIPTVApiModel>('IIPTVApiModel');
 
     try {
-        const result = await iptvApiModel.getEpg(parseInt(req.query.days as any, 10), req.query.isHalfWidth as any);
+        const days = typeof req.query.days === 'number' ? req.query.days : Number(req.query.days);
+        const result = await iptvApiModel.getEpg(days, req.query.isHalfWidth as any);
         res.setHeader('Content-Type', 'application/xml; charset="UTF-8"');
         res.status(200);
         res.end(result);

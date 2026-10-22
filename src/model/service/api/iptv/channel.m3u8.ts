@@ -16,7 +16,7 @@ export const get: Operation = async (req, res) => {
         const result = await iptvApiModel.getChannelList(
             req.headers.host,
             api.isSecureProtocol(req),
-            parseInt(req.query.mode as any, 10),
+            typeof req.query.mode === 'number' ? req.query.mode : Number(req.query.mode),
             req.query.isHalfWidth as any,
             configuration.getConfig().subDirectory,
         );
