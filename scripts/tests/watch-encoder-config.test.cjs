@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { syncBuiltinESMExports } = require('node:module');
 require('reflect-metadata');
 
 const { default: Configuration } = require('../../dist/model/Configuration');
@@ -51,8 +52,12 @@ test('normalizes watch.encoder on initial config load and fs.watchFile reload', 
 
     Configuration.CONFIG_FILE_PATH = configPath;
     Configuration.CONFIG_TEMPLATE_FILE_PATH = templatePath;
-    t.mock.method(fs, 'watchFile', (_path, callback) => reloads.push(callback));
+    const watchFileMock = t.mock.method(fs, 'watchFile', (_path, callback) => reloads.push(callback));
+    syncBuiltinESMExports();
     t.after(() => {
+        fs.unwatchFile(configPath);
+        watchFileMock.mock.restore();
+        syncBuiltinESMExports();
         Configuration.CONFIG_FILE_PATH = originalConfigPath;
         Configuration.CONFIG_TEMPLATE_FILE_PATH = originalTemplatePath;
         fs.rmSync(directory, { recursive: true, force: true });

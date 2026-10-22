@@ -1,9 +1,9 @@
-import { Operation } from '../ApiOperation';
-import * as apid from '../../../../api';
-import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
-import IScheduleApiModel from '../../api/schedule/IScheduleApiModel';
-import container from '../../ModelContainer';
-import * as api from '../api';
+import { Operation } from '../ApiOperation.js';
+import * as apid from '../../../../api.js';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil.js';
+import IScheduleApiModel from '../../api/schedule/IScheduleApiModel.js';
+import container from '../../ModelContainer.js';
+import * as api from '../api.js';
 
 export const get: Operation = async (req, res) => {
     const scheduleApiModel = container.get<IScheduleApiModel>('IScheduleApiModel');

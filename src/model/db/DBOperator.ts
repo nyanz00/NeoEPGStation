@@ -1,11 +1,12 @@
+import { fileURLToPath } from 'node:url';
 import * as path from 'path';
 import { inject, injectable } from 'inversify';
 import { DataSource } from 'typeorm';
-import IConfigFile from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IDBOperator from './IDBOperator';
+import IConfigFile from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IDBOperator from './IDBOperator.js';
 
 @injectable()
 export default class DBOperator implements IDBOperator {
@@ -33,7 +34,7 @@ export default class DBOperator implements IDBOperator {
      */
     private async createConnection(): Promise<DataSource> {
         // アプリのルートディレクトリ
-        const appRootPath = path.join(__dirname, '..', '..', '..');
+        const appRootPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
         // dist 下のディレクトリ設定
         const distDBBasePath = path.join(appRootPath, 'dist', 'db');
@@ -124,7 +125,7 @@ export default class DBOperator implements IDBOperator {
         // 外部拡張読み込み
         for (const extension of this.config.sqlite.extensions) {
             this.log.system.info(`load extension: ${extension}`);
-            if (this.config.dbtype === 'better-sqlite3') {
+            if (this.connection.options.type === 'better-sqlite3') {
                 try {
                     (<any>this.connection).driver.databaseConnection.loadExtension(extension);
                     this.log.system.info(`loaded extension success: ${extension}`);

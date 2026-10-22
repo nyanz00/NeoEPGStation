@@ -1,26 +1,27 @@
+import { fileURLToPath } from 'node:url';
 import * as child_process from 'child_process';
 import * as path from 'path';
 import 'reflect-metadata';
 import { install } from 'source-map-support';
-import IEPGUpdateExecutorManageModel from './model/epgUpdater/IEPGUpdateExecutorManageModel';
-import IEventSetter from './model/event/IEventSetter';
-import IConfiguration from './model/IConfiguration';
-import IConnectionCheckModel from './model/IConnectionCheckModel';
-import IDBOperator from './model/db/IDBOperator';
-import ILoggerModel from './model/ILoggerModel';
-import IMirakurunClientModel from './model/IMirakurunClientModel';
-import IIPCServer from './model/ipc/IIPCServer';
-import container from './model/ModelContainer';
-import * as containerSetter from './model/ModelContainerSetter';
-import IRecordingManageModel from './model/operator/recording/IRecordingManageModel';
-import IReservationManageModel from './model/operator/reservation/IReservationManageModel';
-import IStorageManageModel from './model/operator/storage/IStorageManageModel';
-import IRuleManageModel from './model/operator/rule/IRuleManageModel';
-import { SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './model/service/ServiceProcess';
-import ProcessUtil from './util/ProcessUtil';
-import ProcessShutdown from './util/ProcessShutdown';
-import { ServiceChildProcessRegistry } from './model/service/ServiceChildProcessRegistry';
-import { recordedUseRegistry } from './model/RecordedUseRegistry';
+import IEPGUpdateExecutorManageModel from './model/epgUpdater/IEPGUpdateExecutorManageModel.js';
+import IEventSetter from './model/event/IEventSetter.js';
+import IConfiguration from './model/IConfiguration.js';
+import IConnectionCheckModel from './model/IConnectionCheckModel.js';
+import IDBOperator from './model/db/IDBOperator.js';
+import ILoggerModel from './model/ILoggerModel.js';
+import IMirakurunClientModel from './model/IMirakurunClientModel.js';
+import IIPCServer from './model/ipc/IIPCServer.js';
+import container from './model/ModelContainer.js';
+import * as containerSetter from './model/ModelContainerSetter.js';
+import IRecordingManageModel from './model/operator/recording/IRecordingManageModel.js';
+import IReservationManageModel from './model/operator/reservation/IReservationManageModel.js';
+import IStorageManageModel from './model/operator/storage/IStorageManageModel.js';
+import IRuleManageModel from './model/operator/rule/IRuleManageModel.js';
+import { SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './model/service/ServiceProcess.js';
+import ProcessUtil from './util/ProcessUtil.js';
+import ProcessShutdown from './util/ProcessShutdown.js';
+import { ServiceChildProcessRegistry } from './model/service/ServiceChildProcessRegistry.js';
+import { recordedUseRegistry } from './model/RecordedUseRegistry.js';
 install();
 
 containerSetter.set(container);
@@ -119,7 +120,7 @@ const init = async () => {
     }
 
     // uid, gid が設定されてから再度 log 再設定
-    logger.initialize(path.join(__dirname, '..', 'config', 'operatorLogConfig.yml'));
+    logger.initialize(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config', 'operatorLogConfig.yml'));
 
     // 接続確認
     const connectionChecker = container.get<IConnectionCheckModel>('IConnectionCheckModel');
@@ -167,7 +168,7 @@ const runService = async () => {
     const startedAt = Date.now();
     const child = child_process.spawn(
         process.argv[0],
-        [path.join(__dirname, 'model', 'service', 'ServiceExecutor.js')],
+        [path.join(path.dirname(fileURLToPath(import.meta.url)), 'model', 'service', 'ServiceExecutor.js')],
         {
             stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         },

@@ -1,9 +1,9 @@
 import { Request } from 'express';
-import IViewerProfileApiModel from '../../api/viewerProfile/IViewerProfileApiModel';
-import ITvUserDB from '../../db/ITvUserDB';
-import IViewerProfileDB from '../../db/IViewerProfileDB';
-import container from '../../ModelContainer';
-import { getActiveUserId } from './activeUser';
+import IViewerProfileApiModel from '../../api/viewerProfile/IViewerProfileApiModel.js';
+import ITvUserDB from '../../db/ITvUserDB.js';
+import IViewerProfileDB from '../../db/IViewerProfileDB.js';
+import container from '../../ModelContainer.js';
+import { getActiveUserId } from './activeUser.js';
 
 export class AdminAccessError extends Error {}
 

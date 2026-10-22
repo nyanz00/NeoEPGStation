@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 function loadTypeScript(sourcePath, dependencies) {
@@ -62,13 +63,20 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-function installFakeTimeout(delay) {
+function installFakeTimeout(...delays) {
     const originalSetTimeout = global.setTimeout;
     const originalClearTimeout = global.clearTimeout;
     const timers = [];
     global.setTimeout = (callback, requestedDelay, ...args) => {
-        if (requestedDelay === delay) {
-            const timer = { callback, args, cleared: false, fakeTimer: true };
+        if (delays.includes(requestedDelay)) {
+            const timer = {
+                callback,
+                args,
+                delay: requestedDelay,
+                cleared: false,
+                fakeTimer: true,
+                unref() {},
+            };
             timers.push(timer);
             return timer;
         }
@@ -95,6 +103,7 @@ const ExternalCommandManageModel = loadTypeScript(
         child_process: {
             spawn: () => {
                 const child = new FakeChild();
+                child.pid = 5000 + spawnedChildren.length;
                 spawnedChildren.push(child);
                 return child;
             },
@@ -111,6 +120,7 @@ const StorageManageModel = loadTypeScript(
         child_process: {
             spawn: () => {
                 const child = new FakeChild();
+                child.pid = 5000 + spawnedChildren.length;
                 spawnedChildren.push(child);
                 return child;
             },
@@ -134,16 +144,25 @@ function makeExternalModel({ timeout = 10, errors = [] } = {}) {
     return model;
 }
 
-test('an external command timeout blocks queued commands until kill or exit confirms stopping', async () => {
+test('an external command timeout blocks queued commands until killManaged confirms stopping', async () => {
     spawnedChildren.length = 0;
-    const timers = installFakeTimeout(10);
+    const timers = installFakeTimeout(10, 5_000);
     const errors = [];
     const killStarted = deferred();
     const rejectKill = deferred();
+    const retryStarted = deferred();
+    const confirmKill = deferred();
     const secondStarted = deferred();
+    let killAttempts = 0;
     killManaged = async () => {
-        killStarted.resolve();
-        await rejectKill.promise;
+        killAttempts++;
+        if (killAttempts === 1) {
+            killStarted.resolve();
+            await rejectKill.promise;
+            return;
+        }
+        retryStarted.resolve();
+        await confirmKill.promise;
     };
     const model = makeExternalModel({ errors });
     const originalCreate = model.createReserveCmd.bind(model);
@@ -172,6 +191,11 @@ test('an external command timeout blocks queued commands until kill or exit conf
         const firstChild = spawnedChildren[0];
         firstChild.exitCode = 1;
         firstChild.emit('exit', 1, null);
+        assert.equal(spawnedChildren.length, 1, 'leader exit alone must not release the queued command');
+        timers.timers.find(timer => timer.delay === 5_000).callback();
+        await retryStarted.promise;
+        assert.equal(spawnedChildren.length, 1, 'queue remains blocked while stop confirmation is pending');
+        confirmKill.resolve();
         await secondStarted.promise;
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(spawnedChildren.length, 2);
@@ -276,15 +300,24 @@ test('storage limit checks await the command and block overlapping checks until 
     }
 });
 
-test('storage timeout awaits kill before logging failure and continuing the check', async () => {
+test('storage timeout retains the check after leader exit until a retry confirms stopping', async () => {
     spawnedChildren.length = 0;
-    const timers = installFakeTimeout(15);
+    const timers = installFakeTimeout(15, 5_000);
     const killStarted = deferred();
     const rejectKill = deferred();
+    const retryStarted = deferred();
+    const confirmKill = deferred();
     const errors = [];
+    let killAttempts = 0;
     killManaged = async () => {
-        killStarted.resolve();
-        await rejectKill.promise;
+        killAttempts++;
+        if (killAttempts === 1) {
+            killStarted.resolve();
+            await rejectKill.promise;
+            return;
+        }
+        retryStarted.resolve();
+        await confirmKill.promise;
     };
     const model = Object.create(StorageManageModel.prototype);
     Object.assign(model, {
@@ -309,6 +342,12 @@ test('storage timeout awaits kill before logging failure and continuing the chec
 
         spawnedChildren[0].exitCode = 1;
         spawnedChildren[0].emit('exit', 1, null);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(model.isRunning, true, 'leader exit alone must not release the storage check');
+        timers.timers.find(timer => timer.delay === 5_000).callback();
+        await retryStarted.promise;
+        assert.equal(model.isRunning, true, 'storage check remains held during stop confirmation retry');
+        confirmKill.resolve();
         await check;
         assert.equal(model.isRunning, false);
         assert.ok(errors.some(message => message.includes('StorageCommandTimeout')));

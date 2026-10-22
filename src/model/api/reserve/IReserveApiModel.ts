@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export default interface IReserveApiModel {
     add(option: apid.ManualReserveOption): Promise<apid.ReserveId>;

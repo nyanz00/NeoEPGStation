@@ -3,16 +3,16 @@ import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import internal from 'stream';
-import * as apid from '../../../../../api';
-import FileUtil from '../../../../util/FileUtil';
-import IConfigFile from '../../../IConfigFile';
-import IConfiguration from '../../../IConfiguration';
-import ILogger from '../../../ILogger';
-import ILoggerModel from '../../../ILoggerModel';
-import IEncodeProcessManageModel from '../../encode/IEncodeProcessManageModel';
-import ISocketIOManageModel from '../../socketio/ISocketIOManageModel';
-import IHLSFileDeleterModel from '../util/IHLSFileDeleterModel';
-import IStreamBaseModel, { LiveStreamInfo, RecordedStreamInfo } from './IStreamBaseModel';
+import * as apid from '../../../../../api.js';
+import FileUtil from '../../../../util/FileUtil.js';
+import IConfigFile from '../../../IConfigFile.js';
+import IConfiguration from '../../../IConfiguration.js';
+import ILogger from '../../../ILogger.js';
+import ILoggerModel from '../../../ILoggerModel.js';
+import IEncodeProcessManageModel from '../../encode/IEncodeProcessManageModel.js';
+import ISocketIOManageModel from '../../socketio/ISocketIOManageModel.js';
+import IHLSFileDeleterModel from '../util/IHLSFileDeleterModel.js';
+import IStreamBaseModel, { LiveStreamInfo, RecordedStreamInfo } from './IStreamBaseModel.js';
 
 @injectable()
 abstract class StreamBaseModel<T> implements IStreamBaseModel<T> {

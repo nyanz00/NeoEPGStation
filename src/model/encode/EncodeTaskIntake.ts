@@ -2,10 +2,10 @@ import { createHash } from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { In } from 'typeorm';
-import EncodeTask from '../../db/entities/EncodeTask';
-import EncodeTaskSequence from '../../db/entities/EncodeTaskSequence';
-import type IDBOperator from '../db/IDBOperator';
-import type { AddEncodeOption, EncodeOption } from '../service/encode/IEncoderModel';
+import EncodeTask from '../../db/entities/EncodeTask.js';
+import EncodeTaskSequence from '../../db/entities/EncodeTaskSequence.js';
+import type IDBOperator from '../db/IDBOperator.js';
+import type { AddEncodeOption, EncodeOption } from '../service/encode/IEncoderModel.js';
 
 const MAX_ENCODE_ID = 0x7fffffff;
 const MAX_TRANSACTION_ATTEMPTS = 20;

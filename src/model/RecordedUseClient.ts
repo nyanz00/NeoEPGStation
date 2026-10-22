@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { RecordedUseResource } from './RecordedUseRegistry';
+import type { RecordedUseResource } from './RecordedUseRegistry.js';
 
 type RecordedUseOperation = 'acquire' | 'release';
 

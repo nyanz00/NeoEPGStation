@@ -1,7 +1,7 @@
-import * as apid from '../../../api';
-import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
-import { AddVideoFileOption, UploadedVideoFileOption } from '../operator/recorded/IRecordedManageModel';
-import { RecordingDropLogFile } from '../operator/recording/IRecorderModel';
+import * as apid from '../../../api.js';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent.js';
+import { AddVideoFileOption, UploadedVideoFileOption } from '../operator/recorded/IRecordedManageModel.js';
+import { RecordingDropLogFile } from '../operator/recording/IRecorderModel.js';
 
 export interface IPCReservationManageModel {
     getBroadcastStatus(): Promise<apid.BroadcastStatus>;

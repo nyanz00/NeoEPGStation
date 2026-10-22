@@ -18,11 +18,13 @@ for (const prefix of ['', '/neo']) {
         const logger = log4js.getLogger('express5-test');
         logger.level = 'off';
         let uploaded;
+        let uploadedContents;
         container.unbindAll();
         container.bind('IRecordedApiModel').toConstantValue({
             gets: async option => option,
             addUploadedVideoFile: async option => {
                 uploaded = option;
+                uploadedContents = await fs.promises.readFile(option.filePath);
             },
         });
         container.bind('IRecordedTagApiModel').toConstantValue({
@@ -72,7 +74,7 @@ for (const prefix of ['', '/neo']) {
             assert.equal(response.status, 200);
             const doc = await response.json();
             let operations = 0;
-            for (const route of service.getApiRoutes(ServiceServer.API_DIR)) {
+            for (const route of await service.getApiRoutes(ServiceServer.API_DIR)) {
                 for (const method of ['get', 'post', 'put', 'delete', 'patch', 'head', 'options']) {
                     if (!route.module[method]?.apiDoc) continue;
                     assert.ok(doc.paths[route.path]?.[method], `${method} ${route.path}`);
@@ -135,7 +137,7 @@ for (const prefix of ['', '/neo']) {
             }
         });
 
-        await t.test('multipart upload preserves fields and temporary file', async () => {
+        await t.test('multipart upload preserves fields and cleans the temporary file after registration', async () => {
             const form = new FormData();
             for (const [key, value] of Object.entries({
                 recordedId: '123',
@@ -149,7 +151,8 @@ for (const prefix of ['', '/neo']) {
             assert.equal(response.status, 200, await response.text());
             assert.equal(uploaded.recordedId, 123);
             assert.equal(uploaded.fileName, 'test.mp4');
-            assert.equal(fs.readFileSync(uploaded.filePath, 'utf8'), 'test video');
+            assert.equal(uploadedContents.toString('utf8'), 'test video');
+            assert.equal(fs.existsSync(uploaded.filePath), false);
         });
 
         await t.test('static MIME types, range and HEAD responses', async () => {

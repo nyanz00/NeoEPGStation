@@ -1,4 +1,4 @@
-import * as aribts from 'aribts';
+import aribts from 'aribts';
 
 /**
  * BIT (Broadcaster Information Table) から取り出した放送事業者 1 件分の情報

@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export namespace DropLogApiErrors {
     export const FILE_IS_TOO_LARGE = 'FileIsTooLarge';

@@ -1,21 +1,21 @@
 import { ChildProcess, spawn } from 'child_process';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import Recorded from '../../../db/entities/Recorded';
-import Reserve from '../../../db/entities/Reserve';
-import ProcessUtil from '../../../util/ProcessUtil';
-import { killManaged } from '../../../util/ManagedProcess';
-import IVideoUtil from '../../api/video/IVideoUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent';
-import { IReserveUpdateValues } from '../../event/IReserveEvent';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import { IPromiseQueue } from '../../IPromiseQueue';
-import IExternalCommandManageModel from './IExternalCommandManageModel';
+import Recorded from '../../../db/entities/Recorded.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { killManaged } from '../../../util/ManagedProcess.js';
+import IVideoUtil from '../../api/video/IVideoUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent.js';
+import { IReserveUpdateValues } from '../../event/IReserveEvent.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import { IPromiseQueue } from '../../IPromiseQueue.js';
+import IExternalCommandManageModel from './IExternalCommandManageModel.js';
 
 @injectable()
 export default class ExternalCommandManageModel implements IExternalCommandManageModel {
@@ -234,6 +234,8 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
 
         const child = spawn(cmds.bin, cmds.args, {
             stdio: 'ignore',
+            detached: process.platform !== 'win32',
+            windowsHide: true,
             env: {
                 PATH: process.env['PATH'],
                 RESERVEID: reserve.id,
@@ -275,6 +277,8 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
 
         const child = spawn(cmds.bin, cmds.args, {
             stdio: 'ignore',
+            detached: process.platform !== 'win32',
+            windowsHide: true,
             env: {
                 PATH: process.env['PATH'],
                 RECORDEDID: recorded.id,
@@ -341,6 +345,8 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
 
         const child = spawn(cmds.bin, cmds.args, {
             stdio: 'ignore',
+            detached: process.platform !== 'win32',
+            windowsHide: true,
             env: {
                 PATH: process.env['PATH'],
                 RECORDEDID: info.recordedId,
@@ -381,10 +387,11 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
             let settled = false;
             let timedOut = false;
             let killPending = false;
-            let terminalError = false;
+            let retryTimer: NodeJS.Timeout | null = null;
 
             const cleanup = (): void => {
                 clearTimeout(timer);
+                if (retryTimer !== null) clearTimeout(retryTimer);
                 child.removeListener('exit', onExit);
                 child.removeListener('error', onError);
             };
@@ -400,7 +407,7 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
             };
             const onExit = (): void => {
                 if (timedOut) {
-                    if (!killPending) finishTimeout();
+                    if (child.pid === undefined) finishTimeout();
                     return;
                 }
                 if (child.exitCode === 0) this.log.system.info(successMessage);
@@ -411,18 +418,19 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
                 this.log.system.error(failureMessage);
                 this.log.system.error(error);
                 if (timedOut) {
-                    terminalError = true;
-                    if (!killPending) finishTimeout();
+                    if (child.pid === undefined) finishTimeout();
                     return;
                 }
                 finish();
             };
 
-            const timer = setTimeout(() => {
-                if (settled) return;
-                timedOut = true;
+            const confirmStop = (): void => {
+                if (settled || killPending) return;
+                if (child.pid === undefined) {
+                    finishTimeout();
+                    return;
+                }
                 killPending = true;
-                this.log.system.error(`${timeoutError}: ${cmd} exceeded ${timeout}ms; stopping process`);
                 void killManaged(child).then(
                     () => {
                         killPending = false;
@@ -432,9 +440,23 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
                         killPending = false;
                         this.log.system.error(`${timeoutError}: failed to confirm process stop for ${cmd}`);
                         this.log.system.error(error);
-                        if (terminalError || child.exitCode !== null || child.signalCode !== null) finishTimeout();
+                        if (child.pid === undefined && (child.exitCode !== null || child.signalCode !== null)) {
+                            finishTimeout();
+                            return;
+                        }
+                        retryTimer = setTimeout(() => {
+                            retryTimer = null;
+                            confirmStop();
+                        }, 5_000);
+                        retryTimer.unref();
                     },
                 );
+            };
+            const timer = setTimeout(() => {
+                if (settled) return;
+                timedOut = true;
+                this.log.system.error(`${timeoutError}: ${cmd} exceeded ${timeout}ms; stopping process`);
+                confirmStop();
             }, timeout);
 
             child.once('exit', onExit);

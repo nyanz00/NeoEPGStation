@@ -1,4 +1,4 @@
-import * as apid from '../../../api';
+import * as apid from '../../../api.js';
 
 export default interface IThumbnailEvent {
     emitAdded(videoFileId: apid.VideoFileId, recordedId: apid.RecordedId): void;

@@ -6,6 +6,7 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const { finished } = require('node:stream/promises');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const sourcePath = path.resolve(__dirname, '../../src/model/operator/recording/RecorderModel.ts');

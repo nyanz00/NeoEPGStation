@@ -1,11 +1,11 @@
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import FileUtil from '../../../util/FileUtil';
-import IDropLogFileDB from '../../db/IDropLogFileDB';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import IDropLogApiModel, { DropLogApiErrors } from './IDropLogApiModel';
+import * as apid from '../../../../api.js';
+import FileUtil from '../../../util/FileUtil.js';
+import IDropLogFileDB from '../../db/IDropLogFileDB.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import IDropLogApiModel, { DropLogApiErrors } from './IDropLogApiModel.js';
 
 @injectable()
 export default class DropLogApiModel implements IDropLogApiModel {

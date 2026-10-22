@@ -1,5 +1,5 @@
 import { QueryRunner } from 'typeorm';
-import StrUtil from '../../util/StrUtil';
+import StrUtil from '../../util/StrUtil.js';
 
 export const programSearchColumns = ['normalizedName', 'normalizedDescription', 'normalizedExtended'] as const;
 

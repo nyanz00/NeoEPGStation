@@ -1,5 +1,7 @@
 'use strict';
 
+require('./ts-cjs-compat.cjs');
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
@@ -52,6 +54,9 @@ const { default: StreamApiModel, RecordedSession } = loadTypeScript(
         '../../service/stream/WatchStreamProfileUtil': { __esModule: true, default: WatchStreamProfileUtil },
         '../../service/stream/EncodedVodHlsTiming': timingModule,
         '../../../util/MpegTsTimeUtil': { findMpegTsByteOffset: async () => 0 },
+        '../../RecordedUseClient': {
+            recordedUseClient: { acquire: async () => ({ release: async () => {} }) },
+        },
     },
     'exports.RecordedSession = RecordedVodHlsMuxSession;',
 );
@@ -267,7 +272,11 @@ test('TS HLS timestamp preservation is limited to explicit iOS requests using FF
     const model = Object.create(StreamApiModel.prototype);
     Object.assign(model, {
         configure: { getConfig: () => ({ ...config(), temporaryDir: directory }) },
+        videoFileDB: { findId: async id => ({ id, recordedId: 8 }) },
         recordedVodHlsSessions: new Map(),
+        encodedVodHlsSessions: new Map(),
+        creatingVodSessions: new Map(),
+        vodUses: new Map(),
         vodHlsCleanupPromises: new Map(),
         cleanupRecordedVodHlsSessions() {},
         cleanupEncodedVodHlsSessions() {},

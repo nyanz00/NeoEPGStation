@@ -1,12 +1,12 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IRecordedDB from '../../db/IRecordedDB';
-import IRecordedPlaybackDB from '../../db/IRecordedPlaybackDB';
-import ITvUserDB from '../../db/ITvUserDB';
-import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
-import ISocketIOManageModel from '../../service/socketio/ISocketIOManageModel';
-import IRecordedItemUtil from '../IRecordedItemUtil';
-import IRecordedPlaybackApiModel from './IRecordedPlaybackApiModel';
+import * as apid from '../../../../api.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IRecordedPlaybackDB from '../../db/IRecordedPlaybackDB.js';
+import ITvUserDB from '../../db/ITvUserDB.js';
+import IEncodeManageModel from '../../service/encode/IEncodeManageModel.js';
+import ISocketIOManageModel from '../../service/socketio/ISocketIOManageModel.js';
+import IRecordedItemUtil from '../IRecordedItemUtil.js';
+import IRecordedPlaybackApiModel from './IRecordedPlaybackApiModel.js';
 
 @injectable()
 export default class RecordedPlaybackApiModel implements IRecordedPlaybackApiModel {

@@ -1,5 +1,5 @@
-import { BaseEntity, Column, Entity, JoinTable, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import Recorded from './Recorded';
+import { BaseEntity, Column, Entity, JoinTable, ManyToOne, PrimaryGeneratedColumn, Relation } from 'typeorm';
+import Recorded from './Recorded.js';
 
 @Entity()
 export default class VideoFile extends BaseEntity {
@@ -91,5 +91,5 @@ export default class VideoFile extends BaseEntity {
 
     @ManyToOne(() => Recorded, recorded => recorded.videoFiles)
     @JoinTable({ name: 'recordedId' })
-    public recorded?: Recorded;
+    public recorded?: Relation<Recorded>;
 }

@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const absolutePath = path.resolve(__dirname, '../../client/src/core/player/AribCaptionVisibility.ts');

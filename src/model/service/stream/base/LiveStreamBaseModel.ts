@@ -1,21 +1,21 @@
 import { ChildProcess } from 'child_process';
-import { spawnManaged as spawn, killManaged } from '../../../../util/ManagedProcess';
+import { spawnManaged as spawn, killManaged } from '../../../../util/ManagedProcess.js';
 import * as http from 'http';
 import { inject, injectable } from 'inversify';
 import internal from 'stream';
-import ID3MetadataTransform from 'arib-subtitle-timedmetadater';
-import * as apid from '../../../../../api';
-import ProcessUtil from '../../../../util/ProcessUtil';
-import IConfigFile from '../../../IConfigFile';
-import IConfiguration from '../../../IConfiguration';
-import ILoggerModel from '../../../ILoggerModel';
-import IMirakurunClientModel from '../../../IMirakurunClientModel';
-import IEncodeProcessManageModel, { CreateProcessOption } from '../../encode/IEncodeProcessManageModel';
-import ISocketIOManageModel from '../../socketio/ISocketIOManageModel';
-import IHLSFileDeleterModel from '../util/IHLSFileDeleterModel';
-import ILiveStreamBaseModel, { LiveStreamOption } from './ILiveStreamBaseModel';
-import { LiveStreamInfo } from './IStreamBaseModel';
-import StreamBaseModel from './StreamBaseModel';
+import ID3MetadataTransform from '../../../../util/AribMetadataTransform.js';
+import * as apid from '../../../../../api.js';
+import ProcessUtil from '../../../../util/ProcessUtil.js';
+import IConfigFile from '../../../IConfigFile.js';
+import IConfiguration from '../../../IConfiguration.js';
+import ILoggerModel from '../../../ILoggerModel.js';
+import IMirakurunClientModel from '../../../IMirakurunClientModel.js';
+import IEncodeProcessManageModel, { CreateProcessOption } from '../../encode/IEncodeProcessManageModel.js';
+import ISocketIOManageModel from '../../socketio/ISocketIOManageModel.js';
+import IHLSFileDeleterModel from '../util/IHLSFileDeleterModel.js';
+import ILiveStreamBaseModel, { LiveStreamOption } from './ILiveStreamBaseModel.js';
+import { LiveStreamInfo } from './IStreamBaseModel.js';
+import StreamBaseModel from './StreamBaseModel.js';
 
 @injectable()
 export default abstract class LiveStreamBaseModel

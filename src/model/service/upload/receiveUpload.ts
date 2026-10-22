@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pipeline, Readable } from 'stream';
 import multer from 'multer';
-import UploadAdmissionController, { IncomingUploadFile } from './UploadAdmissionController';
+import UploadAdmissionController, { IncomingUploadFile } from './UploadAdmissionController.js';
 
 export interface UploadRequest extends Request {
     cleanupIncomingUpload?: () => Promise<void>;

@@ -1,19 +1,22 @@
 import { ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
-import { recordedUseRegistry, RecordedUseResource } from '../RecordedUseRegistry';
+import { recordedUseRegistry, RecordedUseResource } from '../RecordedUseRegistry.js';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import IOperatorEncodeEvent, { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
+import * as apid from '../../../api.js';
+import IOperatorEncodeEvent, {
+    OperatorErrorEncodeInfo,
+    OperatorFinishEncodeInfo,
+} from '../event/IOperatorEncodeEvent.js';
 import IRecordedManageModel, {
     AddVideoFileOption,
     UploadedVideoFileOption,
-} from '../operator/recorded/IRecordedManageModel';
-import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel';
-import IRecordingManageModel from '../operator/recording/IRecordingManageModel';
-import IReservationManageModel from '../operator/reservation/IReservationManageModel';
-import IRuleManageModel from '../operator/rule/IRuleManageModel';
-import IThumbnailManageModel from '../operator/thumbnail/IThumbnailManageModel';
-import IIPCServer from './IIPCServer';
+} from '../operator/recorded/IRecordedManageModel.js';
+import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel.js';
+import IRecordingManageModel from '../operator/recording/IRecordingManageModel.js';
+import IReservationManageModel from '../operator/reservation/IReservationManageModel.js';
+import IRuleManageModel from '../operator/rule/IRuleManageModel.js';
+import IThumbnailManageModel from '../operator/thumbnail/IThumbnailManageModel.js';
+import IIPCServer from './IIPCServer.js';
 import {
     OperatorEncodeEventFunctions,
     ModelName,
@@ -27,11 +30,11 @@ import {
     RuleFuntions,
     SendMessage,
     ThumbnailFunctions,
-} from './IPCMessageDefine';
-import { AddEncodeOption } from '../service/encode/IEncoderModel';
-import IDBOperator from '../db/IDBOperator';
-import IConfiguration from '../IConfiguration';
-import { persistEncodeRequest } from '../encode/EncodeTaskIntake';
+} from './IPCMessageDefine.js';
+import { AddEncodeOption } from '../service/encode/IEncoderModel.js';
+import IDBOperator from '../db/IDBOperator.js';
+import IConfiguration from '../IConfiguration.js';
+import { persistEncodeRequest } from '../encode/EncodeTaskIntake.js';
 
 interface IFunctionIndex {
     [functionName: string]: (msg: SendMessage) => Promise<any>;

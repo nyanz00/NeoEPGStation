@@ -1,34 +1,34 @@
 import { ChildProcess } from 'child_process';
-import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess';
+import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess.js';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
 import * as path from 'path';
 import { PassThrough, Readable } from 'stream';
-import * as apid from '../../../../api';
-import ProcessUtil from '../../../util/ProcessUtil';
-import { findMpegTsByteOffset } from '../../../util/MpegTsTimeUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IProgramDB from '../../db/IProgramDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import { LiveHLSStreamModelProvider, LiveStreamModelProvider } from '../../service/stream/base/ILiveStreamBaseModel';
+import * as apid from '../../../../api.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { findMpegTsByteOffset } from '../../../util/MpegTsTimeUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IProgramDB from '../../db/IProgramDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import { LiveHLSStreamModelProvider, LiveStreamModelProvider } from '../../service/stream/base/ILiveStreamBaseModel.js';
 import {
     RecordedHLSStreamModelProvider,
     RecordedStreamModelProvider,
-} from '../../service/stream/base/IRecordedStreamBaseModel';
-import IStreamManageModel from '../../service/stream/manager/IStreamManageModel';
-import WatchStreamProfileUtil, { RecordedTsInputInfo } from '../../service/stream/WatchStreamProfileUtil';
-import { getEncodedVodHlsTiming } from '../../service/stream/EncodedVodHlsTiming';
-import IVideoAnalysisModel from '../../video/IVideoAnalysisModel';
-import IApiUtil from '../IApiUtil';
-import IPlayList from '../IPlayList';
-import IVideoUtil from '../video/IVideoUtil';
-import IStreamApiModel, { SegmentStreamResponse, StreamResponse } from './IStreamApiModel';
-import { recordedUseClient } from '../../RecordedUseClient';
+} from '../../service/stream/base/IRecordedStreamBaseModel.js';
+import IStreamManageModel from '../../service/stream/manager/IStreamManageModel.js';
+import WatchStreamProfileUtil, { RecordedTsInputInfo } from '../../service/stream/WatchStreamProfileUtil.js';
+import { getEncodedVodHlsTiming } from '../../service/stream/EncodedVodHlsTiming.js';
+import IVideoAnalysisModel from '../../video/IVideoAnalysisModel.js';
+import IApiUtil from '../IApiUtil.js';
+import IPlayList from '../IPlayList.js';
+import IVideoUtil from '../video/IVideoUtil.js';
+import IStreamApiModel, { SegmentStreamResponse, StreamResponse } from './IStreamApiModel.js';
+import { recordedUseClient } from '../../RecordedUseClient.js';
 
 interface StreamConfig {
     cmd?: string;
@@ -322,11 +322,11 @@ class RecordedVodHlsMuxSession {
         this.touch();
     }
 
-    public async cleanup(): Promise<void> {
+    public async cleanup(waitForStart = true): Promise<void> {
         this.isStopping = true;
         this.fileStream?.destroy();
 
-        await this.startPromise?.catch(() => {});
+        if (waitForStart) await this.startPromise?.catch(() => {});
         await Promise.all(this.processes.map(process => killManaged(process)));
 
         const dir = await this.directoryPromise.catch(() => null);
@@ -445,7 +445,7 @@ class RecordedVodHlsMuxSession {
             encodeProcess.stdout === null ||
             hlsMuxProcess.stdin === null
         ) {
-            await this.cleanup();
+            await this.cleanup(false);
             throw new Error('SegmentStreamIsNull');
         }
 
@@ -648,8 +648,8 @@ class EncodedVodHlsMuxSession {
         if (this.probeProcess !== null) await stopStreamProcess(this.probeProcess);
         if (this.subtitleProcess !== null) {
             const subtitleProcess = this.subtitleProcess;
-            this.subtitleProcess = null;
             await stopStreamProcess(subtitleProcess);
+            if (this.subtitleProcess === subtitleProcess) this.subtitleProcess = null;
         }
         await this.startPromise?.catch(() => {});
         await Promise.all(this.processes.map(process => stopStreamProcess(process)));

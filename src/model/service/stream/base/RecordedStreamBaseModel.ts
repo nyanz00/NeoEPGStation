@@ -1,24 +1,24 @@
 import { ChildProcess } from 'child_process';
-import { spawnManaged as spawn, killManaged } from '../../../../util/ManagedProcess';
+import { spawnManaged as spawn, killManaged } from '../../../../util/ManagedProcess.js';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import internal, { Readable } from 'stream';
-import ID3MetadataTransform from 'arib-subtitle-timedmetadater';
-import * as apid from '../../../../../api';
-import * as fst from '../../../../lib/TailStream';
-import ProcessUtil from '../../../../util/ProcessUtil';
-import IVideoUtil from '../../../api/video/IVideoUtil';
-import IVideoAnalysisModel from '../../../video/IVideoAnalysisModel';
-import IRecordedDB from '../../../db/IRecordedDB';
-import IVideoFileDB from '../../../db/IVideoFileDB';
-import IConfiguration from '../../../IConfiguration';
-import ILoggerModel from '../../../ILoggerModel';
-import IEncodeProcessManageModel, { CreateProcessOption } from '../../encode/IEncodeProcessManageModel';
-import ISocketIOManageModel from '../../socketio/ISocketIOManageModel';
-import IHLSFileDeleterModel from '../util/IHLSFileDeleterModel';
-import IRecordedStreamBaseModel, { RecordedStreamOption, VideoFileInfo } from './IRecordedStreamBaseModel';
-import { RecordedStreamInfo } from './IStreamBaseModel';
-import StreamBaseModel from './StreamBaseModel';
+import ID3MetadataTransform from '../../../../util/AribMetadataTransform.js';
+import * as apid from '../../../../../api.js';
+import * as fst from '../../../../lib/TailStream.js';
+import ProcessUtil from '../../../../util/ProcessUtil.js';
+import IVideoUtil from '../../../api/video/IVideoUtil.js';
+import IVideoAnalysisModel from '../../../video/IVideoAnalysisModel.js';
+import IRecordedDB from '../../../db/IRecordedDB.js';
+import IVideoFileDB from '../../../db/IVideoFileDB.js';
+import IConfiguration from '../../../IConfiguration.js';
+import ILoggerModel from '../../../ILoggerModel.js';
+import IEncodeProcessManageModel, { CreateProcessOption } from '../../encode/IEncodeProcessManageModel.js';
+import ISocketIOManageModel from '../../socketio/ISocketIOManageModel.js';
+import IHLSFileDeleterModel from '../util/IHLSFileDeleterModel.js';
+import IRecordedStreamBaseModel, { RecordedStreamOption, VideoFileInfo } from './IRecordedStreamBaseModel.js';
+import { RecordedStreamInfo } from './IStreamBaseModel.js';
+import StreamBaseModel from './StreamBaseModel.js';
 
 @injectable()
 export default abstract class RecordedStreamBaseModel

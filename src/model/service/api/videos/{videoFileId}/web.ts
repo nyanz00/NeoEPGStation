@@ -1,8 +1,8 @@
-import { Operation } from '../../../ApiOperation';
-import IVideoApiModel from '../../../../api/video/IVideoApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
-import { responseRecordedVideo, resolveWebVideoPath } from '../../../RecordedVideoResponse';
+import { Operation } from '../../../ApiOperation.js';
+import IVideoApiModel from '../../../../api/video/IVideoApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
+import { responseRecordedVideo, resolveWebVideoPath } from '../../../RecordedVideoResponse.js';
 
 export const get: Operation = async (req, res) => {
     const videoFileApiModel = container.get<IVideoApiModel>('IVideoApiModel');

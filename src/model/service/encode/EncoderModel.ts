@@ -6,25 +6,25 @@ import { inject, injectable } from 'inversify';
 import * as net from 'net';
 import * as path from 'path';
 import { TextDecoder } from 'util';
-import * as apid from '../../../../api';
-import FileUtil from '../../../util/FileUtil';
-import ProcessUtil from '../../../util/ProcessUtil';
-import { killManaged } from '../../../util/ManagedProcess';
-import Util from '../../../util/Util';
-import { safeSubDirectory } from '../../../util/SubDirectoryUtil';
-import IVideoUtil, { VideoInfo } from '../../api/video/IVideoUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IEncodeEvent from '../../event/IEncodeEvent';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import { AmatsukazeEncodeConfig } from '../../IConfigFile';
-import IEncodeFileManageModel from './IEncodeFileManageModel';
-import IEncodeProcessManageModel from './IEncodeProcessManageModel';
-import { EncodeOption, EncodeProgressInfo, IEncoderModel } from './IEncoderModel';
-import IRecordingUtilModel from '../../operator/recording/IRecordingUtilModel';
+import * as apid from '../../../../api.js';
+import FileUtil from '../../../util/FileUtil.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { killManaged } from '../../../util/ManagedProcess.js';
+import Util from '../../../util/Util.js';
+import { safeSubDirectory } from '../../../util/SubDirectoryUtil.js';
+import IVideoUtil, { VideoInfo } from '../../api/video/IVideoUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IEncodeEvent from '../../event/IEncodeEvent.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import { AmatsukazeEncodeConfig } from '../../IConfigFile.js';
+import IEncodeFileManageModel from './IEncodeFileManageModel.js';
+import IEncodeProcessManageModel from './IEncodeProcessManageModel.js';
+import { EncodeOption, EncodeProgressInfo, IEncoderModel } from './IEncoderModel.js';
+import IRecordingUtilModel from '../../operator/recording/IRecordingUtilModel.js';
 
 interface AmatsukazeOutputCandidate {
     path: string;
@@ -1080,12 +1080,19 @@ class EncoderModel implements IEncoderModel {
             outputFilePath: string | null,
             isCanceled: boolean,
             encoderMessage?: string,
+            sourceStopped?: boolean,
         ) => void,
     ): void {
         this.listener.once(
             EncoderModel.ENCODE_FINISH_EVENT,
-            (isError: boolean, outputFilePath: string | null, isCanceled: boolean, encoderMessage?: string) => {
-                callback(isError, outputFilePath, isCanceled, encoderMessage);
+            (
+                isError: boolean,
+                outputFilePath: string | null,
+                isCanceled: boolean,
+                encoderMessage?: string,
+                sourceStopped?: boolean,
+            ) => {
+                callback(isError, outputFilePath, isCanceled, encoderMessage, sourceStopped);
             },
         );
     }
@@ -2327,10 +2334,14 @@ class EncoderModel implements IEncoderModel {
         if (this.timerId !== null) {
             clearTimeout(this.timerId);
         }
+        const external =
+            this.configure.getConfig().encode.find(mode => mode.name === this.encodeOption?.mode)?.type ===
+            'amatsukaze';
+        const sourceStopped = !external || code === 0 || this.isCanceld || this.amatsukazeErrorMessage.length > 0;
         this.stopAmatsukazePushClient();
 
         // ファイルパスの登録を削除
-        if (outputFilePath !== null) {
+        if (outputFilePath !== null && sourceStopped) {
             this.fileManager.release(outputFilePath);
         }
 
@@ -2359,7 +2370,7 @@ class EncoderModel implements IEncoderModel {
             isError = false;
         }
 
-        if (isError === true) {
+        if (isError === true && sourceStopped) {
             // 出力ファイルを削除
             if (outputFilePath !== null && (await this.existsFile(outputFilePath)) === true) {
                 this.log.encode.info(`delete encode output file: ${outputFilePath}`);
@@ -2383,6 +2394,7 @@ class EncoderModel implements IEncoderModel {
                 outputFilePath,
                 this.isCanceld,
                 encoderFailureMessage || this.lastEncoderMessage,
+                sourceStopped,
             );
         } finally {
             this.listener.removeAllListeners();
@@ -2478,6 +2490,10 @@ class EncoderModel implements IEncoderModel {
 
     public getOutputFilePath(): string | null {
         return this.currentOutputFilePath;
+    }
+
+    public releaseOutputReservation(): void {
+        if (this.currentOutputFilePath !== null) this.fileManager.release(this.currentOutputFilePath);
     }
 }
 

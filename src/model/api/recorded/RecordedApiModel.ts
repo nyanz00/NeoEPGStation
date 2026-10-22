@@ -1,21 +1,21 @@
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
-import { recordedUseClient } from '../../RecordedUseClient';
+import { recordedUseClient } from '../../RecordedUseClient.js';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import VideoFile from '../../../db/entities/VideoFile';
-import IRecordedDB, { FindAllOption } from '../../db/IRecordedDB';
-import ITvUserDB from '../../db/ITvUserDB';
-import IVideoFileDB, { UpdateFilePathOption } from '../../db/IVideoFileDB';
-import IConfiguration from '../../IConfiguration';
-import IIPCClient from '../../ipc/IIPCClient';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import { UploadedVideoFileOption } from '../../operator/recorded/IRecordedManageModel';
-import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
-import IRecordedItemUtil from '../IRecordedItemUtil';
-import IVideoUtil from '../video/IVideoUtil';
-import IRecordedApiModel from './IRecordedApiModel';
+import * as apid from '../../../../api.js';
+import VideoFile from '../../../db/entities/VideoFile.js';
+import IRecordedDB, { FindAllOption } from '../../db/IRecordedDB.js';
+import ITvUserDB from '../../db/ITvUserDB.js';
+import IVideoFileDB, { UpdateFilePathOption } from '../../db/IVideoFileDB.js';
+import IConfiguration from '../../IConfiguration.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import { UploadedVideoFileOption } from '../../operator/recorded/IRecordedManageModel.js';
+import IEncodeManageModel from '../../service/encode/IEncodeManageModel.js';
+import IRecordedItemUtil from '../IRecordedItemUtil.js';
+import IVideoUtil from '../video/IVideoUtil.js';
+import IRecordedApiModel from './IRecordedApiModel.js';
 
 interface VideoMovePlan {
     video: VideoFile;

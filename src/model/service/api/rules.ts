@@ -1,8 +1,8 @@
-import { Operation } from '../ApiOperation';
-import * as apid from '../../../../api';
-import IRuleApiModel from '../../api/rule/IRuleApiModel';
-import container from '../../ModelContainer';
-import * as api from '../api';
+import { Operation } from '../ApiOperation.js';
+import * as apid from '../../../../api.js';
+import IRuleApiModel from '../../api/rule/IRuleApiModel.js';
+import container from '../../ModelContainer.js';
+import * as api from '../api.js';
 
 export const get: Operation = async (req, res) => {
     const ruleApiModel = container.get<IRuleApiModel>('IRuleApiModel');

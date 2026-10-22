@@ -1,5 +1,5 @@
 import { QueryRunner } from 'typeorm';
-import StrUtil from '../../util/StrUtil';
+import StrUtil from '../../util/StrUtil.js';
 
 /** Refresh stored comparison names without changing display titles or deleting history. */
 export async function backfillRecordingTitleMarkers(runner: QueryRunner): Promise<void> {

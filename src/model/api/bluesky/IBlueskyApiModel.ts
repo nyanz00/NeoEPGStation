@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export default interface IBlueskyApiModel {
     getStatus(viewerProfileId?: apid.ViewerProfileId): Promise<apid.BlueskyStatus>;

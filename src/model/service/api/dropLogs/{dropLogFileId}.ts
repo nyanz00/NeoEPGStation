@@ -1,7 +1,7 @@
-import { Operation } from '../../ApiOperation';
-import IDropLogApiModel, { DropLogApiErrors } from '../../../api/dropLog/IDropLogApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../ApiOperation.js';
+import IDropLogApiModel, { DropLogApiErrors } from '../../../api/dropLog/IDropLogApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
 
 export const get: Operation = async (req, res) => {
     const dropLogApiModel = container.get<IDropLogApiModel>('IDropLogApiModel');

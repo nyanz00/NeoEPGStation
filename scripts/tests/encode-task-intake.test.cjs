@@ -5,6 +5,7 @@ const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 const { DataSource } = require('typeorm');
 

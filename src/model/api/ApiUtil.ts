@@ -3,9 +3,9 @@ import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import * as url from 'url';
 import urljoin from 'url-join';
-import { KodiInfo } from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import IApiUtil, { CreateM3U8Option } from './IApiUtil';
+import { KodiInfo } from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import IApiUtil, { CreateM3U8Option } from './IApiUtil.js';
 
 @injectable()
 export default class ApiUtil implements IApiUtil {

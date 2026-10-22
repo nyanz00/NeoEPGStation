@@ -1,11 +1,15 @@
 import { inject, injectable } from 'inversify';
-import IConfigFile from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IEPGUpdateManageModel, { EPGUpdateEvent, ProgramEventBurstInfo, TunerServerType } from './IEPGUpdateManageModel';
-import IEPGUpdater from './IEPGUpdater';
-import Util from '../../util/Util';
+import IConfigFile from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IEPGUpdateManageModel, {
+    EPGUpdateEvent,
+    ProgramEventBurstInfo,
+    TunerServerType,
+} from './IEPGUpdateManageModel.js';
+import IEPGUpdater from './IEPGUpdater.js';
+import Util from '../../util/Util.js';
 
 @injectable()
 class EPGUpdater implements IEPGUpdater {

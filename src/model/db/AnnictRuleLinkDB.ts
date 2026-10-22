@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify';
-import AnnictRuleLink from '../../db/entities/AnnictRuleLink';
-import IPromiseRetry from '../IPromiseRetry';
-import IAnnictRuleLinkDB, { LegacyAnnictRuleLink } from './IAnnictRuleLinkDB';
-import IDBOperator from './IDBOperator';
+import AnnictRuleLink from '../../db/entities/AnnictRuleLink.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IAnnictRuleLinkDB, { LegacyAnnictRuleLink } from './IAnnictRuleLinkDB.js';
+import IDBOperator from './IDBOperator.js';
 
 @injectable()
 export default class AnnictRuleLinkDB implements IAnnictRuleLinkDB {

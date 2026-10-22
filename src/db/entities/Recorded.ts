@@ -9,10 +9,10 @@ import {
     OneToOne,
     PrimaryGeneratedColumn,
 } from 'typeorm';
-import DropLogFile from './DropLogFile';
-import RecordedTag from './RecordedTag';
-import Thumbnail from './Thumbnail';
-import VideoFile from './VideoFile';
+import DropLogFile from './DropLogFile.js';
+import RecordedTag from './RecordedTag.js';
+import Thumbnail from './Thumbnail.js';
+import VideoFile from './VideoFile.js';
 
 @Entity()
 export default class Recorded extends BaseEntity {

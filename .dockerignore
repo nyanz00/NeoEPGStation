@@ -9,6 +9,7 @@ Dockerfile*
 config/*
 !config/*.template
 !config/*.sample.yml
+!config/package.json
 
 data/*
 !data/key/

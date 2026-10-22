@@ -1,9 +1,9 @@
 import express from 'express';
-import container from '../ModelContainer';
-import IVideoFileDB from '../db/IVideoFileDB';
-import { recordedUseClient } from '../RecordedUseClient';
-import IVideoApiModel, { VideoFilePathInfo } from '../api/video/IVideoApiModel';
-import * as api from './api';
+import container from '../ModelContainer.js';
+import IVideoFileDB from '../db/IVideoFileDB.js';
+import { recordedUseClient } from '../RecordedUseClient.js';
+import IVideoApiModel, { VideoFilePathInfo } from '../api/video/IVideoApiModel.js';
+import * as api from './api.js';
 
 type ResolveVideoPath = (videoFileId: number) => Promise<VideoFilePathInfo | null>;
 

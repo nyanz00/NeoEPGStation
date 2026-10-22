@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import RecordedHistory from '../../db/entities/RecordedHistory';
+import * as apid from '../../../api.js';
+import RecordedHistory from '../../db/entities/RecordedHistory.js';
 
 export default interface IRecordedHistoryDB {
     restore(items: RecordedHistory[]): Promise<void>;

@@ -3,8 +3,8 @@ import { X509Certificate } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as tls from 'tls';
-import { TailscaleHttpsConfig } from '../IConfigFile';
-import ILogger from '../ILogger';
+import { TailscaleHttpsConfig } from '../IConfigFile.js';
+import ILogger from '../ILogger.js';
 
 export interface TailscaleCertificate {
     cert: Buffer;

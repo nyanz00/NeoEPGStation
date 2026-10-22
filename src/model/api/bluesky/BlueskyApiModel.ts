@@ -1,8 +1,8 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel';
-import IBlueskyApiModel from './IBlueskyApiModel';
+import * as apid from '../../../../api.js';
+import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel.js';
+import IBlueskyApiModel from './IBlueskyApiModel.js';
 
 interface BlueskySessionResponse {
     accessJwt: string;

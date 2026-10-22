@@ -214,6 +214,7 @@ test('validation exceptions release the mutation lock', async () => {
 
 test('successful config reloads detach presets; unreadable config keeps the previous rules', async t => {
     const fs = require('node:fs');
+    const { syncBuiltinESMExports } = require('node:module');
     const os = require('node:os');
     const path = require('node:path');
     const Configuration = require('../../dist/model/Configuration').default;
@@ -221,6 +222,9 @@ test('successful config reloads detach presets; unreadable config keeps the prev
     const originalPath = Configuration.CONFIG_FILE_PATH;
     const originalTemplatePath = Configuration.CONFIG_TEMPLATE_FILE_PATH;
     t.after(() => {
+        fs.unwatchFile(Configuration.CONFIG_FILE_PATH);
+        watchFileMock.mock.restore();
+        syncBuiltinESMExports();
         Configuration.CONFIG_FILE_PATH = originalPath;
         Configuration.CONFIG_TEMPLATE_FILE_PATH = originalTemplatePath;
         fs.rmSync(directory, { recursive: true, force: true });
@@ -231,9 +235,10 @@ test('successful config reloads detach presets; unreadable config keeps the prev
         fs.writeFileSync(Configuration.CONFIG_FILE_PATH, JSON.stringify({ port: 8888, encode }));
     writeConfig([{ name: 'removed' }]);
     let reload;
-    t.mock.method(fs, 'watchFile', (_file, callback) => {
+    const watchFileMock = t.mock.method(fs, 'watchFile', (_file, callback) => {
         reload = callback;
     });
+    syncBuiltinESMExports();
     const logger = { getLogger: () => ({ system: { info() {}, warn() {}, error() {}, fatal() {} } }) };
     const configure = new Configuration(logger);
     const state = setup();

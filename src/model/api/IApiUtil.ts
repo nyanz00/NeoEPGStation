@@ -1,4 +1,4 @@
-import { KodiInfo } from '../IConfigFile';
+import { KodiInfo } from '../IConfigFile.js';
 
 export interface CreateM3U8Option {
     host: string;

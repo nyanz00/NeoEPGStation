@@ -1,11 +1,12 @@
+import { fileURLToPath } from 'node:url';
 import * as child_process from 'child_process';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import ProcessUtil from '../../util/ProcessUtil';
-import IEPGUpdateEvent from '../event/IEPGUpdateEvent';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IEPGUpdateExecutorManageModel from './IEPGUpdateExecutorManageModel';
+import ProcessUtil from '../../util/ProcessUtil.js';
+import IEPGUpdateEvent from '../event/IEPGUpdateEvent.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IEPGUpdateExecutorManageModel from './IEPGUpdateExecutorManageModel.js';
 
 @injectable()
 export default class EPGUpdateExecutorManageModel implements IEPGUpdateExecutorManageModel {
@@ -28,9 +29,13 @@ export default class EPGUpdateExecutorManageModel implements IEPGUpdateExecutorM
      */
     public async execute(): Promise<void> {
         if (this.isShuttingDown === true) return;
-        const executor = child_process.spawn(process.argv[0], [path.join(__dirname, 'EPGUpdateExecutor.js')], {
-            stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-        });
+        const executor = child_process.spawn(
+            process.argv[0],
+            [path.join(path.dirname(fileURLToPath(import.meta.url)), 'EPGUpdateExecutor.js')],
+            {
+                stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+            },
+        );
         this.executor = executor;
 
         this.log.system.info(`start epg updater pid: ${executor.pid}`);

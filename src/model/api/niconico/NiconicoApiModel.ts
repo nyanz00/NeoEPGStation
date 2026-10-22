@@ -1,10 +1,10 @@
 import axios, { AxiosResponse, Method } from 'axios';
 import { inject, injectable } from 'inversify';
 import WebSocket, { RawData } from 'ws';
-import * as apid from '../../../../api';
-import IChannelApiModel from '../channel/IChannelApiModel';
-import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel';
-import INiconicoApiModel from './INiconicoApiModel';
+import * as apid from '../../../../api.js';
+import IChannelApiModel from '../channel/IChannelApiModel.js';
+import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel.js';
+import INiconicoApiModel from './INiconicoApiModel.js';
 
 interface StoredCookie {
     name: string;

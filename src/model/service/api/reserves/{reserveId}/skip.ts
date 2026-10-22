@@ -1,7 +1,7 @@
-import { Operation } from '../../../ApiOperation';
-import IReserveApiModel from '../../../../api/reserve/IReserveApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
+import { Operation } from '../../../ApiOperation.js';
+import IReserveApiModel from '../../../../api/reserve/IReserveApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
 
 export const del: Operation = async (req, res) => {
     const reserveApiModel = container.get<IReserveApiModel>('IReserveApiModel');

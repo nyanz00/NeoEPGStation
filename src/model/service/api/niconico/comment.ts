@@ -1,9 +1,9 @@
 import { Request } from 'express';
-import { Operation } from '../../ApiOperation';
-import INiconicoApiModel from '../../../api/niconico/INiconicoApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
-import { getViewerProfileId } from '../viewerProfileSession';
+import { Operation } from '../../ApiOperation.js';
+import INiconicoApiModel from '../../../api/niconico/INiconicoApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
+import { getViewerProfileId } from '../viewerProfileSession.js';
 
 async function requireViewerProfileId(req: Request): Promise<number> {
     const profileId = await getViewerProfileId(req);

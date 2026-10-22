@@ -1,14 +1,14 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import { hasSubDirectoryOutsideRoot, INVALID_SUB_DIRECTORY_ERROR } from '../../../util/SubDirectoryUtil';
-import IRuleDB from '../../db/IRuleDB';
-import IRuleEvent from '../../event/IRuleEvent';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IReserveOptionChecker from '../IReserveOptionChecker';
-import IRuleManageModel from './IRuleManageModel';
-import IConfiguration from '../../IConfiguration';
-import removeMissingEncodePresets from './removeMissingEncodePresets';
+import * as apid from '../../../../api.js';
+import { hasSubDirectoryOutsideRoot, INVALID_SUB_DIRECTORY_ERROR } from '../../../util/SubDirectoryUtil.js';
+import IRuleDB from '../../db/IRuleDB.js';
+import IRuleEvent from '../../event/IRuleEvent.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IReserveOptionChecker from '../IReserveOptionChecker.js';
+import IRuleManageModel from './IRuleManageModel.js';
+import IConfiguration from '../../IConfiguration.js';
+import removeMissingEncodePresets from './removeMissingEncodePresets.js';
 
 @injectable()
 export default class RuleManageModel implements IRuleManageModel {

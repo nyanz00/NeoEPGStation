@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import * as childProcess from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -11,15 +12,19 @@ import type {
     SystemUpdateRelation,
     SystemUpdateRemoteTarget,
     SystemUpdateTarget,
-} from '../../../api';
-import { isExpectedUpdateRepository, REACT_RELEASE_BASE_COMMIT, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
+} from '../../../api.js';
+import {
+    isExpectedUpdateRepository,
+    REACT_RELEASE_BASE_COMMIT,
+    STABLE_UPDATE_TAG_PATTERN,
+} from './UpdateValidation.js';
 import {
     createUpdateCommandInvocation,
     createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
-} from './UpdateCommand';
-import { shouldInstallUpdateDependencies } from './UpdateDependency';
-import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser';
+} from './UpdateCommand.js';
+import { shouldInstallUpdateDependencies } from './UpdateDependency.js';
+import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser.js';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -104,7 +109,7 @@ export default class UpdateManager {
     }
 
     private constructor() {
-        this.rootDir = path.resolve(__dirname, '..', '..', '..');
+        this.rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
         this.updateDir = path.join(this.rootDir, 'data', 'update');
         this.statePath = path.join(this.updateDir, 'state.json');
         this.gitExecutable = this.resolveGitExecutable();

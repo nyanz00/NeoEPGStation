@@ -1,19 +1,19 @@
 import { inject, injectable } from 'inversify';
 import { QueryRunner } from 'typeorm';
-import * as apid from '../../../../api';
-import AnnictEpisodeWatch from '../../../db/entities/AnnictEpisodeWatch';
-import AnnictRuleLink from '../../../db/entities/AnnictRuleLink';
-import Recorded from '../../../db/entities/Recorded';
-import RecordedPlayback from '../../../db/entities/RecordedPlayback';
-import Reserve from '../../../db/entities/Reserve';
-import Rule from '../../../db/entities/Rule';
-import TvUser from '../../../db/entities/TvUser';
-import ViewerCredential from '../../../db/entities/ViewerCredential';
-import ViewerProfile from '../../../db/entities/ViewerProfile';
-import ViewerProfileSession from '../../../db/entities/ViewerProfileSession';
-import IDBOperator from '../../db/IDBOperator';
-import ITvUserDB from '../../db/ITvUserDB';
-import IUserApiModel from './IUserApiModel';
+import * as apid from '../../../../api.js';
+import AnnictEpisodeWatch from '../../../db/entities/AnnictEpisodeWatch.js';
+import AnnictRuleLink from '../../../db/entities/AnnictRuleLink.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import RecordedPlayback from '../../../db/entities/RecordedPlayback.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import Rule from '../../../db/entities/Rule.js';
+import TvUser from '../../../db/entities/TvUser.js';
+import ViewerCredential from '../../../db/entities/ViewerCredential.js';
+import ViewerProfile from '../../../db/entities/ViewerProfile.js';
+import ViewerProfileSession from '../../../db/entities/ViewerProfileSession.js';
+import IDBOperator from '../../db/IDBOperator.js';
+import ITvUserDB from '../../db/ITvUserDB.js';
+import IUserApiModel from './IUserApiModel.js';
 
 @injectable()
 export default class UserApiModel implements IUserApiModel {

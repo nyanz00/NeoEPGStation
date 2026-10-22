@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -73,7 +74,9 @@ namespace ProcessUtil {
         args: string[];
     }
 
-    export const ROOT_PATH = path.join(__dirname, '..', '..').replace(new RegExp(`\\${path.sep}$`), '');
+    export const ROOT_PATH = path
+        .join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+        .replace(new RegExp(`\\${path.sep}$`), '');
 
     /**
      * 渡された cmd 文字列を bin と args に分離する
@@ -121,7 +124,7 @@ namespace ProcessUtil {
      * @return boolean 終了していれば true を返す
      */
     export const isExited = (child: ChildProcess): boolean => {
-        return child.exitCode !== null;
+        return child.exitCode !== null || child.signalCode !== null;
     };
 }
 

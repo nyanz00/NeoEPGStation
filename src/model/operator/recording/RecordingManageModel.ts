@@ -1,18 +1,18 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import * as mapid from '../../../../node_modules/mirakurun/api';
-import IRecordedDB from '../../db/IRecordedDB';
-import IReserveDB from '../../db/IReserveDB';
-import IRecordingEvent from '../../event/IRecordingEvent';
-import { IReserveUpdateValues } from '../../event/IReserveEvent';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IRecorderModel, { RecorderModelProvider, RecordingDropLogFile } from './IRecorderModel';
-import IRecordingManageModel from './IRecordingManageModel';
-import IRecordingStreamCreator from './IRecordingStreamCreator';
-import IRecordingUtilModel from './IRecordingUtilModel';
+import * as apid from '../../../../api.js';
+import * as mapid from '../../../../node_modules/mirakurun/api.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IReserveDB from '../../db/IReserveDB.js';
+import IRecordingEvent from '../../event/IRecordingEvent.js';
+import { IReserveUpdateValues } from '../../event/IReserveEvent.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IRecorderModel, { RecorderModelProvider, RecordingDropLogFile } from './IRecorderModel.js';
+import IRecordingManageModel from './IRecordingManageModel.js';
+import IRecordingStreamCreator from './IRecordingStreamCreator.js';
+import IRecordingUtilModel from './IRecordingUtilModel.js';
 
 interface RecordingIndex {
     [key: number]: IRecorderModel;

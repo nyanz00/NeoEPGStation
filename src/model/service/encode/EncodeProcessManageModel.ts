@@ -1,12 +1,12 @@
 import { ChildProcess } from 'child_process';
-import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess';
+import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess.js';
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import ProcessUtil from '../../../util/ProcessUtil';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IEncodeProcessManageModel, { CreateProcessOption } from './IEncodeProcessManageModel';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IEncodeProcessManageModel, { CreateProcessOption } from './IEncodeProcessManageModel.js';
 
 interface ChildProcessInfo {
     child: ChildProcess;

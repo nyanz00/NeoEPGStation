@@ -1,9 +1,9 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IThumbnailEvent from './IThumbnailEvent';
+import * as apid from '../../../api.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IThumbnailEvent from './IThumbnailEvent.js';
 
 @injectable()
 class ThumbnailEvent implements IThumbnailEvent {

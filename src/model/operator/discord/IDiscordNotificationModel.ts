@@ -1,7 +1,7 @@
-import * as apid from '../../../../api';
-import Recorded from '../../../db/entities/Recorded';
-import Reserve from '../../../db/entities/Reserve';
-import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent';
+import * as apid from '../../../../api.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent.js';
 
 export default interface IDiscordNotificationModel {
     getSettings(): Promise<apid.DiscordNotificationSettings>;

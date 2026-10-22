@@ -1,7 +1,7 @@
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import ProcessUtil from './ProcessUtil';
+import ProcessUtil from './ProcessUtil.js';
 
 interface ManagedChild {
     started: boolean;

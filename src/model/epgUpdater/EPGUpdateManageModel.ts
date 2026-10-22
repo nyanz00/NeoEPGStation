@@ -2,15 +2,15 @@ import EventSource from 'eventsource';
 import { EventEmitter } from 'events';
 import { IncomingMessage } from 'http';
 import { inject, injectable } from 'inversify';
-import mirakurun from 'mirakurun';
-import * as mapid from '../../../node_modules/mirakurun/api';
-import IChannelDB from '../db/IChannelDB';
-import IChannelTypeIndex from '../db/IChannelTypeHash';
-import IProgramDB from '../db/IProgramDB';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IMirakurunClientModel from '../IMirakurunClientModel';
+import { Client as mirakurun } from 'mirakurun';
+import * as mapid from '../../../node_modules/mirakurun/api.js';
+import IChannelDB from '../db/IChannelDB.js';
+import IChannelTypeIndex from '../db/IChannelTypeHash.js';
+import IProgramDB from '../db/IProgramDB.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IMirakurunClientModel from '../IMirakurunClientModel.js';
 import IEPGUpdateManageModel, {
     ProgramBaseEvent,
     UpdateEvent,
@@ -20,7 +20,7 @@ import IEPGUpdateManageModel, {
     EPGUpdateEvent,
     ProgramEventBurstInfo,
     TunerServerType,
-} from './IEPGUpdateManageModel';
+} from './IEPGUpdateManageModel.js';
 
 @injectable()
 class EPGUpdateManageModel extends EventEmitter implements IEPGUpdateManageModel {

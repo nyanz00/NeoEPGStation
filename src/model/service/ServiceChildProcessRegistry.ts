@@ -1,7 +1,7 @@
 import { ChildProcess, execFile } from 'child_process';
 import * as fs from 'fs';
 import { promisify } from 'util';
-import { isProcessGroupAlive } from '../../util/ManagedProcess';
+import { isProcessGroupAlive } from '../../util/ManagedProcess.js';
 
 interface OwnedProcess {
     pid: number;
@@ -26,7 +26,14 @@ export class ServiceChildProcessRegistry {
         if (typeof raw !== 'object' || raw === null) return;
         const message = raw as { type?: string; pid?: number; pgid?: number };
         const pid = message.pid;
-        if (!Number.isSafeInteger(pid) || pid! <= 0 || pid === process.pid || pid === this.child.pid) return;
+        if (
+            !Number.isSafeInteger(pid) ||
+            pid! <= 0 ||
+            pid! > 0x7fffffff ||
+            pid === process.pid ||
+            pid === this.child.pid
+        )
+            return;
         if (message.type === 'serviceProcessEnded') {
             const entry = this.entries.get(pid!);
             if (entry !== undefined) {
@@ -73,11 +80,14 @@ export class ServiceChildProcessRegistry {
         if (!groupAlive) return;
         const currentIdentity = await getProcessIdentity(entry.pid);
         // A reused PID must never be mistaken for one of our encoders.
-        if (currentIdentity !== null && (entry.identity === null || currentIdentity !== entry.identity)) {
+        if (
+            entry.identity === null ||
+            (currentIdentity !== null && currentIdentity !== entry.identity) ||
+            (currentIdentity === null && isPidAlive(entry.pid))
+        ) {
             throw new Error(`ServiceProcessIdentityUnconfirmed: ${entry.pid}`);
         }
         if (process.platform === 'win32') {
-            if (entry.ended) return;
             await execute('taskkill', ['/PID', String(entry.pid), '/T', '/F'], { windowsHide: true }).catch(error => {
                 if (isPidAlive(entry.pid)) throw error;
             });

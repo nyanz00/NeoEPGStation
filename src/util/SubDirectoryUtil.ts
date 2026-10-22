@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type * as apid from '../../api';
+import type * as apid from '../../api.js';
 
 export const INVALID_SUB_DIRECTORY_ERROR = 'InvalidSubDirectory';
 

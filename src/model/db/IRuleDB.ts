@@ -1,4 +1,4 @@
-import * as apid from '../../../api';
+import * as apid from '../../../api.js';
 
 export interface RuleWithCnt extends apid.Rule {
     updateCnt: number;

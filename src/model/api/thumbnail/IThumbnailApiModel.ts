@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export default interface IThumbnailApiModel {
     getIdFilePath(thumbnailId: apid.ThumbnailId): Promise<string | null>;

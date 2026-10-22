@@ -1,4 +1,4 @@
-import ILogger from './ILogger';
+import ILogger from './ILogger.js';
 
 export default interface ILoggerModel {
     initialize(filePath?: string): void;

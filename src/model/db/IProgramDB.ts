@@ -1,7 +1,7 @@
-import * as apid from '../../../api';
-import * as mapid from '../../../node_modules/mirakurun/api';
-import Program from '../../db/entities/Program';
-import IChannelTypeIndex from './IChannelTypeHash';
+import * as apid from '../../../api.js';
+import * as mapid from '../../../node_modules/mirakurun/api.js';
+import Program from '../../db/entities/Program.js';
+import IChannelTypeIndex from './IChannelTypeHash.js';
 
 export interface ProgramWithOverlap extends Program {
     overlap: boolean;

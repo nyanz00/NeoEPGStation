@@ -1,11 +1,11 @@
-import { Operation } from '../../ApiOperation';
-import * as apid from '../../../../../api';
-import IUserApiModel from '../../../api/user/IUserApiModel';
-import IViewerProfileDB from '../../../db/IViewerProfileDB';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
-import { getActiveUserId } from '../activeUser';
-import { getViewerProfileId } from '../viewerProfileSession';
+import { Operation } from '../../ApiOperation.js';
+import * as apid from '../../../../../api.js';
+import IUserApiModel from '../../../api/user/IUserApiModel.js';
+import IViewerProfileDB from '../../../db/IViewerProfileDB.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
+import { getActiveUserId } from '../activeUser.js';
+import { getViewerProfileId } from '../viewerProfileSession.js';
 
 export const put: Operation = async (req, res) => {
     const userApiModel = container.get<IUserApiModel>('IUserApiModel');

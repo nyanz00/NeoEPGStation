@@ -1,6 +1,6 @@
-import * as apid from '../../../../api';
-import IPlayList from '../IPlayList';
-import { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil';
+import * as apid from '../../../../api.js';
+import IPlayList from '../IPlayList.js';
+import { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil.js';
 
 export interface VideoFilePathInfo {
     path: string;

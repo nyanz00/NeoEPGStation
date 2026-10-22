@@ -1,23 +1,23 @@
 import { execFile } from 'child_process';
-import { spawnManaged as spawn } from '../../../util/ManagedProcess';
+import { spawnManaged as spawn } from '../../../util/ManagedProcess.js';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import VideoFile from '../../../db/entities/VideoFile';
-import { analyzeMpegTsTime } from '../../../util/MpegTsTimeUtil';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
+import * as apid from '../../../../api.js';
+import VideoFile from '../../../db/entities/VideoFile.js';
+import { analyzeMpegTsTime } from '../../../util/MpegTsTimeUtil.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
 import IVideoUtil, {
     PreparedSubtitleInfo,
     SubtitleTextRange,
     VideoInfo,
     VideoRecordingTimeInfo,
     VideoSubtitleInfo,
-} from './IVideoUtil';
+} from './IVideoUtil.js';
 
 interface PreparedSubtitleEntry {
     filePath: string;
@@ -30,6 +30,7 @@ export default class VideoUtil implements IVideoUtil {
 
     private config: IConfigFile;
     private preparedSubtitleRoot: string;
+    private preparedSubtitleRootCleanup: Promise<void> | null = null;
     private videoFileDB: IVideoFileDB;
     private preparedSubtitles: Map<string, PreparedSubtitleEntry> = new Map();
     private preparedSubtitleKeysBySource: Map<string, string> = new Map();
@@ -45,7 +46,6 @@ export default class VideoUtil implements IVideoUtil {
             `epgstation-vodhls-subtitles-${process.pid}`,
         );
         this.videoFileDB = videoFileDB;
-        this.cleanupPreparedSubtitleRoot();
     }
 
     public async getFullFilePathFromId(videoFileId: apid.VideoFileId): Promise<string | null> {
@@ -233,6 +233,13 @@ export default class VideoUtil implements IVideoUtil {
             throw new Error('SubtitleIndexIsInvalid');
         }
 
+        const cleanup = (this.preparedSubtitleRootCleanup ??= this.cleanupPreparedSubtitleRoot());
+        try {
+            await cleanup;
+        } catch (error) {
+            if (this.preparedSubtitleRootCleanup === cleanup) this.preparedSubtitleRootCleanup = null;
+            throw error;
+        }
         this.cleanupPreparedSubtitles();
 
         await fs.promises.mkdir(this.preparedSubtitleRoot, { recursive: true });
@@ -395,8 +402,8 @@ export default class VideoUtil implements IVideoUtil {
         return prepared.filePath;
     }
 
-    private cleanupPreparedSubtitleRoot(): void {
-        fs.rmSync(this.preparedSubtitleRoot, { force: true, recursive: true });
+    private async cleanupPreparedSubtitleRoot(): Promise<void> {
+        await fs.promises.rm(this.preparedSubtitleRoot, { force: true, recursive: true });
     }
 
     private cleanupPreparedSubtitles(): void {

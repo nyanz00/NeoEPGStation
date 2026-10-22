@@ -1,14 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as apid from '../../../../../api';
-import { Operation } from '../../ApiOperation';
-import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel';
-import IChannelDB from '../../../db/IChannelDB';
-import container from '../../../ModelContainer';
-import { UploadedVideoFileOption } from '../../../operator/recorded/IRecordedManageModel';
-import ITsInfoAnalyzer, { TsInfo } from '../../../recorded/ts/ITsInfoAnalyzer';
-import * as api from '../../api';
-import { UploadRequest } from '../../upload/receiveUpload';
+import * as apid from '../../../../../api.js';
+import { Operation } from '../../ApiOperation.js';
+import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel.js';
+import IChannelDB from '../../../db/IChannelDB.js';
+import container from '../../../ModelContainer.js';
+import { UploadedVideoFileOption } from '../../../operator/recorded/IRecordedManageModel.js';
+import ITsInfoAnalyzer, { TsInfo } from '../../../recorded/ts/ITsInfoAnalyzer.js';
+import * as api from '../../api.js';
+import { UploadRequest } from '../../upload/receiveUpload.js';
 
 const decodeUploadFileName = (fileName: string): string => {
     const decoded = Buffer.from(fileName, 'latin1').toString('utf8');

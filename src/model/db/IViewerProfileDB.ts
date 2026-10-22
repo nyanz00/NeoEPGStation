@@ -1,6 +1,6 @@
-import ViewerCredential from '../../db/entities/ViewerCredential';
-import ViewerProfile from '../../db/entities/ViewerProfile';
-import ViewerProfileSession from '../../db/entities/ViewerProfileSession';
+import ViewerCredential from '../../db/entities/ViewerCredential.js';
+import ViewerProfile from '../../db/entities/ViewerProfile.js';
+import ViewerProfileSession from '../../db/entities/ViewerProfileSession.js';
 
 export default interface IViewerProfileDB {
     findAll(): Promise<ViewerProfile[]>;

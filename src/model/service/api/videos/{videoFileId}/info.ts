@@ -1,7 +1,7 @@
-import { Operation } from '../../../ApiOperation';
-import IVideoAnalysisModel from '../../../../video/IVideoAnalysisModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
+import { Operation } from '../../../ApiOperation.js';
+import IVideoAnalysisModel from '../../../../video/IVideoAnalysisModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
 
 const operation =
     (force: boolean): Operation =>

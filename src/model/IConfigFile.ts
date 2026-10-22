@@ -1,5 +1,5 @@
-import * as apid from '../../api';
-import * as Enums from '../Enums';
+import * as apid from '../../api.js';
+import * as Enums from '../Enums.js';
 
 export interface HttpsConfig {
     port: number;

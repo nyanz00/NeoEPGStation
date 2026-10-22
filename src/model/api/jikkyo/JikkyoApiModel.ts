@@ -1,13 +1,13 @@
 import axios from 'axios';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IChannelApiModel from '../channel/IChannelApiModel';
-import IRecordedApiModel from '../recorded/IRecordedApiModel';
-import IVideoApiModel from '../video/IVideoApiModel';
-import IJikkyoApiModel from './IJikkyoApiModel';
+import * as apid from '../../../../api.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IChannelApiModel from '../channel/IChannelApiModel.js';
+import IRecordedApiModel from '../recorded/IRecordedApiModel.js';
+import IVideoApiModel from '../video/IVideoApiModel.js';
+import IJikkyoApiModel from './IJikkyoApiModel.js';
 
 interface KakologChat {
     no?: string | number;

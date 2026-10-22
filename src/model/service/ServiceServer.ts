@@ -1,27 +1,28 @@
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express, { NextFunction } from 'express';
-import * as openapi from 'express-openapi';
+import openapi from 'express-openapi';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import { inject, injectable } from 'inversify';
 import * as yaml from 'js-yaml';
-import * as log4js from 'log4js';
-import { createRequire } from 'module';
+import log4js from 'log4js';
+import { pathToFileURL } from 'url';
 import { mkdirp } from 'mkdirp';
 import { OpenAPIV3 } from 'openapi-types';
 import * as path from 'path';
 import * as swaggerdist from 'swagger-ui-dist';
 import urljoin from 'url-join';
-import UploadAdmissionController from './upload/UploadAdmissionController';
-import { receiveUpload } from './upload/receiveUpload';
-import IConfigFile from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IServiceServer from './IServiceServer';
-import ISocketIOManageModel from './socketio/ISocketIOManageModel';
-import TailscaleCertificateManager, { TailscaleCertificate } from './TailscaleCertificateManager';
+import UploadAdmissionController from './upload/UploadAdmissionController.js';
+import { receiveUpload } from './upload/receiveUpload.js';
+import IConfigFile from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IServiceServer from './IServiceServer.js';
+import ISocketIOManageModel from './socketio/ISocketIOManageModel.js';
+import TailscaleCertificateManager, { TailscaleCertificate } from './TailscaleCertificateManager.js';
 
 @injectable()
 class ServiceServer implements IServiceServer {
@@ -109,7 +110,7 @@ class ServiceServer implements IServiceServer {
      * Open Api 設定
      * @param api: OpenAPIV3.Document
      */
-    private initOpenApi(api: OpenAPIV3.Document): Promise<unknown> {
+    private async initOpenApi(api: OpenAPIV3.Document): Promise<unknown> {
         return openapi.initialize({
             apiDoc: api,
             app: this.app,
@@ -134,7 +135,7 @@ class ServiceServer implements IServiceServer {
                 };
             },
             exposeApiDocs: true,
-            paths: this.getApiRoutes(ServiceServer.API_DIR),
+            paths: await this.getApiRoutes(ServiceServer.API_DIR),
         });
     }
 
@@ -145,25 +146,24 @@ class ServiceServer implements IServiceServer {
      * routeにOSのパス区切り文字 (`\\`) が残る。Expressへ渡す前に
      * アプリ側で列挙し、URLの区切り文字 (`/`) へ正規化する。
      */
-    private getApiRoutes(apiDir: string): Array<{ path: string; module: unknown }> {
+    private async getApiRoutes(apiDir: string): Promise<Array<{ path: string; module: unknown }>> {
         const routes: Array<{ path: string; module: unknown }> = [];
-        const loadModule = createRequire(__filename);
-        const visit = (directory: string): void => {
+        const visit = async (directory: string): Promise<void> => {
             for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
                 const filePath = path.join(directory, entry.name);
                 if (entry.isDirectory()) {
-                    visit(filePath);
+                    await visit(filePath);
                 } else if (entry.isFile() && entry.name.endsWith('.js')) {
                     const relativePath = path.relative(apiDir, filePath).split(path.sep).join('/');
                     routes.push({
                         path: `/${relativePath.replace(/(?:index)?\.js$/, '')}`,
-                        module: loadModule(filePath),
+                        module: await import(pathToFileURL(filePath).href),
                     });
                 }
             }
         };
 
-        visit(apiDir);
+        await visit(apiDir);
         return routes;
     }
 
@@ -190,7 +190,10 @@ class ServiceServer implements IServiceServer {
      */
     private setStaticFiles(): void {
         // static files
-        this.app.use(this.createUrl('/img'), this.staticFiles(path.join(__dirname, '..', '..', '..', 'img')));
+        this.app.use(
+            this.createUrl('/img'),
+            this.staticFiles(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'img')),
+        );
 
         // thumbnail
         this.app.use(this.createUrl('/thumbnail'), this.staticFiles(this.config.thumbnail));
@@ -452,11 +455,11 @@ class ServiceServer implements IServiceServer {
 }
 
 namespace ServiceServer {
-    export const ROOT_DIR = path.join(__dirname, '..', '..', '..');
+    export const ROOT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
     export const API_YML = path.join(ServiceServer.ROOT_DIR, 'api.yml');
     export const PACKAGE_JSON = path.join(ServiceServer.ROOT_DIR, 'package.json');
     export const SWAGGER_UI_DIST = path.join(ServiceServer.ROOT_DIR, 'node_modules', 'swagger-ui-dist');
-    export const API_DIR = path.join(__dirname, 'api');
+    export const API_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'api');
     export const CLIENT_DIR = path.join(ROOT_DIR, 'client', 'dist');
 }
 

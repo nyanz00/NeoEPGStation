@@ -1,5 +1,5 @@
-import * as apid from '../../../../api';
-import { AddEncodeOption } from './IEncoderModel';
+import * as apid from '../../../../api.js';
+import { AddEncodeOption } from './IEncoderModel.js';
 
 export interface EncodeRecordedIdIndex {
     [recordedId: number]: {

@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export interface AddEncodeOption extends apid.AddEncodeProgramOption {
     /** Internal automatic-encode release time. It is never accepted from the public API. */
@@ -31,6 +31,7 @@ export interface IEncoderModel {
             outputFilePath: string | null,
             isCanceled: boolean,
             encoderMessage?: string,
+            sourceStopped?: boolean,
         ) => void,
     ): void;
     setOnAmatsukazeTaskMatched(callback: (taskId: number) => void): void;
@@ -40,4 +41,5 @@ export interface IEncoderModel {
     getProgressInfo(): EncodeProgressInfo | null;
     getEncodeId(): apid.EncodeId | null;
     getOutputFilePath(): string | null;
+    releaseOutputReservation(): void;
 }

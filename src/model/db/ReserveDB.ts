@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
 import { FindOptionsWhere, FindManyOptions, In, IsNull, LessThan, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import * as apid from '../../../api';
-import Reserve from '../../db/entities/Reserve';
-import { IReserveUpdateValues } from '../event/IReserveEvent';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
+import * as apid from '../../../api.js';
+import Reserve from '../../db/entities/Reserve.js';
+import { IReserveUpdateValues } from '../event/IReserveEvent.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
 import IReserveDB, {
     IFindRuleOption,
     IFindTimeRangesOption,
@@ -12,7 +12,7 @@ import IReserveDB, {
     IGetManualIdsOption,
     IReserveTimeOption,
     RuleIdCountResult,
-} from './IReserveDB';
+} from './IReserveDB.js';
 
 @injectable()
 export default class ReserveDB implements IReserveDB {

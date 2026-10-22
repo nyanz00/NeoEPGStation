@@ -1,6 +1,6 @@
 import { injectable } from 'inversify';
-import Util from '../util/Util';
-import IPromiseRetry, { RetryOption } from './IPromiseRetry';
+import Util from '../util/Util.js';
+import IPromiseRetry, { RetryOption } from './IPromiseRetry.js';
 
 @injectable()
 export default class PromiseRetry implements IPromiseRetry {

@@ -18,6 +18,7 @@ debug_dump_nal.bin
 config/*
 !config/*.template
 !config/*.sample.yml
+!config/package.json
 data/*.json
 data/upload/*
 drop/*.log

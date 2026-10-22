@@ -1,8 +1,8 @@
-import { Operation } from '../../../ApiOperation';
-import INiconicoApiModel from '../../../../api/niconico/INiconicoApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
-import { getViewerProfileId } from '../../viewerProfileSession';
+import { Operation } from '../../../ApiOperation.js';
+import INiconicoApiModel from '../../../../api/niconico/INiconicoApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
+import { getViewerProfileId } from '../../viewerProfileSession.js';
 
 export const get: Operation = async (req, res) => {
     const niconicoApiModel = container.get<INiconicoApiModel>('INiconicoApiModel');

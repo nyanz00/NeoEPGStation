@@ -1,12 +1,12 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import RecordedTag from '../../../db/entities/RecordedTag';
-import StrUtil from '../../../util/StrUtil';
-import IRecordedTagDB from '../../db/IRecordedTagDB';
-import IRecordedTagEvent from '../../event/IRecordedTagEvent';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IRecordedTagManadeModel from './IRecordedTagManadeModel';
+import * as apid from '../../../../api.js';
+import RecordedTag from '../../../db/entities/RecordedTag.js';
+import StrUtil from '../../../util/StrUtil.js';
+import IRecordedTagDB from '../../db/IRecordedTagDB.js';
+import IRecordedTagEvent from '../../event/IRecordedTagEvent.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IRecordedTagManadeModel from './IRecordedTagManadeModel.js';
 
 @injectable()
 export default class RecordedTagManadeModel implements IRecordedTagManadeModel {

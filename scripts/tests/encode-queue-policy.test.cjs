@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 require('reflect-metadata');
 
@@ -262,4 +263,30 @@ test('suspended hours still allow reconnecting to a recovered Amatsukaze task mo
 
     assert.equal(monitor.startCount, 1);
     assert.equal(model.activeUses.get(7)?.encoder, monitor);
+});
+
+test('a recovered Amatsukaze monitor may start above the limit but a new job stays queued', async () => {
+    const events = [];
+    const firstRunning = createEncoder(1);
+    const secondRunning = createEncoder(2);
+    const monitor = createEncoder(7, events);
+    monitor.option = { ...monitor.option, resumeExistingAmatsukaze: true, amatsukazeTaskId: 123 };
+    const newJob = createEncoder(8, events);
+    const model = createModel({
+        config: { encode: [{ name: 'test', type: 'amatsukaze' }] },
+        waiting: [monitor, newJob],
+        running: [firstRunning, secondRunning],
+    });
+    model.concurrentEncodeNum = 2;
+    const persistedStarts = [];
+    model.persistQueueStart = async option => persistedStarts.push(option.encodeId);
+    model.saveOutputFilePath = async () => {};
+
+    await model.checkQueue();
+
+    assert.deepEqual(persistedStarts, [7]);
+    assert.equal(monitor.startCount, 1, 'existing external task monitoring is reconnected');
+    assert.equal(newJob.startCount, 0, 'new work must respect the concurrent limit');
+    assert.deepEqual(model.runningQueue, [firstRunning, secondRunning, monitor]);
+    assert.deepEqual(model.waitQueue, [newJob]);
 });

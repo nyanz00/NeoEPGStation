@@ -1,4 +1,4 @@
-import * as aribts from 'aribts';
+import aribts from 'aribts';
 import * as stream from 'stream';
 
 export default interface IDropCheckerModel {

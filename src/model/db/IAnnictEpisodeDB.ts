@@ -1,5 +1,5 @@
-import AnnictEpisodeWatch from '../../db/entities/AnnictEpisodeWatch';
-import AnnictRecordedEpisode from '../../db/entities/AnnictRecordedEpisode';
+import AnnictEpisodeWatch from '../../db/entities/AnnictEpisodeWatch.js';
+import AnnictRecordedEpisode from '../../db/entities/AnnictRecordedEpisode.js';
 
 export interface AnnictEpisodeMatch {
     programAnnictId?: number;

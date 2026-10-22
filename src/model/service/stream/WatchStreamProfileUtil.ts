@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import IConfigFile, { WatchStreamConfig, WatchStreamEncoder, WatchStreamQuality } from '../../IConfigFile';
-import ProcessUtil from '../../../util/ProcessUtil';
-import { getEncodedVodHlsTiming } from './EncodedVodHlsTiming';
+import IConfigFile, { WatchStreamConfig, WatchStreamEncoder, WatchStreamQuality } from '../../IConfigFile.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { getEncodedVodHlsTiming } from './EncodedVodHlsTiming.js';
 
 interface LiveCommandOption {
     type: 'm2ts' | 'm2tsll';

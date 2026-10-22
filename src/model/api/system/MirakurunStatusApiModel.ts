@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify';
-import * as mapid from '../../../../node_modules/mirakurun/api';
-import * as apid from '../../../../api';
-import IMirakurunClientModel from '../../IMirakurunClientModel';
-import IMirakurunStatusApiModel from './IMirakurunStatusApiModel';
+import * as mapid from '../../../../node_modules/mirakurun/api.js';
+import * as apid from '../../../../api.js';
+import IMirakurunClientModel from '../../IMirakurunClientModel.js';
+import IMirakurunStatusApiModel from './IMirakurunStatusApiModel.js';
 
 @injectable()
 export default class MirakurunStatusApiModel implements IMirakurunStatusApiModel {

@@ -4,6 +4,7 @@ const Module = require('node:module');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 const { QueryClient } = require('../../client/node_modules/@tanstack/react-query');
 require('reflect-metadata');

@@ -1,25 +1,26 @@
+import { fileURLToPath } from 'node:url';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { inject, injectable } from 'inversify';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import AnnictEpisodeWatch from '../../../db/entities/AnnictEpisodeWatch';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IAnnictEpisodeDB from '../../db/IAnnictEpisodeDB';
-import IAnnictRuleLinkDB, { LegacyAnnictRuleLink } from '../../db/IAnnictRuleLinkDB';
-import IChannelDB from '../../db/IChannelDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import IReserveDB from '../../db/IReserveDB';
-import IRuleDB from '../../db/IRuleDB';
-import IViewerProfileDB from '../../db/IViewerProfileDB';
-import IChannelApiModel from '../channel/IChannelApiModel';
-import { RuleApiModelProvider } from '../rule/IRuleApiModel';
-import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel';
-import IAnnictApiModel from './IAnnictApiModel';
-import SyoboiCalendarClient, { SyoboiProgram } from './SyoboiCalendarClient';
-import SyoboiBroadcastSupplement, { SupplementState, SupplementWork } from './SyoboiBroadcastSupplement';
+import * as apid from '../../../../api.js';
+import AnnictEpisodeWatch from '../../../db/entities/AnnictEpisodeWatch.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IAnnictEpisodeDB from '../../db/IAnnictEpisodeDB.js';
+import IAnnictRuleLinkDB, { LegacyAnnictRuleLink } from '../../db/IAnnictRuleLinkDB.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IReserveDB from '../../db/IReserveDB.js';
+import IRuleDB from '../../db/IRuleDB.js';
+import IViewerProfileDB from '../../db/IViewerProfileDB.js';
+import IChannelApiModel from '../channel/IChannelApiModel.js';
+import { RuleApiModelProvider } from '../rule/IRuleApiModel.js';
+import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel.js';
+import IAnnictApiModel from './IAnnictApiModel.js';
+import SyoboiCalendarClient, { SyoboiProgram } from './SyoboiCalendarClient.js';
+import SyoboiBroadcastSupplement, { SupplementState, SupplementWork } from './SyoboiBroadcastSupplement.js';
 
 interface TokenFile {
     accessToken: string;
@@ -200,7 +201,15 @@ const PAID_BROADCAST_CHANNEL_PATTERN =
 
 @injectable()
 class AnnictApiModel implements IAnnictApiModel {
-    private readonly root = path.join(__dirname, '..', '..', '..', '..', 'data', 'annict');
+    private readonly root = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        '..',
+        'data',
+        'annict',
+    );
     private readonly channelApiModel: IChannelApiModel;
     private readonly log: ILogger;
     private legacyRuleLinksImport?: Promise<void>;

@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import RecordedHistory from '../../db/entities/RecordedHistory';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import IRecordedHistoryDB from './IRecordedHistoryDB';
+import * as apid from '../../../api.js';
+import RecordedHistory from '../../db/entities/RecordedHistory.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import IRecordedHistoryDB from './IRecordedHistoryDB.js';
 
 @injectable()
 export default class RecordedHistoryDB implements IRecordedHistoryDB {

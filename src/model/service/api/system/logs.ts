@@ -1,8 +1,8 @@
-import { Operation } from '../../ApiOperation';
-import * as apid from '../../../../../api';
-import IStorageApiModel from '../../../api/storage/IStorageApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../ApiOperation.js';
+import * as apid from '../../../../../api.js';
+import IStorageApiModel from '../../../api/storage/IStorageApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
 
 const sources: apid.SystemLogSource[] = ['Operator', 'Service', 'EPGUpdater'];
 const categories: apid.SystemLogCategory[] = ['system', 'access', 'stream', 'encode'];

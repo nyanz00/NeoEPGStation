@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export default interface IRecordedTagManadeModel {
     create(name: string, color: string): Promise<apid.RecordedTagId>;

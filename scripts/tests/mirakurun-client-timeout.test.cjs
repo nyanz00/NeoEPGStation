@@ -4,6 +4,7 @@ const http = require('node:http');
 const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 function loadMirakurunClientModel() {
@@ -25,7 +26,7 @@ function loadMirakurunClientModel() {
     Module._load = function (request, parent, isMain) {
         if (parent?.filename === absolutePath) {
             if (request === 'inversify') return { inject: () => () => {}, injectable: () => target => target };
-            if (request === 'mirakurun') return { __esModule: true, default: FakeMirakurunClient };
+            if (request === 'mirakurun') return { Client: FakeMirakurunClient };
             if (
                 request === './IConfigFile' ||
                 request === './IConfiguration' ||

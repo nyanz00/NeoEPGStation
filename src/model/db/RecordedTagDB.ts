@@ -1,12 +1,12 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import RecordedTag from '../../db/entities/RecordedTag';
-import StrUtil from '../../util/StrUtil';
-import IPromiseRetry from '../IPromiseRetry';
-import DBUtil from './DBUtil';
-import IDBOperator from './IDBOperator';
-import IRecordedTagDB from './IRecordedTagDB';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import RecordedTag from '../../db/entities/RecordedTag.js';
+import StrUtil from '../../util/StrUtil.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import DBUtil from './DBUtil.js';
+import IDBOperator from './IDBOperator.js';
+import IRecordedTagDB from './IRecordedTagDB.js';
 
 @injectable()
 export default class RecordedTagDB implements IRecordedTagDB {

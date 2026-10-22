@@ -1,7 +1,7 @@
-import { Operation } from '../../../../ApiOperation';
-import IStreamApiModel, { StreamResponse } from '../../../../../api/stream/IStreamApiModel';
-import container from '../../../../../ModelContainer';
-import * as api from '../../../../api';
+import { Operation } from '../../../../ApiOperation.js';
+import IStreamApiModel, { StreamResponse } from '../../../../../api/stream/IStreamApiModel.js';
+import container from '../../../../../ModelContainer.js';
+import * as api from '../../../../api.js';
 
 const parseEncoder = (value: unknown) => {
     return value === 'FFmpeg' || value === 'QSVEncC' || value === 'NVEncC' || value === 'VCEEncC' ? value : undefined;

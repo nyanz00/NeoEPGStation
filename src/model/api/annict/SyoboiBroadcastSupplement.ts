@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import SyoboiCalendarClient, { SyoboiProgram } from './SyoboiCalendarClient';
+import SyoboiCalendarClient, { SyoboiProgram } from './SyoboiCalendarClient.js';
 
 export interface SupplementWork {
     annictId: number;

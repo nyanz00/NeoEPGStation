@@ -1,7 +1,7 @@
-import { Operation } from '../../../../../../ApiOperation';
-import IStreamApiModel, { SegmentStreamResponse } from '../../../../../../../api/stream/IStreamApiModel';
-import container from '../../../../../../../ModelContainer';
-import * as api from '../../../../../../api';
+import { Operation } from '../../../../../../ApiOperation.js';
+import IStreamApiModel, { SegmentStreamResponse } from '../../../../../../../api/stream/IStreamApiModel.js';
+import container from '../../../../../../../ModelContainer.js';
+import * as api from '../../../../../../api.js';
 
 const parseWatchEncoder = (encoder: any): 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC' | undefined => {
     return encoder === 'FFmpeg' || encoder === 'QSVEncC' || encoder === 'NVEncC' || encoder === 'VCEEncC'

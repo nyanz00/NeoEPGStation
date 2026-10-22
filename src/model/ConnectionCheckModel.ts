@@ -1,11 +1,11 @@
 import { inject, injectable } from 'inversify';
-import mirakurun from 'mirakurun';
-import Util from '../util/Util';
-import IDBOperator from './db/IDBOperator';
-import IConnectionCheckModel from './IConnectionCheckModel';
-import ILogger from './ILogger';
-import ILoggerModel from './ILoggerModel';
-import IMirakurunClientModel from './IMirakurunClientModel';
+import { Client as mirakurun } from 'mirakurun';
+import Util from '../util/Util.js';
+import IDBOperator from './db/IDBOperator.js';
+import IConnectionCheckModel from './IConnectionCheckModel.js';
+import ILogger from './ILogger.js';
+import ILoggerModel from './ILoggerModel.js';
+import IMirakurunClientModel from './IMirakurunClientModel.js';
 
 @injectable()
 export default class ConnectionCheckModel implements IConnectionCheckModel {

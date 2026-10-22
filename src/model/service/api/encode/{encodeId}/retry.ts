@@ -1,7 +1,7 @@
-import { Operation } from '../../../ApiOperation';
-import IEncodeApiModel from '../../../../api/encode/IEncodeApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
+import { Operation } from '../../../ApiOperation.js';
+import IEncodeApiModel from '../../../../api/encode/IEncodeApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
 
 export const post: Operation = async (req, res) => {
     const encodeApiModel = container.get<IEncodeApiModel>('IEncodeApiModel');

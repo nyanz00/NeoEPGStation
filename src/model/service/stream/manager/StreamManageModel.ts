@@ -1,13 +1,13 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../../api';
-import IExecutionManagementModel from '../../../IExecutionManagementModel';
-import ILogger from '../../../ILogger';
-import ILoggerModel from '../../../ILoggerModel';
-import ISocketIOManageModel from '../../socketio/ISocketIOManageModel';
-import IStreamBaseModel, { LiveStreamInfo, RecordedStreamInfo } from '../base/IStreamBaseModel';
-import IStreamManageModel, { StreamInfoWithStreamId } from './IStreamManageModel';
-import { recordedUseClient } from '../../../RecordedUseClient';
-import IVideoFileDB from '../../../db/IVideoFileDB';
+import * as apid from '../../../../../api.js';
+import IExecutionManagementModel from '../../../IExecutionManagementModel.js';
+import ILogger from '../../../ILogger.js';
+import ILoggerModel from '../../../ILoggerModel.js';
+import ISocketIOManageModel from '../../socketio/ISocketIOManageModel.js';
+import IStreamBaseModel, { LiveStreamInfo, RecordedStreamInfo } from '../base/IStreamBaseModel.js';
+import IStreamManageModel, { StreamInfoWithStreamId } from './IStreamManageModel.js';
+import { recordedUseClient } from '../../../RecordedUseClient.js';
+import IVideoFileDB from '../../../db/IVideoFileDB.js';
 
 @injectable()
 class StreamManageModel implements IStreamManageModel {

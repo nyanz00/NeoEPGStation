@@ -1,13 +1,14 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import urljoin from 'url-join';
-import IConfigFile, { WatchStreamEncoder } from './IConfigFile';
-import IConfiguration from './IConfiguration';
-import ILogger from './ILogger';
-import ILoggerModel from './ILoggerModel';
-import { loadConfigYaml } from '../util/ConfigYamlUtil';
-import { validateEncodeSuspendTimes } from '../util/EncodeSuspendTime';
+import IConfigFile, { WatchStreamEncoder } from './IConfigFile.js';
+import IConfiguration from './IConfiguration.js';
+import ILogger from './ILogger.js';
+import ILoggerModel from './ILoggerModel.js';
+import { loadConfigYaml } from '../util/ConfigYamlUtil.js';
+import { validateEncodeSuspendTimes } from '../util/EncodeSuspendTime.js';
 
 function cloneConfigValue<T>(value: T): T {
     return typeof value === 'undefined' ? value : JSON.parse(JSON.stringify(value));
@@ -322,9 +323,23 @@ class Configuration implements IConfiguration {
 }
 
 namespace Configuration {
-    export const CONFIG_FILE_PATH = path.join(__dirname, '..', '..', 'config', 'config.yml');
-    export const CONFIG_TEMPLATE_FILE_PATH = path.join(__dirname, '..', '..', 'config', 'config.yml.template');
-    export const ROOT_PATH = path.join(__dirname, '..', '..').replace(new RegExp(`\\${path.sep}$`), '');
+    export const CONFIG_FILE_PATH = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'config',
+        'config.yml',
+    );
+    export const CONFIG_TEMPLATE_FILE_PATH = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'config',
+        'config.yml.template',
+    );
+    export const ROOT_PATH = path
+        .join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+        .replace(new RegExp(`\\${path.sep}$`), '');
 
     export const DEFAULT_VALUE: IConfigFile = {
         mirakurunPath: 'http+unix://%2Fvar%2Frun%2Fmirakurun.sock/',
@@ -343,19 +358,19 @@ namespace Configuration {
         recorded: [
             {
                 name: 'recorded',
-                path: path.join(__dirname, '..', '..', 'recorded'),
+                path: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'recorded'),
             },
         ],
         recordedHistoryRetentionPeriodDays: 90,
         storageLimitCheckIntervalTime: 60,
-        thumbnail: path.join(__dirname, '..', '..', 'thumbnail'),
+        thumbnail: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'thumbnail'),
         thumbnailCmd:
             '%FFMPEG% -ss %THUMBNAIL_POSITION% -y -i %INPUT% -vframes 1 -f image2 -s %THUMBNAIL_SIZE% %OUTPUT%',
         thumbnailSize: '480x270',
         thumbnailPosition: 5,
-        channelLogo: path.join(__dirname, '..', '..', 'channel-logo'),
-        dropLog: path.join(__dirname, '..', '..', 'drop'),
-        uploadTempDir: path.join(__dirname, '..', '..', 'data', 'upload'),
+        channelLogo: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'channel-logo'),
+        dropLog: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'drop'),
+        uploadTempDir: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'upload'),
         isEnabledDropCheck: false,
         ffmpeg: '/usr/local/bin/ffmpeg',
         ffprobe: '/usr/local/bin/ffprobe',
@@ -386,7 +401,7 @@ namespace Configuration {
                 ios: 'vlc-x-callback://x-callback-url/stream?url=PROTOCOL%3A%2F%2FADDRESS&filename=FILENAME',
             },
         },
-        streamFilePath: path.join(__dirname, '..', '..', 'data', 'streamfiles'),
+        streamFilePath: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'streamfiles'),
     };
 }
 

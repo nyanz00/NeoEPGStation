@@ -1,4 +1,4 @@
-import * as apid from '../../api';
+import * as apid from '../../api.js';
 
 namespace ChannelTypeUtil {
     export const grAltChannelTypes: apid.ChannelType[] = Array.from(

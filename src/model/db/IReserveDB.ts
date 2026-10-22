@@ -1,6 +1,6 @@
-import * as apid from '../../../api';
-import Reserve from '../../db/entities/Reserve';
-import { IReserveUpdateValues } from '../event/IReserveEvent';
+import * as apid from '../../../api.js';
+import Reserve from '../../db/entities/Reserve.js';
+import { IReserveUpdateValues } from '../event/IReserveEvent.js';
 
 export interface IFindReserveOption {
     hasSkip: boolean; // スキップされた予約を含むか

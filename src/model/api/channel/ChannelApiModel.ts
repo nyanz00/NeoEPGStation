@@ -1,17 +1,17 @@
 import { inject, injectable } from 'inversify';
 import axios from 'axios';
 import * as fs from 'fs';
-import mirakurun from 'mirakurun';
-import * as apid from '../../../../api';
-import IChannelDB from '../../db/IChannelDB';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IMirakurunClientModel from '../../IMirakurunClientModel';
-import FileUtil from '../../../util/FileUtil';
+import { Client as mirakurun } from 'mirakurun';
+import * as apid from '../../../../api.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IMirakurunClientModel from '../../IMirakurunClientModel.js';
+import FileUtil from '../../../util/FileUtil.js';
 import * as path from 'path';
-import IChannelApiModel, { IChannelApiModelError } from './IChannelApiModel';
-import jikkyoChannels from './jikkyo_channels.json';
+import IChannelApiModel, { IChannelApiModelError } from './IChannelApiModel.js';
+import jikkyoChannels from './jikkyo_channels.json' with { type: 'json' };
 
 interface JikkyoChannelDefinition {
     jikkyo_id: number;

@@ -1,8 +1,8 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IReserveEvent, { IReserveUpdateValues } from './IReserveEvent';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IReserveEvent, { IReserveUpdateValues } from './IReserveEvent.js';
 
 @injectable()
 class ReserveEvent implements IReserveEvent {

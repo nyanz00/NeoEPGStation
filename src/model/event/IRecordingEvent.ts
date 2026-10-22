@@ -1,6 +1,6 @@
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import Reserve from '../../db/entities/Reserve';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import Reserve from '../../db/entities/Reserve.js';
 
 export type RecordingResult = 'success' | 'failed';
 

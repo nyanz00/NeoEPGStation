@@ -1,7 +1,7 @@
 import * as express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import IPlayList from '../api/IPlayList';
+import IPlayList from '../api/IPlayList.js';
 
 export interface IError {
     readonly code: number;

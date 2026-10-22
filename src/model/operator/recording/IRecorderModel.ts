@@ -1,5 +1,5 @@
-import * as apid from '../../../../api';
-import Reserve from '../../../db/entities/Reserve';
+import * as apid from '../../../../api.js';
+import Reserve from '../../../db/entities/Reserve.js';
 
 export type RecorderModelProvider = () => Promise<IRecorderModel>;
 

@@ -2,11 +2,11 @@ import * as http from 'http';
 import { inject, injectable } from 'inversify';
 import * as SocketIO from 'socket.io';
 import urljoin from 'url-join';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import ISocketIOManageModel, { RecordedPlaybackHistoryUpdate } from './ISocketIOManageModel';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import ISocketIOManageModel, { RecordedPlaybackHistoryUpdate } from './ISocketIOManageModel.js';
 
 @injectable()
 export default class SocketIOManageModel implements ISocketIOManageModel {

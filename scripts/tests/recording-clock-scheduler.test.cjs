@@ -5,6 +5,7 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const { finished } = require('node:stream/promises');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 function createFakeScheduler() {
@@ -158,7 +159,7 @@ test('RecordingStreamCreator schedules and reschedules time-specified stream end
         '../../src/model/operator/recording/RecordingStreamCreator.ts',
         {
             inversify: { inject: () => () => {}, injectable: () => target => target },
-            mirakurun: { __esModule: true, default: class Mirakurun {} },
+            mirakurun: { Client: class Mirakurun {} },
             './RecordingScheduler': { recordingScheduler: scheduler },
             './IRecordingStreamCreator': { __esModule: true, default: { PREP_TIME: 15_000 } },
         },
@@ -202,7 +203,7 @@ test('finishing an old time-specified stream does not cancel its replacement tim
         '../../src/model/operator/recording/RecordingStreamCreator.ts',
         {
             inversify: { inject: () => () => {}, injectable: () => target => target },
-            mirakurun: { __esModule: true, default: class Mirakurun {} },
+            mirakurun: { Client: class Mirakurun {} },
             './RecordingScheduler': { recordingScheduler: scheduler },
             './IRecordingStreamCreator': { __esModule: true, default: { PREP_TIME: 15_000 } },
         },
@@ -245,7 +246,7 @@ test('the end deadline destroys a time-specified stream without a tuner assignme
         '../../src/model/operator/recording/RecordingStreamCreator.ts',
         {
             inversify: { inject: () => () => {}, injectable: () => target => target },
-            mirakurun: { __esModule: true, default: class Mirakurun {} },
+            mirakurun: { Client: class Mirakurun {} },
             './RecordingScheduler': { recordingScheduler: scheduler },
             './IRecordingStreamCreator': { __esModule: true, default: { PREP_TIME: 15_000 } },
         },

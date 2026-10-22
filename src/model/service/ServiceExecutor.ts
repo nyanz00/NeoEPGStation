@@ -1,24 +1,27 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import 'reflect-metadata';
 import { install } from 'source-map-support';
-import ILoggerModel from '../ILoggerModel';
-import IConfiguration from '../IConfiguration';
-import IAnnictApiModel from '../api/annict/IAnnictApiModel';
-import IDBOperator from '../db/IDBOperator';
-import container from '../ModelContainer';
-import * as containerSetter from '../ModelContainerSetter';
-import IEncodeFinishModel from './encode/IEncodeFinishModel';
-import IServiceServer from './IServiceServer';
-import { isAddressInUseError, SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './ServiceProcess';
-import ProcessShutdown from '../../util/ProcessShutdown';
+import ILoggerModel from '../ILoggerModel.js';
+import IConfiguration from '../IConfiguration.js';
+import IAnnictApiModel from '../api/annict/IAnnictApiModel.js';
+import IDBOperator from '../db/IDBOperator.js';
+import container from '../ModelContainer.js';
+import * as containerSetter from '../ModelContainerSetter.js';
+import IEncodeFinishModel from './encode/IEncodeFinishModel.js';
+import IServiceServer from './IServiceServer.js';
+import { isAddressInUseError, SERVICE_EXIT_CODE_ADDRESS_IN_USE, ServiceProcessMessage } from './ServiceProcess.js';
+import ProcessShutdown from '../../util/ProcessShutdown.js';
 install();
 
 containerSetter.set(container);
 
 const loggerModel = container.get<ILoggerModel>('ILoggerModel');
-loggerModel.initialize(path.join(__dirname, '..', '..', '..', 'config', 'serviceLogConfig.yml'));
+loggerModel.initialize(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'config', 'serviceLogConfig.yml'),
+);
 
 const log = loggerModel.getLogger();
 let isFatalExitScheduled = false;

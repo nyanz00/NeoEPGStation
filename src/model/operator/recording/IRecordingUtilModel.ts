@@ -1,7 +1,7 @@
-import * as apid from '../../../../api';
-import Reserve from '../../../db/entities/Reserve';
-import Recorded from '../../../db/entities/Recorded';
-import { RecordedDirInfo } from '../../IConfigFile';
+import * as apid from '../../../../api.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import { RecordedDirInfo } from '../../IConfigFile.js';
 
 export interface RecFilePathInfo {
     parendDir: RecordedDirInfo; // 親ディレクトリ情報

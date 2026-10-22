@@ -1,16 +1,16 @@
 import { inject, injectable } from 'inversify';
 import { FindOptionsWhere, In } from 'typeorm';
-import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import * as apid from '../../../api';
-import * as mapid from '../../../node_modules/mirakurun/api';
-import Channel from '../../db/entities/Channel';
-import StrUtil from '../../util/StrUtil';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IPromiseRetry from '../IPromiseRetry';
-import IChannelDB, { ChannelUpdateValues } from './IChannelDB';
-import IDBOperator from './IDBOperator';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
+import * as apid from '../../../api.js';
+import * as mapid from '../../../node_modules/mirakurun/api.js';
+import Channel from '../../db/entities/Channel.js';
+import StrUtil from '../../util/StrUtil.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IChannelDB, { ChannelUpdateValues } from './IChannelDB.js';
+import IDBOperator from './IDBOperator.js';
 
 @injectable()
 export default class ChannelDB implements IChannelDB {

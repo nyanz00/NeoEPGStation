@@ -1,4 +1,4 @@
-import type { IptvRequestContext } from './IptvDocumentRequestGuard';
+import type { IptvRequestContext } from './IptvDocumentRequestGuard.js';
 
 export default interface IIPTVApiModel {
     getChannelList(

@@ -1,5 +1,5 @@
-import { recordedUseClient } from './RecordedUseClient';
-import { recordedUseRegistry, RecordedUseResource } from './RecordedUseRegistry';
+import { recordedUseClient } from './RecordedUseClient.js';
+import { recordedUseRegistry, RecordedUseResource } from './RecordedUseRegistry.js';
 
 /** Shared adapter for readers that run in either the operator or service process. */
 export async function acquireRecordedFileUse(resource: RecordedUseResource): Promise<{ release(): Promise<void> }> {

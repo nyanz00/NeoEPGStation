@@ -12,9 +12,9 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import { Readable, ReadableOptions } from 'stream';
-import ILogger from '../model/ILogger';
-import ILoggerModel from '../model/ILoggerModel';
-import container from '../model/ModelContainer';
+import ILogger from '../model/ILogger.js';
+import ILoggerModel from '../model/ILoggerModel.js';
+import container from '../model/ModelContainer.js';
 
 export interface TailStreamOption extends ReadableOptions {
     start?: number;

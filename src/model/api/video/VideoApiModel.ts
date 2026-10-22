@@ -1,24 +1,24 @@
-import { spawnManaged as spawn } from '../../../util/ManagedProcess';
+import { spawnManaged as spawn } from '../../../util/ManagedProcess.js';
 import { createHash, randomUUID } from 'crypto';
 import * as fileType from 'file-type';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
-import { recordedUseClient } from '../../RecordedUseClient';
+import { recordedUseClient } from '../../RecordedUseClient.js';
 import * as os from 'os';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IConfiguration from '../../IConfiguration';
-import IIPCClient from '../../ipc/IIPCClient';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
-import IApiUtil from '../IApiUtil';
-import IPlayList from '../IPlayList';
-import IVideoApiModel, { VideoFilePathInfo } from './IVideoApiModel';
-import IVideoUtil, { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil';
-import IVideoAnalysisModel from '../../video/IVideoAnalysisModel';
+import * as apid from '../../../../api.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IConfiguration from '../../IConfiguration.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IEncodeManageModel from '../../service/encode/IEncodeManageModel.js';
+import IApiUtil from '../IApiUtil.js';
+import IPlayList from '../IPlayList.js';
+import IVideoApiModel, { VideoFilePathInfo } from './IVideoApiModel.js';
+import IVideoUtil, { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil.js';
+import IVideoAnalysisModel from '../../video/IVideoAnalysisModel.js';
 
 @injectable()
 export default class VideoApiModel implements IVideoApiModel {

@@ -1,14 +1,14 @@
-import * as aribts from 'aribts';
+import aribts from 'aribts';
 import * as events from 'events';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import * as stream from 'stream';
-import DateUtil from '../../../util/DateUtil';
-import FileUtil from '../../../util/FileUtil';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IDropCheckerModel from './IDropCheckerModel';
+import DateUtil from '../../../util/DateUtil.js';
+import FileUtil from '../../../util/FileUtil.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IDropCheckerModel from './IDropCheckerModel.js';
 
 @injectable()
 class DropCheckerModel implements IDropCheckerModel {

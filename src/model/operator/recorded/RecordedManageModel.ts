@@ -1,32 +1,32 @@
 import { inject, injectable } from 'inversify';
 import { mkdirp } from 'mkdirp';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import AnnictRecordedEpisode from '../../../db/entities/AnnictRecordedEpisode';
-import DropLogFile from '../../../db/entities/DropLogFile';
-import Recorded from '../../../db/entities/Recorded';
-import RecordedPlayback from '../../../db/entities/RecordedPlayback';
-import Thumbnail from '../../../db/entities/Thumbnail';
-import VideoFile from '../../../db/entities/VideoFile';
-import FileUtil from '../../../util/FileUtil';
-import StrUtil from '../../../util/StrUtil';
-import IVideoUtil from '../../api/video/IVideoUtil';
-import IDBOperator from '../../db/IDBOperator';
-import IDropLogFileDB from '../../db/IDropLogFileDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import IRecordedHistoryDB from '../../db/IRecordedHistoryDB';
-import IThumbnailDB from '../../db/IThumbnailDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IRecordedEvent from '../../event/IRecordedEvent';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IRecordingManageModel from '../recording/IRecordingManageModel';
-import IRecordedManageModel, { AddVideoFileOption, UploadedVideoFileOption } from './IRecordedManageModel';
-import IRecordingUtilModel from '../recording/IRecordingUtilModel';
-import { recordedUseRegistry } from '../../RecordedUseRegistry';
-import EncodeTask from '../../../db/entities/EncodeTask';
+import * as apid from '../../../../api.js';
+import AnnictRecordedEpisode from '../../../db/entities/AnnictRecordedEpisode.js';
+import DropLogFile from '../../../db/entities/DropLogFile.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import RecordedPlayback from '../../../db/entities/RecordedPlayback.js';
+import Thumbnail from '../../../db/entities/Thumbnail.js';
+import VideoFile from '../../../db/entities/VideoFile.js';
+import FileUtil from '../../../util/FileUtil.js';
+import StrUtil from '../../../util/StrUtil.js';
+import IVideoUtil from '../../api/video/IVideoUtil.js';
+import IDBOperator from '../../db/IDBOperator.js';
+import IDropLogFileDB from '../../db/IDropLogFileDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IRecordedHistoryDB from '../../db/IRecordedHistoryDB.js';
+import IThumbnailDB from '../../db/IThumbnailDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IRecordedEvent from '../../event/IRecordedEvent.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IRecordingManageModel from '../recording/IRecordingManageModel.js';
+import IRecordedManageModel, { AddVideoFileOption, UploadedVideoFileOption } from './IRecordedManageModel.js';
+import IRecordingUtilModel from '../recording/IRecordingUtilModel.js';
+import { recordedUseRegistry } from '../../RecordedUseRegistry.js';
+import EncodeTask from '../../../db/entities/EncodeTask.js';
 
 @injectable()
 export default class RecordedManageModel implements IRecordedManageModel {
@@ -495,6 +495,20 @@ export default class RecordedManageModel implements IRecordedManageModel {
         const token = recordedUseRegistry.tryBeginDeletion(video.recordedId, videoFileid);
         if (token === null) throw new Error('RecordedResourceBusy');
         try {
+            const tasks = await (await this.dbOperator.getConnection()).getRepository(EncodeTask).find();
+            if (
+                tasks.some(task => {
+                    // Running inputs are protected by leases; this also permits a finished
+                    // encoder to remove its own original while its completion is being saved.
+                    if (task.status === 'running') return false;
+                    try {
+                        return JSON.parse(task.optionJson).sourceVideoFileId === videoFileid;
+                    } catch {
+                        return true;
+                    }
+                })
+            )
+                throw new Error('RecordedResourceBusy');
             await this.deleteVideoFileWithoutUseGate(videoFileid, isIgnoreProtection);
         } finally {
             recordedUseRegistry.endDeletion(token);

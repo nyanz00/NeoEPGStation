@@ -1,14 +1,14 @@
 /* eslint-disable no-control-regex */
 /* eslint-disable no-irregular-whitespace */
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import Program from '../../../db/entities/Program';
-import DateUtil from '../../../util/DateUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IProgramDB from '../../db/IProgramDB';
-import IIPTVApiModel from './IIPTVApiModel';
-import ChannelUtil from '../../../util/ChannelUtil';
-import type { IptvRequestContext } from './IptvDocumentRequestGuard';
+import * as apid from '../../../../api.js';
+import Program from '../../../db/entities/Program.js';
+import DateUtil from '../../../util/DateUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IProgramDB from '../../db/IProgramDB.js';
+import IIPTVApiModel from './IIPTVApiModel.js';
+import ChannelUtil from '../../../util/ChannelUtil.js';
+import type { IptvRequestContext } from './IptvDocumentRequestGuard.js';
 
 const IPTVDOCUMENT_YIELD_INTERVAL = 128;
 

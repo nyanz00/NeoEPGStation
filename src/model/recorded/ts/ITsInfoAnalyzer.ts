@@ -1,4 +1,4 @@
-import { BitSectionInfo } from '../../channel/BitParser';
+import { BitSectionInfo } from '../../channel/BitParser.js';
 
 /**
  * TS ファイルの PSI/SI から取り出した放送情報

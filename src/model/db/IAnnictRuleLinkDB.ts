@@ -1,4 +1,4 @@
-import AnnictRuleLink from '../../db/entities/AnnictRuleLink';
+import AnnictRuleLink from '../../db/entities/AnnictRuleLink.js';
 
 export interface LegacyAnnictRuleLink {
     ruleId: number;

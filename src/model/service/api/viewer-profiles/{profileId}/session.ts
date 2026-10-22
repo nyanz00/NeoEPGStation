@@ -1,7 +1,7 @@
-import { Operation } from '../../../ApiOperation';
-import IViewerProfileApiModel from '../../../../api/viewerProfile/IViewerProfileApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
+import { Operation } from '../../../ApiOperation.js';
+import IViewerProfileApiModel from '../../../../api/viewerProfile/IViewerProfileApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
 
 export const get: Operation = async (req, res) => {
     try {

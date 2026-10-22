@@ -1,4 +1,4 @@
-import type * as apid from '../../api';
+import type * as apid from '../../api.js';
 
 export function parseAssComments(ass: string): apid.RecordedJikkyoComment[] {
     const comments: apid.RecordedJikkyoComment[] = [];

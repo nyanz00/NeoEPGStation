@@ -1,9 +1,9 @@
-import { Operation } from '../../../ApiOperation';
-import * as apid from '../../../../../../api';
-import IRecordedPlaybackApiModel from '../../../../api/recorded/IRecordedPlaybackApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
-import { getActiveUserId } from '../../activeUser';
+import { Operation } from '../../../ApiOperation.js';
+import * as apid from '../../../../../../api.js';
+import IRecordedPlaybackApiModel from '../../../../api/recorded/IRecordedPlaybackApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
+import { getActiveUserId } from '../../activeUser.js';
 
 export const get: Operation = async (req, res) => {
     try {

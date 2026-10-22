@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify';
-import RecordedPlayback from '../../db/entities/RecordedPlayback';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import IRecordedPlaybackDB, { RecordedPlaybackUpdate } from './IRecordedPlaybackDB';
+import RecordedPlayback from '../../db/entities/RecordedPlayback.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import IRecordedPlaybackDB, { RecordedPlaybackUpdate } from './IRecordedPlaybackDB.js';
 
 const MAX_TRACKED_SESSIONS = 128;
 

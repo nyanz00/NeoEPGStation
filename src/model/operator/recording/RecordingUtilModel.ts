@@ -1,23 +1,23 @@
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import Reserve from '../../../db/entities/Reserve';
-import Recorded from '../../../db/entities/Recorded';
-import DateUtil from '../../../util/DateUtil';
-import FileUtil from '../../../util/FileUtil';
-import StrUtil from '../../../util/StrUtil';
-import { safeSubDirectory } from '../../../util/SubDirectoryUtil';
-import IVideoUtil from '../../api/video/IVideoUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IProgramDB from '../../db/IProgramDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IConfigFile, { RecordedDirInfo } from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import IExecutionManagementModel from '../../IExecutionManagementModel';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IRecordingUtilModel, { RecFilePathInfo } from './IRecordingUtilModel';
+import * as apid from '../../../../api.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import DateUtil from '../../../util/DateUtil.js';
+import FileUtil from '../../../util/FileUtil.js';
+import StrUtil from '../../../util/StrUtil.js';
+import { safeSubDirectory } from '../../../util/SubDirectoryUtil.js';
+import IVideoUtil from '../../api/video/IVideoUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IProgramDB from '../../db/IProgramDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IConfigFile, { RecordedDirInfo } from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import IExecutionManagementModel from '../../IExecutionManagementModel.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IRecordingUtilModel, { RecFilePathInfo } from './IRecordingUtilModel.js';
 
 @injectable()
 class RecordingUtilModel implements IRecordingUtilModel {

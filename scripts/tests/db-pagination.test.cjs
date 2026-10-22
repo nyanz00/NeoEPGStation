@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const sourcePath = path.join(__dirname, '../../src/model/db/DBUtil.ts');

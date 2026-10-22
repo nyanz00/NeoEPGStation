@@ -1,12 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import * as http from 'http';
 import { inject, injectable } from 'inversify';
-import mirakurun from 'mirakurun';
+import { Client as mirakurun } from 'mirakurun';
 import * as path from 'path';
 import { URL } from 'url';
-import IConfigFile from './IConfigFile';
-import IConfiguration from './IConfiguration';
-import IMirakurunClientModel from './IMirakurunClientModel';
+import IConfigFile from './IConfigFile.js';
+import IConfiguration from './IConfiguration.js';
+import IMirakurunClientModel from './IMirakurunClientModel.js';
 
 type RequestOptions = NonNullable<Parameters<mirakurun['request']>[2]>;
 
@@ -30,7 +31,11 @@ export default class MirakurunClientModel implements IMirakurunClientModel {
      * mirakurun client の設定
      */
     private setClient(): void {
-        const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json')).toString());
+        const pkg = JSON.parse(
+            fs
+                .readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'))
+                .toString(),
+        );
         const mirakurunPath = this.config.mirakurunPath;
 
         /**

@@ -1,7 +1,8 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const { loadConfigYaml } = require('./dist/util/ConfigYamlUtil.js');
-const { DataSource } = require('typeorm');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadConfigYaml } from './dist/util/ConfigYamlUtil.js';
+import { DataSource } from 'typeorm';
 
 // config.yml 読み込み
 const configFilePath = path.join('config', 'config.yml');
@@ -22,7 +23,7 @@ switch (config.dbtype) {
     case 'better-sqlite3':
         ormConfig = new DataSource({
             type: 'better-sqlite3',
-            database: path.join(__dirname, 'data', 'database.db'),
+            database: path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'database.db'),
             timeout: config.sqlite?.busyTimeout ?? 90000,
             enableWAL: config.sqlite?.enableWAL ?? true,
             synchronize: false,
@@ -59,4 +60,4 @@ switch (config.dbtype) {
         throw new Error('db config error');
 }
 
-module.exports = { ormConfig };
+export default ormConfig;

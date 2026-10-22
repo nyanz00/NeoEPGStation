@@ -3,6 +3,7 @@ const test = require('node:test');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { syncBuiltinESMExports } = require('node:module');
 require('reflect-metadata');
 const { getDiskUsage } = require('../../dist/util/DiskUsage');
 const StorageApiModel = require('../../dist/model/api/storage/StorageApiModel').default;
@@ -10,9 +11,14 @@ const StorageManageModel = require('../../dist/model/operator/storage/StorageMan
 
 test('capacity display and monitoring use available blocks, excluding reserved space', async t => {
     const input = '\\\\server\\share\\録画 フォルダ';
-    t.mock.method(fs, 'statfs', async value => {
+    const statfsMock = t.mock.method(fs, 'statfs', async value => {
         assert.equal(value, input);
         return { bsize: 4096, blocks: 100, bfree: 30, bavail: 20 };
+    });
+    syncBuiltinESMExports();
+    t.after(() => {
+        statfsMock.mock.restore();
+        syncBuiltinESMExports();
     });
     assert.deepEqual(await StorageApiModel.prototype.getDiskInfo(input), {
         total: 409600,
@@ -24,8 +30,13 @@ test('capacity display and monitoring use available blocks, excluding reserved s
 
 test('filesystem errors propagate instead of reporting zero free space', async t => {
     const error = Object.assign(new Error('access denied'), { code: 'EACCES' });
-    t.mock.method(fs, 'statfs', async () => {
+    const statfsMock = t.mock.method(fs, 'statfs', async () => {
         throw error;
+    });
+    syncBuiltinESMExports();
+    t.after(() => {
+        statfsMock.mock.restore();
+        syncBuiltinESMExports();
     });
     await assert.rejects(StorageApiModel.prototype.getDiskInfo('missing'), error);
     await assert.rejects(StorageManageModel.prototype.getFreeSize('missing'), error);

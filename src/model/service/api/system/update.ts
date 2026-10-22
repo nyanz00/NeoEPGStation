@@ -1,8 +1,8 @@
-import { Operation } from '../../ApiOperation';
-import UpdateManager from '../../../update/UpdateManager';
-import { isStartSystemUpdateOption } from '../../../update/UpdateValidation';
-import * as api from '../../api';
-import { AdminAccessError, requireActiveAdmin } from '../adminAccess';
+import { Operation } from '../../ApiOperation.js';
+import UpdateManager from '../../../update/UpdateManager.js';
+import { isStartSystemUpdateOption } from '../../../update/UpdateValidation.js';
+import * as api from '../../api.js';
+import { AdminAccessError, requireActiveAdmin } from '../adminAccess.js';
 
 const manager = UpdateManager.getInstance();
 

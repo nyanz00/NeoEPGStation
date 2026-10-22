@@ -1,9 +1,12 @@
-import { Operation } from '../../ApiOperation';
-import IIPTVApiModel from '../../../api/iptv/IIPTVApiModel';
-import IConfiguration from '../../../IConfiguration';
-import { completeIptvDocumentRequest, IPTV_DOCUMENT_TIMEOUT_MESSAGE } from '../../../api/iptv/IptvDocumentRequestGuard';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../ApiOperation.js';
+import IIPTVApiModel from '../../../api/iptv/IIPTVApiModel.js';
+import IConfiguration from '../../../IConfiguration.js';
+import {
+    completeIptvDocumentRequest,
+    IPTV_DOCUMENT_TIMEOUT_MESSAGE,
+} from '../../../api/iptv/IptvDocumentRequestGuard.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
 
 export const get: Operation = (req, res) => {
     const configuration = container.get<IConfiguration>('IConfiguration');
