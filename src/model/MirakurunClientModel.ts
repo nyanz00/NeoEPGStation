@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as http from 'http';
 import { inject, injectable } from 'inversify';
 import mirakurun from 'mirakurun';
 import * as path from 'path';
@@ -7,6 +8,8 @@ import IConfigFile from './IConfigFile';
 import IConfiguration from './IConfiguration';
 import IMirakurunClientModel from './IMirakurunClientModel';
 
+type RequestOptions = NonNullable<Parameters<mirakurun['request']>[2]>;
+
 /**
  * mirakurun client のインスタンスを生成する
  */
@@ -14,6 +17,7 @@ import IMirakurunClientModel from './IMirakurunClientModel';
 export default class MirakurunClientModel implements IMirakurunClientModel {
     private client: mirakurun;
     private config: IConfigFile;
+    private requestTimeoutConfigured = false;
 
     constructor(@inject('IConfiguration') conf: IConfiguration) {
         this.client = new mirakurun();
@@ -65,6 +69,63 @@ export default class MirakurunClientModel implements IMirakurunClientModel {
      * @return mirakurun client
      */
     public getClient(): mirakurun {
+        if (this.requestTimeoutConfigured === false) {
+            this.setRequestTimeout(this.config.tunerRequestTimeout ?? 30000);
+            this.requestTimeoutConfigured = true;
+        }
         return this.client;
+    }
+
+    private setRequestTimeout(timeoutMs: number): void {
+        const originalRequest = this.client.request.bind(this.client);
+        this.client.request = ((method, requestPath, option: RequestOptions = {}) =>
+            this.withRequestTimeout(timeoutMs, option.signal, signal =>
+                originalRequest(method, requestPath, { ...option, signal }),
+            )) as mirakurun['request'];
+
+        const originalCall = this.client.call.bind(this.client);
+        this.client.call = ((operationId, param, option: RequestOptions = {}) =>
+            this.withRequestTimeout(timeoutMs, option.signal, signal =>
+                originalCall(operationId, param, { ...option, signal }),
+            )) as mirakurun['call'];
+    }
+
+    private async withRequestTimeout<T>(
+        timeoutMs: number,
+        sourceSignal: AbortSignal | undefined,
+        request: (signal: AbortSignal) => Promise<T>,
+    ): Promise<T> {
+        if (sourceSignal?.aborted === true) {
+            throw sourceSignal.reason ?? new Error('MirakurunRequestAborted');
+        }
+
+        const controller = new AbortController();
+        const abortFromSource = (): void => controller.abort(sourceSignal?.reason);
+        const removeSourceAbortListener = (): void => sourceSignal?.removeEventListener('abort', abortFromSource);
+        let retainSourceAbortListener = false;
+        sourceSignal?.addEventListener('abort', abortFromSource, { once: true });
+        const timeout = setTimeout(() => controller.abort(new Error('MirakurunRequestTimeout')), timeoutMs);
+
+        try {
+            const result = await request(controller.signal);
+            if (
+                result instanceof http.IncomingMessage &&
+                result.destroyed === false &&
+                result.readableEnded === false
+            ) {
+                // call() resolves as soon as stream headers arrive. Keep caller cancellation
+                // connected for the stream lifetime, while ending the response-wait timeout here.
+                result.once('close', removeSourceAbortListener);
+                retainSourceAbortListener = true;
+            } else {
+                removeSourceAbortListener();
+            }
+            return result;
+        } finally {
+            clearTimeout(timeout);
+            if (retainSourceAbortListener === false) {
+                removeSourceAbortListener();
+            }
+        }
     }
 }
