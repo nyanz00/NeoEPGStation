@@ -8,6 +8,7 @@ import container from '../../../ModelContainer';
 import { UploadedVideoFileOption } from '../../../operator/recorded/IRecordedManageModel';
 import ITsInfoAnalyzer, { TsInfo } from '../../../recorded/ts/ITsInfoAnalyzer';
 import * as api from '../../api';
+import { UploadRequest } from '../../upload/receiveUpload';
 
 const decodeUploadFileName = (fileName: string): string => {
     const decoded = Buffer.from(fileName, 'latin1').toString('utf8');
@@ -149,6 +150,8 @@ export const post: Operation = async (req, res) => {
         if (createdRecordedId !== undefined) await recordedApiModel.delete(createdRecordedId).catch(() => undefined);
         if (req.file !== undefined) await fs.promises.unlink(req.file.path).catch(() => undefined);
         api.responseServerError(res, err.message);
+    } finally {
+        await (req as UploadRequest).cleanupIncomingUpload?.().catch(() => undefined);
     }
 };
 

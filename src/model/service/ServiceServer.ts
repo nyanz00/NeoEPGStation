@@ -9,12 +9,12 @@ import * as yaml from 'js-yaml';
 import * as log4js from 'log4js';
 import { createRequire } from 'module';
 import { mkdirp } from 'mkdirp';
-import multer from 'multer';
 import { OpenAPIV3 } from 'openapi-types';
 import * as path from 'path';
 import * as swaggerdist from 'swagger-ui-dist';
 import urljoin from 'url-join';
-import FileUtil from '../../util/FileUtil';
+import UploadAdmissionController from './upload/UploadAdmissionController';
+import { receiveUpload } from './upload/receiveUpload';
 import IConfigFile from '../IConfigFile';
 import IConfiguration from '../IConfiguration';
 import ILogger from '../ILogger';
@@ -32,6 +32,7 @@ class ServiceServer implements IServiceServer {
     private apiInitialization!: Promise<unknown>;
     private tailscaleCertificateManager: TailscaleCertificateManager | null = null;
     private tailscaleHttpsServers: https.Server[] = [];
+    private uploadAdmission: UploadAdmissionController;
 
     constructor(
         @inject('ILoggerModel') logger: ILoggerModel,
@@ -41,6 +42,7 @@ class ServiceServer implements IServiceServer {
     ) {
         this.log = logger.getLogger();
         this.config = configuration.getConfig();
+        this.uploadAdmission = new UploadAdmissionController(this.config.uploadMaxConcurrent ?? 3);
         this.socketIoManageModel = socketIoManageModel;
 
         this.init();
@@ -249,43 +251,11 @@ class ServiceServer implements IServiceServer {
      * @param next
      */
     private uploadFile(req: any, res: any, next: NextFunction): void {
-        // uploade 生成
-        let fileName = '';
-        const storage = multer.diskStorage({
-            destination: this.config.uploadTempDir,
-            filename: (_req, file, cb) => {
-                fileName =
-                    file.fieldname +
-                    '-' +
-                    new Date().getTime().toString(16) +
-                    Math.floor(100000 * Math.random()).toString(16);
-                cb(null, fileName);
-            },
-        });
-
-        multer({ storage: storage }).single('file')(req as any, res as any, async (err: any) => {
-            if (err) {
-                // エラー時はファイルを削除
-                const filePath = path.join(this.config.uploadTempDir, fileName);
-                try {
-                    await FileUtil.unlink(filePath);
-                    this.log.access.info(`delete upload file: ${filePath}`);
-                } catch (err: any) {
-                    this.log.access.error(`upload file delete error: ${filePath}`);
-                    this.log.access.error(err.message);
-                }
-                return next(err.message);
-            }
-
-            if (typeof req.body.recordedId === 'string') {
-                req.body.recordedId = parseInt(req.body.recordedId, 10);
-            }
-
-            if (typeof req.file !== 'undefined' && typeof req.file.fieldname !== 'undefined') {
-                req.body.file = req.file.filename;
-            }
-
-            return next();
+        receiveUpload(req, res, next, {
+            directory: this.config.uploadTempDir,
+            timeout: this.config.uploadTimeout ?? 300000,
+            admission: this.uploadAdmission,
+            log: { error: message => this.log.access.error(message) },
         });
     }
 
