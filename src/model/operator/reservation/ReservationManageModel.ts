@@ -449,19 +449,16 @@ class ReservationManageModel implements IReservationManageModel {
      * @return 正しくセットされていれば true を返す
      */
     private checkManualReserveOption(option: apid.ManualReserveOption, isEdit: boolean = false): boolean {
-        let isFail = false;
-
         // エンコードオプションチェック
-        isFail =
+        if (
             typeof option.encodeOption !== 'undefined' &&
-            this.optionChecker.checkEncodeOption(option.encodeOption) === false;
-
-        // 時刻指定予約なのに timeSpecifiedOption が設定されていない
-        if (isEdit === false) {
-            isFail = typeof option.programId === 'undefined' && typeof option.timeSpecifiedOption === 'undefined';
+            this.optionChecker.checkEncodeOption(option.encodeOption) === false
+        ) {
+            return false;
         }
 
-        return !isFail;
+        // 時刻指定予約なのに timeSpecifiedOption が設定されていない
+        return isEdit || typeof option.programId !== 'undefined' || typeof option.timeSpecifiedOption !== 'undefined';
     }
 
     /**
@@ -1031,10 +1028,14 @@ class ReservationManageModel implements IReservationManageModel {
         isSuppressLog: boolean,
     ): Promise<IReserveUpdateValues> {
         // 影響を受ける可能性のある予約を取り出す
-        const baseReserves = await this.reserveDB.findTimeRanges(findOption).catch(err => {
-            this.log.system.error('reserve get error');
-            throw err;
-        });
+        const replacedIds = new Set(addOldReserves.map(reserve => reserve.id));
+        // 別ルールの除外も参照し、番組単位の除外を予約の再計算後も維持する。
+        const baseReserves = (
+            await this.reserveDB.findTimeRanges({ ...findOption, hasSkip: true, hasOverlap: true }).catch(err => {
+                this.log.system.error('reserve get error');
+                throw err;
+            })
+        ).filter(reserve => !replacedIds.has(reserve.id));
 
         let newReserves = this.copyReserveArray(addNewReserves);
         // baseReserves を破壊しないように copyReserveArray で deep copy する
@@ -1393,8 +1394,26 @@ class ReservationManageModel implements IReservationManageModel {
         }
 
         // skip を解除した予約を作成
-        const newReserves: Reserve = Object.assign({}, oldReserve);
-        newReserves.isSkip = false;
+        const newReserve: Reserve = Object.assign({}, oldReserve, { isSkip: false });
+        const newReserves: Reserve[] = [newReserve];
+        const oldReserves: Reserve[] = [oldReserve];
+        if (oldReserve.programId !== null) {
+            const siblings = await this.reserveDB.findProgramId(oldReserve.programId).catch(err => {
+                finalize();
+                throw err;
+            });
+            for (const sibling of siblings) {
+                if (
+                    sibling.id !== reserveId &&
+                    sibling.ruleId !== null &&
+                    sibling.isEventRelay === false &&
+                    sibling.isSkip
+                ) {
+                    oldReserves.push(sibling);
+                    newReserves.push(Object.assign({}, sibling, { isSkip: false }));
+                }
+            }
+        }
 
         const diff = await this.createDiff(
             {
@@ -1409,8 +1428,8 @@ class ReservationManageModel implements IReservationManageModel {
                 hasOverlap: false,
                 excludeReserveId: reserveId,
             },
-            [newReserves],
-            [oldReserve],
+            newReserves,
+            oldReserves,
             false,
         ).catch(err => {
             finalize();
@@ -1623,7 +1642,21 @@ class ReservationManageModel implements IReservationManageModel {
      * @param matches 予約したい番組情報
      * @return Reserve[] 予約情報
      */
-    private createReserves(matches: Reserve[]): Reserve[] {
+    private createReserves(allMatches: Reserve[]): Reserve[] {
+        const skippedPrograms = new Set(
+            allMatches
+                .filter(reserve => reserve.ruleId !== null && !reserve.isEventRelay && reserve.isSkip)
+                .map(reserve => reserve.programId)
+                .filter((id): id is number => id !== null),
+        );
+        const matches = allMatches.filter(
+            reserve =>
+                reserve.ruleId === null ||
+                reserve.programId === null ||
+                reserve.isEventRelay ||
+                reserve.isSkip ||
+                !skippedPrograms.has(reserve.programId),
+        );
         // 重複チェックのために programId でソート
         matches.sort(this.sortReserve);
 
@@ -1796,10 +1829,12 @@ class ReservationManageModel implements IReservationManageModel {
             return null;
         }
 
-        // 非ルール予約であれば ProgramId を返し、そうでなければ ProgramId に競合、重複、スキップ情報を追加して返す
-        return re.ruleId === null
-            ? re.programId.toString(10)
-            : `${re.programId.toString(10)}-${re.isConflict}-${re.isOverlap}-${re.isSkip}`;
+        if (re.ruleId === null) return re.programId.toString(10);
+        // 除外・重複解除の記録はルールごとに保持する。
+        if (re.isSkip || re.isOverlap) {
+            return `${re.programId}-${re.isSkip ? 'skip' : 'overlap'}-${re.ruleId}`;
+        }
+        return `${re.programId.toString(10)}-${re.isConflict}-${re.isOverlap}-${re.isSkip}`;
     }
 }
 
