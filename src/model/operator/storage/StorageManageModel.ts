@@ -1,8 +1,9 @@
-import { spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { getDiskUsage } from '../../../util/DiskUsage';
 import { inject, injectable } from 'inversify';
 import Recorded from '../../../db/entities/Recorded';
 import ProcessUtil from '../../../util/ProcessUtil';
+import { killManaged } from '../../../util/ManagedProcess';
 import Util from '../../../util/Util';
 import IRecordedDB from '../../db/IRecordedDB';
 import IConfigFile, { RecordedDirInfo } from '../../IConfigFile';
@@ -96,9 +97,10 @@ export default class StorageManageModel implements IStorageManageModel {
                 try {
                     const cmds = ProcessUtil.parseCmdStr(l.limitCmd);
                     // 互換性のためここでは全ての環境変数を渡すため env は未指定
-                    spawn(cmds.bin, cmds.args, {
+                    const child = spawn(cmds.bin, cmds.args, {
                         stdio: 'ignore',
                     });
+                    await this.waitForLimitCommand(child, l.limitCmd);
                 } catch (err: any) {
                     this.log.system.error(`limit cmd error: ${l.limitCmd}`);
                     this.log.system.error(err);
@@ -149,6 +151,72 @@ export default class StorageManageModel implements IStorageManageModel {
         }
 
         this.isRunning = false;
+    }
+
+    private waitForLimitCommand(child: ChildProcess, command: string): Promise<void> {
+        const timeout = this.config.storageCommandTimeout ?? 300_000;
+        return new Promise<void>((resolve, reject) => {
+            let settled = false;
+            let timedOut = false;
+            let killPending = false;
+            let terminalError = false;
+
+            const cleanup = (): void => {
+                clearTimeout(timer);
+                child.removeListener('exit', onExit);
+                child.removeListener('error', onError);
+            };
+            const finish = (error?: Error): void => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                if (error !== undefined) reject(error);
+                else resolve();
+            };
+            const finishTimeout = (): void => finish(new Error('StorageCommandTimeout'));
+            const onExit = (): void => {
+                if (timedOut) {
+                    if (!killPending) finishTimeout();
+                    return;
+                }
+                if (child.exitCode === 0) this.log.system.info(`storage limit cmd finished: ${command}`);
+                else this.log.system.error(`storage limit cmd failed: ${command}. exit: ${child.exitCode}`);
+                finish();
+            };
+            const onError = (error: Error): void => {
+                this.log.system.error(`storage limit cmd failed: ${command}`);
+                this.log.system.error(error);
+                if (timedOut) {
+                    terminalError = true;
+                    if (!killPending) finishTimeout();
+                    return;
+                }
+                finish();
+            };
+
+            const timer = setTimeout(() => {
+                if (settled) return;
+                timedOut = true;
+                killPending = true;
+                this.log.system.error(`StorageCommandTimeout: ${command} exceeded ${timeout}ms; stopping process`);
+                void killManaged(child).then(
+                    () => {
+                        killPending = false;
+                        finishTimeout();
+                    },
+                    error => {
+                        killPending = false;
+                        this.log.system.error(`StorageCommandTimeout: failed to confirm process stop for ${command}`);
+                        this.log.system.error(error);
+                        if (terminalError || child.exitCode !== null || child.signalCode !== null) finishTimeout();
+                    },
+                );
+            }, timeout);
+
+            child.once('exit', onExit);
+            child.once('error', onError);
+            if (child.exitCode !== null || child.signalCode !== null) onExit();
+        });
     }
 
     /**

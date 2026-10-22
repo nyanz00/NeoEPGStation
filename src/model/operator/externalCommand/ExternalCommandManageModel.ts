@@ -1,9 +1,10 @@
-import { spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import Recorded from '../../../db/entities/Recorded';
 import Reserve from '../../../db/entities/Reserve';
 import ProcessUtil from '../../../util/ProcessUtil';
+import { killManaged } from '../../../util/ManagedProcess';
 import IVideoUtil from '../../api/video/IVideoUtil';
 import IChannelDB from '../../db/IChannelDB';
 import IRecordedDB from '../../db/IRecordedDB';
@@ -231,55 +232,29 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
 
         const channel = await this.channelDB.findId(reserve.channelId);
 
-        return new Promise<void>(resolve => {
-            const child = spawn(cmds.bin, cmds.args, {
-                stdio: 'ignore',
-                env: {
-                    PATH: process.env['PATH'],
-                    RESERVEID: reserve.id,
-                    PROGRAMID: reserve.programId,
-                    CHANNELTYPE: reserve.channelType,
-                    CHANNELID: reserve.channelId,
-                    CHANNELNAME: channel === null ? null : channel.name,
-                    HALF_WIDTH_CHANNELNAME: channel === null ? null : channel.halfWidthName,
-                    STARTAT: reserve.startAt,
-                    ENDAT: reserve.endAt,
-                    DURATION: reserve.endAt - reserve.startAt,
-                    NAME: reserve.name,
-                    HALF_WIDTH_NAME: reserve.halfWidthName,
-                    DESCRIPTION: reserve.description,
-                    HALF_WIDTH_DESCRIPTION: reserve.halfWidthDescription,
-                    EXTENDED: reserve.extended,
-                    HALF_WIDTH_EXTENDED: reserve.halfWidthExtended,
-                },
-            } as any);
+        const child = spawn(cmds.bin, cmds.args, {
+            stdio: 'ignore',
+            env: {
+                PATH: process.env['PATH'],
+                RESERVEID: reserve.id,
+                PROGRAMID: reserve.programId,
+                CHANNELTYPE: reserve.channelType,
+                CHANNELID: reserve.channelId,
+                CHANNELNAME: channel === null ? null : channel.name,
+                HALF_WIDTH_CHANNELNAME: channel === null ? null : channel.halfWidthName,
+                STARTAT: reserve.startAt,
+                ENDAT: reserve.endAt,
+                DURATION: reserve.endAt - reserve.startAt,
+                NAME: reserve.name,
+                HALF_WIDTH_NAME: reserve.halfWidthName,
+                DESCRIPTION: reserve.description,
+                HALF_WIDTH_DESCRIPTION: reserve.halfWidthDescription,
+                EXTENDED: reserve.extended,
+                HALF_WIDTH_EXTENDED: reserve.halfWidthExtended,
+            },
+        } as any);
 
-            child.on('exit', () => {
-                if (child.exitCode == 0) {
-                    this.log.system.info(`finish: ${cmd}`);
-                } else {
-                    this.log.system.error(`failed: ${cmd}. exit: ${child.exitCode}`);
-                }
-                resolve();
-            });
-
-            child.on('error', err => {
-                this.log.system.error(`failed: ${cmd}`);
-                this.log.system.error(err);
-                resolve();
-            });
-
-            // プロセスの即時終了対応
-            if (ProcessUtil.isExited(child) === true) {
-                child.removeAllListeners();
-                if (child.exitCode === 0) {
-                    this.log.system.info(`finish: ${cmd}`);
-                } else {
-                    this.log.system.error(`failed: ${cmd}`);
-                }
-                resolve();
-            }
-        });
+        return this.waitForCommand(child, cmd, `finish: ${cmd}`, `failed: ${cmd}`, 'ExternalCommandTimeout');
     }
 
     /**
@@ -298,63 +273,43 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
                 ? null
                 : await this.videoUtil.getFullFilePathFromId(recorded.videoFiles[0].id);
 
-        return new Promise<void>(resolve => {
-            const child = spawn(cmds.bin, cmds.args, {
-                stdio: 'ignore',
-                env: {
-                    PATH: process.env['PATH'],
-                    RECORDEDID: recorded.id,
-                    PROGRAMID: recorded.programId,
-                    CHANNELTYPE: channel === null ? null : channel.channelType,
-                    CHANNELID: recorded.channelId,
-                    CHANNELNAME: channel === null ? null : channel.name,
-                    HALF_WIDTH_CHANNELNAME: channel === null ? null : channel.halfWidthName,
-                    STARTAT: recorded.startAt,
-                    ENDAT: recorded.endAt,
-                    DURATION: recorded.endAt - recorded.startAt,
-                    NAME: recorded.name,
-                    HALF_WIDTH_NAME: recorded.halfWidthName,
-                    DESCRIPTION: recorded.description,
-                    HALF_WIDTH_DESCRIPTION: recorded.halfWidthDescription,
-                    EXTENDED: recorded.extended,
-                    HALF_WIDTH_EXTENDED: recorded.halfWidthExtended,
-                    RECPATH: recordPath,
-                    LOGPATH:
-                        typeof recorded.dropLogFile === 'undefined' || recorded.dropLogFile === null
-                            ? null
-                            : path.join(this.config.dropLog, recorded.dropLogFile.filePath),
-                    ERROR_CNT: recorded.dropLogFile?.errorCnt.toString(10) || null,
-                    DROP_CNT: recorded.dropLogFile?.dropCnt.toString(10) || null,
-                    SCRAMBLING_CNT: recorded.dropLogFile?.scramblingCnt.toString(10) || null,
-                },
-            } as any);
+        const child = spawn(cmds.bin, cmds.args, {
+            stdio: 'ignore',
+            env: {
+                PATH: process.env['PATH'],
+                RECORDEDID: recorded.id,
+                PROGRAMID: recorded.programId,
+                CHANNELTYPE: channel === null ? null : channel.channelType,
+                CHANNELID: recorded.channelId,
+                CHANNELNAME: channel === null ? null : channel.name,
+                HALF_WIDTH_CHANNELNAME: channel === null ? null : channel.halfWidthName,
+                STARTAT: recorded.startAt,
+                ENDAT: recorded.endAt,
+                DURATION: recorded.endAt - recorded.startAt,
+                NAME: recorded.name,
+                HALF_WIDTH_NAME: recorded.halfWidthName,
+                DESCRIPTION: recorded.description,
+                HALF_WIDTH_DESCRIPTION: recorded.halfWidthDescription,
+                EXTENDED: recorded.extended,
+                HALF_WIDTH_EXTENDED: recorded.halfWidthExtended,
+                RECPATH: recordPath,
+                LOGPATH:
+                    typeof recorded.dropLogFile === 'undefined' || recorded.dropLogFile === null
+                        ? null
+                        : path.join(this.config.dropLog, recorded.dropLogFile.filePath),
+                ERROR_CNT: recorded.dropLogFile?.errorCnt.toString(10) || null,
+                DROP_CNT: recorded.dropLogFile?.dropCnt.toString(10) || null,
+                SCRAMBLING_CNT: recorded.dropLogFile?.scramblingCnt.toString(10) || null,
+            },
+        } as any);
 
-            child.on('exit', () => {
-                if (child.exitCode == 0) {
-                    this.log.system.info(`${cmd} process is fin`);
-                } else {
-                    this.log.system.error(`${cmd} process is error. exit: ${child.exitCode}`);
-                }
-                resolve();
-            });
-
-            child.on('error', err => {
-                this.log.system.error(`${cmd} process is error`);
-                this.log.system.error(String(err));
-                resolve();
-            });
-
-            // プロセスの即時終了対応
-            if (ProcessUtil.isExited(child) === true) {
-                child.removeAllListeners();
-                if (child.exitCode === 0) {
-                    this.log.system.info(`finish: ${cmd}`);
-                } else {
-                    this.log.system.error(`failed: ${cmd}`);
-                }
-                resolve();
-            }
-        });
+        return this.waitForCommand(
+            child,
+            cmd,
+            `${cmd} process is fin`,
+            `${cmd} process is error`,
+            'ExternalCommandTimeout',
+        );
     }
 
     /**
@@ -384,53 +339,109 @@ export default class ExternalCommandManageModel implements IExternalCommandManag
         const outputPath =
             info.videoFileId === null ? null : await this.videoUtil.getFullFilePathFromId(info.videoFileId);
 
-        return new Promise<void>(resolve => {
-            const child = spawn(cmds.bin, cmds.args, {
-                stdio: 'ignore',
-                env: {
-                    PATH: process.env['PATH'],
-                    RECORDEDID: info.recordedId,
-                    VIDEOFILEID: info.videoFileId === null ? '' : info.videoFileId,
-                    OUTPUTPATH: outputPath,
-                    MODE: info.mode,
-                    ENCODER_MESSAGE: 'encoderMessage' in info ? this.normalizeEncoderMessage(info.encoderMessage) : '',
-                    NAME: recorded.name,
-                    HALF_WIDTH_NAME: recorded.halfWidthName,
-                    DESCRIPTION: recorded.description || '',
-                    HALF_WIDTH_DESCRIPTION: recorded.halfWidthDescription || '',
-                    EXTENDED: recorded.extended || '',
-                    HALF_WIDTH_EXTENDED: recorded.halfWidthExtended || '',
-                    CHANNELID: typeof recorded.channelId === 'number' ? recorded.channelId.toString(10) : '',
-                    CHANNELNAME: typeof channel.name === 'string' ? channel.name : '',
-                    HALF_WIDTH_CHANNELNAME: typeof channel.halfWidthName === 'string' ? channel.halfWidthName : '',
-                },
-            } as any);
+        const child = spawn(cmds.bin, cmds.args, {
+            stdio: 'ignore',
+            env: {
+                PATH: process.env['PATH'],
+                RECORDEDID: info.recordedId,
+                VIDEOFILEID: info.videoFileId === null ? '' : info.videoFileId,
+                OUTPUTPATH: outputPath,
+                MODE: info.mode,
+                ENCODER_MESSAGE: 'encoderMessage' in info ? this.normalizeEncoderMessage(info.encoderMessage) : '',
+                NAME: recorded.name,
+                HALF_WIDTH_NAME: recorded.halfWidthName,
+                DESCRIPTION: recorded.description || '',
+                HALF_WIDTH_DESCRIPTION: recorded.halfWidthDescription || '',
+                EXTENDED: recorded.extended || '',
+                HALF_WIDTH_EXTENDED: recorded.halfWidthExtended || '',
+                CHANNELID: typeof recorded.channelId === 'number' ? recorded.channelId.toString(10) : '',
+                CHANNELNAME: typeof channel.name === 'string' ? channel.name : '',
+                HALF_WIDTH_CHANNELNAME: typeof channel.halfWidthName === 'string' ? channel.halfWidthName : '',
+            },
+        } as any);
 
-            child.on('exit', () => {
-                if (child.exitCode == 0) {
-                    this.log.system.info(`${cmd} process is fin`);
-                } else {
-                    this.log.system.error(`${cmd} process is error. exit: ${child.exitCode}`);
+        return this.waitForCommand(
+            child,
+            cmd,
+            `${cmd} process is fin`,
+            `${cmd} process is error`,
+            'ExternalCommandTimeout',
+        );
+    }
+
+    private waitForCommand(
+        child: ChildProcess,
+        cmd: string,
+        successMessage: string,
+        failureMessage: string,
+        timeoutError: string,
+    ): Promise<void> {
+        const timeout = this.config.externalCommandTimeout ?? 300_000;
+        return new Promise<void>((resolve, reject) => {
+            let settled = false;
+            let timedOut = false;
+            let killPending = false;
+            let terminalError = false;
+
+            const cleanup = (): void => {
+                clearTimeout(timer);
+                child.removeListener('exit', onExit);
+                child.removeListener('error', onError);
+            };
+            const finish = (error?: Error): void => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                if (error !== undefined) reject(error);
+                else resolve();
+            };
+            const finishTimeout = (): void => {
+                finish(new Error(timeoutError));
+            };
+            const onExit = (): void => {
+                if (timedOut) {
+                    if (!killPending) finishTimeout();
+                    return;
                 }
-                resolve();
-            });
-
-            child.on('error', err => {
-                this.log.system.error(`${cmd} process is error`);
-                this.log.system.error(String(err));
-                resolve();
-            });
-
-            // プロセスの即時終了対応
-            if (ProcessUtil.isExited(child) === true) {
-                child.removeAllListeners();
-                if (child.exitCode === 0) {
-                    this.log.system.info(`finish: ${cmd}`);
-                } else {
-                    this.log.system.error(`failed: ${cmd}`);
+                if (child.exitCode === 0) this.log.system.info(successMessage);
+                else this.log.system.error(`${failureMessage}. exit: ${child.exitCode}`);
+                finish();
+            };
+            const onError = (error: Error): void => {
+                this.log.system.error(failureMessage);
+                this.log.system.error(error);
+                if (timedOut) {
+                    terminalError = true;
+                    if (!killPending) finishTimeout();
+                    return;
                 }
-                resolve();
-            }
+                finish();
+            };
+
+            const timer = setTimeout(() => {
+                if (settled) return;
+                timedOut = true;
+                killPending = true;
+                this.log.system.error(`${timeoutError}: ${cmd} exceeded ${timeout}ms; stopping process`);
+                void killManaged(child).then(
+                    () => {
+                        killPending = false;
+                        finishTimeout();
+                    },
+                    error => {
+                        killPending = false;
+                        this.log.system.error(`${timeoutError}: failed to confirm process stop for ${cmd}`);
+                        this.log.system.error(error);
+                        if (terminalError || child.exitCode !== null || child.signalCode !== null) finishTimeout();
+                    },
+                );
+            }, timeout);
+
+            child.once('exit', onExit);
+            child.once('error', onError);
+
+            // The child may have exited before the listeners were attached.
+            if (child.exitCode !== null || child.signalCode !== null) onExit();
         });
     }
 
