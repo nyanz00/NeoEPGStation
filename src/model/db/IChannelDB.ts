@@ -5,6 +5,7 @@ import Channel from '../../db/entities/Channel';
 export interface ChannelUpdateValues {
     insert: mapid.Service[];
     update: mapid.Service[];
+    delete: mapid.ServiceId[];
 }
 
 export default interface IChannelDB {
