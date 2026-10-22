@@ -22,6 +22,7 @@ import type { EditManualReserveOption, ManualReserveOption, ReserveEncodedOption
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigationType, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { DateTimeTextInput } from '../components/DateTimeInput';
 import { UserSelector } from '../components/UserSelector';
 import { api } from '../core/api/queries';
 import { useAppBack } from '../core/navigation';
@@ -372,21 +373,15 @@ export function ManualReservePage(): ReactNode {
                                             ))}
                                         </TextField>
                                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                                            <TextField
-                                                fullWidth
-                                                type="datetime-local"
+                                            <DateTimeTextInput
                                                 label="開始"
                                                 value={timeSpecified.startAt}
-                                                onChange={event => setTimeSpecified(current => (current === null ? current : { ...current, startAt: event.target.value }))}
-                                                slotProps={{ inputLabel: { shrink: true } }}
+                                                onChange={startAt => setTimeSpecified(current => (current === null ? current : { ...current, startAt }))}
                                             />
-                                            <TextField
-                                                fullWidth
-                                                type="datetime-local"
+                                            <DateTimeTextInput
                                                 label="終了"
                                                 value={timeSpecified.endAt}
-                                                onChange={event => setTimeSpecified(current => (current === null ? current : { ...current, endAt: event.target.value }))}
-                                                slotProps={{ inputLabel: { shrink: true } }}
+                                                onChange={endAt => setTimeSpecified(current => (current === null ? current : { ...current, endAt }))}
                                             />
                                         </Stack>
                                     </Stack>
