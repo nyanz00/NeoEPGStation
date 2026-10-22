@@ -9,7 +9,7 @@ export default interface IChannelTypeIndex {
         // ServiceId
         [key: number]: {
             id: number; // channelId
-            type: mapid.ChannelType;
+            type: mapid.ChannelType | 'BS4K';
             channel: string;
         };
     };

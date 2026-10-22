@@ -116,6 +116,7 @@ components:
                 - BS
                 - CS
                 - SKY
+                - BS4K
 
         ProgramGenreLv1:
             description: ジャンル
@@ -223,6 +224,7 @@ components:
                         - BS
                         - CS
                         - SKY
+                        - BS4K
                     properties:
                         GR:
                             type: boolean
@@ -231,6 +233,8 @@ components:
                         CS:
                             type: boolean
                         SKY:
+                            type: boolean
+                        BS4K:
                             type: boolean
                 recorded:
                     description: 指定可能な録画ディレクトリ名
@@ -969,6 +973,9 @@ components:
                     type: boolean
                 SKY:
                     description: SKY
+                    type: boolean
+                BS4K:
+                    description: BS4K
                     type: boolean
                 channelTypes:
                     description: GR-ALT などの追加 channel type
@@ -3494,6 +3501,14 @@ components:
             in: query
             name: SKY
             required: true
+            schema:
+                type: boolean
+
+        optionalBS4K:
+            description: BS4K
+            in: query
+            name: BS4K
+            required: false
             schema:
                 type: boolean
 

@@ -139,7 +139,11 @@ export function toSearchOption(source: SearchFormState): RuleSearchOption {
         option.ignoreExtended = form.ignoreFields.extended;
     }
     if (form.channelIds.length > 0) option.channelIds = [...form.channelIds];
-    else if (form.channelTypes.length > 0) option.channelTypes = [...form.channelTypes];
+    else if (form.channelTypes.length > 0) {
+        if (form.channelTypes.includes('BS4K')) option.BS4K = true;
+        const channelTypes = form.channelTypes.filter(type => type !== 'BS4K');
+        if (channelTypes.length > 0) option.channelTypes = channelTypes;
+    }
     if (form.genres.length > 0) {
         option.genres = form.genres.flatMap(genre => {
             const subGenres = form.subGenres
@@ -166,7 +170,9 @@ export function toSearchOption(source: SearchFormState): RuleSearchOption {
 }
 
 export function fromSearchOption(option: RuleSearchOption): SearchFormState {
-    const legacyTypes = (['GR', 'BS', 'CS', 'SKY'] as const).filter(type => option[type] === true);
+    const legacyTypes = (['GR', 'BS', 'CS', 'SKY', 'BS4K'] as const).filter(type => option[type] === true);
+    const channelTypes = [...(option.channelTypes ?? legacyTypes)];
+    if (option.BS4K === true && !channelTypes.includes('BS4K')) channelTypes.push('BS4K');
     const time = option.times?.[0];
     const genres = [...new Set(option.genres?.map(item => item.genre) ?? [])];
     const wholeGenres = new Set((option.genres ?? []).filter(item => item.subGenre === undefined).map(item => item.genre));
@@ -193,7 +199,7 @@ export function fromSearchOption(option: RuleSearchOption): SearchFormState {
             extended: option.ignoreExtended === true,
         },
         channelIds: [...(option.channelIds ?? [])],
-        channelTypes: [...(option.channelTypes ?? legacyTypes)],
+        channelTypes: [...channelTypes],
         genres,
         subGenres: [
             ...new Set(

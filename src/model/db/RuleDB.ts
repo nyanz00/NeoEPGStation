@@ -232,6 +232,7 @@ export default class RuleDB implements IRuleDB {
             BS: !!rule.searchOption.BS,
             CS: !!rule.searchOption.CS,
             SKY: !!rule.searchOption.SKY,
+            BS4K: !!rule.searchOption.BS4K,
             channelTypes:
                 typeof rule.searchOption.channelTypes === 'undefined'
                     ? null
@@ -417,6 +418,7 @@ export default class RuleDB implements IRuleDB {
                 BS: rule.BS,
                 CS: rule.CS,
                 SKY: rule.SKY,
+                BS4K: rule.BS4K,
                 isFree: rule.isFree,
             },
             reserveOption: {

@@ -113,6 +113,10 @@ export default class ChannelDB implements IChannelDB {
      * @paramChannelTypeId
      */
     private getChannelTypeId(type: mapid.ChannelType): number {
+        if ((type as string) === 'BS4K') {
+            return 103;
+        }
+
         const grAltMatch = /^GR-ALT(\d+)$/.exec(type);
         if (grAltMatch !== null) {
             return parseInt(grAltMatch[1], 10);

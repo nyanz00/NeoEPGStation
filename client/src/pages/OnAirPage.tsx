@@ -17,7 +17,7 @@ import { useSettings } from '../core/storage/settings';
 import { loadOnAirPinnedChannelIds, saveOnAirPinnedChannelIds } from '../core/storage/onAirPins';
 import { GuideProgramDialog, reserveIndex } from './GuidePage';
 
-const waveOrder: ChannelType[] = ['GR', 'GR-ALT1', 'GR-ALT2', 'GR-ALT3', 'BS', 'CS', 'SKY'];
+const waveOrder: ChannelType[] = ['GR', 'GR-ALT1', 'GR-ALT2', 'GR-ALT3', 'BS', 'CS', 'SKY', 'BS4K'];
 const pinnedWave = 'PINNED';
 
 function waveSort(left: string, right: string): number {

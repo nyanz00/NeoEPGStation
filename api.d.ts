@@ -38,7 +38,7 @@ export type GRAltChannelType =
     | 'GR-ALT18'
     | 'GR-ALT19'
     | 'GR-ALT20';
-export type ChannelType = 'GR' | GRAltChannelType | 'BS' | 'CS' | 'SKY';
+export type ChannelType = 'GR' | GRAltChannelType | 'BS' | 'CS' | 'SKY' | 'BS4K';
 export type ProgramGenreLv1 = number;
 export type ProgramGenreLv2 = number;
 export type ProgramVideoType = 'mpeg2' | 'h.264' | 'h.265';
@@ -654,6 +654,7 @@ export interface BroadcastStatus {
     BS: boolean;
     CS: boolean;
     SKY: boolean;
+    BS4K: boolean;
 }
 
 /**
@@ -741,6 +742,7 @@ export interface RuleSearchOption {
     BS?: boolean; // BS
     CS?: boolean; // CS
     SKY?: boolean; // SKY
+    BS4K?: boolean; // BS4K
     channelTypes?: ChannelType[]; // GR-ALT などの追加 channel type
     channelIds?: ChannelId[]; // channels ids
     genres?: Genre[];
@@ -1186,6 +1188,7 @@ export interface ScheduleOption {
     BS: boolean;
     CS: boolean;
     SKY: boolean;
+    BS4K?: boolean;
     channelTypes?: ChannelType[];
 }
 

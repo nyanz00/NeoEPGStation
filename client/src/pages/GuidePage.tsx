@@ -80,7 +80,7 @@ export interface ProgramReserve {
     entries: ProgramReserveEntry[];
 }
 
-const basicTypes: ChannelType[] = ['GR', 'BS', 'CS', 'SKY'];
+const basicTypes: ChannelType[] = ['GR', 'BS', 'CS', 'SKY', 'BS4K'];
 const hourColors = [
     '#652ffc',
     '#3f2cf3',
@@ -729,6 +729,7 @@ export function GuidePage(): ReactNode {
             BS: selectedType === null || selectedType === 'BS',
             CS: selectedType === null || selectedType === 'CS',
             SKY: selectedType === null || selectedType === 'SKY',
+            BS4K: selectedType === 'BS4K' || (selectedType === null && availableTypes.includes('BS4K')),
             channelTypes: extraTypes,
         };
     }, [availableTypes, endAt, settings.isHalfWidthDisplayed, settings.isShowOnlyFreePrograms, startAt, wave]);

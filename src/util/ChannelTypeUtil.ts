@@ -8,7 +8,7 @@ namespace ChannelTypeUtil {
 
     export const broadcastTypes: apid.ChannelType[] = (['GR'] as apid.ChannelType[])
         .concat(grAltChannelTypes)
-        .concat(['BS', 'CS', 'SKY'] as apid.ChannelType[]);
+        .concat(['BS', 'CS', 'SKY', 'BS4K'] as apid.ChannelType[]);
 
     export const createBroadcastStatus = (): apid.BroadcastStatus => {
         const status = {} as apid.BroadcastStatus;
@@ -75,6 +75,9 @@ namespace ChannelTypeUtil {
         }
         if (option.SKY === true) {
             types.push('SKY');
+        }
+        if (option.BS4K === true) {
+            types.push('BS4K');
         }
         if (typeof option.channelTypes !== 'undefined') {
             for (const type of option.channelTypes) {

@@ -100,6 +100,7 @@ export default class ReserveOptionChecker implements IReserveOptionChecker {
                 !!option.BS === true ||
                 !!option.CS === true ||
                 !!option.SKY === true ||
+                !!option.BS4K === true ||
                 ChannelTypeUtil.getRuleChannelTypes(option).length > 0
             ) {
                 return false;

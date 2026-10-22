@@ -49,9 +49,10 @@ function ruleChannels(rule: Rule, channels: Awaited<ReturnType<typeof api.getCha
     if ((rule.searchOption.channelIds?.length ?? 0) > 0) {
         return rule.searchOption.channelIds!.map(id => channelName(channels, id)).join('、');
     }
-    const types = rule.searchOption.channelTypes ?? [];
+    const types = [...(rule.searchOption.channelTypes ?? [])];
+    if (rule.searchOption.BS4K === true && !types.includes('BS4K')) types.push('BS4K');
     if (types.length > 0) return types.map(channelTypeLabel).join('、');
-    const legacy = (['GR', 'BS', 'CS', 'SKY'] as const).filter(type => rule.searchOption[type] === true);
+    const legacy = (['GR', 'BS', 'CS', 'SKY', 'BS4K'] as const).filter(type => rule.searchOption[type] === true);
     return legacy.length > 0 ? legacy.join('、') : '全局';
 }
 
