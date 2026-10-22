@@ -1,7 +1,12 @@
 import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
-import { Box, ButtonBase, type SxProps, type Theme, useMediaQuery } from '@mui/material';
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import FirstPage from '@mui/icons-material/FirstPage';
+import LastPage from '@mui/icons-material/LastPage';
+import { Box, Button, ButtonBase, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, TextField, type SxProps, type Theme, useMediaQuery } from '@mui/material';
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { parsePageJump } from '../core/pagination/extendedPagination';
+import { useSettings } from '../core/storage/settings';
+import { programDialogPaper } from './programDialogStyles';
 
 type PaginationItem = number | '...';
 
@@ -31,8 +36,7 @@ function desktopItems(length: number, value: number, maxLength: number): Paginat
     return [...range(1, left), '...', ...range(right, length)];
 }
 
-function mobileItems(length: number, value: number): number[] {
-    const maxSize = 5;
+function mobileItems(length: number, value: number, maxSize: number): number[] {
     const center = Math.ceil(maxSize / 2);
     let start = value <= center - 1 ? 1 : length - value >= center - 1 ? value - (center - 1) : length - maxSize + 1;
     start = Math.max(1, start);
@@ -50,9 +54,14 @@ export function VueCompatiblePagination({
     onChange: (event: MouseEvent<HTMLButtonElement>, value: number) => void;
     sx?: SxProps<Theme>;
 }): ReactNode {
+    const settings = useSettings();
+    const extended = settings.isExtendedPaginationEnabled;
     const mobile = useMediaQuery('(max-width:500px)');
     const containerRef = useRef<HTMLElement | null>(null);
     const [containerWidth, setContainerWidth] = useState(0);
+    const [jumpOpen, setJumpOpen] = useState(false);
+    const [jumpValue, setJumpValue] = useState('');
+    const [jumpError, setJumpError] = useState(false);
 
     useEffect(() => {
         const element = containerRef.current;
@@ -67,11 +76,14 @@ export function VueCompatiblePagination({
     const safeCount = Math.max(1, Math.floor(count));
     const safePage = Math.min(safeCount, Math.max(1, Math.floor(page)));
     const items = useMemo<PaginationItem[]>(() => {
-        if (mobile) return mobileItems(safeCount, safePage);
-        const maxButtons = containerWidth > 0 ? Math.floor((containerWidth - 96) / 42) : 12;
+        if (mobile) {
+            const extendedMaxSize = containerWidth > 0 ? Math.min(3, Math.max(1, Math.floor((containerWidth - 178) / 42))) : 3;
+            return mobileItems(safeCount, safePage, extended ? extendedMaxSize : 5);
+        }
+        const maxButtons = containerWidth > 0 ? Math.floor((containerWidth - (extended ? 196 : 96)) / 42) : 12;
         const maxLength = Math.min(12, Math.max(1, maxButtons), safeCount);
         return desktopItems(safeCount, safePage, maxLength);
-    }, [containerWidth, mobile, safeCount, safePage]);
+    }, [containerWidth, extended, mobile, safeCount, safePage]);
 
     if (count <= 1) return null;
 
@@ -87,14 +99,44 @@ export function VueCompatiblePagination({
         '&:disabled': { boxShadow: 1, color: 'text.disabled' },
     } as const;
 
+    const openPageJump = (): void => {
+        setJumpValue(String(safePage));
+        setJumpError(false);
+        setJumpOpen(true);
+    };
+    const submitPageJump = (event: FormEvent<HTMLFormElement>): void => {
+        event.preventDefault();
+        const targetPage = parsePageJump(jumpValue, safeCount);
+        if (targetPage === null) {
+            setJumpError(true);
+            return;
+        }
+        setJumpOpen(false);
+        if (targetPage !== safePage) onChange(event as unknown as MouseEvent<HTMLButtonElement>, targetPage);
+    };
+    const changePage = (event: MouseEvent<HTMLButtonElement>, value: number): void => {
+        if (extended && value === safePage) openPageJump();
+        else onChange(event, value);
+    };
+
     return (
         <Box component="nav" ref={containerRef} aria-label="ページ切り替え" sx={sx}>
             <Box component="ul" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: { xs: 0.75, sm: 1 }, m: 0, p: 0, listStyle: 'none' }}>
                 <Box component="li">
+                    {extended && (
+                        <ButtonBase
+                            aria-label="最初のページ"
+                            disabled={safePage <= 1}
+                            onClick={event => onChange(event, 1)}
+                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', mr: { xs: 0.5, sm: 1 }, fontSize: '0.875rem' }}
+                        >
+                            <FirstPage />
+                        </ButtonBase>
+                    )}
                     <ButtonBase
                         aria-label="前のページ"
                         disabled={safePage <= 1}
-                        onClick={event => onChange(event, safePage - 1)}
+                        onClick={event => changePage(event, safePage - 1)}
                         sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', mr: { xs: 0.5, sm: 1 } }}
                     >
                         <ChevronLeft />
@@ -114,7 +156,7 @@ export function VueCompatiblePagination({
                             <ButtonBase
                                 aria-label={`${item}ページ目`}
                                 aria-current={item === safePage ? 'page' : undefined}
-                                onClick={event => onChange(event, item)}
+                                onClick={event => changePage(event, item)}
                                 sx={{
                                     ...buttonSx,
                                     bgcolor: item === safePage ? 'primary.main' : 'background.paper',
@@ -131,13 +173,53 @@ export function VueCompatiblePagination({
                     <ButtonBase
                         aria-label="次のページ"
                         disabled={safePage >= safeCount}
-                        onClick={event => onChange(event, safePage + 1)}
+                        onClick={event => changePage(event, safePage + 1)}
                         sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', ml: { xs: 0.5, sm: 1 } }}
                     >
                         <ChevronRight />
                     </ButtonBase>
+                    {extended && (
+                        <ButtonBase
+                            aria-label="最後のページ"
+                            disabled={safePage >= safeCount}
+                            onClick={event => onChange(event, safeCount)}
+                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', ml: { xs: 0.5, sm: 1 }, fontSize: '0.875rem' }}
+                        >
+                            <LastPage />
+                        </ButtonBase>
+                    )}
                 </Box>
             </Box>
+            {extended && (
+                <Dialog open={jumpOpen} onClose={() => setJumpOpen(false)} maxWidth="xs" fullWidth slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}>
+                    <Box component="form" onSubmit={submitPageJump}>
+                        <DialogTitle>ページを指定</DialogTitle>
+                        <DialogContent>
+                            <DialogContentText sx={{ mb: 2 }}>移動するページ番号を入力してください（1〜{safeCount}）。</DialogContentText>
+                            <TextField
+                                autoFocus
+                                fullWidth
+                                type="number"
+                                label="ページ番号"
+                                value={jumpValue}
+                                error={jumpError}
+                                helperText={jumpError ? `1〜${safeCount}の整数を入力してください` : undefined}
+                                slotProps={{ htmlInput: { min: 1, max: safeCount, step: 1 } }}
+                                onChange={event => {
+                                    setJumpValue(event.target.value);
+                                    setJumpError(false);
+                                }}
+                            />
+                        </DialogContent>
+                        <DialogActions>
+                            <Button onClick={() => setJumpOpen(false)}>キャンセル</Button>
+                            <Button type="submit" variant="contained">
+                                移動
+                            </Button>
+                        </DialogActions>
+                    </Box>
+                </Dialog>
+            )}
         </Box>
     );
 }

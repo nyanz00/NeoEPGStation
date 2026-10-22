@@ -72,6 +72,7 @@ export interface AppSettings {
     recordingLength: number;
     recordedLength: number;
     isShowTableMode: boolean;
+    isExtendedPaginationEnabled: boolean;
     isHighlightRecordedOnReturn: boolean;
     isPreferredPlayingOnWeb: boolean;
     isShowDropInfoInsteadOfDescription: boolean;
@@ -159,6 +160,7 @@ export const defaultSettings: AppSettings = {
     recordingLength: 24,
     recordedLength: 24,
     isShowTableMode: false,
+    isExtendedPaginationEnabled: false,
     isHighlightRecordedOnReturn: true,
     isPreferredPlayingOnWeb: !isAppleMobile && !isAndroid,
     isShowDropInfoInsteadOfDescription: false,

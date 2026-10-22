@@ -1518,6 +1518,11 @@ export function SettingsPage(): ReactNode {
                                     }
                                 />
                                 <SettingRow
+                                    title="拡張ページ切り替え"
+                                    description="先頭・末尾への移動ボタンを表示し、現在のページ番号からページを指定できます。"
+                                    control={<Switch checked={draft.isExtendedPaginationEnabled} onChange={event => patch('isExtendedPaginationEnabled', event.target.checked)} />}
+                                />
+                                <SettingRow
                                     title="検索最大表示件数"
                                     control={
                                         <TextField
