@@ -5,6 +5,8 @@ import * as api from '../../api';
 
 export const get: Operation = async (req, res) => {
     const thumbnailApiModel = container.get<IThumbnailApiModel>('IThumbnailApiModel');
+    const noCache = 'private, no-cache, no-store, must-revalidate';
+    res.setHeader('Cache-Control', noCache);
 
     try {
         const filePath = await thumbnailApiModel.getIdFilePath(parseInt(req.params.thumbnailId, 10));
@@ -15,9 +17,11 @@ export const get: Operation = async (req, res) => {
                 message: 'thumbnail is not Found',
             });
         } else {
+            res.setHeader('Cache-Control', 'private, max-age=14400');
             api.responseFile(req, res, filePath, 'image/jpeg', false);
         }
     } catch (err: any) {
+        res.setHeader('Cache-Control', noCache);
         api.responseServerError(res, err.message);
     }
 };
