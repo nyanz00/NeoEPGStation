@@ -1,31 +1,44 @@
 import { Operation } from '../../ApiOperation';
 import IIPTVApiModel from '../../../api/iptv/IIPTVApiModel';
 import IConfiguration from '../../../IConfiguration';
+import { completeIptvDocumentRequest, IPTV_DOCUMENT_TIMEOUT_MESSAGE } from '../../../api/iptv/IptvDocumentRequestGuard';
 import container from '../../../ModelContainer';
 import * as api from '../../api';
 
-export const get: Operation = async (req, res) => {
-    const iptvApiModel = container.get<IIPTVApiModel>('IIPTVApiModel');
+export const get: Operation = (req, res) => {
     const configuration = container.get<IConfiguration>('IConfiguration');
+    const config = configuration.getConfig();
 
-    try {
-        if (typeof req.headers.host === 'undefined') {
-            throw new Error('HostIsUndefined');
-        }
+    return completeIptvDocumentRequest(res, {
+        timeoutMs: config.iptvDocumentTimeout,
+        execute: requestContext => {
+            if (typeof req.headers.host === 'undefined') {
+                throw new Error('HostIsUndefined');
+            }
 
-        const result = await iptvApiModel.getChannelList(
-            req.headers.host,
-            api.isSecureProtocol(req),
-            typeof req.query.mode === 'number' ? req.query.mode : Number(req.query.mode),
-            req.query.isHalfWidth as any,
-            configuration.getConfig().subDirectory,
-        );
-        res.setHeader('Content-Type', 'application/x-mpegURL; charset="UTF-8"');
-        res.status(200);
-        res.end(result);
-    } catch (err: any) {
-        api.responseServerError(res, err.message);
-    }
+            const iptvApiModel = container.get<IIPTVApiModel>('IIPTVApiModel');
+            return iptvApiModel.getChannelList(
+                req.headers.host,
+                api.isSecureProtocol(req),
+                typeof req.query.mode === 'number' ? req.query.mode : Number(req.query.mode),
+                req.query.isHalfWidth as any,
+                config.subDirectory,
+                requestContext,
+            );
+        },
+        failure: (error: any) => {
+            if (error?.message === IPTV_DOCUMENT_TIMEOUT_MESSAGE) {
+                res.status(504).json({ code: 504, message: 'Gateway Timeout' });
+            } else {
+                api.responseServerError(res, error?.message);
+            }
+        },
+        success: result => {
+            res.setHeader('Content-Type', 'application/x-mpegURL; charset="UTF-8"');
+            res.status(200);
+            res.end(result);
+        },
+    });
 };
 
 get.apiDoc = {

@@ -8,6 +8,11 @@ import IChannelDB from '../../db/IChannelDB';
 import IProgramDB from '../../db/IProgramDB';
 import IIPTVApiModel from './IIPTVApiModel';
 import ChannelUtil from '../../../util/ChannelUtil';
+import type { IptvRequestContext } from './IptvDocumentRequestGuard';
+
+const IPTVDOCUMENT_YIELD_INTERVAL = 128;
+
+const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve));
 
 @injectable()
 class IPTVApiModel implements IIPTVApiModel {
@@ -33,13 +38,21 @@ class IPTVApiModel implements IIPTVApiModel {
         mode: number,
         isHalfWidth: boolean,
         subDirectory?: string,
+        requestContext?: IptvRequestContext,
     ): Promise<string> {
         const channels = await this.channelDB.findAll(true);
+        requestContext?.ensureActive();
 
         const channelIndex: { [key: string]: number } = {};
 
         let str = '#EXTM3U\n';
-        for (const channel of channels) {
+        for (let index = 0; index < channels.length; index++) {
+            if (index > 0 && index % IPTVDOCUMENT_YIELD_INTERVAL === 0) {
+                await yieldToEventLoop();
+                requestContext?.ensureActive();
+            }
+            const channel = channels[index];
+            requestContext?.ensureActive();
             if (!ChannelUtil.isMediaService(channel.type)) {
                 continue;
             }
@@ -73,19 +86,27 @@ class IPTVApiModel implements IIPTVApiModel {
      * @param isHalfWidth: 半角で取得するか
      * @return Promise<string>
      */
-    public async getEpg(days: number, isHalfWidth: boolean): Promise<string> {
+    public async getEpg(days: number, isHalfWidth: boolean, requestContext?: IptvRequestContext): Promise<string> {
         const now = new Date().getTime();
         const programs = await this.programDB.findSchedule({
             startAt: now,
             endAt: now + 1000 * 60 * 60 * 24 * days,
             isHalfWidth: isHalfWidth,
-            types: ['GR', 'BS', 'CS', 'SKY'],
+            types: ['GR', 'BS', 'CS', 'SKY', 'BS4K'],
         });
+        requestContext?.ensureActive();
         const channels = await this.channelDB.findAll();
+        requestContext?.ensureActive();
 
         // channelId ごとに programs をまとめる
         const programsIndex: { [key: number]: Program[] } = {};
-        for (const program of programs) {
+        for (let index = 0; index < programs.length; index++) {
+            if (index > 0 && index % IPTVDOCUMENT_YIELD_INTERVAL === 0) {
+                await yieldToEventLoop();
+                requestContext?.ensureActive();
+            }
+            const program = programs[index];
+            requestContext?.ensureActive();
             if (typeof programsIndex[program.channelId] === 'undefined') {
                 programsIndex[program.channelId] = [];
             }
@@ -104,7 +125,14 @@ class IPTVApiModel implements IIPTVApiModel {
             '<?xml version="1.0" encoding="UTF-8"?>' +
             '<!DOCTYPE tv SYSTEM "xmltv.dtd">' +
             '<tv generator-info-name="EPGStation">';
-        for (const channel of channels) {
+        let renderedPrograms = 0;
+        for (let index = 0; index < channels.length; index++) {
+            if (index > 0 && index % IPTVDOCUMENT_YIELD_INTERVAL === 0) {
+                await yieldToEventLoop();
+                requestContext?.ensureActive();
+            }
+            const channel = channels[index];
+            requestContext?.ensureActive();
             if (typeof programsIndex[channel.id] === 'undefined') {
                 continue;
             }
@@ -115,6 +143,11 @@ class IPTVApiModel implements IIPTVApiModel {
             str += `<service_id>${channel.serviceId}</service_id>`;
             str += '</channel>\n';
             for (const program of programsIndex[channel.id]) {
+                if (renderedPrograms > 0 && renderedPrograms % IPTVDOCUMENT_YIELD_INTERVAL === 0) {
+                    await yieldToEventLoop();
+                    requestContext?.ensureActive();
+                }
+                renderedPrograms++;
                 str += `<programme start="${this.getTimeStr(program.startAt)}" stop="${this.getTimeStr(
                     program.endAt,
                 )}" channel="${program.channelId}">`;

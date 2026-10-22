@@ -1,3 +1,5 @@
+import type { IptvRequestContext } from './IptvDocumentRequestGuard';
+
 export default interface IIPTVApiModel {
     getChannelList(
         host: string,
@@ -5,6 +7,7 @@ export default interface IIPTVApiModel {
         mode: number,
         isHalfWidth: boolean,
         subDirectory?: string,
+        requestContext?: IptvRequestContext,
     ): Promise<string>;
-    getEpg(days: number, isHalfWidth: boolean): Promise<string>;
+    getEpg(days: number, isHalfWidth: boolean, requestContext?: IptvRequestContext): Promise<string>;
 }
