@@ -16,6 +16,7 @@ import {
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 import { getSubtitleFontFamily } from './subtitleFont';
+import { bindAribCaptionVisibility } from './AribCaptionVisibility';
 
 interface DPlayerDanmakuItem {
     text: string;
@@ -355,6 +356,7 @@ export class LiveMpegTsPlayerCore {
 
     private bindPlayerEvents(): void {
         if (this.player === null) return;
+        bindAribCaptionVisibility(this.player, () => this.player);
         this.player.on('waiting', () => {
             this.setState({
                 ...this.state,

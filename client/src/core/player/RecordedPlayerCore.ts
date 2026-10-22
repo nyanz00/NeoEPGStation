@@ -17,6 +17,7 @@ import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 import { getRecordedDanmakuDisplayTime } from './recordedDanmakuTiming';
 import { getSubtitleFontFamily } from './subtitleFont';
+import { bindAribCaptionVisibility } from './AribCaptionVisibility';
 
 export type RecordedPlayerSourceType = 'normal' | 'hls' | 'mpegts';
 
@@ -366,6 +367,7 @@ export class RecordedPlayerCore {
     private bindEvents(): void {
         const player = this.player;
         if (player === null) return;
+        bindAribCaptionVisibility(player, () => this.player);
         player.on('waiting', () => {
             if (this.playbackFinished || player.video.ended) {
                 this.finishPlayback();
