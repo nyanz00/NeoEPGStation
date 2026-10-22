@@ -170,6 +170,7 @@ class RecorderModel implements IRecorderModel {
             this.recordingEvent.emitStartPrepRecording(this.reserve);
         }
 
+        let streamEstablished = false;
         // 番組ストリームを取得する
         try {
             // 番組開始時刻が変更されたことに伴い番組間に重なりが生じ、当該番組が削除されている
@@ -185,8 +186,36 @@ class RecorderModel implements IRecorderModel {
                 }
             }
 
+            this.preparingStreamError = null;
             this.abortController = new AbortController();
-            this.stream = await this.streamCreator.create(this.reserve, this.abortController.signal);
+            const controller = this.abortController;
+            const responseTimeout = setTimeout(
+                () => controller.abort(new Error('TunerResponseTimeout')),
+                this.config.tunerRequestTimeout ?? 30000,
+            );
+            try {
+                this.stream = await new Promise<http.IncomingMessage>((resolve, reject) => {
+                    const onAbort = () => reject(controller.signal.reason ?? new Error('RecordingCancelled'));
+                    controller.signal.addEventListener('abort', onAbort, { once: true });
+                    this.streamCreator.create(this.reserve, controller.signal).then(
+                        source => {
+                            controller.signal.removeEventListener('abort', onAbort);
+                            if (controller.signal.aborted) source.destroy();
+                            else resolve(source);
+                        },
+                        error => {
+                            controller.signal.removeEventListener('abort', onAbort);
+                            reject(error);
+                        },
+                    );
+                });
+            } finally {
+                clearTimeout(responseTimeout);
+            }
+            this.stream.pause();
+            // Retain stream errors while reservation/path/drop-log preparation awaits I/O.
+            this.stream.on('error', this.onPreparingStreamError);
+            streamEstablished = true;
 
             // 録画準備のキャンセル or ストリーム取得中に予約が削除されていないかチェック
             if ((await this.reserveDB.findId(this.reserve.id)) === null) {
@@ -202,10 +231,15 @@ class RecorderModel implements IRecorderModel {
                 this.emitCancelEvent();
                 return;
             }
+            this.destroyStream();
+            await this.waitForRecordingFileClosed().catch(error => this.log.system.error(error));
 
             this.log.system.error(`preprec failed: ${this.getReserveLogContext()}`);
             this.log.system.error(err);
-            if (retry < 3) {
+            if (
+                Date.now() < this.reserve.endAt &&
+                (retry < 3 || (!this.reserve.isTimeSpecified && !streamEstablished))
+            ) {
                 // doRecord() まで進んだ後の失敗でも、再試行待ちは録画準備中として扱う。
                 // ただし実データ未受信なので、録画中の予約を保持する判定には含めない。
                 this.isPrepRecording = true;
@@ -226,6 +260,11 @@ class RecorderModel implements IRecorderModel {
             this.abortController = null;
         }
     }
+
+    private preparingStreamError: Error | null = null;
+    private onPreparingStreamError = (error: Error): void => {
+        this.preparingStreamError = error;
+    };
 
     /**
      * 録画準備キャンセル完了時に発行するイベント
@@ -302,6 +341,10 @@ class RecorderModel implements IRecorderModel {
         if (this.stream === null) {
             return;
         }
+        const source = this.stream;
+        source.pause();
+        source.removeListener('error', this.onPreparingStreamError);
+        source.on('error', this.onPreparingStreamError);
 
         // 録画キャンセル
         if (this.isStopPrepRec === true) {
@@ -344,13 +387,13 @@ class RecorderModel implements IRecorderModel {
                 });
             }
         });
-        this.stream.pipe(this.recFile);
-
         // drop checker
+        let dropPrepared = false;
         if (this.config.isEnabledDropCheck === true) {
             let dropFilePath: string | null = null;
             try {
-                await this.dropChecker.start(this.config.dropLog, recPath.fullPath, this.stream, this.reserve.endAt);
+                await this.dropChecker.prepare(this.config.dropLog, recPath.fullPath, this.reserve.endAt);
+                dropPrepared = true;
                 dropFilePath = this.dropChecker.getFilePath();
             } catch (err: any) {
                 this.log.system.error(`drop check error: ${recPath.fullPath}`);
@@ -382,6 +425,15 @@ class RecorderModel implements IRecorderModel {
 
                 return;
             }
+            if (this.preparingStreamError !== null || source.destroyed || source.readableEnded) {
+                reject(this.preparingStreamError ?? source.errored ?? new Error('RecordingStreamEndedBeforeStart'));
+                return;
+            }
+            const onSourceError = (error: Error): void => {
+                clearTimeout(recordingTimeoutId);
+                reject(error);
+            };
+            source.once('error', onSourceError);
 
             // stream データ受信のタイムアウト設定
             let isStreamTimeout = false; // stream データ受信がタイムアウトした場合は true
@@ -426,7 +478,14 @@ class RecorderModel implements IRecorderModel {
                 this.hasReceivedRecordingData = true;
 
                 // 番組情報追加
-                const recorded = await this.addRecorded(recPath);
+                let recorded: Recorded;
+                try {
+                    recorded = await this.addRecorded(recPath);
+                } catch (error: any) {
+                    source.removeListener('error', onSourceError);
+                    reject(error);
+                    return;
+                }
 
                 // 終了処理セット
                 if (this.stream !== null) {
@@ -446,11 +505,16 @@ class RecorderModel implements IRecorderModel {
                     this.setEventRelayTimer(this.reserve);
                 }
 
+                source.removeListener('error', onSourceError);
                 resolve();
             };
 
             // stream データ受診時のコールバック設定
             this.stream.once('data', onData);
+            // Attach every consumer in the same turn before allowing the source to flow.
+            this.stream.pipe(this.recFile!);
+            if (dropPrepared) this.dropChecker.attach(recPath.fullPath, this.stream);
+            this.stream.resume();
         }).catch(err => {
             // 予想外の録画失敗エラー
             this.destroyStream();
@@ -491,6 +555,13 @@ class RecorderModel implements IRecorderModel {
             this.log.system.error('add recorded DB error');
             this.log.system.error(err);
             this.destroyStream();
+            await this.waitForRecordingFileClosed().catch(error => this.log.system.error(error));
+
+            // A failed video-row insert must not leave a phantom recording behind on retry.
+            if (this.recordedId !== null && this.videoFileId === null) {
+                await this.recordedDB.deleteOnce(this.recordedId).catch(error => this.log.system.error(error));
+                this.recordedId = null;
+            }
 
             // delete file
             await FileUtil.unlink(recPath.fullPath).catch(err => {

@@ -51,6 +51,11 @@ class DropCheckerModel implements IDropCheckerModel {
         readableStream: stream.Readable,
         recordingEndAt?: number,
     ): Promise<void> {
+        await this.prepare(logDirPath, srcFilePath, recordingEndAt);
+        this.attach(srcFilePath, readableStream);
+    }
+
+    public async prepare(logDirPath: string, srcFilePath: string, recordingEndAt?: number): Promise<void> {
         this.result = null;
         this.pidIndex = {};
         this.ecmPids.clear();
@@ -64,7 +69,9 @@ class DropCheckerModel implements IDropCheckerModel {
 
         // 空ファイル生成
         await FileUtil.touchFile(this.dest);
+    }
 
+    public attach(srcFilePath: string, readableStream: stream.Readable): void {
         this.transformStream = new stream.Transform({
             transform: function (chunk: any, _encoding: string, done: () => void): void {
                 this.push(chunk);
