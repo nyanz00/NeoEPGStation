@@ -462,7 +462,7 @@ class V1MigrationTool {
         }
         if (oldRecorded.extended !== null) {
             newRecorded.extended = oldRecorded.extended;
-            newRecorded.extended = StrUtil.toHalf(oldRecorded.extended);
+            newRecorded.halfWidthExtended = StrUtil.toHalf(oldRecorded.extended);
         }
         newRecorded.rawExtended = null;
         newRecorded.rawHalfWidthExtended = null;
