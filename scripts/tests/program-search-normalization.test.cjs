@@ -142,6 +142,15 @@ function findKeyword(db, keyword, option, valueBaseName = 'keyword', isIgnore = 
     return { ids: rows.map(row => row.id), where, params: query.param };
 }
 
+function findKeywordInRows(rows, keyword, option, valueBaseName = 'keyword', isIgnore = false) {
+    const db = createProgramTable(rows);
+    try {
+        return findKeyword(db, keyword, option, valueBaseName, isIgnore);
+    } finally {
+        db.close();
+    }
+}
+
 const onlyName = { cs: false, regexp: false, name: true, description: false, extended: false };
 
 test('search normalization keeps legacy half-width conversion and adds compatibility normalization', () => {
@@ -162,7 +171,9 @@ test('ordinary name search matches Roman numeral variants in both query directio
     ]);
     try {
         assert.deepEqual(findKeyword(db, '転生したら剣でしたII', onlyName).ids, [1, 2]);
-        assert.deepEqual(findKeyword(db, '転生したら剣でしたⅡ', onlyName).ids, [1, 2]);
+        const compatibility = findKeyword(db, '転生したら剣でしたⅡ', onlyName);
+        assert.deepEqual(compatibility.ids, [1, 2]);
+        assert.equal(compatibility.params.keywordName0, '%転生したら剣でしたII%');
     } finally {
         db.close();
     }
@@ -221,18 +232,44 @@ test('exclude search removes Roman numeral variants after normalization', () => 
     }
 });
 
-test('regular-expression search keeps the raw pattern and legacy half-width columns', () => {
+test('regular-expression search half-width converts the pattern and keeps legacy columns', () => {
     const db = createProgramTable([normalizedRow(1, { name: 'Ⅱ期' }), normalizedRow(2, { name: 'II期' })]);
     try {
         const roman = findKeyword(db, 'Ⅱ', { ...onlyName, regexp: true });
         assert.deepEqual(roman.ids, [1]);
-        assert.equal(roman.params.keywordRegexp, 'Ⅱ');
+        assert.equal(roman.params.keywordRegexp, StrUtil.toHalf('Ⅱ'));
         assert.match(roman.where, /halfWidthName/);
         assert.doesNotMatch(roman.where, /normalizedName/);
 
         const legacy = findKeyword(db, 'II', { ...onlyName, regexp: true });
         assert.deepEqual(legacy.ids, [2]);
         assert.equal(legacy.params.keywordRegexp, 'II');
+
+        const converted = findKeywordInRows(
+            [normalizedRow(1, { name: 'ＡＢＣ〜' }), normalizedRow(2, { name: 'XYZ' })],
+            'ＡＢＣ〜',
+            { ...onlyName, regexp: true },
+        );
+        assert.deepEqual(converted.ids, [1]);
+        assert.equal(converted.params.keywordRegexp, 'ABC~');
+
+        const syntax = findKeywordInRows(
+            [normalizedRow(1, { name: 'ABC' }), normalizedRow(2, { name: 'XYZ' })],
+            '(ABC|XYZ)',
+            { ...onlyName, regexp: true },
+        );
+        assert.deepEqual(syntax.ids, [1, 2]);
+        assert.equal(syntax.params.keywordRegexp, '(ABC|XYZ)');
+
+        const excluded = findKeywordInRows(
+            [normalizedRow(1, { name: 'ABC~' }), normalizedRow(2, { name: 'XYZ' })],
+            'ＡＢＣ〜',
+            { ...onlyName, regexp: true },
+            'ignoreKeyword',
+            true,
+        );
+        assert.deepEqual(excluded.ids, [2]);
+        assert.equal(excluded.params.ignoreKeywordRegexp, 'ABC~');
     } finally {
         db.close();
     }
