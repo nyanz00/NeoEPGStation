@@ -59,6 +59,21 @@ ffprobe: /usr/local/bin/ffprobe
 encodeProcessNum: 4
 concurrentEncodeNum: 1
 
+# 新規エンコードを開始しない時間帯。実行中の処理と外部タスクの復旧監視は継続します。
+# encodeSuspendTime:
+#     - start: '18:00'
+#       end: '23:00'
+# 待機上限・同時受信数・時間制限は doc/conf-manual.md を参照してください。
+# encodeMaxPending: 1024
+# thumbnailMaxPending: 32
+# externalCommandMaxPending: 64
+# uploadMaxConcurrent: 3
+# uploadTimeout: 300000
+# externalCommandTimeout: 300000
+# storageCommandTimeout: 300000
+# tunerRequestTimeout: 30000
+# iptvDocumentTimeout: 30000
+
 # Amatsukaze AddTask integration common settings.
 # amatsukaze:
 #     addTaskPath: /opt/amatsukaze/exe_files/AmatsukazeAddTask
