@@ -1,6 +1,6 @@
 import { spawnManaged as spawn } from '../../../util/ManagedProcess.js';
 import { createHash, randomUUID } from 'crypto';
-import * as fileType from 'file-type';
+import fileType from 'file-type';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import { recordedUseClient } from '../../RecordedUseClient.js';
