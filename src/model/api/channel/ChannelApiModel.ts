@@ -1,7 +1,7 @@
 import { inject, injectable } from 'inversify';
 import axios from 'axios';
 import * as fs from 'fs';
-import { Client as mirakurun } from 'mirakurun';
+import mirakurun from '../../tuner/TunerServerAccessModel.js';
 import * as apid from '../../../../api.js';
 import IChannelDB from '../../db/IChannelDB.js';
 import IConfiguration from '../../IConfiguration.js';

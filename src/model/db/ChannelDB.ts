@@ -2,7 +2,7 @@ import { inject, injectable } from 'inversify';
 import { FindOptionsWhere, In } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
 import * as apid from '../../../api.js';
-import * as mapid from '../../../node_modules/mirakurun/api.js';
+import * as mapid from '../tuner/TunerApi.js';
 import Channel from '../../db/entities/Channel.js';
 import StrUtil from '../../util/StrUtil.js';
 import IConfiguration from '../IConfiguration.js';

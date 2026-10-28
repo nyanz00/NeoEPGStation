@@ -1,9 +1,9 @@
 import * as http from 'http';
 import { inject, injectable } from 'inversify';
-import { Client as Mirakurun } from 'mirakurun';
+import Mirakurun from '../../tuner/TunerServerAccessModel.js';
 import { finished } from 'stream';
 import * as apid from '../../../../api.js';
-import * as mapid from '../../../../node_modules/mirakurun/api.js';
+import * as mapid from '../../tuner/TunerApi.js';
 import Reserve from '../../../db/entities/Reserve.js';
 import Util from '../../../util/Util.js';
 import IConfigFile from '../../IConfigFile.js';
@@ -236,14 +236,18 @@ export default class RecordingStreamCreator implements IRecordingStreamCreator {
      */
     private getStream(reserve: Reserve, abortSignal?: AbortSignal): Promise<http.IncomingMessage> {
         const mirakurun = this.mirakurunClientModel.getClient();
-        mirakurun.priority = reserve.isConflict ? this.config.conflictPriority : this.config.recPriority;
 
         if (reserve.programId === null) {
             // 時刻指定予約
             return this.getTimeSpecifiedStream(reserve, mirakurun, abortSignal);
         } else {
             // programId 指定予約
-            return mirakurun.getProgramStream({ id: reserve.programId, decode: true, signal: abortSignal });
+            return mirakurun.getProgramStream({
+                id: reserve.programId,
+                decode: true,
+                signal: abortSignal,
+                priority: reserve.isConflict ? this.config.conflictPriority : this.config.recPriority,
+            });
         }
     }
 
@@ -266,7 +270,12 @@ export default class RecordingStreamCreator implements IRecordingStreamCreator {
 
         // mirakurun から channel stream を受け取る
         const channelStream = await mirakurun
-            .getServiceStream({ id: reserve.channelId, decode: true, signal: abortSignal })
+            .getServiceStream({
+                id: reserve.channelId,
+                decode: true,
+                signal: abortSignal,
+                priority: reserve.isConflict ? this.config.conflictPriority : this.config.recPriority,
+            })
             .catch(err => {
                 this.log.system.error(`stream get error ${reserve.channelId}`);
                 this.log.system.error(err);

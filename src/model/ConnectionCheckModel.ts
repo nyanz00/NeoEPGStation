@@ -1,5 +1,5 @@
 import { inject, injectable } from 'inversify';
-import { Client as mirakurun } from 'mirakurun';
+import mirakurun from './tuner/TunerServerAccessModel.js';
 import Util from '../util/Util.js';
 import IDBOperator from './db/IDBOperator.js';
 import IConnectionCheckModel from './IConnectionCheckModel.js';

@@ -1,5 +1,5 @@
 import * as apid from '../../../api.js';
-import * as mapid from '../../../node_modules/mirakurun/api.js';
+import * as mapid from '../tuner/TunerApi.js';
 import Channel from '../../db/entities/Channel.js';
 
 export interface ChannelUpdateValues {

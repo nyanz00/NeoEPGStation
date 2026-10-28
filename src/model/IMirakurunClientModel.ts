@@ -1,5 +1,5 @@
-import { Client as mirakurun } from 'mirakurun';
+import TunerServerAccessModel from './tuner/TunerServerAccessModel.js';
 
 export default interface IMirakurunClientModel {
-    getClient(): mirakurun;
+    getClient(): TunerServerAccessModel;
 }

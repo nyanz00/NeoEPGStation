@@ -235,11 +235,10 @@ export default abstract class LiveStreamBaseModel
         }
 
         const mirakurun = this.mirakurunClientModel.getClient();
-        mirakurun.priority = config.streamingPriority;
 
         this.log.stream.info(`get mirakurun service stream: ${this.processOption.channelId}`);
         this.stream = await mirakurun
-            .getServiceStream(this.processOption.channelId, true, config.streamingPriority)
+            .getServiceStream({ id: this.processOption.channelId, decode: true, priority: config.streamingPriority })
             .catch(err => {
                 this.stream = null;
                 if (this.processOption !== null) {

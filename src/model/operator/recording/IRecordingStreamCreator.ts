@@ -1,5 +1,5 @@
 import * as http from 'http';
-import * as mapid from '../../../../node_modules/mirakurun/api.js';
+import * as mapid from '../../tuner/TunerApi.js';
 import Reserve from '../../../db/entities/Reserve.js';
 
 interface IRecordingStreamCreator {

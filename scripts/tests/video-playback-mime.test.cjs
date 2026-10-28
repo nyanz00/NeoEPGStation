@@ -108,7 +108,7 @@ test('compiled ESM VideoApiModel detects real MP4 and Matroska headers and keeps
     });
     assert.deepEqual(await createModel(VideoApiModel, matroskaPath).getFullFilePath(30166), {
         path: matroskaPath,
-        mime: 'video/x-matroska',
+        mime: 'video/matroska',
     });
     assert.deepEqual(await createModel(VideoApiModel, tsPath).getFullFilePath(30166), {
         path: tsPath,

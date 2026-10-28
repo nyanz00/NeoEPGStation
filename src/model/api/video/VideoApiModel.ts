@@ -1,6 +1,6 @@
 import { spawnManaged as spawn } from '../../../util/ManagedProcess.js';
 import { createHash, randomUUID } from 'crypto';
-import fileType from 'file-type';
+import { fileTypeFromFile } from 'file-type';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import { recordedUseClient } from '../../RecordedUseClient.js';
@@ -319,7 +319,7 @@ export default class VideoApiModel implements IVideoApiModel {
      * @return Promise<string>
      */
     private async createMime(filePath: string): Promise<string> {
-        const mime = await fileType.fromFile(filePath);
+        const mime = await fileTypeFromFile(filePath);
         if (typeof mime !== 'undefined') {
             return mime.mime;
         }

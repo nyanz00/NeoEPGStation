@@ -1,5 +1,5 @@
 import { inject, injectable } from 'inversify';
-import * as mapid from '../../../../node_modules/mirakurun/api.js';
+import * as mapid from '../../tuner/TunerApi.js';
 import * as apid from '../../../../api.js';
 import IMirakurunClientModel from '../../IMirakurunClientModel.js';
 import IMirakurunStatusApiModel from './IMirakurunStatusApiModel.js';

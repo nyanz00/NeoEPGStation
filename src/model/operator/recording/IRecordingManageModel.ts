@@ -1,5 +1,5 @@
 import * as apid from '../../../../api.js';
-import * as mapid from '../../../../node_modules/mirakurun/api.js';
+import * as mapid from '../../tuner/TunerApi.js';
 import { IReserveUpdateValues } from '../../event/IReserveEvent.js';
 import { RecordingDropLogFile } from './IRecorderModel.js';
 

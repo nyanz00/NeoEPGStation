@@ -1,5 +1,5 @@
 import * as apid from '../../../api.js';
-import * as mapid from '../../../node_modules/mirakurun/api.js';
+import * as mapid from '../tuner/TunerApi.js';
 import Program from '../../db/entities/Program.js';
 import IChannelTypeIndex from './IChannelTypeHash.js';
 

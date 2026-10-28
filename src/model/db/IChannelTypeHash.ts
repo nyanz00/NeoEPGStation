@@ -1,4 +1,4 @@
-import * as mapid from '../../../node_modules/mirakurun/api.js';
+import * as mapid from '../tuner/TunerApi.js';
 
 /**
  * 番組情報を insert するときに使用する局索引情報
