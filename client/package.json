@@ -5,7 +5,9 @@
     "type": "module",
     "scripts": {
         "build": "node ../scripts/run-package-scripts.cjs check && vite build",
-        "check": "tsc --noEmit && prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" index.html",
+        "check": "node ../scripts/run-package-scripts.cjs check-types check-format",
+        "check-types": "tsc --noEmit",
+        "check-format": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" index.html",
         "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\" index.html",
         "dev": "vite",
         "preview": "vite preview"
