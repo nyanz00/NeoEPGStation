@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
+import RecordingStorageSync from './RecordingStorageSync.js';
 import * as apid from '../../../../api.js';
 import Reserve from '../../../db/entities/Reserve.js';
 import Recorded from '../../../db/entities/Recorded.js';
@@ -213,6 +214,12 @@ class RecordingUtilModel implements IRecordingUtilModel {
         if (isSuccessRenameFile === false) {
             try {
                 await FileUtil.copyFile(oldVideoFilePath, newRecPath.fullPath);
+                const synced = await RecordingStorageSync.sync(
+                    newRecPath.fullPath,
+                    () => RecordingStorageSync.syncFile(newRecPath.fullPath),
+                    this.log.system,
+                );
+                if (synced !== 'synced' && synced !== 'unsupported') throw new Error(`RecordingFileSync: ${synced}`);
             } catch (err: any) {
                 this.log.system.error(`copy file error: ${oldVideoFilePath} -> ${newRecPath.fullPath}`);
 
@@ -220,6 +227,24 @@ class RecordingUtilModel implements IRecordingUtilModel {
             }
         }
 
+        // Persist directory entries before committing the new path or deleting the source.
+        const destinationDirectory = path.dirname(newRecPath.fullPath);
+        const directorySynced = await RecordingStorageSync.sync(
+            destinationDirectory,
+            () => RecordingStorageSync.syncDirectory(destinationDirectory),
+            this.log.system,
+        );
+        if (!isSuccessRenameFile && directorySynced !== 'synced' && directorySynced !== 'unsupported') {
+            throw new Error(`RecordingDirectorySync: ${directorySynced}`);
+        }
+        if (isSuccessRenameFile) {
+            const sourceDirectory = path.dirname(oldVideoFilePath);
+            await RecordingStorageSync.sync(
+                sourceDirectory,
+                () => RecordingStorageSync.syncDirectory(sourceDirectory),
+                this.log.system,
+            );
+        }
         // VideoFile DB 更新
         try {
             await this.videoFileDB.updateFilePath({
@@ -253,6 +278,7 @@ class RecordingUtilModel implements IRecordingUtilModel {
                     throw err;
                 }
             }
+            throw err;
         }
 
         // rename で移動できなかった場合は recordedTmp にある古いファイルを削除する

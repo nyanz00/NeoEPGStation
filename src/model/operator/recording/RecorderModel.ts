@@ -25,6 +25,7 @@ import IConfiguration from '../../IConfiguration.js';
 import ILogger from '../../ILogger.js';
 import ILoggerModel from '../../ILoggerModel.js';
 import IMirakurunClientModel from '../../IMirakurunClientModel.js';
+import RecordingStorageSync from './RecordingStorageSync.js';
 import IDropCheckerModel from './IDropCheckerModel.js';
 import IRecorderModel, { RecordingDropLogFile } from './IRecorderModel.js';
 import IRecordingStreamCreator from './IRecordingStreamCreator.js';
@@ -328,18 +329,26 @@ class RecorderModel implements IRecorderModel {
         }
     }
 
-    private async waitForRecordingFileClosed(): Promise<void> {
+    private async waitForRecordingFileClosed(): Promise<boolean> {
         const recFile = this.recFile;
-        if (recFile === null) return;
-
+        if (recFile === null) return true;
+        let timer: NodeJS.Timeout | undefined;
         try {
-            await stream.promises.finished(recFile);
+            const closed = await Promise.race([
+                stream.promises.finished(recFile).then(() => true),
+                new Promise<false>(resolve => {
+                    timer = setTimeout(() => resolve(false), RecordingStorageSync.WRITER_CLOSE_TIMEOUT_MS);
+                }),
+            ]);
+            if (!closed) this.log.system.warn(`recording writer close timed out: ${this.reserve.id}`);
+            return closed;
         } catch (err: any) {
             this.log.system.error(`finish recFile error: ${this.reserve.id}`);
             this.log.system.error(err);
             throw err;
         } finally {
-            if (this.recFile === recFile) this.recFile = null;
+            clearTimeout(timer);
+            if (recFile.closed && this.recFile === recFile) this.recFile = null;
         }
     }
 
@@ -379,7 +388,7 @@ class RecorderModel implements IRecorderModel {
         this.log.system.info(`recording: ${this.getReserveLogContext()}, filePath: ${recPath.fullPath}`);
 
         // save stream
-        this.recFile = fs.createWriteStream(recPath.fullPath, { flags: 'a' });
+        this.recFile = fs.createWriteStream(recPath.fullPath, { flags: 'a', highWaterMark: 1024 * 1024 });
         this.recFile.once('error', async err => {
             // 書き込みエラー発生
             this.log.system.error(`recFile error reserveId: ${this.reserve.id}, recordedId: ${this.recordedId}`);
@@ -739,11 +748,14 @@ class RecorderModel implements IRecorderModel {
         try {
             await this.finishRecording(result);
         } finally {
-            await this.waitForRecordingFileClosed();
-            if (this.recordingUse !== null) {
-                recordedUseRegistry.release('operator:recording', this.recordingUse);
-                this.recordingUse = null;
-            }
+            const release = (): void => {
+                if (this.recordingUse !== null) {
+                    recordedUseRegistry.release('operator:recording', this.recordingUse);
+                    this.recordingUse = null;
+                }
+            };
+            if (this.recFile !== null && !this.recFile.closed) this.recFile.once('close', release);
+            else release();
         }
     }
 
@@ -752,7 +764,7 @@ class RecorderModel implements IRecorderModel {
 
         // stream 停止
         this.destroyStream();
-        await this.waitForRecordingFileClosed();
+        const fileClosed = await this.waitForRecordingFileClosed();
 
         // イベントリレーのチェック用タイマーをクリア
         if (this.eventRelayTimerId !== null) {
@@ -775,12 +787,22 @@ class RecorderModel implements IRecorderModel {
 
         if (this.recordedId !== null) {
             // remove recording flag
+            if (fileClosed && this.videoFileFulPath !== null) {
+                const target = this.videoFileFulPath;
+                await RecordingStorageSync.sync(target, () => RecordingStorageSync.syncFile(target), this.log.system);
+                const directory = path.dirname(target);
+                await RecordingStorageSync.sync(
+                    directory,
+                    () => RecordingStorageSync.syncDirectory(directory),
+                    this.log.system,
+                );
+            }
             this.log.system.info(`remove recording flag: ${this.recordedId}`);
             await this.recordedDB.removeRecording(this.recordedId);
             this.isRecording = false;
 
             // tmp に録画していた場合は移動する
-            if (typeof this.config.recordedTmp !== 'undefined' && this.videoFileId !== null) {
+            if (fileClosed && typeof this.config.recordedTmp !== 'undefined' && this.videoFileId !== null) {
                 try {
                     const newVdeoFileFulPath = await this.recordingUtil.movingFromTmp(this.reserve, this.videoFileId);
                     this.videoFileFulPath = newVdeoFileFulPath;
@@ -935,6 +957,9 @@ class RecorderModel implements IRecorderModel {
             this.log.system.info(`stop recording: ${this.reserve.id}`);
             // 録画中
             if (this.stream !== null) {
+                await this.readArrivedStreamData(this.stream);
+            }
+            if (this.stream !== null) {
                 this.stream.destroy();
                 this.stream.push(null); // eof 通知
             }
@@ -945,6 +970,26 @@ class RecorderModel implements IRecorderModel {
      * 予約のキャンセル
      * @param isPlanToDelete: boolean ファイルが削除される予定か
      */
+    private async readArrivedStreamData(source: http.IncomingMessage): Promise<void> {
+        if (this.recFile === null) return;
+        const deadline = Date.now() + 1000;
+        let lastBytesRead = -1;
+        while (!source.destroyed && !source.readableEnded && Date.now() < deadline) {
+            await new Promise<void>(resolve => setImmediate(resolve));
+            const writer = this.recFile;
+            if (writer === null) return;
+            if (
+                source.socket.bytesRead === lastBytesRead &&
+                source.readableLength === 0 &&
+                !source.isPaused() &&
+                writer.writableLength === 0 &&
+                !writer.writableNeedDrain
+            )
+                return;
+            lastBytesRead = source.socket.bytesRead;
+        }
+    }
+
     public async cancel(isPlanToDelete: boolean): Promise<void> {
         this.log.system.info(
             `recording cancel reserveId: ${this.reserve.id}, recordedId: ${this.recordedId}, isPlanToDelete: ${isPlanToDelete}`,
