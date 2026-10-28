@@ -1,84 +1,119 @@
 name: Docker
 
 on:
-  push:
-    branches:
-      - master
-    tags:
-      - '*'
+    push:
+        branches:
+            - develop
+            - nyanz-master
+        tags:
+            - '*'
 
 env:
-  MAIN_DISTRO: debian
+    MAIN_DISTRO: debian
 
 jobs:
-  build:
-    permissions:
-      contents: read
-    strategy:
-      matrix:
-        distro:
-          - alpine
-          - debian
-        include:
-          - distro: alpine
-            platforms: linux/amd64,linux/arm64/v8
-          - distro: debian
-            platforms: linux/amd64,linux/arm64/v8
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Docker tags
-        id: docker-tags
-        run: |
-          IMAGE="${{ secrets.DOCKERHUB_IMAGE }}"
-          if echo "$GITHUB_REF" | grep -e '^refs/heads/' >/dev/null 2>&1; then
-            GIT_BRANCH=$(echo "$GITHUB_REF" | sed -e 's|^refs/heads/||')
-            MAIN_TAG="$IMAGE:$GIT_BRANCH-${{ matrix.distro }}"
-            TAGS="$MAIN_TAG"
-            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-              TAGS="$TAGS,$IMAGE:$GIT_BRANCH"
-            fi
-          else
-            GIT_TAG=$(echo "$GITHUB_REF" | sed -e 's|^refs/tags/||')
-            MAIN_TAG="$IMAGE:$GIT_TAG-${{ matrix.distro }}"
-            TAGS="$MAIN_TAG"
-            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-              TAGS="$TAGS,$IMAGE:$GIT_TAG"
-            fi
-            # Always update latest image tags when a new git tag is created.
-            #
-            # You need to change the condition like below if you want to update latest image tags
-            # only when a v2 git tag is created:
-            #
-            #   if npx semver -r '">1"' "$GIT_TAG" >/dev/null 2>&1; then
-            #     # update latest image tags
-            #   fi
-            #
-            TAGS="$TAGS,$IMAGE:${{ matrix.distro }}"
-            if [ "$MAIN_DISTRO" = "${{ matrix.distro }}" ]; then
-              TAGS="$TAGS,$IMAGE:latest"
-            fi
-          fi
-          echo "Main tag: $MAIN_TAG"
-          echo "Tags: $TAGS"
-          echo "main-tag=$MAIN_TAG" >> "$GITHUB_OUTPUT"
-          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
-      - name: Setup QEMU user-mode emulation
-        uses: docker/setup-qemu-action@v4
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USER }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.${{ matrix.distro }}
-          platforms: ${{ matrix.platforms }}
-          tags: ${{ steps.docker-tags.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.distro }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.distro }}
-          push: true
+    build:
+        name: Build ${{ matrix.distro }} (${{ matrix.arch }})
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                distro: [alpine, debian]
+                arch: [amd64, arm64]
+                include:
+                    - arch: amd64
+                      platform: linux/amd64
+                      runner: ubuntu-24.04
+                    - arch: arm64
+                      platform: linux/arm64
+                      runner: ubuntu-24.04-arm
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - uses: actions/checkout@v7
+            - uses: docker/setup-buildx-action@v4
+            - name: Login to Docker Hub
+              uses: docker/login-action@v4
+              with:
+                  username: ${{ secrets.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Build and push by digest
+              id: build
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: Dockerfile.${{ matrix.distro }}
+                  platforms: ${{ matrix.platform }}
+                  outputs:
+                      type=image,name=${{ secrets.DOCKERHUB_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+                  cache-from: type=gha,scope=${{ matrix.distro }}-${{ matrix.arch }}
+                  cache-to: type=gha,mode=max,scope=${{ matrix.distro }}-${{ matrix.arch }}
+            - name: Export digest
+              env:
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  mkdir -p "${RUNNER_TEMP}/digests"
+                  touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+            - name: Upload digest
+              uses: actions/upload-artifact@v4
+              with:
+                  name: digests-${{ matrix.distro }}-${{ matrix.arch }}
+                  path: ${{ runner.temp }}/digests/*
+                  if-no-files-found: error
+                  retention-days: 1
+
+    publish:
+        name: Publish ${{ matrix.distro }} manifest
+        needs: build
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                distro: [alpine, debian]
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: docker/setup-buildx-action@v4
+            - name: Download architecture digests
+              uses: actions/download-artifact@v4
+              with:
+                  path: ${{ runner.temp }}/digests
+                  pattern: digests-${{ matrix.distro }}-*
+                  merge-multiple: true
+            - name: Login to Docker Hub
+              uses: docker/login-action@v4
+              with:
+                  username: ${{ secrets.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Calculate tags
+              id: tags
+              env:
+                  IMAGE: ${{ secrets.DOCKERHUB_IMAGE }}
+                  DISTRO: ${{ matrix.distro }}
+                  REF: ${{ github.ref }}
+              run: |
+                  TAGS=()
+                  if [[ "$REF" == refs/heads/* ]]; then
+                    BRANCH="${REF#refs/heads/}"
+                    TAGS+=("$IMAGE:$BRANCH-$DISTRO")
+                    if [[ "$DISTRO" == "$MAIN_DISTRO" ]]; then
+                      TAGS+=("$IMAGE:$BRANCH")
+                    fi
+                  else
+                    GIT_TAG="${REF#refs/tags/}"
+                      TAGS+=("$IMAGE:$GIT_TAG-$DISTRO" "$IMAGE:$DISTRO")
+                    if [[ "$DISTRO" == "$MAIN_DISTRO" ]]; then
+                        TAGS+=("$IMAGE:$GIT_TAG" "$IMAGE:latest")
+                    fi
+                  fi
+                  printf '%s\n' "${TAGS[@]}" > "$RUNNER_TEMP/image-tags"
+                  cat "$RUNNER_TEMP/image-tags"
+            - name: Create multi-platform tags
+              env:
+                  IMAGE: ${{ secrets.DOCKERHUB_IMAGE }}
+              run: |
+                  mapfile -t SOURCES < <(for digest in "$RUNNER_TEMP"/digests/*; do echo "$IMAGE@sha256:$(basename "$digest")"; done)
+                  test "${#SOURCES[@]}" -eq 2
+                  while IFS= read -r tag; do
+                    docker buildx imagetools create "${SOURCES[@]}" --tag "$tag"
+                  done < "$RUNNER_TEMP/image-tags"

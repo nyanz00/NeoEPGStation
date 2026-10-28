@@ -1,7 +1,9 @@
 .git/
+.github/
 .devcontainer/
 node_modules/
 client/node_modules/
+scripts/tests/
 dist/
 client/dist/
 Dockerfile*
