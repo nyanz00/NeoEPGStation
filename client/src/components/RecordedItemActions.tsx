@@ -400,15 +400,15 @@ export function RecordedItemActions({
                         <>
                             {info.isError && (
                                 <Typography color="error" sx={{ mb: 2 }}>
-                                    最新の解析情報を取得できません: {info.error.message}
+                                    Could not refresh the latest analysis information: {info.error.message}
                                 </Typography>
                             )}
                             <VideoInfoView info={info.data} />
                         </>
                     ) : info.isLoading ? (
-                        <Typography color="text.secondary">解析情報を取得中...</Typography>
+                        <Typography color="text.secondary">Loading analysis information...</Typography>
                     ) : info.isError ? (
-                        <Typography color="error">解析情報を取得できません: {info.error.message}</Typography>
+                        <Typography color="error">Could not load analysis information: {info.error.message}</Typography>
                     ) : null}
                 </DialogContent>
                 <DialogActions>
@@ -416,7 +416,7 @@ export function RecordedItemActions({
                         Reanalyze
                     </Button>
                     <Button color="inherit" variant="outlined" onClick={() => setInfoOpen(false)}>
-                        閉じる
+                        Close
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -445,8 +445,10 @@ function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
             'TS PIDs',
             ts === null ? '-' : `PMT=${ts.pmtPid ?? '-'} PCR=${ts.pcrPid ?? '-'} video=${ts.videoPid ?? '-'} audio=${ts.audioPid ?? '-'} subtitle=${ts.subtitlePid ?? '-'}`,
         ],
-        ['Analyzed', info.analyzedAt === null ? '-' : new Date(info.analyzedAt).toLocaleString()],
-        ['Status', info.analysisError ?? 'OK'],
+    ];
+    const footerRows: Array<[string, string]> = [
+        ['Analyzed', formatLatestAnalysisDate(info.analyzedAt, keyframes?.analyzedAt ?? null)],
+        ['Status', getVideoAnalysisStatus(info)],
     ];
     return (
         <Stack spacing={2}>
@@ -459,38 +461,65 @@ function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
                 ))}
             </Box>
             {keyframes !== undefined && <KeyframeIntervalInfo keyframes={keyframes} />}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
+                {footerRows.map(([label, value]) => (
+                    <Box key={label} sx={{ display: 'contents' }}>
+                        <Typography color="text.secondary">{label}</Typography>
+                        <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                    </Box>
+                ))}
+            </Box>
         </Stack>
     );
 }
 
+function formatLatestAnalysisDate(...timestamps: Array<number | null>): string {
+    const latest = timestamps
+        .filter((timestamp): timestamp is number => timestamp !== null && Number.isFinite(timestamp) && Number.isFinite(new Date(timestamp).getTime()))
+        .reduce<number | null>((current, timestamp) => (current === null || timestamp > current ? timestamp : current), null);
+    return latest === null ? '-' : new Date(latest).toLocaleString();
+}
+
+function getVideoAnalysisStatus(info: VideoAnalysisInfo): string {
+    const keyframes = info.keyframes;
+    const statuses: string[] = [];
+    if (info.analysisError !== null) statuses.push(`Video error: ${info.analysisError}`);
+    if (keyframes === undefined) {
+        statuses.push('Keyframe analysis unavailable');
+    } else {
+        const status = {
+            pending: 'Pending',
+            analyzing: 'Analyzing',
+            ready: keyframes.stale ? 'Stale' : 'Ready',
+            unavailable: 'Unavailable',
+            error: 'Error',
+        }[keyframes.status];
+        const details = keyframes.error !== null && (keyframes.status === 'error' || keyframes.status === 'unavailable') ? `: ${keyframes.error}` : '';
+        const staleNote = keyframes.stale && keyframes.status !== 'ready' ? ' (stale results available)' : '';
+        if (keyframes.status !== 'ready' || keyframes.stale) statuses.push(`Keyframe analysis ${status}${staleNote}${details}`);
+    }
+    return statuses.join('; ') || 'OK';
+}
+
 function KeyframeIntervalInfo({ keyframes }: { keyframes: NonNullable<VideoAnalysisInfo['keyframes']> }): ReactNode {
-    const statusText = {
-        pending: '解析待ち',
-        analyzing: '解析中',
-        ready: '解析済み',
-        unavailable: '解析不可',
-        error: '解析エラー',
-    }[keyframes.status];
-    const hasStats = keyframes.status === 'ready' || keyframes.stale || keyframes.analyzedAt !== null;
-    const rows: Array<[string, string]> = [['状態', `${statusText}${keyframes.stale ? '（前回の解析結果）' : ''}`]];
+    const hasStats = keyframes.status === 'ready' || keyframes.stale;
+    const rows: Array<[string, string]> = [];
     if (hasStats) {
         rows.push(
-            ['平均キーフレーム間隔（推定・サンプル内）', keyframes.averageInterval === null ? '-' : `${keyframes.averageInterval.toFixed(3)} 秒`],
-            ['最小間隔（推定・サンプル内）', keyframes.minInterval === null ? '-' : `${keyframes.minInterval.toFixed(3)} 秒`],
-            ['最大間隔（推定・サンプル内）', keyframes.maxInterval === null ? '-' : `${keyframes.maxInterval.toFixed(3)} 秒`],
-            ['サンプル区間数', String(keyframes.sampleWindows.length)],
-            ['解析した区間の長さ', `${keyframes.sampledDuration.toFixed(3)} 秒`],
-            ['キーフレーム数', String(keyframes.keyframeCount)],
-            ['間隔の数', String(keyframes.intervalCount)],
-            ['解析日時', keyframes.analyzedAt === null ? '-' : new Date(keyframes.analyzedAt).toLocaleString()],
+            ['Average interval', keyframes.averageInterval === null ? '-' : `${keyframes.averageInterval.toFixed(3)} sec`],
+            ['Minimum interval', keyframes.minInterval === null ? '-' : `${keyframes.minInterval.toFixed(3)} sec`],
+            ['Maximum interval', keyframes.maxInterval === null ? '-' : `${keyframes.maxInterval.toFixed(3)} sec`],
+            ['Sample windows', String(keyframes.sampleWindows.length)],
+            ['Sampled duration', `${keyframes.sampledDuration.toFixed(3)} sec`],
+            ['Keyframes', String(keyframes.keyframeCount)],
+            ['Intervals', String(keyframes.intervalCount)],
         );
     }
-    if (keyframes.error !== null) rows.push(['解析エラー', keyframes.error]);
 
     return (
         <Box>
-            <Typography sx={{ fontWeight: 600, mb: 1 }}>キーフレーム間隔</Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 240px) 1fr', gap: 1 }}>
+            <Typography sx={{ fontWeight: 600, mb: 1 }}>Keyframe interval (estimated)</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
                 {rows.map(([label, value]) => (
                     <Box key={label} sx={{ display: 'contents' }}>
                         <Typography color="text.secondary">{label}</Typography>
