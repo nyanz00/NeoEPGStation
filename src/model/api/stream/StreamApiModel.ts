@@ -715,7 +715,7 @@ class EncodedVodHlsMuxSession {
             const remainingSegments = this.option.segmentCount - this.option.startSequence;
             const keys = Array.from(
                 { length: remainingSegments + 1 },
-                (_, index) => prerollFrames + index * timing.gopFrames,
+                (_, index) => prerollFrames + index * timing.segmentFrames,
             );
             await fs.promises.writeFile(keyFile, `${keys.join('\n')}\n`, 'utf8');
             if (this.isStopping) throw new Error('EncodedVodHlsSessionStopped');

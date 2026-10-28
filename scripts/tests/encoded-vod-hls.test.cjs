@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const test = require('node:test');
 const ts = require('typescript');
 require('reflect-metadata');
@@ -48,28 +50,51 @@ const { default: WatchStreamProfileUtil } = loadTypeScript('../../src/model/serv
     '../../../util/ProcessUtil': { ROOT_PATH: process.cwd() },
     './EncodedVodHlsTiming': timingModule,
 });
-const { default: StreamApiModel, RecordedSession } = loadTypeScript(
+const managedProcessSpawns = [];
+const createFakeManagedProcess = () => {
+    const process = new EventEmitter();
+    process.stdin = new PassThrough();
+    process.stdout = new PassThrough();
+    process.stderr = new PassThrough();
+    return process;
+};
+const {
+    default: StreamApiModel,
+    RecordedSession,
+    EncodedVodHlsMuxSession,
+} = loadTypeScript(
     '../../src/model/api/stream/StreamApiModel.ts',
     {
         '../../service/stream/WatchStreamProfileUtil': { __esModule: true, default: WatchStreamProfileUtil },
         '../../service/stream/EncodedVodHlsTiming': timingModule,
+        '../../../util/ManagedProcess': {
+            spawnManaged: (...args) => {
+                managedProcessSpawns.push(args);
+                return createFakeManagedProcess();
+            },
+            killManaged: async process => {
+                process.stdin?.destroy();
+                process.stdout?.destroy();
+                process.stderr?.destroy();
+            },
+        },
         '../../../util/MpegTsTimeUtil': { findMpegTsByteOffset: async () => 0 },
         '../../RecordedUseClient': {
             recordedUseClient: { acquire: async () => ({ release: async () => {} }) },
         },
     },
-    'exports.RecordedSession = RecordedVodHlsMuxSession;',
+    'exports.RecordedSession = RecordedVodHlsMuxSession; exports.EncodedVodHlsMuxSession = EncodedVodHlsMuxSession;',
 );
 const { default: VideoAnalysisModel } = loadTypeScript('../../src/model/video/VideoAnalysisModel.ts');
 
 const frameRates = [
-    { source: 23.976, option: '24000/1001', gop: 96, duration: 4.004 },
-    { source: 29.97, option: '30000/1001', gop: 120, duration: 4.004 },
-    { source: 59.94, option: '60000/1001', gop: 240, duration: 4.004 },
-    { source: 24, option: '24000000/1000000', gop: 96, duration: 4 },
-    { source: 25, option: '25000000/1000000', gop: 100, duration: 4 },
-    { source: 30, option: '30000000/1000000', gop: 120, duration: 4 },
-    { source: undefined, option: '30000000/1000000', gop: 120, duration: 4 },
+    { source: 23.976, option: '24000/1001', gop: 24, segmentFrames: 96, duration: 4.004 },
+    { source: 29.97, option: '30000/1001', gop: 30, segmentFrames: 120, duration: 4.004 },
+    { source: 59.94, option: '60000/1001', gop: 60, segmentFrames: 240, duration: 4.004 },
+    { source: 24, option: '24000000/1000000', gop: 24, segmentFrames: 96, duration: 4 },
+    { source: 25, option: '25000000/1000000', gop: 25, segmentFrames: 100, duration: 4 },
+    { source: 30, option: '30000000/1000000', gop: 30, segmentFrames: 120, duration: 4 },
+    { source: undefined, option: '30000000/1000000', gop: 30, segmentFrames: 120, duration: 4 },
 ];
 
 const config = (hevc10bit = false) => ({
@@ -77,6 +102,8 @@ const config = (hevc10bit = false) => ({
     watch: {
         encoder: 'NVEncC',
         nvEncC: 'NVEncC.exe',
+        qsvEncC: 'QSVEncC.exe',
+        vceEncC: 'VCEEncC.exe',
         hevc10bit,
     },
 });
@@ -100,13 +127,15 @@ const encodedCommandOption = (frameRate, segmentDuration, extra = {}) => ({
     ...extra,
 });
 
-test('encoded VOD HLS timing uses a four-second GOP at each source frame rate', () => {
+test('encoded VOD HLS timing uses one-second GOPs and frame-aligned four-second segments', () => {
     for (const expected of frameRates) {
         const timing = getEncodedVodHlsTiming(expected.source);
         assert.equal(timing.frameRateOption, expected.option);
         assert.equal(timing.gopFrames, expected.gop);
+        assert.equal(timing.segmentFrames, expected.segmentFrames);
         assert.ok(Math.abs(timing.segmentDuration - expected.duration) < 1e-12);
-        assert.ok(Math.abs(timing.gopFrames / timing.frameRate - timing.segmentDuration) < 1e-12);
+        assert.ok(Math.abs(timing.gopFrames / timing.frameRate - 1) < 0.02);
+        assert.ok(Math.abs(timing.segmentFrames / timing.frameRate - timing.segmentDuration) < 1e-12);
     }
 });
 
@@ -122,9 +151,151 @@ test('FFmpeg encoded HLS command derives frame rate, GOP, and segment cut from o
         assert.equal(argumentValue(args, '-r'), expected.option);
         assert.equal(argumentValue(args, '-g'), expected.gop.toString(10));
         assert.equal(argumentValue(args, '-hls_time'), (expected.duration - 0.00001).toFixed(6));
-        assert.equal(argumentValue(args, '-force_key_frames'), `expr:eq(mod(n,${expected.gop}),0)`);
+        assert.equal(
+            argumentValue(args, '-force_key_frames'),
+            `expr:eq(mod(n,${expected.gop}),0)+eq(mod(n,${expected.segmentFrames}),0)`,
+        );
         assert.equal(argumentValue(args, '-fps_mode'), 'cfr');
     }
+});
+
+test('recorded TS paths use one-second GOPs for each codec and encoder while live GOP defaults stay intact', () => {
+    for (const encoder of ['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC']) {
+        for (const isHevc of [false, true]) {
+            const input = { encoder, isHevc, qualityName: '720p' };
+            const recorded = WatchStreamProfileUtil.buildRecordedCommand(config(), {
+                ...input,
+                type: 'm2ts',
+                mode: 0,
+                isEncodedVideo: false,
+            });
+            const recordedSegment = WatchStreamProfileUtil.buildRecordedVodHlsSegmentCommand(config(), {
+                ...input,
+                start: 0,
+                duration: 4,
+            });
+            const recordedContinuous = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config(), {
+                ...input,
+                start: 0,
+                preroll: 0,
+            });
+            const encodedSegment = WatchStreamProfileUtil.buildEncodedVodHlsSegmentCommand(config(), {
+                ...input,
+                input: 'recording.mkv',
+                start: 0,
+                duration: 4,
+            });
+            const encodedContinuous = WatchStreamProfileUtil.buildEncodedVodHlsContinuousCommand(
+                config(),
+                encodedCommandOption(29.97, 4.004, input),
+            );
+            if (encoder === 'FFmpeg') {
+                for (const command of [recorded, recordedSegment, recordedContinuous, encodedSegment]) {
+                    assert.match(command, /-g 30/);
+                    assert.match(command, /-flags \+cgop/);
+                    assert.match(command, /-force_key_frames expr:gte\(t,n_forced\*1\)/);
+                }
+            } else {
+                for (const command of [recorded, recordedSegment, recordedContinuous]) {
+                    assert.match(command, /--gop-len 30/);
+                }
+                for (const command of [encodedSegment, encodedContinuous.args.join(' ')]) {
+                    assert.match(command, /-g 30/);
+                    assert.match(command, /-flags \+cgop/);
+                }
+                if (encoder === 'QSVEncC') {
+                    assert.match(recorded, /--strict-gop/);
+                    assert.match(encodedSegment, /-forced_idr 1/);
+                }
+                if (encoder === 'NVEncC') assert.match(recorded, /--no-i-adapt/);
+            }
+
+            assert.equal(argumentValue(encodedContinuous.args, '-g'), '30');
+            assert.equal(
+                argumentValue(encodedContinuous.args, '-force_key_frames'),
+                'expr:eq(mod(n,30),0)+eq(mod(n,120),0)',
+            );
+
+            const live = WatchStreamProfileUtil.buildLiveMpegTsCommand(config(), {
+                ...input,
+                type: 'm2ts',
+                mode: 0,
+            });
+            if (encoder === 'FFmpeg') {
+                assert.doesNotMatch(live, /-g 30|-force_key_frames/);
+            } else {
+                assert.match(live, new RegExp(`--gop-len ${isHevc ? 60 : 15}(?:\\s|$)`));
+            }
+        }
+    }
+});
+
+test('FFmpeg TS GOP follows its actual output rate even when native fps24/AFS is enabled', () => {
+    const ffmpegConfig = {
+        ...config(),
+        watch: { ...config().watch, fps24: true },
+    };
+    const command = WatchStreamProfileUtil.buildRecordedCommand(ffmpegConfig, {
+        type: 'm2ts',
+        mode: 0,
+        qualityName: '720p',
+        encoder: 'FFmpeg',
+        isEncodedVideo: false,
+    });
+
+    assert.match(command, /-force_key_frames expr:gte\(t,n_forced\*1\)/);
+    assert.match(command, /-g 30/);
+});
+
+test('built-in HEVC bitrate and maximum bitrate rise by twenty percent; custom profiles remain exact', () => {
+    const expected = {
+        '1080p': ['3600K', '5400K'],
+        '1080p-60fps': ['4200K', '6240K'],
+        '810p': ['3000K', '4440K'],
+        '720p': ['2400K', '3600K'],
+        '540p': ['1680K', '2520K'],
+        '480p': ['1260K', '2100K'],
+        '360p': ['900K', '1500K'],
+        '240p': ['540K', '780K'],
+    };
+    for (const [qualityName, [bitrate, maxBitrate]] of Object.entries(expected)) {
+        const command = WatchStreamProfileUtil.buildRecordedCommand(config(), {
+            type: 'm2ts',
+            mode: 0,
+            qualityName,
+            encoder: 'FFmpeg',
+            isHevc: true,
+            isEncodedVideo: false,
+        });
+        assert.ok(command.includes(`-b:v ${bitrate}`), `${qualityName}: ${command}`);
+        assert.ok(command.includes(`-maxrate ${maxBitrate}`), `${qualityName}: ${command}`);
+    }
+    const customConfig = {
+        ...config(),
+        watch: {
+            ...config().watch,
+            qualities: {
+                'custom-hevc': {
+                    isHevc: true,
+                    width: 1280,
+                    height: 720,
+                    videoBitrate: '1234K',
+                    videoBitrateMax: '2345K',
+                    audioBitrate: '160K',
+                },
+            },
+        },
+    };
+    const custom = WatchStreamProfileUtil.buildRecordedCommand(customConfig, {
+        type: 'm2ts',
+        mode: 0,
+        qualityName: 'custom',
+        encoder: 'FFmpeg',
+        isHevc: true,
+        isEncodedVideo: false,
+    });
+    assert.ok(custom.includes('-b:v 1234K'));
+    assert.ok(custom.includes('-maxrate 2345K'));
 });
 
 test('iOS timing is opt-in on the FFmpeg transform path, including NVENC subtitle burn-in', () => {
@@ -224,6 +395,41 @@ test('NVEncC command fixes the GOP and keyframe file, and FFmpeg muxes with stre
         mux.args.some(arg => /^(?:h264|hevc|libx264|libx265|h264_nvenc|hevc_nvenc)$/.test(arg)),
         false,
     );
+});
+
+test('NVEncC keyframe file lists HLS segment boundaries instead of each GOP boundary', async t => {
+    const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'encoded-vod-keyframe-boundaries-'));
+    const spawnedBefore = managedProcessSpawns.length;
+    t.after(async () => {
+        fs.rmSync(temporaryDir, { recursive: true, force: true });
+    });
+    const timing = getEncodedVodHlsTiming(23.976);
+    const session = new EncodedVodHlsMuxSession({
+        profileKey: 'test',
+        config: config(),
+        videoInfo: { filePath: 'recording.mkv', duration: 12, frameRate: 23.976 },
+        segmentDuration: timing.segmentDuration,
+        segmentCount: 3,
+        startPosition: 0,
+        startSequence: 0,
+        subtitleStyle: { sizePercent: 100, opacityPercent: 100, outlineSizePercent: 100, outlineOpacityPercent: 100 },
+        log: { stream: { debug() {}, info() {}, warn() {} } },
+        temporaryDir,
+    });
+
+    try {
+        await session.startMuxer();
+        const directory = await session.directoryPromise;
+        const keyFile = path.join(directory, 'keyframes.txt');
+        const keyframes = (await fs.promises.readFile(keyFile, 'utf8')).trim().split('\n').map(Number);
+        assert.deepEqual(keyframes, [0, timing.segmentFrames, 2 * timing.segmentFrames, 3 * timing.segmentFrames]);
+        assert.notEqual(keyframes[1], timing.gopFrames);
+        const encodeArgs = managedProcessSpawns[spawnedBefore + 1][1];
+        assert.equal(argumentValue(encodeArgs, '--gop-len'), timing.gopFrames.toString(10));
+        assert.equal(argumentValue(encodeArgs, '--keyfile'), keyFile);
+    } finally {
+        await session.cleanup();
+    }
 });
 
 function createPlaylistModel(videoInfo, isEncodedVideo) {

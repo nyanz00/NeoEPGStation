@@ -88,8 +88,8 @@ namespace WatchStreamProfileUtil {
             is60fps: true,
             width: 1440,
             height: 1080,
-            videoBitrate: '3500K',
-            videoBitrateMax: '5200K',
+            videoBitrate: '4200K',
+            videoBitrateMax: '6240K',
             audioBitrate: '192K',
         },
         '1080p': {
@@ -106,8 +106,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 1440,
             height: 1080,
-            videoBitrate: '3000K',
-            videoBitrateMax: '4500K',
+            videoBitrate: '3600K',
+            videoBitrateMax: '5400K',
             audioBitrate: '192K',
         },
         '810p': {
@@ -124,8 +124,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 1440,
             height: 810,
-            videoBitrate: '2500K',
-            videoBitrateMax: '3700K',
+            videoBitrate: '3000K',
+            videoBitrateMax: '4440K',
             audioBitrate: '192K',
         },
         '720p': {
@@ -142,8 +142,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 1280,
             height: 720,
-            videoBitrate: '2000K',
-            videoBitrateMax: '3000K',
+            videoBitrate: '2400K',
+            videoBitrateMax: '3600K',
             audioBitrate: '192K',
         },
         '540p': {
@@ -160,8 +160,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 960,
             height: 540,
-            videoBitrate: '1400K',
-            videoBitrateMax: '2100K',
+            videoBitrate: '1680K',
+            videoBitrateMax: '2520K',
             audioBitrate: '192K',
         },
         '480p': {
@@ -178,8 +178,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 854,
             height: 480,
-            videoBitrate: '1050K',
-            videoBitrateMax: '1750K',
+            videoBitrate: '1260K',
+            videoBitrateMax: '2100K',
             audioBitrate: '192K',
         },
         '360p': {
@@ -196,8 +196,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 640,
             height: 360,
-            videoBitrate: '750K',
-            videoBitrateMax: '1250K',
+            videoBitrate: '900K',
+            videoBitrateMax: '1500K',
             audioBitrate: '128K',
         },
         '240p': {
@@ -214,8 +214,8 @@ namespace WatchStreamProfileUtil {
             is60fps: false,
             width: 426,
             height: 240,
-            videoBitrate: '450K',
-            videoBitrateMax: '650K',
+            videoBitrate: '540K',
+            videoBitrateMax: '780K',
             audioBitrate: '128K',
         },
     };
@@ -361,6 +361,7 @@ namespace WatchStreamProfileUtil {
             `-b:v ${quality.videoBitrate}`,
             `-maxrate ${quality.videoBitrateMax}`,
             ...getFFmpegVideoCodecOptions(encoder, quality, 'hls'),
+            ...getFFmpegTsGopOptions(encoder, quality),
         ].join(' ');
 
         return [
@@ -407,6 +408,7 @@ namespace WatchStreamProfileUtil {
             `-b:v ${quality.videoBitrate}`,
             `-maxrate ${quality.videoBitrateMax}`,
             ...getFFmpegVideoCodecOptions(encoder, quality, 'hls'),
+            ...getFFmpegTsGopOptions(encoder, quality),
         ].join(' ');
         const tsInput = option.tsInputInfo;
         const input =
@@ -453,6 +455,7 @@ namespace WatchStreamProfileUtil {
             `-b:v ${quality.videoBitrate}`,
             `-maxrate ${quality.videoBitrateMax}`,
             ...getFFmpegVideoCodecOptions(encoder, quality, 'hls'),
+            ...getFFmpegTsGopOptions(encoder, quality),
         ].join(' ');
 
         return [
@@ -553,7 +556,7 @@ namespace WatchStreamProfileUtil {
                     : ['-sc_threshold', '0']
                 : []),
             '-force_key_frames',
-            `expr:eq(mod(n,${timing.gopFrames.toString(10)}),0)`,
+            `expr:eq(mod(n,${timing.gopFrames.toString(10)}),0)+eq(mod(n,${timing.segmentFrames.toString(10)}),0)`,
             // VLCKit needs the standard TS clock lead when reordered frames
             // have DTS before the HLS segment's nominal start. Keep Web's
             // existing timing unless the application explicitly opts in.
@@ -1041,6 +1044,7 @@ namespace WatchStreamProfileUtil {
             `-b:v ${quality.videoBitrate}`,
             `-maxrate ${quality.videoBitrateMax}`,
             ...getFFmpegVideoCodecOptions(encoder, quality, type),
+            ...(type === 'hls' || type === 'm2ts' || type === 'm2tsll' ? getFFmpegTsGopOptions(encoder, quality) : []),
         ].join(' ');
 
         if (type === 'hls') {
@@ -1092,6 +1096,31 @@ namespace WatchStreamProfileUtil {
         }
 
         return quality.isHevc === true ? 'libx265' : 'libx264';
+    };
+
+    const getFFmpegTsGopOptions = (encoder: WatchStreamEncoder, quality: WatchQuality): string[] => {
+        // FFmpeg's yadif path does not apply the native encoder's fps24/AFS setting.
+        const frameRate = quality.is60fps === true ? 60000 / 1001 : 30000 / 1001;
+        const gopFrames = Math.max(1, Math.round(frameRate));
+        const options = [
+            '-g',
+            gopFrames.toString(10),
+            '-flags',
+            '+cgop',
+            '-force_key_frames',
+            'expr:gte(t,n_forced*1)',
+        ];
+        if (encoder === 'FFmpeg') {
+            options.push(
+                ...(quality.isHevc === true ? ['-x265-params', 'open-gop=0:scenecut=0'] : ['-sc_threshold', '0']),
+            );
+        } else if (encoder === 'NVEncC') {
+            options.push('-forced-idr', '1', '-no-scenecut', '1');
+        } else if (encoder === 'QSVEncC') {
+            options.push('-forced_idr', '1');
+        }
+
+        return options;
     };
 
     const getFFmpegVideoCodecOptions = (
@@ -1153,6 +1182,9 @@ namespace WatchStreamProfileUtil {
             `--max-bitrate ${quality.videoBitrateMax}`,
             ...buildHWEncCQualityOptions(encoder, quality),
             encoder === 'VCEEncC' ? '' : '--repeat-headers',
+            ...(outputFormat === 'mpegts'
+                ? ['--avsync vfr', `--gop-len ${quality.is60fps === true ? 60 : watch?.fps24 === true ? 24 : 30}`]
+                : []),
             ...buildHWEncCHlsGopOptions(encoder),
             getHWEncCPresetOption(encoder),
             quality.isHevc === true ? '--profile main' : '--profile high',
@@ -1206,6 +1238,7 @@ namespace WatchStreamProfileUtil {
             `--max-bitrate ${quality.videoBitrateMax}`,
             ...buildHWEncCQualityOptions(encoder, quality),
             encoder === 'VCEEncC' ? '' : '--repeat-headers',
+            ...buildHWEncCHlsGopOptions(encoder),
             getHWEncCPresetOption(encoder),
             quality.isHevc === true ? '--profile main' : '--profile high',
             '--dar 16:9',
@@ -1213,7 +1246,7 @@ namespace WatchStreamProfileUtil {
             quality.isHevc === true && watch?.hevc10bit === true && (encoder === 'QSVEncC' || encoder === 'NVEncC')
                 ? '--output-depth 10 --fallback-bitdepth'
                 : '',
-            ...buildHWEncCInterlaceOptions(encoder, quality, watch, false),
+            ...buildHWEncCInterlaceOptions(encoder, quality, watch, false, 1),
             `--output-res ${quality.width}x${quality.height}`,
             `--audio-codec aac:aac_coder=twoloop --audio-bitrate ${quality.audioBitrate}`,
             '--audio-samplerate 48000 --audio-filter volume=2.0 --audio-ignore-decode-error 30',
@@ -1253,6 +1286,7 @@ namespace WatchStreamProfileUtil {
             `--max-bitrate ${quality.videoBitrateMax}`,
             ...buildHWEncCQualityOptions(encoder, quality),
             encoder === 'VCEEncC' ? '' : '--repeat-headers',
+            ...buildHWEncCHlsGopOptions(encoder),
             getHWEncCPresetOption(encoder),
             quality.isHevc === true ? '--profile main' : '--profile high',
             '--dar 16:9',
@@ -1260,7 +1294,7 @@ namespace WatchStreamProfileUtil {
             quality.isHevc === true && watch?.hevc10bit === true && (encoder === 'QSVEncC' || encoder === 'NVEncC')
                 ? '--output-depth 10 --fallback-bitdepth'
                 : '',
-            ...buildHWEncCInterlaceOptions(encoder, quality, watch, false),
+            ...buildHWEncCInterlaceOptions(encoder, quality, watch, false, 1),
             `--output-res ${quality.width}x${quality.height}`,
             `--audio-codec aac:aac_coder=twoloop --audio-bitrate ${quality.audioBitrate}`,
             '--audio-samplerate 48000 --audio-filter volume=2.0 --audio-ignore-decode-error 30',
@@ -1323,16 +1357,18 @@ namespace WatchStreamProfileUtil {
         quality: WatchQuality,
         watch: WatchStreamConfig | undefined,
         isBS4K: boolean,
+        gopLengthOverride?: number,
     ): string[] => {
-        const gopLength = quality.isHevc === true ? 2 : 0.5;
+        const gopLength = gopLengthOverride ?? (quality.isHevc === true ? 2 : 0.5);
+        const gopFrames = (frameRate: number): number => Math.max(1, Math.floor(gopLength * frameRate));
         if (isBS4K) {
-            return [`--avsync vfr --gop-len ${Math.floor(gopLength * 60)}`];
+            return [`--avsync vfr --gop-len ${gopFrames(60)}`];
         }
 
         const options = ['--interlace tff'];
         if (quality.is60fps === true) {
             options.push(encoder === 'QSVEncC' ? '--vpp-deinterlace bob' : '--vpp-yadif mode=bob');
-            options.push(`--avsync vfr --gop-len ${Math.floor(gopLength * 60)}`);
+            options.push(`--avsync vfr --gop-len ${gopFrames(60)}`);
             return options;
         }
 
@@ -1341,7 +1377,11 @@ namespace WatchStreamProfileUtil {
         } else {
             options.push(encoder === 'QSVEncC' ? '--vpp-deinterlace normal' : '--vpp-afs preset=default');
         }
-        options.push(`--avsync vfr --gop-len ${Math.floor(gopLength * 30)}`);
+        options.push(
+            `--avsync vfr --gop-len ${gopFrames(
+                gopLengthOverride === undefined ? 30 : watch?.fps24 === true ? 24 : 30,
+            )}`,
+        );
         return options;
     };
 }

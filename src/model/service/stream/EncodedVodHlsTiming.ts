@@ -2,11 +2,12 @@ export interface EncodedVodHlsTiming {
     frameRate: number;
     frameRateOption: string;
     gopFrames: number;
+    segmentFrames: number;
     segmentDuration: number;
 }
 
-// Use one frame-aligned interval for encoding, the HLS muxer and the public
-// timeline. Rounding 23.976fps segments to four seconds accumulates seek drift.
+// Keep the one-second GOP separate from the frame-aligned segment interval.
+// Rounding 23.976fps segments to four seconds accumulates seek drift.
 export const getEncodedVodHlsTiming = (sourceFrameRate?: number): EncodedVodHlsTiming => {
     const rate =
         typeof sourceFrameRate === 'number' &&
@@ -20,11 +21,13 @@ export const getEncodedVodHlsTiming = (sourceFrameRate?: number): EncodedVodHlsT
     const numerator = broadcast?.numerator ?? Math.round(rate * 1000000);
     const denominator = broadcast?.denominator ?? 1000000;
     const frameRate = numerator / denominator;
-    const gopFrames = Math.max(1, Math.round(4 * frameRate));
+    const gopFrames = Math.max(1, Math.round(frameRate));
+    const segmentFrames = Math.max(1, Math.round(4 * frameRate));
     return {
         frameRate,
         frameRateOption: `${numerator.toString(10)}/${denominator.toString(10)}`,
         gopFrames,
-        segmentDuration: (gopFrames * denominator) / numerator,
+        segmentFrames,
+        segmentDuration: (segmentFrames * denominator) / numerator,
     };
 };
