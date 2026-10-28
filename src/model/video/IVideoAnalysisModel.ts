@@ -48,6 +48,8 @@ export interface VideoTsAnalysis {
 }
 
 export interface VideoAnalysis {
+    analysisVersion: number;
+    keyframes?: apid.VideoKeyframeAnalysis;
     videoFileId: number;
     fileName: string;
     formatName: string | null;

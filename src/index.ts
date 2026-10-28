@@ -22,6 +22,7 @@ import ProcessUtil from './util/ProcessUtil.js';
 import ProcessShutdown from './util/ProcessShutdown.js';
 import { ServiceChildProcessRegistry } from './model/service/ServiceChildProcessRegistry.js';
 import { recordedUseRegistry } from './model/RecordedUseRegistry.js';
+import IKeyframeAnalysisModel from './model/video/IKeyframeAnalysisModel.js';
 install();
 
 containerSetter.set(container);
@@ -36,6 +37,7 @@ const shutdown = new ProcessShutdown(
         if (reason === 'Web UI update') await new Promise(resolve => setTimeout(resolve, 500));
         await Promise.all([
             stopService(),
+            container.get<IKeyframeAnalysisModel>('IKeyframeAnalysisModel').stop(),
             container.get<IEPGUpdateExecutorManageModel>('IEPGUpdateExecutorManageModel').shutdown(),
         ]);
         await container.get<IDBOperator>('IDBOperator').closeConnection();
@@ -156,6 +158,7 @@ const runOperator = async () => {
 
     const storageManageModel = container.get<IStorageManageModel>('IStorageManageModel');
     storageManageModel.start();
+    await container.get<IKeyframeAnalysisModel>('IKeyframeAnalysisModel').start();
 };
 
 /**

@@ -18,6 +18,9 @@ import ITsInfoAnalyzer from '../recorded/ts/ITsInfoAnalyzer.js';
 import { acquireRecordedFileUse } from '../RecordedFileUse.js';
 import IVideoUtil from '../api/video/IVideoUtil.js';
 import IVideoAnalysisModel, { VideoAnalysis, VideoStreamAnalysis } from './IVideoAnalysisModel.js';
+import IKeyframeAnalysisModel from './IKeyframeAnalysisModel.js';
+
+export const VIDEO_ANALYSIS_VERSION = 1;
 
 interface ProbeResult {
     format?: Record<string, unknown>;
@@ -37,6 +40,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
         @inject('IVideoUtil') private readonly videoUtil: IVideoUtil,
         @inject('ITsInfoAnalyzer') private readonly tsAnalyzer: ITsInfoAnalyzer,
         @inject('ILoggerModel') logger: ILoggerModel,
+        @inject('IKeyframeAnalysisModel') private readonly keyframes: IKeyframeAnalysisModel,
     ) {
         this.config = configuration.getConfig();
         this.log = logger.getLogger();
@@ -94,8 +98,9 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
             Number(video.analyzedMtime) === mtime &&
             video.analyzedAt !== null &&
             video.analysisError === null;
+        const versionValid = video.analysisVersion === VIDEO_ANALYSIS_VERSION;
 
-        if (!valid) {
+        if (!valid || !versionValid) {
             try {
                 const probe = await this.probe(filePath);
                 const streams = this.mapStreams(probe.streams ?? []);
@@ -123,6 +128,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
                         analyzedMtime: mtime,
                         analyzedAt: Date.now(),
                         analysisError: null,
+                        analysisVersion: VIDEO_ANALYSIS_VERSION,
                     },
                 );
                 video = (await this.videoFileDB.findId(videoFileId))!;
@@ -144,7 +150,9 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
         if (path.extname(filePath).toLowerCase() === '.ts' || path.extname(filePath).toLowerCase() === '.m2ts') {
             await this.ensureTsInfo(videoFileId, filePath, stat.size, mtime, force, includeEit);
         }
-        return await this.toResult(video);
+        const result = await this.toResult(video);
+        result.keyframes = await this.keyframes.request(video, stat.size, mtime, force);
+        return result;
     }
 
     private async ensureTsInfo(
@@ -375,6 +383,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
             streams,
             analyzedAt: video.analyzedAt === null ? null : Number(video.analyzedAt),
             analysisError: video.analysisError,
+            analysisVersion: video.analysisVersion,
             ts: ts === null ? null : { ...ts, analyzedAt: Number(ts.analyzedAt) },
         };
     }

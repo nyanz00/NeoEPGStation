@@ -1668,3 +1668,20 @@ export interface StartSystemUpdateOption {
     packageManager: SystemUpdatePackageManager;
     preserveLocalChanges: boolean;
 }
+/** Estimated keyframe intervals from a few packet-only samples, not a seek index. */
+export interface VideoKeyframeAnalysis {
+    status: 'pending' | 'analyzing' | 'ready' | 'unavailable' | 'error';
+    version: number;
+    currentVersion: number;
+    estimated: true;
+    averageInterval: number | null;
+    minInterval: number | null;
+    maxInterval: number | null;
+    intervalCount: number;
+    keyframeCount: number;
+    sampledDuration: number;
+    sampleWindows: Array<{ start: number; end: number; keyframeCount: number }>;
+    analyzedAt: number | null;
+    error: string | null;
+    stale: boolean;
+}

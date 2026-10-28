@@ -86,6 +86,9 @@ export default class VideoFile extends BaseEntity {
     @Column({ type: 'text', nullable: true })
     public analysisError: string | null = null;
 
+    @Column({ type: 'integer', default: 0 })
+    public analysisVersion = 0;
+
     @Column()
     public recordedId!: number;
 

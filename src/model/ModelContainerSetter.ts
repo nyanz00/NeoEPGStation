@@ -62,6 +62,8 @@ import ITsInfoAnalyzer from './recorded/ts/ITsInfoAnalyzer.js';
 import TsInfoAnalyzer from './recorded/ts/TsInfoAnalyzer.js';
 import IVideoAnalysisModel from './video/IVideoAnalysisModel.js';
 import VideoAnalysisModel from './video/VideoAnalysisModel.js';
+import IKeyframeAnalysisModel from './video/IKeyframeAnalysisModel.js';
+import KeyframeAnalysisModel from './video/KeyframeAnalysisModel.js';
 import Configuration from './Configuration.js';
 import AutoEncodeSettingsModel from './encode/AutoEncodeSettingsModel.js';
 import IAutoEncodeSettingsModel from './encode/IAutoEncodeSettingsModel.js';
@@ -386,6 +388,7 @@ export const set = (container: Container): void => {
     container.bind<ITsInfoAnalyzer>('ITsInfoAnalyzer').to(TsInfoAnalyzer);
 
     container.bind<IVideoAnalysisModel>('IVideoAnalysisModel').to(VideoAnalysisModel).inSingletonScope();
+    container.bind<IKeyframeAnalysisModel>('IKeyframeAnalysisModel').to(KeyframeAnalysisModel).inSingletonScope();
 
     container.bind<IVideoApiModel>('IVideoApiModel').to(VideoApiModel).inSingletonScope();
 

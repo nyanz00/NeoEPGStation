@@ -78,10 +78,14 @@ export function RecordedItemActions({
         queryKey: ['video-info', infoVideoId],
         queryFn: () => api.getVideoInfo(infoVideoId!),
         enabled: infoOpen && infoVideoId !== null,
+        refetchInterval: query => {
+            const status = query.state.data?.keyframes?.status;
+            return status === 'pending' || status === 'analyzing' ? 3000 : false;
+        },
     });
     const reanalyze = useMutation({
-        mutationFn: () => api.getVideoInfo(infoVideoId!, true),
-        onSuccess: data => queryClient.setQueryData(['video-info', infoVideoId], data),
+        mutationFn: (videoId: number) => api.getVideoInfo(videoId, true),
+        onSuccess: (data, videoId) => queryClient.setQueryData(['video-info', videoId], data),
         onError: error => notify(`再解析に失敗しました: ${error.message}`, 'error'),
     });
     const annictEpisodeKey = ['recorded-annict-episode', item.id, viewerProfile.profileId] as const;
@@ -392,16 +396,23 @@ export function RecordedItemActions({
                             ))}
                         </Stack>
                     )}
-                    {info.isLoading ? (
-                        <Typography color="text.secondary">解析中...</Typography>
+                    {info.data !== undefined ? (
+                        <>
+                            {info.isError && (
+                                <Typography color="error" sx={{ mb: 2 }}>
+                                    最新の解析情報を取得できません: {info.error.message}
+                                </Typography>
+                            )}
+                            <VideoInfoView info={info.data} />
+                        </>
+                    ) : info.isLoading ? (
+                        <Typography color="text.secondary">解析情報を取得中...</Typography>
                     ) : info.isError ? (
                         <Typography color="error">解析情報を取得できません: {info.error.message}</Typography>
-                    ) : info.data !== undefined ? (
-                        <VideoInfoView info={info.data} />
                     ) : null}
                 </DialogContent>
                 <DialogActions>
-                    <Button variant="contained" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
+                    <Button variant="contained" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => infoVideoId !== null && reanalyze.mutate(infoVideoId)}>
                         Reanalyze
                     </Button>
                     <Button color="inherit" variant="outlined" onClick={() => setInfoOpen(false)}>
@@ -417,6 +428,7 @@ function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
     const audios = info.streams.filter(stream => stream.type === 'audio');
     const subtitles = info.streams.filter(stream => stream.type === 'subtitle');
     const ts = info.ts as Record<string, any> | null;
+    const keyframes = info.keyframes;
     const rows: Array<[string, string]> = [
         ['File', info.fileName],
         ['Format', info.formatName ?? '-'],
@@ -437,13 +449,55 @@ function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
         ['Status', info.analysisError ?? 'OK'],
     ];
     return (
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
-            {rows.map(([label, value]) => (
-                <Box key={label} sx={{ display: 'contents' }}>
-                    <Typography color="text.secondary">{label}</Typography>
-                    <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
-                </Box>
-            ))}
+        <Stack spacing={2}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
+                {rows.map(([label, value]) => (
+                    <Box key={label} sx={{ display: 'contents' }}>
+                        <Typography color="text.secondary">{label}</Typography>
+                        <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                    </Box>
+                ))}
+            </Box>
+            {keyframes !== undefined && <KeyframeIntervalInfo keyframes={keyframes} />}
+        </Stack>
+    );
+}
+
+function KeyframeIntervalInfo({ keyframes }: { keyframes: NonNullable<VideoAnalysisInfo['keyframes']> }): ReactNode {
+    const statusText = {
+        pending: '解析待ち',
+        analyzing: '解析中',
+        ready: '解析済み',
+        unavailable: '解析不可',
+        error: '解析エラー',
+    }[keyframes.status];
+    const hasStats = keyframes.status === 'ready' || keyframes.stale || keyframes.analyzedAt !== null;
+    const rows: Array<[string, string]> = [['状態', `${statusText}${keyframes.stale ? '（前回の解析結果）' : ''}`]];
+    if (hasStats) {
+        rows.push(
+            ['平均キーフレーム間隔（推定・サンプル内）', keyframes.averageInterval === null ? '-' : `${keyframes.averageInterval.toFixed(3)} 秒`],
+            ['最小間隔（推定・サンプル内）', keyframes.minInterval === null ? '-' : `${keyframes.minInterval.toFixed(3)} 秒`],
+            ['最大間隔（推定・サンプル内）', keyframes.maxInterval === null ? '-' : `${keyframes.maxInterval.toFixed(3)} 秒`],
+            ['サンプル区間数', String(keyframes.sampleWindows.length)],
+            ['解析した区間の長さ', `${keyframes.sampledDuration.toFixed(3)} 秒`],
+            ['キーフレーム数', String(keyframes.keyframeCount)],
+            ['間隔の数', String(keyframes.intervalCount)],
+            ['解析日時', keyframes.analyzedAt === null ? '-' : new Date(keyframes.analyzedAt).toLocaleString()],
+        );
+    }
+    if (keyframes.error !== null) rows.push(['解析エラー', keyframes.error]);
+
+    return (
+        <Box>
+            <Typography sx={{ fontWeight: 600, mb: 1 }}>キーフレーム間隔</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 240px) 1fr', gap: 1 }}>
+                {rows.map(([label, value]) => (
+                    <Box key={label} sx={{ display: 'contents' }}>
+                        <Typography color="text.secondary">{label}</Typography>
+                        <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                    </Box>
+                ))}
+            </Box>
         </Box>
     );
 }

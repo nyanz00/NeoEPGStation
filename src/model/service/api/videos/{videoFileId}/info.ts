@@ -21,7 +21,54 @@ const apiDoc = {
     responses: {
         200: {
             description: '解析情報を取得しました',
-            content: { 'application/json': { schema: { type: 'object', additionalProperties: true } } },
+            content: {
+                'application/json': {
+                    schema: {
+                        type: 'object',
+                        additionalProperties: true,
+                        properties: {
+                            analysisVersion: { type: 'integer', description: '基本解析の形式バージョン' },
+                            keyframes: {
+                                type: 'object',
+                                description: '部分解析による推定値。全キーフレーム一覧ではありません。',
+                                properties: {
+                                    status: {
+                                        type: 'string',
+                                        enum: ['pending', 'analyzing', 'ready', 'unavailable', 'error'],
+                                    },
+                                    version: { type: 'integer' },
+                                    currentVersion: { type: 'integer' },
+                                    estimated: { type: 'boolean', enum: [true] },
+                                    stale: { type: 'boolean' },
+                                    averageInterval: {
+                                        type: 'number',
+                                        nullable: true,
+                                        description: 'サンプル内の平均間隔（秒）',
+                                    },
+                                    minInterval: { type: 'number', nullable: true },
+                                    maxInterval: { type: 'number', nullable: true },
+                                    intervalCount: { type: 'integer' },
+                                    keyframeCount: { type: 'integer' },
+                                    sampledDuration: { type: 'number', description: '解析区間の合計秒数' },
+                                    sampleWindows: {
+                                        type: 'array',
+                                        items: {
+                                            type: 'object',
+                                            properties: {
+                                                start: { type: 'number' },
+                                                end: { type: 'number' },
+                                                keyframeCount: { type: 'integer' },
+                                            },
+                                        },
+                                    },
+                                    analyzedAt: { type: 'number', nullable: true },
+                                    error: { type: 'string', nullable: true },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
         },
         default: {
             description: '予期しないエラー',
@@ -31,6 +78,13 @@ const apiDoc = {
 };
 
 export const get: Operation = operation(false);
-get.apiDoc = { ...apiDoc, description: 'キャッシュが無い、またはファイルが変更されている場合は解析して取得する' };
+get.apiDoc = {
+    ...apiDoc,
+    description:
+        '基本解析を取得。キーフレーム間隔は未解析・変更時にバックグラウンド解析を予約し、現在の状態と前回の結果を返す',
+};
 export const post: Operation = operation(true);
-post.apiDoc = { ...apiDoc, description: '動画ファイルを再解析して取得する' };
+post.apiDoc = {
+    ...apiDoc,
+    description: '基本解析を更新し、キーフレーム間隔の再解析を予約する。完了までGETで状態を確認できる',
+};

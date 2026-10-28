@@ -88,6 +88,7 @@ import type {
     ViewerProfileRecoveryCode,
     ViewerProfileSession,
     VideoFileId,
+    VideoKeyframeAnalysis,
     VideoPreparedSubtitle,
     SubtitleTransferOption,
     SubtitleTransferTask,
@@ -118,6 +119,7 @@ export interface VideoAnalysisStream {
     isForced: boolean;
 }
 export interface VideoAnalysisInfo {
+    analysisVersion?: number;
     videoFileId: number;
     fileName: string;
     formatName: string | null;
@@ -137,6 +139,7 @@ export interface VideoAnalysisInfo {
     analyzedAt: number | null;
     analysisError: string | null;
     ts: Record<string, unknown> | null;
+    keyframes?: VideoKeyframeAnalysis;
 }
 
 function playbackUserHeader(userId: number): Record<string, string> {
