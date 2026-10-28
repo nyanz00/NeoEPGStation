@@ -15,7 +15,8 @@ const loadedModule = new Module(sourcePath, module);
 loadedModule.filename = sourcePath;
 loadedModule.paths = Module._nodeModulePaths(path.dirname(sourcePath));
 loadedModule._compile(compiled, sourcePath);
-const { parseKeyframePacketSample, planKeyframeSampleWindows, summarizeKeyframeSamples } = loadedModule.exports;
+const { parseKeyframePacketSample, planKeyframeSampleStages, planKeyframeSampleWindows, summarizeKeyframeSamples } =
+    loadedModule.exports;
 
 test('sample windows cover beginning, center, and end within a bounded budget', () => {
     assert.deepEqual(planKeyframeSampleWindows(120), [
@@ -30,6 +31,29 @@ test('sample windows cover beginning, center, and end within a bounded budget', 
     assert.deepEqual(planKeyframeSampleWindows(Number.POSITIVE_INFINITY), []);
     assert.ok(planKeyframeSampleWindows(10_000).length <= 3);
     assert.ok(planKeyframeSampleWindows(10_000).reduce((sum, window) => sum + window.end - window.start, 0) <= 60);
+});
+
+test('staged plans expand each fixed location from 20 to 60 to 120 seconds and deduplicate short videos', () => {
+    assert.deepEqual(planKeyframeSampleStages(600), [
+        [
+            { start: 0, end: 20 },
+            { start: 0, end: 60 },
+            { start: 0, end: 120 },
+        ],
+        [
+            { start: 290, end: 310 },
+            { start: 270, end: 330 },
+            { start: 240, end: 360 },
+        ],
+        [
+            { start: 580, end: 600 },
+            { start: 540, end: 600 },
+            { start: 480, end: 600 },
+        ],
+    ]);
+    assert.deepEqual(planKeyframeSampleStages(10), [[{ start: 0, end: 10 }]]);
+    assert.deepEqual(planKeyframeSampleStages(0), []);
+    assert.deepEqual(planKeyframeSampleStages(Number.NaN), []);
 });
 
 test('packet sample uses PTS with DTS fallback, sorts B-frame times, and deduplicates keyframes', () => {
@@ -75,6 +99,27 @@ test('summary computes intervals only inside each window and weights the mean by
         sampledDuration: 20,
         sampleWindows: [
             { start: 0, end: 10, keyframeCount: 3 },
+            { start: 100, end: 110, keyframeCount: 2 },
+        ],
+    });
+});
+
+test('summary merges overlapping or touching samples without double counting keyframes or intervals', () => {
+    const summary = summarizeKeyframeSamples([
+        { start: 0, end: 10, keyframeTimes: [0, 5, 10] },
+        { start: 5, end: 15, keyframeTimes: [5, 10, 15] },
+        { start: 15, end: 20, keyframeTimes: [15, 20] },
+        { start: 100, end: 110, keyframeTimes: [100, 110] },
+    ]);
+    assert.deepEqual(summary, {
+        averageInterval: 6,
+        minInterval: 5,
+        maxInterval: 10,
+        intervalCount: 5,
+        keyframeCount: 7,
+        sampledDuration: 30,
+        sampleWindows: [
+            { start: 0, end: 20, keyframeCount: 5 },
             { start: 100, end: 110, keyframeCount: 2 },
         ],
     });

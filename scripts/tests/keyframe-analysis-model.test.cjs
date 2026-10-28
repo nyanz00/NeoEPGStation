@@ -26,6 +26,17 @@ class VideoFileTsInfo {}
 class Recorded {}
 
 const processHarness = { spawn: null, killed: [] };
+const utilPath = path.resolve(__dirname, '../../src/util/KeyframeIntervalUtil.ts');
+const utilModule = new Module(utilPath, module);
+utilModule.filename = utilPath;
+utilModule.paths = Module._nodeModulePaths(path.dirname(utilPath));
+utilModule._compile(
+    ts.transpileModule(fs.readFileSync(utilPath, 'utf8'), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 },
+    }).outputText,
+    utilPath,
+);
+const keyframeUtil = utilModule.exports;
 const moduleMocks = {
     inversify: {
         inject: () => () => {},
@@ -37,17 +48,10 @@ const moduleMocks = {
     '../../db/entities/VideoFileKeyframeInfo': { __esModule: true, default: VideoFileKeyframeInfo },
     '../../db/entities/VideoFileTsInfo': { __esModule: true, default: VideoFileTsInfo },
     '../../util/KeyframeIntervalUtil': {
-        KeyframePacketSample: undefined,
-        parseKeyframePacketSample: () => ({ start: 0, end: 1, keyframeTimes: [] }),
-        planKeyframeSampleWindows: () => [{ start: 0, end: 1 }],
-        summarizeKeyframeSamples: () => ({
-            averageInterval: 1,
-            minInterval: 1,
-            maxInterval: 1,
-            intervalCount: 1,
-            keyframeCount: 2,
-            sampledDuration: 1,
-            sampleWindows: [{ start: 0, end: 1, keyframeCount: 2 }],
+        ...keyframeUtil,
+        parseKeyframePacketSample: (output, fallbackWindow) => ({
+            ...fallbackWindow,
+            keyframeTimes: JSON.parse(output).keyframeTimes,
         }),
     },
     '../../util/ManagedProcess': {
@@ -205,17 +209,36 @@ test('refreshed basic metadata wakes a request that previously lacked a matching
 
 test('a keyframe analysis version change queues a refresh and exposes the prior result as stale', async () => {
     const row = makeRow({ version: KEYFRAME_ANALYSIS_VERSION - 1 });
+    row.result = JSON.stringify({ ...JSON.parse(row.result), version: KEYFRAME_ANALYSIS_VERSION - 1 });
     const { model, updates } = createModel(row);
 
     const result = await model.request({ id: 41 }, 1000, 2000);
 
     assert.equal(row.version, KEYFRAME_ANALYSIS_VERSION);
     assert.equal(row.status, 'pending');
-    assert.equal(result.version, KEYFRAME_ANALYSIS_VERSION);
+    assert.equal(result.version, KEYFRAME_ANALYSIS_VERSION - 1);
     assert.equal(result.currentVersion, KEYFRAME_ANALYSIS_VERSION);
     assert.equal(result.averageInterval, 4);
     assert.equal(result.stale, true);
     assert.equal(updates.length, 1);
+});
+
+test('an unavailable result from the fixed-window version is queued again under the adaptive version', async () => {
+    const row = makeRow({ status: 'unavailable', version: KEYFRAME_ANALYSIS_VERSION - 1 });
+    row.result = JSON.stringify({
+        ...JSON.parse(row.result),
+        version: KEYFRAME_ANALYSIS_VERSION - 1,
+        averageInterval: null,
+        minInterval: null,
+        maxInterval: null,
+        intervalCount: 0,
+    });
+    const { model } = createModel(row);
+    const result = await model.request({ id: 41 }, 1000, 2000);
+    assert.equal(result.status, 'pending');
+    assert.equal(result.currentVersion, 2);
+    assert.equal(result.averageInterval, null);
+    assert.equal(result.stale, true);
 });
 
 test('a changed source fingerprint queues a refresh and retains cached metrics', async () => {
@@ -292,4 +315,106 @@ test('probe returns stdout only after the child closes successfully', async () =
     assert.equal(await pending, '{"packets":[]}');
     assert.equal(settled, true);
     processHarness.spawn = null;
+});
+
+async function sampleWithResponses(duration, responseForWindow) {
+    const { model } = createModel(makeRow());
+    model.stopped = false;
+    const calls = [];
+    model.probe = async (filePath, stream, start, windowDuration) => {
+        calls.push({ filePath, stream, start, duration: windowDuration });
+        const relativeStart = start - 1000;
+        return JSON.stringify({ keyframeTimes: responseForWindow(relativeStart, windowDuration) });
+    };
+    const samples = await model.sampleKeyframes('video.ts', '1', duration, 1000);
+    return { calls, samples };
+}
+
+test('adaptive sampling stops at 20 seconds once a location has three keyframes', async () => {
+    const { calls, samples } = await sampleWithResponses(600, start => [start, start + 5, start + 10]);
+
+    assert.equal(KEYFRAME_ANALYSIS_VERSION, 2);
+    assert.equal(calls.length, 3);
+    assert.deepEqual(
+        calls.map(({ start, duration }) => [start, duration]),
+        [
+            [1000, 20],
+            [1290, 20],
+            [1580, 20],
+        ],
+    );
+    assert.equal(samples.length, 3);
+    assert.ok(samples.every(sample => sample.keyframeTimes.length === 3));
+});
+
+test('a 25-second keyframe interval expands a location to 60 seconds and then stops', async () => {
+    const { calls, samples } = await sampleWithResponses(600, (start, duration) =>
+        duration === 20 ? [start] : [start, start + 25, start + 50],
+    );
+
+    assert.equal(calls.length, 6);
+    assert.equal(calls.length, samples.length);
+    assert.deepEqual(
+        calls.map(({ start, duration }) => [start, duration]),
+        [
+            [1000, 20],
+            [1000, 60],
+            [1290, 20],
+            [1270, 60],
+            [1580, 20],
+            [1540, 60],
+        ],
+    );
+});
+
+test('each location expands independently and keeps its 120-second result when still sparse', async () => {
+    const { calls, samples } = await sampleWithResponses(600, (start, duration) => {
+        if (start === 0) return [0, 5, 10];
+        if (start === 290 || start === 580) return [start];
+        if (start === 270 || start === 540) return [start, start + 25];
+        return [start, start + 25];
+    });
+
+    assert.deepEqual(
+        calls.map(({ start, duration }) => [start - 1000, duration]),
+        [
+            [0, 20],
+            [290, 20],
+            [270, 60],
+            [240, 120],
+            [580, 20],
+            [540, 60],
+            [480, 120],
+        ],
+    );
+    assert.equal(samples.length, 7);
+    assert.deepEqual(
+        samples.map(sample => sample.keyframeTimes.length),
+        [3, 1, 2, 2, 1, 2, 2],
+    );
+});
+
+test('short videos use the deduplicated fallback window and sparse maximum samples remain usable', async () => {
+    const short = await sampleWithResponses(10, start => [start, start + 5]);
+    assert.equal(short.calls.length, 1);
+    assert.deepEqual(short.samples[0], { start: 0, end: 10, keyframeTimes: [0, 5] });
+
+    const maximum = await sampleWithResponses(600, (start, duration) =>
+        duration < 120 ? [start] : [start, start + 25],
+    );
+    assert.equal(maximum.calls.length, 9);
+    assert.equal(maximum.samples.length, 9);
+    assert.deepEqual(
+        maximum.samples.map(sample => sample.keyframeTimes.length),
+        [1, 1, 2, 1, 1, 2, 1, 1, 2],
+    );
+    assert.equal(keyframeUtil.summarizeKeyframeSamples(maximum.samples).averageInterval, 25);
+});
+
+test('sampling with no measurable interval stops at the limit and reports unknown instead of zero', async () => {
+    const { calls, samples } = await sampleWithResponses(600, () => []);
+    assert.equal(calls.length, 9);
+    const summary = keyframeUtil.summarizeKeyframeSamples(samples);
+    assert.equal(summary.intervalCount, 0);
+    assert.equal(summary.averageInterval, null);
 });

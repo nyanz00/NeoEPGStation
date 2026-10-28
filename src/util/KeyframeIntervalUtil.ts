@@ -8,6 +8,26 @@ export interface KeyframePacketSample extends KeyframeSampleWindow {
 }
 
 const SAMPLE_WINDOW_SECONDS = 20;
+const SAMPLE_WINDOW_STAGES = [SAMPLE_WINDOW_SECONDS, 60, 120];
+
+/** Independent expansion plans for the beginning, center and end of the video. */
+export function planKeyframeSampleStages(duration: number): KeyframeSampleWindow[][] {
+    if (!Number.isFinite(duration) || duration <= 0) return [];
+    const plans: KeyframeSampleWindow[][] = [];
+    for (const location of ['beginning', 'center', 'end']) {
+        const stages: KeyframeSampleWindow[] = [];
+        for (const seconds of SAMPLE_WINDOW_STAGES) {
+            const length = Math.min(duration, seconds);
+            const start =
+                location === 'beginning' ? 0 : location === 'center' ? (duration - length) / 2 : duration - length;
+            const window = { start, end: start + length };
+            const previous = stages[stages.length - 1];
+            if (!previous || previous.start !== window.start || previous.end !== window.end) stages.push(window);
+        }
+        if (!plans.some(plan => JSON.stringify(plan) === JSON.stringify(stages))) plans.push(stages);
+    }
+    return plans;
+}
 
 function finiteTimestamp(value: unknown): number | null {
     if (typeof value !== 'number' && typeof value !== 'string') return null;
@@ -109,8 +129,23 @@ export function summarizeKeyframeSamples(samples: KeyframePacketSample[]): {
     const sampleWindows: Array<{ start: number; end: number; keyframeCount: number }> = [];
     let sampledDuration = 0;
 
-    for (const sample of samples) {
-        if (!Number.isFinite(sample.start) || !Number.isFinite(sample.end) || sample.end < sample.start) continue;
+    // Expanded windows can overlap on short recordings. Count each contiguous
+    // sample and its intervals once, while never joining gaps between locations.
+    const merged: KeyframePacketSample[] = [];
+    const sorted = samples
+        .filter(sample => Number.isFinite(sample.start) && Number.isFinite(sample.end) && sample.end >= sample.start)
+        .sort((a, b) => a.start - b.start || a.end - b.end);
+    for (const sample of sorted) {
+        const previous = merged[merged.length - 1];
+        if (previous && sample.start <= previous.end) {
+            previous.end = Math.max(previous.end, sample.end);
+            previous.keyframeTimes.push(...sample.keyframeTimes);
+        } else {
+            merged.push({ ...sample, keyframeTimes: [...sample.keyframeTimes] });
+        }
+    }
+
+    for (const sample of merged) {
         sampledDuration += sample.end - sample.start;
         const times = [...new Set(sample.keyframeTimes.filter(Number.isFinite))].sort((a, b) => a - b);
         for (const time of times) keyframes.add(time);

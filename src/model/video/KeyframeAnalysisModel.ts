@@ -9,7 +9,7 @@ import VideoFileTsInfo from '../../db/entities/VideoFileTsInfo.js';
 import {
     KeyframePacketSample,
     parseKeyframePacketSample,
-    planKeyframeSampleWindows,
+    planKeyframeSampleStages,
     summarizeKeyframeSamples,
 } from '../../util/KeyframeIntervalUtil.js';
 import { killManaged, spawnManaged } from '../../util/ManagedProcess.js';
@@ -20,7 +20,7 @@ import { acquireRecordedFileUse } from '../RecordedFileUse.js';
 import IVideoUtil from '../api/video/IVideoUtil.js';
 import IKeyframeAnalysisModel from './IKeyframeAnalysisModel.js';
 
-export const KEYFRAME_ANALYSIS_VERSION = 1;
+export const KEYFRAME_ANALYSIS_VERSION = 2;
 const RETRY_DELAY = 6 * 60 * 60 * 1000;
 const BACKFILL_INTERVAL = 30_000;
 type Summary = ReturnType<typeof summarizeKeyframeSamples>;
@@ -234,8 +234,6 @@ export default class KeyframeAnalysisModel implements IKeyframeAnalysisModel {
                 Number(video.analyzedMtime) !== Math.trunc(before.mtimeMs)
             )
                 throw new Error('BasicVideoAnalysisOutdated');
-            const windows = planKeyframeSampleWindows(Number(video.duration));
-            if (windows.length === 0) throw new Error('VideoDurationUnavailable');
             const ts = await connection.getRepository(VideoFileTsInfo).findOneBy({ videoFileId: video.id });
             let stream = 'v:0';
             try {
@@ -253,12 +251,7 @@ export default class KeyframeAnalysisModel implements IKeyframeAnalysisModel {
                 /* Older caches can lack a stream list. */
             }
             const startTime = Number.isFinite(video.startTime) ? Number(video.startTime) : 0;
-            const samples: KeyframePacketSample[] = [];
-            for (const window of windows) {
-                if (this.stopped) throw new Error('KeyframeAnalysisStopped');
-                const output = await this.probe(filePath, stream, startTime + window.start, window.end - window.start);
-                samples.push(parseKeyframePacketSample(output, window, startTime));
-            }
+            const samples = await this.sampleKeyframes(filePath, stream, Number(video.duration), startTime);
             const after = await fs.promises.stat(filePath);
             if (after.size !== before.size || after.mtimeMs !== before.mtimeMs)
                 throw new Error('VideoFileChangedDuringAnalysis');
@@ -284,6 +277,41 @@ export default class KeyframeAnalysisModel implements IKeyframeAnalysisModel {
         } finally {
             await use?.release();
         }
+    }
+
+    private async sampleKeyframes(
+        filePath: string,
+        stream: string,
+        duration: number,
+        startTime: number,
+    ): Promise<KeyframePacketSample[]> {
+        const plans = planKeyframeSampleStages(duration);
+        if (plans.length === 0) throw new Error('VideoDurationUnavailable');
+        const cache = new Map<string, KeyframePacketSample>();
+        for (const stages of plans) {
+            let sample: KeyframePacketSample | undefined;
+            for (const window of stages) {
+                if (this.stopped) throw new Error('KeyframeAnalysisStopped');
+                const key = `${window.start}:${window.end}`;
+                sample = cache.get(key);
+                if (sample === undefined) {
+                    const output = await this.probe(
+                        filePath,
+                        stream,
+                        startTime + window.start,
+                        window.end - window.start,
+                    );
+                    sample = parseKeyframePacketSample(output, window, startTime);
+                    cache.set(key, sample);
+                }
+                // Keep all intervals in a sufficient window instead of stopping
+                // after the first pair. At the limit even a single interval is useful.
+                if (sample.keyframeTimes.length >= 3) break;
+            }
+        }
+        // Container seeking may land before the requested start. Keep earlier
+        // observations as well; the summary merges overlaps without double counting.
+        return [...cache.values()];
     }
 
     private probe(filePath: string, stream: string, start: number, duration: number): Promise<string> {
