@@ -216,12 +216,36 @@ test('Windows command shims are launched through cmd.exe', () => {
     });
 });
 
-test('package commands run non-interactively without discarding the service environment', () => {
-    assert.deepEqual(createUpdatePackageEnvironment({ PATH: 'C:\\node', CI: 'false' }), {
+test('package commands retain service settings and bound build worker resources', () => {
+    const environment = createUpdatePackageEnvironment({
         PATH: 'C:\\node',
-        CI: 'true',
-        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+        CI: 'false',
+        NPM_CONFIG_USERCONFIG: 'C:\\service\\.npmrc',
+        GOMAXPROCS: '1',
+        GOMEMLIMIT: '768MiB',
+        RAYON_NUM_THREADS: '1',
     });
+
+    assert.equal(environment.PATH, 'C:\\node');
+    assert.equal(environment.CI, 'true');
+    assert.equal(environment.COREPACK_ENABLE_DOWNLOAD_PROMPT, '0');
+    assert.equal(environment.NPM_CONFIG_USERCONFIG, 'C:\\service\\.npmrc');
+    assert.equal(environment.GOMAXPROCS, '1');
+    assert.equal(environment.GOMEMLIMIT, '768MiB');
+    assert.equal(environment.RAYON_NUM_THREADS, '1');
+});
+
+test('default package worker settings stay within bounded ranges and use a Go memory unit', () => {
+    const environment = createUpdatePackageEnvironment({ PATH: 'C:\\node' });
+    const goProcesses = Number(environment.GOMAXPROCS);
+    const rayonThreads = Number(environment.RAYON_NUM_THREADS);
+    const memoryLimit = /^(\d+)MiB$/.exec(environment.GOMEMLIMIT ?? '');
+
+    assert.ok(Number.isInteger(goProcesses) && goProcesses >= 1 && goProcesses <= 2);
+    assert.ok(Number.isInteger(rayonThreads) && rayonThreads >= 1 && rayonThreads <= 8);
+    assert.ok(memoryLimit, `expected a MiB memory limit, received ${environment.GOMEMLIMIT}`);
+    const memoryLimitMiB = Number(memoryLimit[1]);
+    assert.ok(memoryLimitMiB >= 512 && memoryLimitMiB <= 2048);
 });
 
 test('first updater run skips install when dependency files are unchanged', () => {

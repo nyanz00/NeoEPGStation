@@ -1,10 +1,12 @@
+import { getBuildEnvironment } from '../../../scripts/preflight-resources.cjs';
+
 export interface UpdateCommandInvocation {
     command: string;
     args: string[];
 }
 
 export const createUpdatePackageEnvironment = (environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => ({
-    ...environment,
+    ...getBuildEnvironment(environment),
     CI: 'true',
     COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
 });

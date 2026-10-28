@@ -25,6 +25,8 @@ import {
 } from './UpdateCommand.js';
 import { shouldInstallUpdateDependencies } from './UpdateDependency.js';
 import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser.js';
+import { assertUpdateNodeRuntime } from './UpdateNodeRuntime.js';
+import { captureUpdateArtifacts, restoreUpdateArtifacts } from './UpdateArtifacts.js';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -241,6 +243,7 @@ export default class UpdateManager {
         let oldCommit: string | null = null;
         let oldBranch: string | null = null;
         let switched = false;
+        let artifactBackup: string | null = null;
         try {
             this.setStage(job, 'checking', 'Gitリポジトリと更新対象を確認しています');
             await this.assertRepository();
@@ -287,6 +290,8 @@ export default class UpdateManager {
                 return;
             }
             const relation = await this.getTargetRelation(job.target, oldCommit, targetCommit);
+            const targetManifest = JSON.parse(await this.gitRequiredText(['show', `${targetCommit}:package.json`]));
+            assertUpdateNodeRuntime(targetManifest, process.version);
             const applicability = await this.getTargetApplicability(job.target, relation, oldCommit, targetCommit);
             if (!applicability.canApply)
                 throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
@@ -308,7 +313,7 @@ export default class UpdateManager {
             }
 
             this.setStage(job, 'backing-up', 'DBとconfig.ymlをバックアップしています');
-            await this.createBackup(job.id);
+            artifactBackup = await this.createBackup(job.id);
 
             job.packageManager = manager;
             this.state.preferredPackageManager = manager;
@@ -387,7 +392,12 @@ export default class UpdateManager {
                         await this.git(['checkout', '--detach', oldCommit]);
                     }
                     if (job.installRan) await this.install(job.packageManager === 'pnpm' ? 'pnpm' : 'npm');
-                    await this.build(job.packageManager === 'pnpm' ? 'pnpm' : 'npm');
+                    if (artifactBackup !== null) {
+                        await restoreUpdateArtifacts(this.rootDir, path.join(artifactBackup, 'artifacts'));
+                        this.append(job, '更新前のビルド成果物を復元しました');
+                    } else {
+                        throw new Error('更新前のビルド成果物が見つかりません');
+                    }
                     await this.restoreStashedChanges(job);
                     job.rollback = 'success';
                     this.finish(job, 'rolled-back', 'failed', '更新に失敗したため、更新前のコードへ復旧しました');
@@ -829,7 +839,7 @@ export default class UpdateManager {
         }
     }
 
-    private async createBackup(jobId: string): Promise<void> {
+    private async createBackup(jobId: string): Promise<string> {
         const backupsDir = path.join(this.updateDir, 'backups');
         const temporary = path.join(backupsDir, `.creating-${jobId}`);
         const destination = path.join(backupsDir, new Date().toISOString().replace(/[:.]/g, '-'));
@@ -848,16 +858,18 @@ export default class UpdateManager {
             const database = path.join(temporary, 'database.json');
             if (fs.statSync(database).size === 0) throw new Error('DBバックアップが空です');
             JSON.parse(fs.readFileSync(database, 'utf8'));
+            await captureUpdateArtifacts(this.rootDir, path.join(temporary, 'artifacts'));
             fs.renameSync(temporary, destination);
             const generations = fs
                 .readdirSync(backupsDir, { withFileTypes: true })
                 .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
                 .sort((a, b) => b.name.localeCompare(a.name));
             for (const old of generations.slice(3))
-                fs.rmSync(path.join(backupsDir, old.name), { recursive: true, force: true });
+                await fs.promises.rm(path.join(backupsDir, old.name), { recursive: true, force: true });
             if (this.state.job !== undefined) this.append(this.state.job, `バックアップを作成しました: ${destination}`);
+            return destination;
         } catch (err) {
-            fs.rmSync(temporary, { recursive: true, force: true });
+            await fs.promises.rm(temporary, { recursive: true, force: true });
             throw err;
         }
     }
