@@ -96,7 +96,7 @@
 
 ### 必須
 
-- Node.js `^20.19.0 || ^22.13.0 || >=24.11.0`
+- Node.js `^22.13.0 || >=24.11.0`
 - [Mirakurun-nyanz](https://github.com/nyanz00/Mirakurun)または[Mirakurun](https://github.com/Chinachu/Mirakurun)（[mirakc](https://github.com/mirakc/mirakc)での動作は未確認です）
 - [FFmpeg](https://ffmpeg.org/)
 - 次のいずれかのデータベース
@@ -116,7 +116,7 @@ Linuxでは公式ソースをビルドするため、`git`、`make`、`g++`が�
 - Windows 10／11
 - Ubuntu 22.04
 - Docker（Debian／Alpine）
-- Node.js 20／22／24
+- Node.js 22／24
 - better-sqlite3、MariaDB／MySQL
 
 環境ごとの確認範囲は[NeoEPGStationドキュメント](doc/neoepgstation.md#動作環境)を参照してください。

@@ -9,13 +9,13 @@ Windowsに加え、Ubuntu 22.04のネイティブ環境とDebian／AlpineのDock
 
 ## 動作環境
 
-- Node.js: `^20.19.0 || ^22.13.0 || >=24.11.0`
-- 動作確認済み: 20.20.2 / 22.23.0 / 24.18.0
+- Node.js: `^22.13.0 || >=24.11.0`
+- 動作確認済み: 22.23.0 / 24.18.0
 - Windows 10 / Windows 11 / Ubuntu 22.04 / Docker（Debian・Alpine）
 - データベース: MariaDB/MySQL、better-sqlite3
 - Windows／LinuxでのFFmpeg、QSVEncC、NVEncC、Amatsukaze連携
 
-Node.js 20、22、24とWindows 10／11ではビルド、起動、基本操作を確認済みです。Ubuntu 22.04では録画・ストリーミング・Amatsukaze連携を、Debian DockerではAmatsukaze連携を含む起動と基本動作を確認しています。Debian／AlpineのDockerイメージはいずれもビルド・起動を確認済みです。<br>
+Node.js 22、24とWindows 10／11ではビルド、起動、基本操作を確認済みです。Ubuntu 22.04では録画・ストリーミング・Amatsukaze連携を、Debian DockerではAmatsukaze連携を含む起動と基本動作を確認しています。Debian／AlpineのDockerイメージはいずれもビルド・起動を確認済みです。<br>
 すべての環境で完璧な動作を保証するものではありません。データは必ずバックアップを取ってから使用してください。
 
 ## インストールとビルド
