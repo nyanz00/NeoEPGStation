@@ -51,6 +51,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
+import { RecordedDropInfo } from '../components/RecordedDropInfo';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
@@ -461,8 +462,6 @@ function RecordedCard({
 }): ReactNode {
     const [anchor, setAnchor] = useState<HTMLElement | null>(null);
     const thumbnail = item.thumbnails?.[0];
-    const drop = item.dropLogFile;
-    const hasError = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     const clickCard = (): void => (editMode ? onSelect() : onOpen());
     return (
         <Card
@@ -530,15 +529,15 @@ function RecordedCard({
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                     {recordedTime(item)}
                 </Typography>
-                {showDrop && drop !== undefined ? (
-                    <Typography variant="caption" color={hasError ? 'error' : 'text.secondary'} noWrap sx={{ display: 'block' }}>
-                        drop: {drop.dropCnt}, error: {drop.errorCnt}, scrambling: {drop.scramblingCnt}
-                    </Typography>
-                ) : (
-                    <Typography variant="caption" noWrap title={item.description} sx={{ display: 'block' }}>
-                        {item.description ?? '\u00a0'}
-                    </Typography>
-                )}
+                <RecordedDropInfo
+                    drop={item.dropLogFile}
+                    videoFiles={item.videoFiles}
+                    description={item.description}
+                    isRecording={item.isRecording}
+                    showDrop={showDrop}
+                    noWrap
+                    sx={{ display: 'block' }}
+                />
             </Box>
             <RecordedItemActions
                 item={item}
@@ -584,8 +583,6 @@ function RecordedTableRow({
     onDeleted: () => void;
 }): ReactNode {
     const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-    const drop = item.dropLogFile;
-    const hasError = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     return (
         <TableRow
             id={`recorded-card-${item.id}`}
@@ -600,10 +597,8 @@ function RecordedTableRow({
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>
                         {item.name}
                     </Typography>
-                    {showDrop && drop !== undefined && (
-                        <Typography variant="caption" color={hasError ? 'error' : 'text.secondary'} sx={{ whiteSpace: 'nowrap' }}>
-                            drop: {drop.dropCnt}, error: {drop.errorCnt}, scrambling: {drop.scramblingCnt}
-                        </Typography>
+                    {showDrop && item.dropLogFile !== undefined && !item.isRecording && (
+                        <RecordedDropInfo drop={item.dropLogFile} videoFiles={item.videoFiles} showDrop noWrap sx={{ flex: '0 0 auto' }} />
                     )}
                 </Stack>
             </TableCell>

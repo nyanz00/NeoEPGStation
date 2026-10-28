@@ -36,6 +36,7 @@ import { type ReactNode, type UIEvent, useEffect, useMemo, useRef, useState } fr
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
+import { RecordedDropInfo } from '../components/RecordedDropInfo';
 import { RecordedItemActions } from '../components/RecordedItemActions';
 import { ReserveProgramDialog } from '../components/ReserveProgramDialog';
 import { programDialogClose, programDialogFields, programDialogPaper } from '../components/programDialogStyles';
@@ -97,9 +98,6 @@ function RecordedDashboardCard({
     const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
     const thumbnailId = item.thumbnails?.[0];
     const hasVisual = showThumbnail && (thumbnailId !== undefined || channel !== undefined);
-    const drop = item.dropLogFile;
-    const hasDropError = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
-
     return (
         <Card variant="outlined" sx={{ position: 'relative', overflow: 'hidden', flex: '0 0 auto' }}>
             <CardActionArea onClick={onOpen} sx={{ minHeight: hasVisual ? 100 : undefined, display: hasVisual ? 'flex' : 'block', alignItems: 'stretch' }}>
@@ -120,15 +118,15 @@ function RecordedDashboardCard({
                     <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                         {formatProgramDate(item.startAt)} - {formatProgramTime(item.endAt)}（{programDuration(item)}分）
                     </Typography>
-                    {showDrop && drop !== undefined ? (
-                        <Typography variant="caption" color={hasDropError ? 'error' : 'text.secondary'} noWrap sx={{ display: 'block', mt: 0.25 }}>
-                            drop: {drop.dropCnt}, error: {drop.errorCnt}, scrambling: {drop.scramblingCnt}
-                        </Typography>
-                    ) : (
-                        <Typography variant="caption" noWrap title={item.description} sx={{ display: 'block', mt: 0.25 }}>
-                            {item.description ?? '\u00a0'}
-                        </Typography>
-                    )}
+                    <RecordedDropInfo
+                        drop={item.dropLogFile}
+                        videoFiles={item.videoFiles}
+                        description={item.description}
+                        isRecording={item.isRecording}
+                        showDrop={showDrop}
+                        noWrap
+                        sx={{ display: 'block', mt: 0.25 }}
+                    />
                 </CardContent>
             </CardActionArea>
             <IconButton
