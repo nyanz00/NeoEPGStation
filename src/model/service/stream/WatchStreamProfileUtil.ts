@@ -414,7 +414,7 @@ namespace WatchStreamProfileUtil {
         const input =
             tsInput === undefined
                 ? '-f mpegts -analyzeduration 10000000 -probesize 32000000 -i pipe:0'
-                : '-f mpegts -analyzeduration 700000 -probesize 1000000 -i pipe:0';
+                : '-f mpegts -analyzeduration 2000000 -probesize 4000000 -i pipe:0';
         const map =
             tsInput === undefined
                 ? '-map 0:v:0 -map 0:a:0? -map 0:a:1? -map 0:d?'
@@ -1271,7 +1271,7 @@ namespace WatchStreamProfileUtil {
         const options: string[] = [
             option.tsInputInfo === undefined
                 ? '--input-format mpegts --input-probesize 32000K --input-analyze 10'
-                : '--input-format mpegts --input-probesize 1000K --input-analyze 0.7',
+                : '--input-format mpegts --input-probesize 4000K --input-analyze 2',
             '--input -',
             encoder === 'VCEEncC' ? '--avsw' : '--avhw',
             '--audio-stream 1?:stereo --audio-stream 2?:stereo --data-copy timed_id3',

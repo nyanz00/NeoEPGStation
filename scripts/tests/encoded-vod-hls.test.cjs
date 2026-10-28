@@ -159,6 +159,22 @@ test('FFmpeg encoded HLS command derives frame rate, GOP, and segment cut from o
     }
 });
 
+test('recorded TS fast input keeps a bounded probe and provides a larger fallback', () => {
+    const tsInputInfo = { serviceId: 1, videoPid: 101, audioPid: 102 };
+    for (const encoder of ['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC']) {
+        const option = { encoder, qualityName: '720p', start: 120, preroll: 6 };
+        const fast = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config(), { ...option, tsInputInfo });
+        const fallback = WatchStreamProfileUtil.buildRecordedVodHlsContinuousCommand(config(), option);
+        if (encoder === 'FFmpeg') {
+            assert.match(fast, /-analyzeduration 2000000 -probesize 4000000/);
+            assert.match(fallback, /-analyzeduration 10000000 -probesize 32000000/);
+        } else {
+            assert.match(fast, /--input-probesize 4000K --input-analyze 2/);
+            assert.match(fallback, /--input-probesize 32000K --input-analyze 10/);
+        }
+    }
+});
+
 test('recorded TS paths use one-second GOPs for each codec and encoder while live GOP defaults stay intact', () => {
     for (const encoder of ['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC']) {
         for (const isHevc of [false, true]) {
