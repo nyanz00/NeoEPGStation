@@ -1,5 +1,4 @@
 interface AribCaptionRenderer {
-    hide: () => void;
     show: () => void;
 }
 
@@ -14,21 +13,11 @@ export function bindAribCaptionVisibility(player: AribCaptionPlayer, getCurrentP
 
     player.on('subtitle_show', () => {
         const currentPlayer = getCurrentPlayer();
-        if (currentPlayer === null) return;
+        if (currentPlayer !== player) return;
 
         const renderer = currentPlayer.plugins.aribb24Caption as AribCaptionRenderer | undefined;
-        if (renderer === undefined || typeof renderer.hide !== 'function' || typeof renderer.show !== 'function') return;
+        if (renderer === undefined || typeof renderer.show !== 'function') return;
 
-        renderer.hide();
         renderer.show();
-
-        // Compatibility target: client/package.json pins DPlayer at
-        // e15270db379a885890e41d06eca215bdfe1aa785, which resolves aribb24.js 1.11.5.
-        // That renderer keeps b24Track private and show() does not redraw an active cue.
-        // Dispatching cuechange reuses its existing handler.
-        const track = (renderer as unknown as { b24Track?: EventTarget | null }).b24Track;
-        if (track !== undefined && track !== null && typeof track.dispatchEvent === 'function') {
-            track.dispatchEvent(new Event('cuechange'));
-        }
     });
 }

@@ -29,81 +29,64 @@ function createPlayer(renderer) {
     };
 }
 
-function createCanvasRenderer() {
-    const track = new EventTarget();
-    let showing = false;
-    let drawn = false;
-    let drawCount = 0;
-    track.addEventListener('cuechange', () => {
-        if (showing) {
-            drawn = true;
-            drawCount++;
-        } else {
-            drawn = false;
-        }
-    });
-    return {
-        b24Track: track,
-        get drawCount() {
-            return drawCount;
-        },
-        hide() {
-            showing = false;
-            drawn = false;
-        },
-        show() {
-            showing = true;
-            this.onResize();
-        },
-        onResize() {
-            // aribb24.js draws from resize only after a cuechange has rendered.
-            if (showing && drawn) drawCount++;
-        },
-    };
-}
-
-test('subtitle_show redraws a cue that arrived while the canvas renderer was hidden', () => {
-    const renderer = createCanvasRenderer();
+test('subtitle_show requests a redraw from a show-only 2.x renderer', () => {
+    let showCount = 0;
+    const renderer = { show: () => showCount++ };
     const player = createPlayer(renderer);
-    renderer.b24Track.dispatchEvent(new Event('cuechange'));
-    assert.equal(renderer.drawCount, 0, 'the hidden renderer must not draw the cue');
-
     bindAribCaptionVisibility(player, () => player);
+
     player.showSubtitles();
 
-    assert.equal(renderer.drawCount, 1, 'the synthetic cuechange must redraw the active cue');
-});
-
-test('does nothing when the caption renderer is unavailable', () => {
-    const player = createPlayer(undefined);
-    bindAribCaptionVisibility(player, () => player);
-    assert.doesNotThrow(() => player.showSubtitles());
-});
-
-test('hide and show still work when the compatibility track is unavailable', () => {
-    let hideCount = 0;
-    let showCount = 0;
-    const player = createPlayer({ hide: () => hideCount++, show: () => showCount++ });
-    bindAribCaptionVisibility(player, () => player);
-
-    assert.doesNotThrow(() => player.showSubtitles());
-    assert.equal(hideCount, 1);
     assert.equal(showCount, 1);
 });
 
-test('does nothing when the renderer methods are unavailable or the player is destroyed', () => {
-    const player = createPlayer({ hide() {} });
-    bindAribCaptionVisibility(player, () => null);
-    assert.doesNotThrow(() => player.showSubtitles());
-
-    let eventCount = 0;
-    const livePlayer = createPlayer({
-        hide() {},
-        show() {
-            eventCount++;
-        },
+test('requests show without calling hide', () => {
+    let showCount = 0;
+    let hideCount = 0;
+    const player = createPlayer({
+        show: () => showCount++,
+        hide: () => hideCount++,
     });
-    bindAribCaptionVisibility(livePlayer, () => null);
-    livePlayer.showSubtitles();
-    assert.equal(eventCount, 0);
+    bindAribCaptionVisibility(player, () => player);
+
+    player.showSubtitles();
+
+    assert.equal(showCount, 1);
+    assert.equal(hideCount, 0);
+});
+
+test('does nothing when the renderer is unavailable at bind time or later', () => {
+    const playerWithoutRenderer = createPlayer(undefined);
+    bindAribCaptionVisibility(playerWithoutRenderer, () => playerWithoutRenderer);
+    assert.doesNotThrow(() => playerWithoutRenderer.showSubtitles());
+
+    let showCount = 0;
+    const renderer = { show: () => showCount++ };
+    const player = createPlayer(renderer);
+    bindAribCaptionVisibility(player, () => player);
+    delete player.plugins.aribb24Caption;
+    player.showSubtitles();
+
+    assert.equal(showCount, 0);
+});
+
+test('does nothing after the player is destroyed', () => {
+    let showCount = 0;
+    const player = createPlayer({ show: () => showCount++ });
+    bindAribCaptionVisibility(player, () => null);
+
+    player.showSubtitles();
+
+    assert.equal(showCount, 0);
+});
+
+test('does nothing when the current player has been replaced', () => {
+    let showCount = 0;
+    const player = createPlayer({ show: () => showCount++ });
+    const replacement = createPlayer({ show: () => showCount++ });
+    bindAribCaptionVisibility(player, () => replacement);
+
+    player.showSubtitles();
+
+    assert.equal(showCount, 0);
 });
