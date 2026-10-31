@@ -84,7 +84,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }): ReactNo
                         },
                     },
                     MuiDrawer: {
-                        defaultProps: { slots: { root: ScrollLockDrawerRoot } },
+                        defaultProps: { slots: { root: ScrollLockDrawerRoot }, elevation: 0 },
                         styleOverrides: {
                             paper: {
                                 backgroundColor: selectedVariant.drawerBackground,
