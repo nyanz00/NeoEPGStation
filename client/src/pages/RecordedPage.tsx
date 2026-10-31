@@ -1,5 +1,6 @@
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import ControlPoint from '@mui/icons-material/ControlPoint';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import DeleteSweepOutlined from '@mui/icons-material/DeleteSweepOutlined';
 import DriveFileMoveOutlined from '@mui/icons-material/DriveFileMoveOutlined';
@@ -27,6 +28,10 @@ import {
     InputLabel,
     LinearProgress,
     ListSubheader,
+    List,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
     Menu,
     MenuItem,
     Popover,
@@ -43,7 +48,9 @@ import {
     ToggleButtonGroup,
     Tooltip,
     Typography,
+    useMediaQuery,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AddManualEncodeProgramOption, GetRecordedOption, RecordedCleanupPlanResult, RecordedItem, VideoFileId } from '../../../api';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -53,11 +60,14 @@ import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
 import { RecordedDropInfo } from '../components/RecordedDropInfo';
 import { RecordedItemActions } from '../components/RecordedItemActions';
+import { RecordedBulkEncodeDialog } from '../components/RecordedBulkEncodeDialog';
+import { MulticastIcon } from '../components/icons/MulticastIcon';
 import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { programDialogClose, programDialogFields, programDialogPaper } from '../components/programDialogStyles';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
+import type { BulkEncodeResult } from '../core/media/recordedBulkEncode';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { formatProgramTime, genreNames, programDuration } from '../core/program';
@@ -802,6 +812,7 @@ export function RecordedPage(): ReactNode {
     const settings = useSettings();
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
+    const mobile = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
     const initialPage = Number(searchParams.get('page'));
     const initialUserId = searchParams.get('userId');
     const initialFocus = Number(searchParams.get('focus'));
@@ -833,6 +844,8 @@ export function RecordedPage(): ReactNode {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteOption, setDeleteOption] = useState<MultipleDeletionOption>('all');
     const [encodeTarget, setEncodeTarget] = useState<RecordedItem | null>(null);
+    const [bulkEncodeTargets, setBulkEncodeTargets] = useState<RecordedItem[] | null>(null);
+    const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
     const [bulkUserOpen, setBulkUserOpen] = useState(false);
     const [bulkUserId, setBulkUserId] = useState<ActiveUserId>(null);
     const [moveOpen, setMoveOpen] = useState(false);
@@ -1263,6 +1276,16 @@ export function RecordedPage(): ReactNode {
             else next.add(id);
             return next;
         });
+    const openBulkEncode = (): void => {
+        setBulkActionsOpen(false);
+        setBulkEncodeTargets(selectedRecords);
+    };
+    const onBulkEncodeCompleted = (result: BulkEncodeResult): void => {
+        const succeededIds = new Set(result.succeeded.map(job => job.recordedId));
+        setSelected(current => new Set([...current].filter(id => !succeededIds.has(id))));
+        if (result.failed.length === 0) setEditMode(false);
+        void Promise.all([queryClient.invalidateQueries({ queryKey: ['encode'] }), queryClient.invalidateQueries({ queryKey: ['recorded'] })]);
+    };
 
     return (
         <>
@@ -1276,32 +1299,51 @@ export function RecordedPage(): ReactNode {
                                     <SelectAllOutlined />
                                 </IconButton>
                             </Tooltip>
-                            <Tooltip title="ユーザーを一括変更">
-                                <span>
-                                    <IconButton
-                                        disabled={selectedRecords.length === 0}
-                                        onClick={() => {
-                                            setBulkUserId(null);
-                                            setBulkUserOpen(true);
-                                        }}
-                                    >
-                                        <AccountCircleOutlined />
-                                    </IconButton>
-                                </span>
-                            </Tooltip>
-                            <Tooltip title="サブディレクトリへ一括移動">
-                                <span>
-                                    <IconButton
-                                        disabled={selectedRecords.length === 0}
-                                        onClick={() => {
-                                            setMoveSubDirectory('');
-                                            setMoveOpen(true);
-                                        }}
-                                    >
-                                        <DriveFileMoveOutlined />
-                                    </IconButton>
-                                </span>
-                            </Tooltip>
+                            {mobile ? (
+                                <Tooltip title="一括操作">
+                                    <span>
+                                        <IconButton aria-label="一括操作" disabled={selectedRecords.length === 0} onClick={() => setBulkActionsOpen(true)}>
+                                            <MulticastIcon />
+                                        </IconButton>
+                                    </span>
+                                </Tooltip>
+                            ) : (
+                                <>
+                                    <Tooltip title="エンコードを一括追加">
+                                        <span>
+                                            <IconButton aria-label="エンコードを一括追加" disabled={selectedRecords.length === 0} onClick={openBulkEncode}>
+                                                <ControlPoint />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Tooltip title="ユーザーを一括変更">
+                                        <span>
+                                            <IconButton
+                                                disabled={selectedRecords.length === 0}
+                                                onClick={() => {
+                                                    setBulkUserId(null);
+                                                    setBulkUserOpen(true);
+                                                }}
+                                            >
+                                                <AccountCircleOutlined />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Tooltip title="サブディレクトリへ一括移動">
+                                        <span>
+                                            <IconButton
+                                                disabled={selectedRecords.length === 0}
+                                                onClick={() => {
+                                                    setMoveSubDirectory('');
+                                                    setMoveOpen(true);
+                                                }}
+                                            >
+                                                <DriveFileMoveOutlined />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                </>
+                            )}
                             <Tooltip title="削除">
                                 <span>
                                     <IconButton
@@ -1496,6 +1538,61 @@ export function RecordedPage(): ReactNode {
             </Box>
 
             <RecordedEncodeDialog item={encodeTarget} onClose={() => setEncodeTarget(null)} onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })} />
+            {bulkEncodeTargets !== null && <RecordedBulkEncodeDialog items={bulkEncodeTargets} onClose={() => setBulkEncodeTargets(null)} onCompleted={onBulkEncodeCompleted} />}
+            <Dialog
+                open={bulkActionsOpen}
+                onClose={() => setBulkActionsOpen(false)}
+                maxWidth="xs"
+                fullWidth
+                aria-labelledby="recorded-bulk-actions-title"
+                slotProps={{ paper: { sx: programDialogPaper } }}
+            >
+                <DialogTitle id="recorded-bulk-actions-title">一括操作</DialogTitle>
+                <IconButton aria-label="閉じる" onClick={() => setBulkActionsOpen(false)} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1, bgcolor: 'action.hover' }}>
+                    <List disablePadding>
+                        <ListItemButton disabled={selectedRecords.length === 0} onClick={openBulkEncode}>
+                            <ListItemIcon>
+                                <ControlPoint />
+                            </ListItemIcon>
+                            <ListItemText primary="エンコードを一括追加" />
+                        </ListItemButton>
+                        <ListItemButton
+                            disabled={selectedRecords.length === 0}
+                            onClick={() => {
+                                setBulkActionsOpen(false);
+                                setBulkUserId(null);
+                                setBulkUserOpen(true);
+                            }}
+                        >
+                            <ListItemIcon>
+                                <AccountCircleOutlined />
+                            </ListItemIcon>
+                            <ListItemText primary="ユーザーを一括変更" />
+                        </ListItemButton>
+                        <ListItemButton
+                            disabled={selectedRecords.length === 0}
+                            onClick={() => {
+                                setBulkActionsOpen(false);
+                                setMoveSubDirectory('');
+                                setMoveOpen(true);
+                            }}
+                        >
+                            <ListItemIcon>
+                                <DriveFileMoveOutlined />
+                            </ListItemIcon>
+                            <ListItemText primary="サブディレクトリへ一括移動" />
+                        </ListItemButton>
+                    </List>
+                </DialogContent>
+                <DialogActions>
+                    <Button color="inherit" variant="outlined" onClick={() => setBulkActionsOpen(false)}>
+                        閉じる
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Popover
                 open={searchAnchor !== null}
