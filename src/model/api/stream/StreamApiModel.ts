@@ -88,9 +88,8 @@ interface SubtitleBurnInStyle {
 const transformAssAlpha = (value: string, percent: number): string => {
     const match = /^(?:&H)?([0-9a-f]{2})?([0-9a-f]{6})&?$/i.exec(value.trim());
     if (match === null) return value;
-    const currentAlpha = parseInt(match[1] ?? '00', 16);
-    const currentOpacity = 255 - currentAlpha;
-    const nextOpacity = Math.round((currentOpacity * percent) / 100);
+    // The setting is absolute opacity; ASS alpha runs from opaque (00) to transparent (FF).
+    const nextOpacity = Math.round((255 * percent) / 100);
     const nextAlpha = Math.max(0, Math.min(255, 255 - nextOpacity));
     return `&H${nextAlpha.toString(16).padStart(2, '0').toUpperCase()}${match[2].toUpperCase()}`;
 };
@@ -129,7 +128,6 @@ const transformAssInlineStyle = (text: string, style: SubtitleBurnInStyle): stri
             return `\\${name.toLowerCase()}${scaleAssNumber(value, style.outlineSizePercent)}`;
         });
     }
-    if (style.opacityPercent === 100 && style.outlineOpacityPercent === 100) return transformed;
     transformed = transformed.replace(
         /\\(alpha|[1-4]a)&H([0-9a-f]{2})&?/gi,
         (_match, component: string, alpha: string) => {
@@ -138,8 +136,9 @@ const transformAssInlineStyle = (text: string, style: SubtitleBurnInStyle): stri
             if (normalizedComponent === 'alpha') {
                 const textAlpha = transformAssAlpha(source, style.opacityPercent).substring(2, 4);
                 const outlineAlpha = transformAssAlpha(source, style.outlineOpacityPercent).substring(2, 4);
-                return `\\1a&H${textAlpha}&\\2a&H${textAlpha}&\\3a&H${outlineAlpha}&\\4a&H${outlineAlpha}&`;
+                return `\\1a&H${textAlpha}&\\2a&H${textAlpha}&\\3a&H${outlineAlpha}&\\4a&H${alpha}&`;
             }
+            if (normalizedComponent === '4a') return _match;
             const opacity =
                 normalizedComponent === '1a' || normalizedComponent === '2a'
                     ? style.opacityPercent
@@ -150,16 +149,13 @@ const transformAssInlineStyle = (text: string, style: SubtitleBurnInStyle): stri
     );
     return transformed.replace(/\\([1-4]?c)&H([0-9a-f]{8})&?/gi, (_match, component: string, color: string) => {
         const normalizedComponent = component.toLowerCase();
-        const opacity =
-            normalizedComponent === '3c' || normalizedComponent === '4c'
-                ? style.outlineOpacityPercent
-                : style.opacityPercent;
+        if (normalizedComponent === '4c') return _match;
+        const opacity = normalizedComponent === '3c' ? style.outlineOpacityPercent : style.opacityPercent;
         return `\\${normalizedComponent}&H${transformAssAlpha(`&H${color}`, opacity).substring(2)}&`;
     });
 };
 
 export const transformAssSubtitleForStreaming = (content: string, style: SubtitleBurnInStyle): string => {
-    if (Object.values(style).every(value => value === 100)) return content;
     let section = '';
     let format: string[] = [];
     return content

@@ -91,7 +91,7 @@ function SettingRow({ title, description, control }: { title: string; descriptio
             <Box>
                 <Typography variant="body1">{title}</Typography>
                 {description !== undefined && (
-                    <Typography variant="body2" color="text.disabled" sx={{ mt: 0.25, fontSize: '0.8125rem', lineHeight: 1.45 }}>
+                    <Typography variant="body2" sx={{ mt: 0.25, fontSize: '0.8125rem', lineHeight: 1.45, color: 'text.disabled' }}>
                         {description}
                     </Typography>
                 )}
@@ -1133,7 +1133,6 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="STREAMING字幕サイズ"
-                                        description="焼き込み字幕の文字サイズを元の字幕に対する割合で調整します。"
                                         control={
                                             <PercentSlider
                                                 value={draft.watchStreamingSubtitleSizePercent}
@@ -1146,12 +1145,11 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="STREAMING字幕の不透明度"
-                                        description="焼き込み字幕の文字色の不透明度を元の字幕に対する割合で調整します。"
                                         control={
                                             <PercentSlider
                                                 value={draft.watchStreamingSubtitleOpacityPercent}
-                                                minimum={10}
-                                                maximum={300}
+                                                minimum={0}
+                                                maximum={100}
                                                 step={5}
                                                 onChange={value => patch('watchStreamingSubtitleOpacityPercent', value)}
                                             />
@@ -1159,7 +1157,6 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="STREAMING字幕の縁取り幅"
-                                        description="焼き込み字幕の縁取り幅を元の字幕に対する割合で調整します。"
                                         control={
                                             <PercentSlider
                                                 value={draft.watchStreamingSubtitleOutlineSizePercent}
@@ -1172,12 +1169,11 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="STREAMING字幕の縁取り不透明度"
-                                        description="焼き込み字幕の縁取り色の不透明度を元の字幕に対する割合で調整します。"
                                         control={
                                             <PercentSlider
                                                 value={draft.watchStreamingSubtitleOutlineOpacityPercent}
                                                 minimum={0}
-                                                maximum={300}
+                                                maximum={100}
                                                 step={5}
                                                 onChange={value => patch('watchStreamingSubtitleOutlineOpacityPercent', value)}
                                             />
@@ -1284,7 +1280,6 @@ export function SettingsPage(): ReactNode {
                                     />
                                     <SettingRow
                                         title="録画済みのWeb再生を優先"
-                                        description="エンコード済みファイルがある場合、録画詳細のPLAYでWebプレイヤーを優先する"
                                         control={<Switch checked={draft.isPreferredPlayingOnWeb} onChange={event => patch('isPreferredPlayingOnWeb', event.target.checked)} />}
                                     />
                                 </SettingSection>

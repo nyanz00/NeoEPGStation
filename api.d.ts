@@ -1352,9 +1352,9 @@ export interface RecordedStreanOption {
     subtitleIndex?: number;
     subtitleFileKey?: string;
     subtitleSize?: number;
-    subtitleOpacity?: number;
+    subtitleOpacity?: number; // 焼き込み文字の不透明度（0〜100%の絶対値）
     subtitleOutlineSize?: number;
-    subtitleOutlineOpacity?: number;
+    subtitleOutlineOpacity?: number; // 焼き込み縁取りの不透明度（0〜100%の絶対値）
 }
 /**
  * ライブストリーム情報
