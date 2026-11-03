@@ -68,6 +68,13 @@ import { programDialogClose, programDialogFields, programDialogPaper } from '../
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
 import type { BulkEncodeResult } from '../core/media/recordedBulkEncode';
+import {
+    createRecordedBulkDeleteTargets,
+    deleteRecordedBulkTargets,
+    getRecordedDeleteFileNames,
+    type RecordedBulkDeleteOption,
+    type RecordedBulkDeleteTarget,
+} from '../core/media/recordedBulkDelete';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { formatProgramTime, genreNames, programDuration } from '../core/program';
@@ -94,8 +101,6 @@ interface RecordedFilters {
     month: string;
     day: string;
 }
-
-type MultipleDeletionOption = 'all' | 'original' | 'encoded';
 
 const emptyFilters: RecordedFilters = {
     keyword: '',
@@ -842,7 +847,9 @@ export function RecordedPage(): ReactNode {
     const [editMode, setEditMode] = useState(false);
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [deleteOpen, setDeleteOpen] = useState(false);
-    const [deleteOption, setDeleteOption] = useState<MultipleDeletionOption>('all');
+    const [deleteOption, setDeleteOption] = useState<RecordedBulkDeleteOption>('all');
+    const [deleteFileNames, setDeleteFileNames] = useState<string[]>([]);
+    const deleteBusy = useRef(false);
     const [encodeTarget, setEncodeTarget] = useState<RecordedItem | null>(null);
     const [bulkEncodeTargets, setBulkEncodeTargets] = useState<RecordedItem[] | null>(null);
     const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
@@ -1091,25 +1098,7 @@ export function RecordedPage(): ReactNode {
         },
     });
     const deleteSelected = useMutation({
-        mutationFn: async () => {
-            const items = currentSelectedItems();
-            const results = await Promise.allSettled(
-                items.map(async item => {
-                    if (deleteOption === 'all') {
-                        await api.deleteRecorded(item.id);
-                        return;
-                    }
-                    const type = deleteOption === 'original' ? 'ts' : 'encoded';
-                    for (const video of item.videoFiles?.filter(value => value.type === type) ?? []) await api.deleteVideo(video.id);
-                }),
-            );
-            return {
-                succeeded: items.filter((_item, index) => results[index].status === 'fulfilled').map(item => item.id),
-                failed: items
-                    .map((item, index) => ({ item, result: results[index] }))
-                    .filter((entry): entry is { item: RecordedItem; result: PromiseRejectedResult } => entry.result.status === 'rejected'),
-            };
-        },
+        mutationFn: (targets: RecordedBulkDeleteTarget[]) => deleteRecordedBulkTargets(targets, api.deleteRecorded, api.deleteVideo),
         onSuccess: async result => {
             setDeleteOpen(false);
             setSelected(new Set(result.failed.map(entry => entry.item.id)));
@@ -1118,7 +1107,7 @@ export function RecordedPage(): ReactNode {
             if (result.failed.length > 0) {
                 const detail = result.failed
                     .slice(0, 3)
-                    .map(entry => `${entry.item.name}: ${entry.result.reason instanceof Error ? entry.result.reason.message : String(entry.result.reason)}`)
+                    .map(entry => `${entry.item.name}: ${entry.error}`)
                     .join(' / ');
                 notify(`${result.failed.length}件を削除できませんでした: ${detail}`, 'error');
             }
@@ -1127,6 +1116,9 @@ export function RecordedPage(): ReactNode {
         onError: async error => {
             notify(`削除に失敗しました: ${error.message}`, 'error');
             await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+        },
+        onSettled: () => {
+            deleteBusy.current = false;
         },
     });
     const stopEncode = useMutation({
@@ -1216,6 +1208,8 @@ export function RecordedPage(): ReactNode {
     );
     const totalPages = Math.max(1, Math.ceil((records.data?.total ?? 0) / settings.recordedLength));
     const selectedRecords = records.data?.records.filter(item => selected.has(item.id)) ?? [];
+    const deleteFileOptions = getRecordedDeleteFileNames(selectedRecords);
+    const deleteTargets = createRecordedBulkDeleteTargets(selectedRecords, deleteOption, deleteFileNames);
     const selectedSize = selectedRecords.reduce((total, item) => total + (item.videoFiles?.reduce((subtotal, videoFile) => subtotal + videoFile.size, 0) ?? 0), 0);
     const hasEncodingSelection = selectedRecords.some(item => item.isEncoding);
     const currentRecordIds = records.data?.records.map(item => item.id) ?? [];
@@ -1349,7 +1343,9 @@ export function RecordedPage(): ReactNode {
                                     <IconButton
                                         disabled={selectedRecords.length === 0}
                                         onClick={() => {
+                                            if (deleteBusy.current) return;
                                             setDeleteOption('all');
+                                            setDeleteFileNames([]);
                                             setDeleteOpen(true);
                                         }}
                                     >
@@ -2002,7 +1998,7 @@ export function RecordedPage(): ReactNode {
 
             <Dialog
                 open={deleteOpen}
-                onClose={() => !deleteSelected.isPending && setDeleteOpen(false)}
+                onClose={() => !deleteBusy.current && setDeleteOpen(false)}
                 maxWidth="xs"
                 fullWidth
                 aria-labelledby="recorded-bulk-delete-title"
@@ -2013,20 +2009,50 @@ export function RecordedPage(): ReactNode {
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選択した {selectedRecords.length} 件から削除するファイルを選択してください。
                     </Typography>
-                    <FormControl fullWidth>
+                    <FormControl fullWidth disabled={deleteSelected.isPending}>
                         <InputLabel>削除対象</InputLabel>
-                        <Select label="削除対象" value={deleteOption} onChange={event => setDeleteOption(event.target.value as MultipleDeletionOption)}>
+                        <Select label="削除対象" value={deleteOption} onChange={event => setDeleteOption(event.target.value as RecordedBulkDeleteOption)}>
                             <MenuItem value="all">すべて</MenuItem>
                             <MenuItem value="original">オリジナルファイルだけ</MenuItem>
                             <MenuItem value="encoded">エンコードファイルだけ</MenuItem>
+                            <MenuItem value="names">ファイル名を指定</MenuItem>
                         </Select>
                     </FormControl>
+                    {deleteOption === 'names' && (
+                        <Stack role="group" aria-label="削除するファイル名" sx={{ mt: 2 }}>
+                            {deleteFileOptions.map(option => (
+                                <FormControlLabel
+                                    key={option.name}
+                                    disabled={deleteSelected.isPending}
+                                    control={
+                                        <Checkbox
+                                            checked={deleteFileNames.includes(option.name)}
+                                            onChange={event =>
+                                                setDeleteFileNames(current => (event.target.checked ? [...current, option.name] : current.filter(name => name !== option.name)))
+                                            }
+                                        />
+                                    }
+                                    label={`${option.name || '（名前なし）'} (${option.count})`}
+                                />
+                            ))}
+                            {deleteFileOptions.length === 0 && <Typography sx={{ color: 'text.secondary' }}>削除できる動画ファイルがありません。</Typography>}
+                        </Stack>
+                    )}
                 </DialogContent>
                 <DialogActions>
-                    <Button color="inherit" variant="outlined" disabled={deleteSelected.isPending} onClick={() => setDeleteOpen(false)}>
+                    <Button color="inherit" variant="outlined" disabled={deleteSelected.isPending} onClick={() => !deleteBusy.current && setDeleteOpen(false)}>
                         キャンセル
                     </Button>
-                    <Button color="error" variant="contained" disabled={deleteSelected.isPending} onClick={() => deleteSelected.mutate()}>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        disabled={deleteSelected.isPending || deleteTargets.length === 0}
+                        onClick={() => {
+                            if (deleteBusy.current || deleteTargets.length === 0) return;
+                            deleteBusy.current = true;
+                            deleteSelected.mutate(deleteTargets);
+                        }}
+                    >
                         削除
                     </Button>
                 </DialogActions>
