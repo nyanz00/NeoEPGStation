@@ -416,7 +416,7 @@ export function RecordedItemActions({
                         Reanalyze
                     </Button>
                     <Button color="inherit" variant="outlined" onClick={() => setInfoOpen(false)}>
-                        Close
+                        閉じる
                     </Button>
                 </DialogActions>
             </Dialog>
