@@ -2453,27 +2453,6 @@ export function SettingsPage(): ReactNode {
                         {activeSettingsTab === 'annict' && (
                             <SettingSection title="Annict連携">
                                 {annictStatus.isError && <QueryLoadError label="Annict連携状態" error={annictStatus.error} onRetry={() => void annictStatus.refetch()} />}
-                                {config.data?.developerMode === true && (
-                                    <>
-                                        <SettingRow
-                                            title="補完放送局"
-                                            description="Annictに放送予定がない作品で、選択した放送局を検索・ルール作成の対象へ追加できるようにします。"
-                                            control={
-                                                <Box sx={{ width: { xs: '100%', sm: 460 } }}>
-                                                    <ChannelSelector
-                                                        multiple
-                                                        options={channelOptions}
-                                                        value={draft.annictSupplementalChannelIds}
-                                                        onChange={value => patch('annictSupplementalChannelIds', value)}
-                                                        loading={channels.isPending}
-                                                        label="補完放送局"
-                                                    />
-                                                </Box>
-                                            }
-                                        />
-                                        <Divider />
-                                    </>
-                                )}
                                 <SettingRow
                                     title="読み取り専用アクセストークン"
                                     description={`アニメ作品と放送予定の取得に使用します。トークンはサーバーだけに保存されます。現在: ${annictStatus.isPending ? '確認中' : annictStatus.isError ? '取得失敗' : annictStatus.data?.configured === true ? '接続済み' : '未設定'}`}
@@ -2547,6 +2526,27 @@ export function SettingsPage(): ReactNode {
                                     }
                                 />
                                 <Divider />
+                                {config.data?.developerMode === true && (
+                                    <>
+                                        <SettingRow
+                                            title="補完放送局"
+                                            description="Annictに放送予定がない作品で、選択した放送局を検索・ルール作成の対象へ追加できるようにします。"
+                                            control={
+                                                <Box sx={{ width: { xs: '100%', sm: 460 } }}>
+                                                    <ChannelSelector
+                                                        multiple
+                                                        options={channelOptions}
+                                                        value={draft.annictSupplementalChannelIds}
+                                                        onChange={value => patch('annictSupplementalChannelIds', value)}
+                                                        loading={channels.isPending}
+                                                        label="補完放送局"
+                                                    />
+                                                </Box>
+                                            }
+                                        />
+                                        <Divider />
+                                    </>
+                                )}
                                 <SettingRow
                                     title="自動視聴記録"
                                     description="外部プレイヤーでは再生進捗を取得できないため、割合判定は内蔵PLAY／STREAMINGでのみ動作します"
