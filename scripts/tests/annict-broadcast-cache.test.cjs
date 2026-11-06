@@ -53,6 +53,8 @@ function createModel(root = '/unused') {
     };
     model.workListRefreshRequests = new Map();
     model.workListRefreshFailures = new Map();
+    model.rerunWorkListRefreshRequests = new Map();
+    model.rerunWorkListRefreshFailures = new Map();
     model.workListEnrichmentRequests = new Map();
     model.workListEnrichmentFailures = new Map();
     model.workListCacheWriteQueues = new Map();
@@ -196,6 +198,342 @@ function deferred() {
     });
     return { promise, resolve };
 }
+
+function rerunCacheFile(root, excludePaidChannels = false) {
+    return path.join(root, 'cache', `rerun-works-v5-${season}-${excludePaidChannels ? 'paid-excluded' : 'all'}.json`);
+}
+
+function staleRerunCache(value = [work(301, { title: 'Cached rerun work' })]) {
+    return { cachedAt: Date.now() - 24 * 60 * 60 * 1000 - 1, value };
+}
+
+test('expired rerun cache returns immediately and deduplicates each season and paid-channel mode', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root, false);
+    const paidFile = rerunCacheFile(root, true);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    await model.writeJson(paidFile, cached);
+
+    const refresh = deferred();
+    const refreshStarted = deferred();
+    const calls = [];
+    model.refreshRerunWorkList = async (value, cacheFile, excludePaidChannels) => {
+        calls.push({ value, cacheFile, excludePaidChannels });
+        refreshStarted.resolve();
+        await refresh.promise;
+        return { season: value, works: [work(302)], cachedAt: Date.now(), stale: false, rerun: true };
+    };
+
+    const first = await model.getRerunWorks(season, false, false);
+    const duplicate = await model.getRerunWorks(season, false, false);
+    const paid = await model.getRerunWorks(season, false, true);
+    await refreshStarted.promise;
+    const originalGetOrStart = model.getOrStartRerunWorkListRefresh;
+    const manualJoin = deferred();
+    model.getOrStartRerunWorkListRefresh = function (...args) {
+        if (args[3] === true) manualJoin.resolve();
+        return originalGetOrStart.apply(this, args);
+    };
+    let manualSettled = false;
+    const manualPromise = model.getRerunWorks(season, true, false).finally(() => {
+        manualSettled = true;
+    });
+    await manualJoin.promise;
+    await Promise.resolve();
+    assert.equal(manualSettled, false);
+
+    for (const result of [first, duplicate, paid]) {
+        assert.equal(result.stale, true);
+        assert.equal(result.refreshPending, true);
+        assert.equal(result.cachedAt, cached.cachedAt);
+    }
+    assert.deepEqual(first.works, cached.value);
+    assert.deepEqual(duplicate.works, cached.value);
+    assert.deepEqual(calls, [
+        { value: season, cacheFile: file, excludePaidChannels: false },
+        { value: season, cacheFile: paidFile, excludePaidChannels: true },
+    ]);
+
+    const requests = [model.rerunWorkListRefreshRequests.get(file), model.rerunWorkListRefreshRequests.get(paidFile)];
+    assert.ok(requests.every(request => request instanceof Promise));
+    refresh.resolve();
+    await Promise.all(requests);
+    const manual = await manualPromise;
+    assert.equal(manual.stale, false);
+    assert.equal(manual.works[0].annictId, 302);
+});
+
+test('failed background rerun refresh keeps cache and suppresses retries during cooldown', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const originalFile = await fs.promises.readFile(file, 'utf8');
+    let calls = 0;
+    const firstFailure = deferred();
+    const firstFailureStarted = deferred();
+    const retry = deferred();
+    const retryStarted = deferred();
+    model.refreshRerunWorkList = async () => {
+        calls += 1;
+        if (calls === 1) {
+            firstFailureStarted.resolve();
+            await firstFailure.promise;
+            throw new Error('synthetic rerun refresh failure');
+        }
+        retryStarted.resolve();
+        await retry.promise;
+        const result = { season, works: [work(304)], cachedAt: Date.now(), stale: false, rerun: true };
+        await model.writeJson(file, { cachedAt: result.cachedAt, value: result.works });
+        return result;
+    };
+
+    const firstPromise = model.getRerunWorks(season, false, false);
+    await firstFailureStarted.promise;
+    const failedRequest = model.rerunWorkListRefreshRequests.get(file);
+    firstFailure.resolve();
+    const first = await firstPromise;
+    assert.equal(first.refreshPending, true);
+    await assert.rejects(failedRequest, /synthetic rerun refresh failure/);
+
+    const duringCooldown = await model.getRerunWorks(season, false, false);
+    assert.equal(duringCooldown.stale, true);
+    assert.equal(duringCooldown.refreshPending, false);
+    assert.deepEqual(duringCooldown.works, cached.value);
+    assert.equal(calls, 1);
+    assert.equal(await fs.promises.readFile(file, 'utf8'), originalFile);
+
+    model.rerunWorkListRefreshFailures.set(file, Date.now() - 5 * 60 * 1000 - 1);
+    const afterCooldown = await model.getRerunWorks(season, false, false);
+    assert.equal(afterCooldown.refreshPending, true);
+    await retryStarted.promise;
+    const retryRequest = model.rerunWorkListRefreshRequests.get(file);
+    retry.resolve();
+    await retryRequest;
+    const refreshed = await model.getRerunWorks(season, false, false);
+    assert.equal(refreshed.stale, false);
+    assert.equal(refreshed.refreshPending, undefined);
+    assert.equal(refreshed.works[0].annictId, 304);
+    assert.equal(calls, 2);
+});
+
+test('manual rerun refresh waits for its result and preserves the old cache after a failure', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const originalFile = await fs.promises.readFile(file, 'utf8');
+    const refresh = deferred();
+    const refreshStarted = deferred();
+    model.refreshRerunWorkList = async () => {
+        refreshStarted.resolve();
+        return refresh.promise;
+    };
+
+    let settled = false;
+    const resultPromise = model.getRerunWorks(season, true, false).finally(() => {
+        settled = true;
+    });
+    await refreshStarted.promise;
+    await Promise.resolve();
+    assert.equal(settled, false);
+
+    refresh.resolve({
+        season,
+        works: [work(303, { title: 'Manually refreshed' })],
+        cachedAt: Date.now(),
+        stale: false,
+        rerun: true,
+    });
+    const result = await resultPromise;
+    assert.equal(result.stale, false);
+    assert.notEqual(result.refreshPending, true);
+    assert.equal(result.works[0].title, 'Manually refreshed');
+
+    model.refreshRerunWorkList = async () => {
+        throw new Error('manual refresh failed');
+    };
+    const failedManualRefresh = await model.getRerunWorks(season, true, false);
+    assert.equal(failedManualRefresh.stale, true);
+    assert.equal(failedManualRefresh.refreshPending, false);
+    assert.deepEqual(failedManualRefresh.works, cached.value);
+    assert.equal(await fs.promises.readFile(file, 'utf8'), originalFile);
+});
+
+test('an initial rerun list waits for the full refresh pipeline and saves its result', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    model.mapWork = node => node;
+    const candidateFetch = deferred();
+    const candidateFetchStarted = deferred();
+    model.getSyoboiRerunCandidates = async (value, excludePaidChannels) => {
+        assert.equal(value, season);
+        assert.equal(excludePaidChannels, false);
+        candidateFetchStarted.resolve();
+        return candidateFetch.promise;
+    };
+    model.requestRest = async (resource, parameters) => {
+        assert.equal(resource, 'works');
+        assert.equal(parameters.filter_title, 'Example rerun');
+        return { works: [{ id: 42, syobocal_tid: 420, title: 'Example rerun' }] };
+    };
+    model.requestWithSavedToken = async query => {
+        if (query.includes('query RerunWorks')) {
+            return { searchWorks: { nodes: [work(42, { title: 'Example rerun' })] } };
+        }
+        assert.match(query, /query RerunProgramStations/);
+        return { searchWorks: { nodes: [{ annictId: 42, programs: { nodes: [] } }] } };
+    };
+    model.getBroadcastSupplement = () => ({ seed: async () => undefined });
+    model.fillMissingWorkImages = async works => works;
+    model.enrichWorkReleaseDates = async works => works;
+
+    let settled = false;
+    const resultPromise = model.getRerunWorks(season, false, false).finally(() => {
+        settled = true;
+    });
+    await candidateFetchStarted.promise;
+    await Promise.resolve();
+    assert.equal(settled, false);
+    candidateFetch.resolve([
+        {
+            tid: 420,
+            title: 'Example rerun',
+            programs: [{ count: 1, startedAt, channelName: 'BS11', pid: 42001, channelId: 1, channelGroup: 1 }],
+        },
+    ]);
+
+    const result = await resultPromise;
+    assert.equal(result.rerun, true);
+    assert.equal(result.stale, false);
+    assert.notEqual(result.refreshPending, true);
+    assert.equal(result.works[0].annictId, 42);
+    assert.equal(result.works[0].syobocalTid, 420);
+    assert.deepEqual(result.works[0].broadcastStarts, [{ channelName: 'BS11', startedAt }]);
+    assert.deepEqual((await model.readCache(file)).value, result.works);
+});
+
+test('a successful stale rerun refresh is visible as a fresh cache on the next read', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const finishRefresh = deferred();
+    const refreshStarted = deferred();
+    let calls = 0;
+    model.refreshRerunWorkList = async value => {
+        calls += 1;
+        refreshStarted.resolve();
+        await finishRefresh.promise;
+        const result = {
+            season: value,
+            works: [work(305, { title: 'Updated rerun' })],
+            cachedAt: Date.now(),
+            stale: false,
+            rerun: true,
+        };
+        await model.writeJson(file, { cachedAt: result.cachedAt, value: result.works });
+        return result;
+    };
+
+    const staleResult = await model.getRerunWorks(season, false, false);
+    assert.equal(staleResult.stale, true);
+    assert.equal(staleResult.refreshPending, true);
+    await refreshStarted.promise;
+    const pending = model.rerunWorkListRefreshRequests.get(file);
+    finishRefresh.resolve();
+    await pending;
+
+    const freshResult = await model.getRerunWorks(season, false, false);
+    assert.equal(freshResult.stale, false);
+    assert.equal(freshResult.refreshPending, undefined);
+    assert.equal(freshResult.works[0].annictId, 305);
+    assert.equal(calls, 1);
+});
+
+test('a failed REST title match leaves a stale rerun cache untouched', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const originalFile = await fs.promises.readFile(file, 'utf8');
+    model.getSyoboiRerunCandidates = async () => [
+        { tid: 421, title: 'Unavailable rerun', programs: [{ count: 1, startedAt, channelName: 'BS11' }] },
+    ];
+    let restCalls = 0;
+    model.requestRest = async () => {
+        restCalls += 1;
+        throw new Error('synthetic REST outage');
+    };
+
+    const result = await model.getRerunWorks(season, true, false);
+    assert.equal(restCalls, 1);
+    assert.equal(result.stale, true);
+    assert.equal(result.refreshPending, false);
+    assert.deepEqual(result.works, cached.value);
+    assert.equal(await fs.promises.readFile(file, 'utf8'), originalFile);
+});
+
+test('indexed local-channel lookup matches the former filter and observes each new channel snapshot', () => {
+    const model = createModel();
+    const channels = [
+        { id: 1, name: 'BS１１', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 2, name: 'BS11イレブン', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 3, name: 'NHK総合1・東京', halfWidthName: '', channelType: 'GR', type: 0 },
+        { id: 4, name: '関西テレビ', halfWidthName: '', channelType: 'GR', type: 0 },
+        { id: 5, name: '', halfWidthName: 'BS11', channelType: 'BS', type: 0 },
+        { id: 6, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 192 },
+        { id: 7, name: '携帯 BS11', halfWidthName: '', channelType: 'GR', type: 0 },
+        { id: 8, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 9, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 10, name: '', halfWidthName: '   ', channelType: 'BS', type: 0 },
+    ];
+    const formerLookup = (name, snapshot) =>
+        snapshot
+            .filter(channel => model.isSelectableLocalChannel(channel))
+            .filter(channel => model.channelNamesMatch(name, model.localChannelName(channel) ?? ''))
+            .map(channel => ({
+                id: channel.id,
+                name: model.localChannelName(channel),
+                channelType: channel.channelType,
+            }));
+    const lookups = [
+        ['BS11', [1, 2, 5, 8, 9]],
+        ['BS１１', [1, 2, 5, 8, 9]],
+        ['BS11イレブン', [1, 2, 5, 8, 9]],
+        ['NHK総合2', [3]],
+        ['関西テレビ放送', [4]],
+        ['携帯 BS11', []],
+        ['', []],
+    ];
+
+    for (const [name, expectedIds] of lookups) {
+        const actual = model.matchLocalChannels(name, channels);
+        assert.deepEqual(actual, formerLookup(name, channels), `lookup for ${name}`);
+        assert.deepEqual(
+            actual.map(channel => channel.id),
+            expectedIds,
+            `expected stations for ${name}`,
+        );
+    }
+
+    const newSnapshot = [...channels, { id: 11, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 0 }];
+    assert.deepEqual(
+        model.matchLocalChannels('BS11', newSnapshot).map(channel => channel.id),
+        [1, 2, 5, 8, 9, 11],
+    );
+    assert.deepEqual(
+        model.matchLocalChannels('BS11', channels).map(channel => channel.id),
+        [1, 2, 5, 8, 9],
+    );
+});
 
 test('a warm noncurrent cache without a date-check marker performs one REST check even when no dates are returned', async t => {
     const root = temporaryRoot(t);
