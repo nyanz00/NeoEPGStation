@@ -14,7 +14,16 @@ const loaded = new Module(helperPath, module);
 loaded.filename = helperPath;
 loaded.paths = Module._nodeModulePaths(path.dirname(helperPath));
 loaded._compile(compiled, helperPath);
-const { parsePageJump } = loaded.exports;
+const { mobileExtendedPages, parsePageJump } = loaded.exports;
+
+test('mobile extended pagination fits upstream odd element counts and slides at both ends', () => {
+    assert.deepEqual(mobileExtendedPages(100, 1, 393, 42), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(mobileExtendedPages(100, 50, 320, 42), [48, 49, 50, 51, 52]);
+    assert.deepEqual(mobileExtendedPages(100, 100, 320, 42), [96, 97, 98, 99, 100]);
+    assert.deepEqual(mobileExtendedPages(3, 2, 393, 42), [1, 2, 3]);
+    assert.equal(mobileExtendedPages(100, 50, 0, 42).length, 5);
+    assert.equal(mobileExtendedPages(100, 50, 2000, 42).length, 15);
+});
 
 test('page jump accepts only an integer inside the available page range', () => {
     assert.equal(parsePageJump('1', 12), 1);
@@ -59,7 +68,7 @@ function createHookHarness() {
     };
 }
 
-function loadPaginationComponent(enabled) {
+function loadPaginationComponent(enabled, mobile = false) {
     const harness = createHookHarness();
     const jsx = (type, props, key) => ({ type, props: props ?? {}, key });
     const jsxRuntime = { jsx, jsxs: jsx, Fragment: 'Fragment' };
@@ -75,7 +84,7 @@ function loadPaginationComponent(enabled) {
         'TextField',
     ];
     const material = Object.fromEntries(materialNames.map(name => [name, name]));
-    material.useMediaQuery = () => false;
+    material.useMediaQuery = () => mobile;
     const componentPath = path.resolve(__dirname, '../../client/src/components/VueCompatiblePagination.tsx');
     const compiled = ts.transpileModule(fs.readFileSync(componentPath, 'utf8'), {
         compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 },
@@ -88,10 +97,12 @@ function loadPaginationComponent(enabled) {
         '@mui/icons-material/ChevronRight': { __esModule: true, default: 'ChevronRight' },
         '@mui/icons-material/FirstPage': { __esModule: true, default: 'FirstPage' },
         '@mui/icons-material/LastPage': { __esModule: true, default: 'LastPage' },
+        '@mui/icons-material/KeyboardDoubleArrowLeft': { __esModule: true, default: 'KeyboardDoubleArrowLeft' },
+        '@mui/icons-material/KeyboardDoubleArrowRight': { __esModule: true, default: 'KeyboardDoubleArrowRight' },
         '@mui/material': material,
         react: harness.hooks,
         'react/jsx-runtime': jsxRuntime,
-        '../core/pagination/extendedPagination': { parsePageJump },
+        '../core/pagination/extendedPagination': { mobileExtendedPages, parsePageJump },
         '../core/storage/settings': { useSettings: () => ({ isExtendedPaginationEnabled: enabled }) },
         './programDialogStyles': { programDialogPaper: () => ({}) },
     };
@@ -177,6 +188,8 @@ test('extended pagination first and last controls navigate and cancel closes the
     const props = paginationProps((_event, page) => changes.push(page));
     let tree = harness.render(component, props);
     const buttons = descendants(tree, node => node.type === 'ButtonBase');
+    assert.ok(buttons.some(button => button.props['aria-label'] === '前のページ'));
+    assert.ok(buttons.some(button => button.props['aria-label'] === '次のページ'));
     buttons.find(button => button.props['aria-label'] === '最初のページ').props.onClick({});
     buttons.find(button => button.props['aria-label'] === '最後のページ').props.onClick({});
     assert.deepEqual(changes, [1, 10]);
@@ -187,4 +200,39 @@ test('extended pagination first and last controls navigate and cancel closes the
     tree = harness.render(component, props);
     assert.equal(descendants(tree, node => node.type === 'Dialog')[0].props.open, false);
     assert.deepEqual(changes, [1, 10]);
+});
+
+test('only mobile extended pagination replaces previous and next with more page numbers', () => {
+    for (const enabled of [false, true]) {
+        const changes = [];
+        const { component, harness } = loadPaginationComponent(enabled, true);
+        const props = { count: 100, page: 50, onChange: (_event, page) => changes.push(page) };
+        let tree = harness.render(component, props);
+        const buttons = descendants(tree, node => node.type === 'ButtonBase');
+        assert.equal(
+            buttons.some(button => button.props['aria-label'] === '前のページ'),
+            !enabled,
+        );
+        assert.equal(
+            buttons.some(button => button.props['aria-label'] === '次のページ'),
+            !enabled,
+        );
+        assert.equal(buttons.length, 7);
+        if (!enabled) continue;
+        buttons.find(button => button.props['aria-label'] === '51ページ目').props.onClick({});
+        assert.deepEqual(changes, [51]);
+        buttons.find(button => button.props['aria-label'] === '50ページ目').props.onClick({});
+        tree = harness.render(component, props);
+        assert.equal(descendants(tree, node => node.type === 'Dialog')[0].props.open, true);
+        const firstTree = harness.render(component, { ...props, page: 1 });
+        assert.equal(
+            descendants(firstTree, node => node.props['aria-label'] === '最初のページ')[0].props.disabled,
+            true,
+        );
+        const lastTree = harness.render(component, { ...props, page: 100 });
+        assert.equal(
+            descendants(lastTree, node => node.props['aria-label'] === '最後のページ')[0].props.disabled,
+            true,
+        );
+    }
 });

@@ -2,9 +2,11 @@ import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
 import FirstPage from '@mui/icons-material/FirstPage';
 import LastPage from '@mui/icons-material/LastPage';
+import KeyboardDoubleArrowLeft from '@mui/icons-material/KeyboardDoubleArrowLeft';
+import KeyboardDoubleArrowRight from '@mui/icons-material/KeyboardDoubleArrowRight';
 import { Box, Button, ButtonBase, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, TextField, type SxProps, type Theme, useMediaQuery } from '@mui/material';
 import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { parsePageJump } from '../core/pagination/extendedPagination';
+import { mobileExtendedPages, parsePageJump } from '../core/pagination/extendedPagination';
 import { useSettings } from '../core/storage/settings';
 import { programDialogPaper } from './programDialogStyles';
 
@@ -57,8 +59,10 @@ export function VueCompatiblePagination({
     const settings = useSettings();
     const extended = settings.isExtendedPaginationEnabled;
     const mobile = useMediaQuery('(max-width:500px)');
+    const mobileExtended = mobile && extended;
     const containerRef = useRef<HTMLElement | null>(null);
     const [containerWidth, setContainerWidth] = useState(0);
+    const [itemPitch, setItemPitch] = useState(42);
     const [jumpOpen, setJumpOpen] = useState(false);
     const [jumpValue, setJumpValue] = useState('');
     const [jumpError, setJumpError] = useState(false);
@@ -66,24 +70,32 @@ export function VueCompatiblePagination({
     useEffect(() => {
         const element = containerRef.current;
         if (element === null) return;
-        const updateWidth = (): void => setContainerWidth(element.parentElement?.clientWidth ?? window.innerWidth);
+        const updateWidth = (): void => {
+            setContainerWidth(mobileExtended ? element.clientWidth : (element.parentElement?.clientWidth ?? window.innerWidth));
+            const row = element.firstElementChild;
+            const first = row?.children[0] as HTMLElement | undefined;
+            const second = row?.children[1] as HTMLElement | undefined;
+            if (first && second) {
+                const pitch = second.offsetLeft - first.offsetLeft;
+                if (pitch > 0) setItemPitch(pitch);
+            }
+        };
         updateWidth();
         const observer = new ResizeObserver(updateWidth);
         observer.observe(element.parentElement ?? element);
         return () => observer.disconnect();
-    }, []);
+    }, [mobileExtended, count > 1]);
 
     const safeCount = Math.max(1, Math.floor(count));
     const safePage = Math.min(safeCount, Math.max(1, Math.floor(page)));
     const items = useMemo<PaginationItem[]>(() => {
         if (mobile) {
-            const extendedMaxSize = containerWidth > 0 ? Math.min(3, Math.max(1, Math.floor((containerWidth - 178) / 42))) : 3;
-            return mobileItems(safeCount, safePage, extended ? extendedMaxSize : 5);
+            return extended ? mobileExtendedPages(safeCount, safePage, containerWidth, itemPitch) : mobileItems(safeCount, safePage, 5);
         }
         const maxButtons = containerWidth > 0 ? Math.floor((containerWidth - (extended ? 196 : 96)) / 42) : 12;
         const maxLength = Math.min(12, Math.max(1, maxButtons), safeCount);
         return desktopItems(safeCount, safePage, maxLength);
-    }, [containerWidth, extended, mobile, safeCount, safePage]);
+    }, [containerWidth, extended, itemPitch, mobile, safeCount, safePage]);
 
     if (count <= 1) return null;
 
@@ -128,19 +140,21 @@ export function VueCompatiblePagination({
                             aria-label="最初のページ"
                             disabled={safePage <= 1}
                             onClick={event => onChange(event, 1)}
-                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', mr: { xs: 0.5, sm: 1 }, fontSize: '0.875rem' }}
+                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', mr: mobileExtended ? 0 : { xs: 0.5, sm: 1 }, fontSize: '0.875rem' }}
                         >
-                            <FirstPage />
+                            {mobileExtended ? <KeyboardDoubleArrowLeft /> : <FirstPage />}
                         </ButtonBase>
                     )}
-                    <ButtonBase
-                        aria-label="前のページ"
-                        disabled={safePage <= 1}
-                        onClick={event => changePage(event, safePage - 1)}
-                        sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', mr: { xs: 0.5, sm: 1 } }}
-                    >
-                        <ChevronLeft />
-                    </ButtonBase>
+                    {!mobileExtended && (
+                        <ButtonBase
+                            aria-label="前のページ"
+                            disabled={safePage <= 1}
+                            onClick={event => changePage(event, safePage - 1)}
+                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', mr: { xs: 0.5, sm: 1 } }}
+                        >
+                            <ChevronLeft />
+                        </ButtonBase>
+                    )}
                 </Box>
                 {items.map((item, index) => (
                     <Box component="li" key={`${item}-${index}`}>
@@ -170,22 +184,24 @@ export function VueCompatiblePagination({
                     </Box>
                 ))}
                 <Box component="li">
-                    <ButtonBase
-                        aria-label="次のページ"
-                        disabled={safePage >= safeCount}
-                        onClick={event => changePage(event, safePage + 1)}
-                        sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', ml: { xs: 0.5, sm: 1 } }}
-                    >
-                        <ChevronRight />
-                    </ButtonBase>
+                    {!mobileExtended && (
+                        <ButtonBase
+                            aria-label="次のページ"
+                            disabled={safePage >= safeCount}
+                            onClick={event => changePage(event, safePage + 1)}
+                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', ml: { xs: 0.5, sm: 1 } }}
+                        >
+                            <ChevronRight />
+                        </ButtonBase>
+                    )}
                     {extended && (
                         <ButtonBase
                             aria-label="最後のページ"
                             disabled={safePage >= safeCount}
                             onClick={event => onChange(event, safeCount)}
-                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', ml: { xs: 0.5, sm: 1 }, fontSize: '0.875rem' }}
+                            sx={{ ...buttonSx, bgcolor: 'background.paper', color: 'text.primary', ml: mobileExtended ? 0 : { xs: 0.5, sm: 1 }, fontSize: '0.875rem' }}
                         >
-                            <LastPage />
+                            {mobileExtended ? <KeyboardDoubleArrowRight /> : <LastPage />}
                         </ButtonBase>
                     )}
                 </Box>
