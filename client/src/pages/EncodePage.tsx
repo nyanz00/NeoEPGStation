@@ -29,7 +29,9 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, EncodeId, EncodeProgramItem } from '../../../api';
-import { type DragEvent, type ReactNode, useEffect, useState } from 'react';
+import { type DragEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { programDialogPaper } from '../components/programDialogStyles';
+import { cancelEncodeBatch } from '../core/media/encodeBulkCancel';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { api } from '../core/api/queries';
@@ -239,6 +241,8 @@ export function EncodePage(): ReactNode {
     const [draggedId, setDraggedId] = useState<EncodeId | null>(null);
     const [selected, setSelected] = useState<Set<EncodeId>>(new Set());
     const [targets, setTargets] = useState<EncodeId[]>([]);
+    const [cancelCompleted, setCancelCompleted] = useState(0);
+    const cancelInFlight = useRef(false);
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
@@ -270,19 +274,14 @@ export function EncodePage(): ReactNode {
     }, [encodes.data, reordering]);
 
     const cancel = useMutation({
-        mutationFn: async (ids: EncodeId[]) => {
-            const results = await Promise.allSettled(ids.map(id => api.cancelEncode(id)));
-            return {
-                succeeded: ids.filter((_id, index) => results[index].status === 'fulfilled'),
-                failed: ids
-                    .map((id, index) => ({ id, result: results[index] }))
-                    .filter((entry): entry is { id: EncodeId; result: PromiseRejectedResult } => entry.result.status === 'rejected'),
-            };
+        mutationFn: (ids: EncodeId[]) => cancelEncodeBatch(ids, api.cancelEncode, setCancelCompleted),
+        onSettled: () => {
+            cancelInFlight.current = false;
         },
         onSuccess: async result => {
             setTargets([]);
-            setSelected(new Set(result.failed.map(entry => entry.id)));
-            setEditing(result.failed.length > 0);
+            setSelected(editing ? new Set(result.failed.map(entry => entry.id)) : new Set());
+            setEditing(wasEditing => wasEditing && result.failed.length > 0);
             if (result.succeeded.length > 0) notify(`${result.succeeded.length}件のエンコードをキャンセルしました`, 'success');
             if (result.failed.length > 0) {
                 const detail = result.failed
@@ -561,10 +560,24 @@ export function EncodePage(): ReactNode {
                     </Stack>
                 )}
             </Box>
-            <Dialog open={currentTargets.length > 0} onClose={() => setTargets([])}>
+            <Dialog
+                open={cancel.isPending || currentTargets.length > 0}
+                onClose={() => {
+                    if (!cancelInFlight.current) setTargets([]);
+                }}
+                maxWidth="sm"
+                slotProps={{ paper: { sx: programDialogPaper } }}
+            >
                 <DialogTitle>エンコードをキャンセルしますか？</DialogTitle>
                 <DialogContent>
-                    {singleCancelTarget !== undefined ? (
+                    {cancel.isPending ? (
+                        <Stack spacing={2}>
+                            <Typography>
+                                キャンセル処理中：{cancelCompleted} / {cancel.variables?.length ?? 0}件
+                            </Typography>
+                            <LinearProgress variant="determinate" value={(cancelCompleted / Math.max(1, cancel.variables?.length ?? 0)) * 100} />
+                        </Stack>
+                    ) : singleCancelTarget !== undefined ? (
                         <Typography>
                             ［{singleCancelTarget.mode}］{singleCancelTarget.recorded.name}を停止しますか？
                         </Typography>
@@ -573,8 +586,23 @@ export function EncodePage(): ReactNode {
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setTargets([])}>閉じる</Button>
-                    <Button color="error" variant="contained" disabled={cancel.isPending} onClick={() => cancel.mutate(currentTargets)}>
+                    <Button variant="outlined" disabled={cancel.isPending} onClick={() => setTargets([])}>
+                        閉じる
+                    </Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        disabled={cancel.isPending}
+                        onClick={() => {
+                            if (cancelInFlight.current) return;
+                            cancelInFlight.current = true;
+                            setCancelCompleted(0);
+                            // Remove waiting entries before stopping running encoders, so their
+                            // newly freed slots do not immediately start the next selected job.
+                            const running = new Set(encodes.data?.runningItems.map(item => item.id));
+                            cancel.mutate([...currentTargets.filter(id => !running.has(id)), ...currentTargets.filter(id => running.has(id))]);
+                        }}
+                    >
                         キャンセル実行
                     </Button>
                 </DialogActions>

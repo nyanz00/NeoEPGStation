@@ -1,4 +1,5 @@
 import * as events from 'events';
+import { randomUUID } from 'crypto';
 import { inject, injectable } from 'inversify';
 import IExecutionManagementModel, { ExecutionId } from './IExecutionManagementModel.js';
 import ILogger from './ILogger.js';
@@ -23,7 +24,7 @@ class ExecutionManagementModel implements IExecutionManagementModel {
 
     public getExecution(priority: number, timeout: number = 1000 * 60): Promise<ExecutionId> {
         const exeQueueData: ExeQueueData = {
-            id: new Date().getTime().toString(16) + Math.floor(1000 * Math.random()).toString(16),
+            id: randomUUID(),
             priority: priority,
         };
 

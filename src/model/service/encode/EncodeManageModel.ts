@@ -1613,7 +1613,8 @@ class EncodeManageModel implements IEncodeManageModel {
 namespace EncodeManageModel {
     export const UNLOCK_EVENT = 'unlockEvent';
     export const UNLOCK_TIMEOUT = 1000 * 60;
-    export const CANCEL_ENCODE_PRIPORITY = 1;
+    // Drain requested cancellations before starting or adding more work.
+    export const CANCEL_ENCODE_PRIPORITY = 4;
     export const ADD_ENCODE_PRIPORITY = 2;
     export const CREATE_ENCODING_PROCESS_PRIPORITY = 2;
     export const RELEASE_SCHEDULED_ENCODE_PRIORITY = 2;

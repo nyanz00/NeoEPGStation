@@ -507,7 +507,7 @@ export const api = {
         return (await apiClient.get<EncodeInfo>('/encode', { params: { isHalfWidth } })).data;
     },
     async cancelEncode(encodeId: EncodeId): Promise<void> {
-        await apiClient.delete(`/encode/${encodeId}`);
+        await apiClient.delete(`/encode/${encodeId}`, { timeout: 0 });
     },
     async retryEncode(encodeId: EncodeId): Promise<void> {
         await apiClient.post(`/encode/${encodeId}/retry`);
