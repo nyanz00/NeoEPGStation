@@ -22,6 +22,8 @@ import {
     createUpdateCommandInvocation,
     createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
+    resolveUpdatePackageCommand,
+    decodeUpdateCommandOutput,
 } from './UpdateCommand.js';
 import { shouldInstallUpdateDependencies } from './UpdateDependency.js';
 import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser.js';
@@ -296,6 +298,9 @@ export default class UpdateManager {
             if (!applicability.canApply)
                 throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
             const manager = requestedManager === 'auto' ? this.detectPackageManager() : requestedManager;
+            // Validate the exact executable used for install/build/rollback before
+            // switching code or touching dependencies.
+            await this.runLogged(manager, ['--version']);
             await this.assertWindowsServiceWinserUnchanged(oldCommit, targetCommit, manager);
 
             if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
@@ -829,6 +834,12 @@ export default class UpdateManager {
         if (this.state.job !== undefined) this.append(this.state.job, `$ ${display}`);
         try {
             const environment = command === 'npm' || command === 'pnpm' ? createUpdatePackageEnvironment() : undefined;
+            if (environment !== undefined && process.platform === 'win32') {
+                const pathKey = Object.keys(environment).find(key => key.toLowerCase() === 'path') ?? 'Path';
+                environment[pathKey] = [path.dirname(process.execPath), path.dirname(executable), environment[pathKey]]
+                    .filter(Boolean)
+                    .join(path.delimiter);
+            }
             const result = await this.command(executable, args, cwd, environment);
             if (this.state.job !== undefined) {
                 const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
@@ -902,15 +913,26 @@ export default class UpdateManager {
         env?: NodeJS.ProcessEnv,
     ): Promise<CommandResult> {
         const invocation = createUpdateCommandInvocation(command, args);
-        const result = await execFile(invocation.command, invocation.args, {
-            cwd,
-            env,
-            timeout: COMMAND_TIMEOUT,
-            windowsHide: true,
-            maxBuffer: 16 * 1024 * 1024,
-            encoding: 'utf8',
-        });
-        return { stdout: result.stdout, stderr: result.stderr };
+        try {
+            const result = await execFile(invocation.command, invocation.args, {
+                cwd,
+                env,
+                timeout: COMMAND_TIMEOUT,
+                windowsHide: true,
+                windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+                maxBuffer: 16 * 1024 * 1024,
+                encoding: 'buffer',
+            });
+            return {
+                stdout: decodeUpdateCommandOutput(result.stdout),
+                stderr: decodeUpdateCommandOutput(result.stderr),
+            };
+        } catch (err: any) {
+            err.stdout = decodeUpdateCommandOutput(err.stdout);
+            err.stderr = decodeUpdateCommandOutput(err.stderr);
+            if (err.stderr) err.message = `${command} failed (${err.code ?? 'unknown'}):\n${err.stderr.trim()}`;
+            throw err;
+        }
     }
 
     private resolveGitExecutable(): string {
@@ -934,8 +956,7 @@ export default class UpdateManager {
     }
 
     private resolveNodeCommandShim(command: 'npm' | 'pnpm'): string {
-        const adjacent = path.join(path.dirname(process.execPath), `${command}.cmd`);
-        return fs.existsSync(adjacent) ? adjacent : `${command}.cmd`;
+        return resolveUpdatePackageCommand(command);
     }
 
     private findWindowsUserHome(): string | null {

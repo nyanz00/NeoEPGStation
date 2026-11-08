@@ -193,3 +193,30 @@ test('rejects an incompatible target engine before checkout, stash, backup, inst
         false,
     );
 });
+
+test('an unavailable package manager fails before code switching or dependency changes', async t => {
+    const root = await createTemporaryRoot(t);
+    const job = createJob();
+    const harness = createManager(root, job);
+    let backups = 0;
+    harness.manager.createBackup = async () => {
+        backups++;
+        return path.join(root, 'backup');
+    };
+    harness.manager.runLogged = async (command, args) => {
+        assert.equal(command, 'pnpm');
+        assert.deepEqual(args, ['--version']);
+        throw new Error('pnpm.cmd が見つかりません');
+    };
+    await harness.manager.run(job, 'pnpm', false);
+    assert.equal(job.status, 'failed');
+    assert.match(job.error, /pnpm.cmd が見つかりません/);
+    assert.equal(job.rollback, 'none');
+    assert.equal(backups, 0);
+    assert.equal(harness.installCount, 0);
+    assert.equal(harness.buildCount, 0);
+    assert.equal(
+        harness.gitCalls.some(args => args[0] === 'checkout' || args[0] === 'stash'),
+        false,
+    );
+});

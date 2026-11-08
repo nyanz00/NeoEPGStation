@@ -207,7 +207,8 @@ test('Windows command shims are launched through cmd.exe', () => {
         createUpdateCommandInvocation('C:\\node\\pnpm.cmd', ['install'], 'win32', 'C:\\Windows\\cmd.exe'),
         {
             command: 'C:\\Windows\\cmd.exe',
-            args: ['/d', '/s', '/c', 'C:\\node\\pnpm.cmd', 'install'],
+            args: ['/d', '/s', '/c', '"C:\\node\\pnpm.cmd ^"install^""'],
+            windowsVerbatimArguments: true,
         },
     );
     assert.deepEqual(createUpdateCommandInvocation('git.exe', ['status'], 'win32', 'C:\\Windows\\cmd.exe'), {
