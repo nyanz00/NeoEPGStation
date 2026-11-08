@@ -1,5 +1,5 @@
 import { inject, injectable } from 'inversify';
-import { FindOptionsWhere, In } from 'typeorm';
+import { FindOptionsWhere, In, Not } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
 import * as apid from '../../../api.js';
 import * as mapid from '../tuner/TunerApi.js';
@@ -34,7 +34,7 @@ export default class ChannelDB implements IChannelDB {
     /**
      * Mirakurun から取得した channel 情報を DB へ全件挿入する
      * @param channels: Service[]
-     * @param needesDeleted: 更新前に全データ削除が必要か
+     * @param needesDeleted: 更新後に一覧にない局を削除するか
      * @return Promise<void>
      */
     public async insert(
@@ -74,11 +74,6 @@ export default class ChannelDB implements IChannelDB {
 
         let hasError = false;
         try {
-            if (needesDeleted === true) {
-                // 削除
-                await queryRunner.manager.clear(Channel);
-            }
-
             if (deleteChannelIds.length > 0) {
                 await queryRunner.manager.delete(Channel, { id: In(deleteChannelIds) });
             }
@@ -90,8 +85,19 @@ export default class ChannelDB implements IChannelDB {
                         this.log.system.error('channel update error');
                         this.log.system.error(err);
                         this.log.system.error(serr);
+                        throw serr;
                     });
                 });
+            }
+
+            if (needesDeleted === true) {
+                // Never empty the table before replacing retained stations. In MySQL,
+                // clear() uses TRUNCATE and commits outside the transaction.
+                if (values.length > 0) {
+                    await queryRunner.manager.delete(Channel, { id: Not(In(values.map(value => value.id!))) });
+                } else {
+                    await queryRunner.manager.createQueryBuilder().delete().from(Channel).where('1 = 1').execute();
+                }
             }
 
             await queryRunner.commitTransaction();

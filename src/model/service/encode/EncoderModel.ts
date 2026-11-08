@@ -1128,7 +1128,7 @@ class EncoderModel implements IEncoderModel {
 
         // 放送局情報を取得する
         const channel = await this.channelDB.findId(recorded.channelId);
-        if (channel === null) {
+        if (channel === null && this.encodeOption.resumeExistingAmatsukaze !== true) {
             throw new Error('ChannelIsNotFound');
         }
 
@@ -1369,8 +1369,8 @@ class EncoderModel implements IEncoderModel {
                     AUDIOCOMPONENTTYPE:
                         typeof recorded.audioComponentType === 'number' ? recorded.audioComponentType.toString(10) : '',
                     CHANNELID: typeof recorded.channelId === 'number' ? recorded.channelId.toString(10) : '',
-                    CHANNELNAME: typeof channel.name === 'string' ? channel.name : '',
-                    HALF_WIDTH_CHANNELNAME: typeof channel.halfWidthName === 'string' ? channel.halfWidthName : '',
+                    CHANNELNAME: typeof channel?.name === 'string' ? channel.name : '',
+                    HALF_WIDTH_CHANNELNAME: typeof channel?.halfWidthName === 'string' ? channel.halfWidthName : '',
                     GENRE1: typeof recorded.genre1 === 'number' ? recorded.genre1.toString(10) : '',
                     SUBGENRE1: typeof recorded.subGenre1 === 'number' ? recorded.subGenre1.toString(10) : '',
                     GENRE2: typeof recorded.genre2 === 'number' ? recorded.genre2.toString(10) : '',
@@ -2414,6 +2414,16 @@ class EncoderModel implements IEncoderModel {
         this.log.encode.info(`cancel encode: ${this.encodeOption.encodeId}`);
         const encodeCmd = this.configure.getConfig().encode.find(command => command.name === this.encodeOption?.mode);
         if (encodeCmd?.type === 'amatsukaze' && typeof encodeCmd.suffix !== 'undefined') {
+            if (this.amatsukazePushSubscription === null && this.encodeOption.resumeExistingAmatsukaze === true) {
+                // Startup can fail before the normal reconnect path (for example while
+                // metadata is being refreshed). Confirm the external task before stopping it.
+                const config = this.configure.getConfig();
+                const amatsukaze = this.getAmatsukazeConfig(config.amatsukaze, encodeCmd.amatsukaze);
+                const input = await this.videoUtil.getFullFilePathFromId(this.encodeOption.sourceVideoFileId);
+                if (amatsukaze !== undefined && input !== null) {
+                    this.startAmatsukazePushClient(amatsukaze, this.mapAmatsukazeServerPath(amatsukaze, input));
+                }
+            }
             await this.cancelAmatsukazeTask();
         }
         this.isCanceld = true;
