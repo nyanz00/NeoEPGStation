@@ -87,8 +87,25 @@ function EncodeCard({
                 opacity: dragged ? 0.72 : 1,
             }}
         >
-            <CardContent sx={{ display: 'flex', gap: 1.5, p: 1.5, '&:last-child': { pb: 1.5 } }} onClick={editing ? onSelect : undefined}>
-                {editing && <Checkbox checked={selected} onChange={onSelect} onClick={event => event.stopPropagation()} />}
+            <CardContent
+                sx={{
+                    display: { xs: 'grid', sm: 'flex' },
+                    gridTemplateColumns: editing ? 'auto 120px minmax(0, 1fr)' : '120px minmax(0, 1fr)',
+                    columnGap: 1.5,
+                    rowGap: 0.75,
+                    p: 1.5,
+                    '&:last-child': { pb: 1.5 },
+                }}
+                onClick={editing ? onSelect : undefined}
+            >
+                {editing && (
+                    <Checkbox
+                        checked={selected}
+                        onChange={onSelect}
+                        onClick={event => event.stopPropagation()}
+                        sx={{ gridColumn: 1, gridRow: 1, alignSelf: { xs: 'center', sm: 'stretch' } }}
+                    />
+                )}
                 {reordering && reorderable && (
                     <Box
                         draggable
@@ -107,26 +124,71 @@ function EncodeCard({
                         <DragIndicatorOutlined />
                     </Box>
                 )}
-                <ProgramThumbnail
-                    thumbnailId={item.recorded.thumbnails?.[0]}
-                    channel={channel}
-                    sx={{ width: { xs: 120, sm: 200 }, height: { xs: 67.5, sm: 112.5 }, aspectRatio: '16 / 9', alignSelf: 'center' }}
-                />
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
-                            {item.recorded.name}
+                <Box
+                    sx={{
+                        display: { xs: 'flex', sm: 'contents' },
+                        flexDirection: 'column',
+                        gap: 1,
+                        alignSelf: 'center',
+                        alignItems: 'flex-start',
+                        gridColumn: editing ? 2 : 1,
+                        gridRow: editing ? '1' : '1 / 3',
+                        minWidth: 0,
+                    }}
+                >
+                    <Chip
+                        size="small"
+                        color={waiting ? 'default' : 'primary'}
+                        label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
+                        sx={{
+                            display: { xs: 'inline-flex', sm: 'none' },
+                            maxWidth: '100%',
+                            height: 'auto',
+                            minHeight: 24,
+                            '& .MuiChip-label': { py: 0.25, whiteSpace: 'normal', overflowWrap: 'anywhere' },
+                        }}
+                    />
+                    <ProgramThumbnail
+                        thumbnailId={item.recorded.thumbnails?.[0]}
+                        channel={channel}
+                        sx={{ width: { xs: 120, sm: 200 }, height: { xs: 67.5, sm: 112.5 }, aspectRatio: '16 / 9', alignSelf: 'center' }}
+                    />
+                </Box>
+                <Box sx={{ display: { xs: 'contents', sm: 'block' }, flex: 1, minWidth: 0 }}>
+                    <Box sx={{ gridColumn: editing ? 3 : 2, gridRow: 1, minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Typography
+                                variant="subtitle1"
+                                sx={{
+                                    flex: 1,
+                                    minWidth: { xs: 0, sm: 'auto' },
+                                    fontWeight: 700,
+                                    display: { xs: '-webkit-box', sm: 'block' },
+                                    WebkitLineClamp: { xs: 2, sm: 'unset' },
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: { xs: 'hidden', sm: 'visible' },
+                                    overflowWrap: { xs: 'anywhere', sm: 'normal' },
+                                }}
+                                title={item.recorded.name}
+                            >
+                                {item.recorded.name}
+                            </Typography>
+                            <Chip
+                                size="small"
+                                color={waiting ? 'default' : 'primary'}
+                                label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
+                                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
+                            />
+                        </Stack>
+                        <Typography variant="body2" color="text.secondary">
+                            {channel?.name ?? item.recorded.channelId}
                         </Typography>
-                        <Chip size="small" color={waiting ? 'default' : 'primary'} label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode} />
-                    </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                        {channel?.name ?? item.recorded.channelId}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                        {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
-                    </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                            {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
+                        </Typography>
+                    </Box>
                     {!waiting && (
-                        <Box sx={{ mt: 1 }}>
+                        <Box sx={{ mt: 1, minWidth: 0, gridColumn: '1 / -1', gridRow: editing ? 2 : 3 }}>
                             <Stack direction="row" sx={{ mb: 0.35, justifyContent: 'space-between' }}>
                                 <Typography variant="body2">{item.mode}</Typography>
                                 <Typography variant="body2">{Math.floor(percent)}%</Typography>
@@ -141,7 +203,7 @@ function EncodeCard({
                     )}
                 </Box>
                 {reordering && reorderable ? (
-                    <Stack spacing={0.25} sx={{ alignSelf: 'center' }}>
+                    <Stack direction={{ xs: 'row', sm: 'column' }} spacing={0.25} sx={{ alignSelf: 'center', gridColumn: 2, gridRow: 2, justifySelf: 'end' }}>
                         <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
                             <ArrowUpwardOutlined />
                         </IconButton>
@@ -152,6 +214,7 @@ function EncodeCard({
                 ) : (
                     !editing && (
                         <IconButton
+                            sx={{ gridColumn: 2, gridRow: 2, justifySelf: 'end' }}
                             aria-label="エンコードをキャンセル"
                             color="error"
                             onClick={event => {
