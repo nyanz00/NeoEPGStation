@@ -126,11 +126,11 @@ function EncodeCard({
                 )}
                 <Box
                     sx={{
-                        display: { xs: 'flex', sm: 'contents' },
-                        flexDirection: 'column',
+                        display: { xs: 'grid', sm: 'contents' },
+                        gridTemplateRows: 'minmax(min-content, 1fr) auto minmax(0, 1fr)',
                         gap: 1,
-                        alignSelf: 'center',
-                        alignItems: 'flex-start',
+                        alignSelf: 'stretch',
+                        alignItems: 'start',
                         gridColumn: editing ? 2 : 1,
                         gridRow: editing ? '1' : '1 / 3',
                         minWidth: 0,
@@ -142,6 +142,8 @@ function EncodeCard({
                         label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
                         sx={{
                             display: { xs: 'inline-flex', sm: 'none' },
+                            alignSelf: 'start',
+                            justifySelf: 'start',
                             maxWidth: '100%',
                             height: 'auto',
                             minHeight: 24,
@@ -151,7 +153,7 @@ function EncodeCard({
                     <ProgramThumbnail
                         thumbnailId={item.recorded.thumbnails?.[0]}
                         channel={channel}
-                        sx={{ width: { xs: 120, sm: 200 }, height: { xs: 67.5, sm: 112.5 }, aspectRatio: '16 / 9', alignSelf: 'center' }}
+                        sx={{ width: { xs: 120, sm: 200 }, height: { xs: 67.5, sm: 112.5 }, aspectRatio: '16 / 9', alignSelf: 'center', gridRow: 2 }}
                     />
                 </Box>
                 <Box sx={{ display: { xs: 'contents', sm: 'block' }, flex: 1, minWidth: 0 }}>
