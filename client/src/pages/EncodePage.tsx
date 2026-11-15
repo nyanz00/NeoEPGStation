@@ -76,6 +76,28 @@ function EncodeCard({
     const percent = Math.min(100, Math.max(0, (item.percent ?? 0) * 100));
     const scheduled = item.scheduledAt !== undefined;
     const reorderable = waiting && !scheduled;
+    const controls =
+        reordering && reorderable ? (
+            <Stack direction={{ xs: 'row', sm: 'column' }} spacing={0.25} sx={{ alignSelf: 'center' }}>
+                <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
+                    <ArrowUpwardOutlined />
+                </IconButton>
+                <IconButton size="small" aria-label={`${item.recorded.name}を一つ下へ移動`} disabled={onMoveDown === undefined} onClick={onMoveDown}>
+                    <ArrowDownwardOutlined />
+                </IconButton>
+            </Stack>
+        ) : !editing ? (
+            <IconButton
+                aria-label="エンコードをキャンセル"
+                color="error"
+                onClick={event => {
+                    event.stopPropagation();
+                    onCancel();
+                }}
+            >
+                <CancelOutlined />
+            </IconButton>
+        ) : null;
     return (
         <Card
             variant="outlined"
@@ -132,7 +154,7 @@ function EncodeCard({
                         alignSelf: 'stretch',
                         alignItems: 'start',
                         gridColumn: editing ? 2 : 1,
-                        gridRow: editing ? '1' : '1 / 3',
+                        gridRow: 1,
                         minWidth: 0,
                     }}
                 >
@@ -182,15 +204,20 @@ function EncodeCard({
                                 sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                             />
                         </Stack>
-                        <Typography variant="body2" color="text.secondary">
-                            {channel?.name ?? item.recorded.channelId}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                            {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
-                        </Typography>
+                        <Box sx={{ display: { xs: 'flex', sm: 'contents' }, alignItems: 'flex-end', gap: 0.5 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                    {channel?.name ?? item.recorded.channelId}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
+                                </Typography>
+                            </Box>
+                            {controls !== null && <Box sx={{ display: { xs: 'flex', sm: 'none' }, flexShrink: 0 }}>{controls}</Box>}
+                        </Box>
                     </Box>
                     {!waiting && (
-                        <Box sx={{ mt: 1, minWidth: 0, gridColumn: '1 / -1', gridRow: editing ? 2 : 3 }}>
+                        <Box sx={{ mt: { xs: 0.25, sm: 1 }, minWidth: 0, gridColumn: '1 / -1', gridRow: 2 }}>
                             <Stack direction="row" sx={{ mb: 0.35, justifyContent: 'space-between' }}>
                                 <Typography variant="body2">{item.mode}</Typography>
                                 <Typography variant="body2">{Math.floor(percent)}%</Typography>
@@ -204,30 +231,7 @@ function EncodeCard({
                         </Box>
                     )}
                 </Box>
-                {reordering && reorderable ? (
-                    <Stack direction={{ xs: 'row', sm: 'column' }} spacing={0.25} sx={{ alignSelf: 'center', gridColumn: 2, gridRow: 2, justifySelf: 'end' }}>
-                        <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
-                            <ArrowUpwardOutlined />
-                        </IconButton>
-                        <IconButton size="small" aria-label={`${item.recorded.name}を一つ下へ移動`} disabled={onMoveDown === undefined} onClick={onMoveDown}>
-                            <ArrowDownwardOutlined />
-                        </IconButton>
-                    </Stack>
-                ) : (
-                    !editing && (
-                        <IconButton
-                            sx={{ gridColumn: 2, gridRow: 2, justifySelf: 'end' }}
-                            aria-label="エンコードをキャンセル"
-                            color="error"
-                            onClick={event => {
-                                event.stopPropagation();
-                                onCancel();
-                            }}
-                        >
-                            <CancelOutlined />
-                        </IconButton>
-                    )
-                )}
+                <Box sx={{ display: { xs: 'none', sm: 'contents' } }}>{controls}</Box>
             </CardContent>
         </Card>
     );
