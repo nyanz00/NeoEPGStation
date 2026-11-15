@@ -78,7 +78,7 @@ function EncodeCard({
     const reorderable = waiting && !scheduled;
     const controls =
         reordering && reorderable ? (
-            <Stack direction={{ xs: 'row', sm: 'column' }} spacing={0.25} sx={{ alignSelf: 'center' }}>
+            <Stack direction={{ xs: 'row', sm: 'column' }} spacing={0.25} sx={{ alignSelf: 'center', gridColumn: 2, gridRow: 2, justifySelf: 'end' }}>
                 <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
                     <ArrowUpwardOutlined />
                 </IconButton>
@@ -88,6 +88,7 @@ function EncodeCard({
             </Stack>
         ) : !editing ? (
             <IconButton
+                sx={{ gridColumn: 2, gridRow: 2, justifySelf: 'end' }}
                 aria-label="エンコードをキャンセル"
                 color="error"
                 onClick={event => {
@@ -114,7 +115,7 @@ function EncodeCard({
                     display: { xs: 'grid', sm: 'flex' },
                     gridTemplateColumns: editing ? 'auto 120px minmax(0, 1fr)' : '120px minmax(0, 1fr)',
                     columnGap: 1.5,
-                    rowGap: 0.75,
+                    rowGap: { xs: 0, sm: 0.75 },
                     p: 1.5,
                     '&:last-child': { pb: 1.5 },
                 }}
@@ -154,7 +155,7 @@ function EncodeCard({
                         alignSelf: 'stretch',
                         alignItems: 'start',
                         gridColumn: editing ? 2 : 1,
-                        gridRow: 1,
+                        gridRow: editing ? '1' : '1 / 3',
                         minWidth: 0,
                     }}
                 >
@@ -204,20 +205,15 @@ function EncodeCard({
                                 sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                             />
                         </Stack>
-                        <Box sx={{ display: { xs: 'flex', sm: 'contents' }, alignItems: 'flex-end', gap: 0.5 }}>
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <Typography variant="body2" color="text.secondary">
-                                    {channel?.name ?? item.recorded.channelId}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                    {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
-                                </Typography>
-                            </Box>
-                            {controls !== null && <Box sx={{ display: { xs: 'flex', sm: 'none' }, flexShrink: 0 }}>{controls}</Box>}
-                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                            {channel?.name ?? item.recorded.channelId}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                            {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
+                        </Typography>
                     </Box>
                     {!waiting && (
-                        <Box sx={{ mt: { xs: 0.25, sm: 1 }, minWidth: 0, gridColumn: '1 / -1', gridRow: 2 }}>
+                        <Box sx={{ mt: { xs: 0, sm: 1 }, minWidth: 0, gridColumn: '1 / -1', gridRow: editing ? 2 : 3 }}>
                             <Stack direction="row" sx={{ mb: 0.35, justifyContent: 'space-between' }}>
                                 <Typography variant="body2">{item.mode}</Typography>
                                 <Typography variant="body2">{Math.floor(percent)}%</Typography>
@@ -231,7 +227,7 @@ function EncodeCard({
                         </Box>
                     )}
                 </Box>
-                <Box sx={{ display: { xs: 'none', sm: 'contents' } }}>{controls}</Box>
+                {controls}
             </CardContent>
         </Card>
     );
