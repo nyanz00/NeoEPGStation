@@ -1,31 +1,35 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execFile } from 'child_process';
+import { spawnManaged as spawn, killManaged } from '../../../util/ManagedProcess.js';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
 import * as path from 'path';
 import { PassThrough, Readable } from 'stream';
-import * as apid from '../../../../api';
-import ProcessUtil from '../../../util/ProcessUtil';
-import { findMpegTsByteOffset } from '../../../util/MpegTsTimeUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IProgramDB from '../../db/IProgramDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import { LiveHLSStreamModelProvider, LiveStreamModelProvider } from '../../service/stream/base/ILiveStreamBaseModel';
+import * as apid from '../../../../api.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { findMpegTsByteOffset } from '../../../util/MpegTsTimeUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IProgramDB from '../../db/IProgramDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import { LiveHLSStreamModelProvider, LiveStreamModelProvider } from '../../service/stream/base/ILiveStreamBaseModel.js';
 import {
     RecordedHLSStreamModelProvider,
     RecordedStreamModelProvider,
-} from '../../service/stream/base/IRecordedStreamBaseModel';
-import IStreamManageModel from '../../service/stream/manager/IStreamManageModel';
-import WatchStreamProfileUtil, { RecordedTsInputInfo } from '../../service/stream/WatchStreamProfileUtil';
-import IVideoAnalysisModel from '../../video/IVideoAnalysisModel';
-import IApiUtil from '../IApiUtil';
-import IPlayList from '../IPlayList';
-import IVideoUtil from '../video/IVideoUtil';
-import IStreamApiModel, { SegmentStreamResponse, StreamResponse } from './IStreamApiModel';
+} from '../../service/stream/base/IRecordedStreamBaseModel.js';
+import IStreamManageModel from '../../service/stream/manager/IStreamManageModel.js';
+import WatchStreamProfileUtil, { RecordedTsInputInfo } from '../../service/stream/WatchStreamProfileUtil.js';
+import { getEncodedVodHlsTiming } from '../../service/stream/EncodedVodHlsTiming.js';
+import IVideoAnalysisModel from '../../video/IVideoAnalysisModel.js';
+import IApiUtil from '../IApiUtil.js';
+import IPlayList from '../IPlayList.js';
+import IVideoUtil from '../video/IVideoUtil.js';
+import IStreamApiModel, { SegmentStreamResponse, StreamResponse } from './IStreamApiModel.js';
+import { recordedUseClient } from '../../RecordedUseClient.js';
+import { streamResourceSampler, StreamResourceSamplerHandle } from '../../../util/StreamResourceSampler.js';
 
 interface StreamConfig {
     cmd?: string;
@@ -33,6 +37,13 @@ interface StreamConfig {
 }
 
 type SharedLiveStreamType = 'm2ts' | 'm2tsll';
+
+interface VodRequest {
+    id: string;
+    order: number;
+    source: number;
+    accepted: boolean;
+}
 
 interface SharedLiveStreamSlot {
     promise: Promise<SharedLiveStreamEntry>;
@@ -62,6 +73,8 @@ interface RecordedVODHLSVideoInfo {
     size: number;
     videoCodecName?: string;
     videoPixelFormat?: string;
+    frameRate?: number;
+    startTime?: number;
     tsInputInfo?: RecordedTsInputInfo;
 }
 
@@ -75,9 +88,8 @@ interface SubtitleBurnInStyle {
 const transformAssAlpha = (value: string, percent: number): string => {
     const match = /^(?:&H)?([0-9a-f]{2})?([0-9a-f]{6})&?$/i.exec(value.trim());
     if (match === null) return value;
-    const currentAlpha = parseInt(match[1] ?? '00', 16);
-    const currentOpacity = 255 - currentAlpha;
-    const nextOpacity = Math.round((currentOpacity * percent) / 100);
+    // The setting is absolute opacity; ASS alpha runs from opaque (00) to transparent (FF).
+    const nextOpacity = Math.round((255 * percent) / 100);
     const nextAlpha = Math.max(0, Math.min(255, 255 - nextOpacity));
     return `&H${nextAlpha.toString(16).padStart(2, '0').toUpperCase()}${match[2].toUpperCase()}`;
 };
@@ -116,7 +128,6 @@ const transformAssInlineStyle = (text: string, style: SubtitleBurnInStyle): stri
             return `\\${name.toLowerCase()}${scaleAssNumber(value, style.outlineSizePercent)}`;
         });
     }
-    if (style.opacityPercent === 100 && style.outlineOpacityPercent === 100) return transformed;
     transformed = transformed.replace(
         /\\(alpha|[1-4]a)&H([0-9a-f]{2})&?/gi,
         (_match, component: string, alpha: string) => {
@@ -125,8 +136,9 @@ const transformAssInlineStyle = (text: string, style: SubtitleBurnInStyle): stri
             if (normalizedComponent === 'alpha') {
                 const textAlpha = transformAssAlpha(source, style.opacityPercent).substring(2, 4);
                 const outlineAlpha = transformAssAlpha(source, style.outlineOpacityPercent).substring(2, 4);
-                return `\\1a&H${textAlpha}&\\2a&H${textAlpha}&\\3a&H${outlineAlpha}&\\4a&H${outlineAlpha}&`;
+                return `\\1a&H${textAlpha}&\\2a&H${textAlpha}&\\3a&H${outlineAlpha}&\\4a&H${alpha}&`;
             }
+            if (normalizedComponent === '4a') return _match;
             const opacity =
                 normalizedComponent === '1a' || normalizedComponent === '2a'
                     ? style.opacityPercent
@@ -137,16 +149,13 @@ const transformAssInlineStyle = (text: string, style: SubtitleBurnInStyle): stri
     );
     return transformed.replace(/\\([1-4]?c)&H([0-9a-f]{8})&?/gi, (_match, component: string, color: string) => {
         const normalizedComponent = component.toLowerCase();
-        const opacity =
-            normalizedComponent === '3c' || normalizedComponent === '4c'
-                ? style.outlineOpacityPercent
-                : style.opacityPercent;
+        if (normalizedComponent === '4c') return _match;
+        const opacity = normalizedComponent === '3c' ? style.outlineOpacityPercent : style.opacityPercent;
         return `\\${normalizedComponent}&H${transformAssAlpha(`&H${color}`, opacity).substring(2)}&`;
     });
 };
 
 export const transformAssSubtitleForStreaming = (content: string, style: SubtitleBurnInStyle): string => {
-    if (Object.values(style).every(value => value === 100)) return content;
     let section = '';
     let format: string[] = [];
     return content
@@ -226,6 +235,10 @@ export const shouldRebaseRecordedVodHlsSession = (
 };
 
 interface RecordedVodHlsMuxSessionOption {
+    videoFileId?: number;
+    encoder?: apid.RecordedStreanOption['encoder'];
+    qualityName?: string;
+    isHevc?: boolean;
     profileKey: string;
     config: ReturnType<IConfiguration['getConfig']>;
     videoInfo: RecordedVODHLSVideoInfo;
@@ -237,6 +250,7 @@ interface RecordedVodHlsMuxSessionOption {
     preprocessor: ProcessUtil.Cmds;
     command: string;
     fallbackCommand?: string;
+    preserveTimestamps?: boolean;
     log: ILogger;
     temporaryDir: string;
 }
@@ -245,291 +259,311 @@ class RecordedVodHlsMuxSession {
     public lastAccess: number = Date.now();
     public readonly profileKey: string;
     public readonly startSequence: number;
-
     private static readonly SEGMENT_WAIT_TIMEOUT = 60 * 1000;
     private static readonly FAST_INPUT_FALLBACK_TIMEOUT = 15 * 1000;
-
-    private readonly option: RecordedVodHlsMuxSessionOption;
     private readonly directoryPromise: Promise<string>;
-    private readonly processes: ChildProcess[] = [];
+    private processes: ChildProcess[] = [];
     private fileStream: fs.ReadStream | null = null;
-    private isCompleted: boolean = false;
-    private isStopping: boolean = false;
+    private isCompleted = false;
+    private isStopping = false;
     private startPromise: Promise<void> | null = null;
+    private cleanupPromise: Promise<void> | null = null;
+    private stopPromise: Promise<void> | null = null;
     private highestReadySequence: number;
     private fallbackPromise: Promise<boolean> | null = null;
-    private fallbackStarted: boolean = false;
-    private processGeneration: number = 0;
+    private fallbackStarted = false;
+    private processGeneration = 0;
+    private attemptFailure: Error | null = null;
+    private failure: Error | null = null;
+    private reportedGeneration = -1;
+    private resources: StreamResourceSamplerHandle | null = null;
 
-    constructor(option: RecordedVodHlsMuxSessionOption) {
-        this.option = option;
+    constructor(private readonly option: RecordedVodHlsMuxSessionOption) {
         this.profileKey = option.profileKey;
         this.startSequence = option.startSequence;
         this.highestReadySequence = option.startSequence - 1;
         this.directoryPromise = fs.promises
             .mkdir(option.temporaryDir, { recursive: true })
-            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-vodhls-')));
+            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, `epgstation-vodhls-${process.pid}-`)));
     }
-
+    public isUsable(): boolean {
+        return !this.isStopping && this.failure === null;
+    }
     public async getSegment(sequence: number): Promise<Buffer> {
         this.touch();
-        if (sequence < this.option.startSequence || sequence >= this.option.segmentCount) {
-            throw new Error('OutOfRange');
-        }
-
+        if (sequence < this.startSequence || sequence >= this.option.segmentCount) throw new Error('OutOfRange');
         await this.start();
         const segmentPath = await this.waitSegmentFile(sequence);
         const buffer = await fs.promises.readFile(segmentPath);
         this.highestReadySequence = Math.max(this.highestReadySequence, sequence);
-
         return buffer;
     }
-
     public async shouldRebase(sequence: number): Promise<boolean> {
+        if (!this.isUsable()) return true;
         const dir = await this.directoryPromise;
-        const segmentPath = path.join(dir, `segment-${sequence.toString(10)}.ts`);
-
         return shouldRebaseRecordedVodHlsSession(
-            this.option.startSequence,
+            this.startSequence,
             this.highestReadySequence,
             sequence,
-            fs.existsSync(segmentPath),
+            fs.existsSync(path.join(dir, `segment-${sequence}.ts`)),
         );
     }
-
     public prefetch(_sequence: number): void {
         this.touch();
-        this.start().catch((err: Error) => {
-            this.option.log.stream.warn(`start recorded VOD HLS mux session failed: ${err.message}`);
-        });
+        void this.start().catch((error: Error) => this.failAttempt(error, this.processGeneration));
     }
-
     public async prepareUntil(sequence: number): Promise<void> {
         this.touch();
-        const target = Math.min(Math.max(sequence, this.option.startSequence), this.option.segmentCount - 1);
         await this.start();
+        const target = Math.min(Math.max(sequence, this.startSequence), this.option.segmentCount - 1);
         await this.waitSegmentFile(target);
         this.highestReadySequence = Math.max(this.highestReadySequence, target);
     }
-
     public keep(): void {
         this.touch();
     }
-
-    public async cleanup(): Promise<void> {
+    public cleanup(waitForStart = true): Promise<void> {
+        if (this.cleanupPromise !== null) return this.cleanupPromise;
         this.isStopping = true;
+        this.processGeneration++;
         this.fileStream?.destroy();
-
-        await Promise.all(this.processes.map(process => ProcessUtil.kill(process).catch(() => {})));
-
-        const dir = await this.directoryPromise.catch(() => null);
-        if (dir !== null) {
-            await fs.promises.rm(dir, { force: true, recursive: true }).catch(() => {});
-        }
+        this.resources?.dispose();
+        this.resources = null;
+        this.cleanupPromise = (async () => {
+            if (waitForStart) await this.startPromise?.catch(() => {});
+            await this.stopPipeline();
+            const dir = await this.directoryPromise.catch(() => null);
+            if (dir !== null) await fs.promises.rm(dir, { force: true, recursive: true });
+        })();
+        return this.cleanupPromise;
     }
-
     private touch(): void {
         this.lastAccess = Date.now();
     }
-
     private async start(): Promise<void> {
-        if (this.startPromise !== null) {
-            return this.startPromise;
+        if (this.isStopping) throw new Error('RecordedVodHlsSessionStopped');
+        if (this.failure !== null) throw this.failure;
+        if (this.startPromise === null) {
+            this.startPromise = this.startMuxer(this.option.command).catch(error => {
+                this.failAttempt(error, this.processGeneration);
+            });
         }
-
-        this.startPromise = this.startMuxer(this.option.command);
-
-        return this.startPromise;
+        await this.startPromise;
     }
-
+    private reportFailure(error: Error): void {
+        if (this.reportedGeneration === this.processGeneration || this.isStopping) return;
+        this.reportedGeneration = this.processGeneration;
+        this.option.log.stream.warn(
+            'recorded VOD HLS diagnostics: ' +
+                JSON.stringify({
+                    route: 'ts',
+                    videoFileId: this.option.videoFileId,
+                    startSequence: this.startSequence,
+                    startPosition: this.option.startPosition,
+                    fallback: this.fallbackStarted,
+                    encoder: this.option.encoder ?? this.option.config.watch?.encoder,
+                    quality: this.option.qualityName,
+                    hevc: this.option.isHevc,
+                    reason: error.message,
+                    samples: this.resources?.snapshot() ?? [],
+                }),
+        );
+    }
+    private failAttempt(error: Error, generation: number): void {
+        if (this.isStopping || generation !== this.processGeneration || this.attemptFailure !== null) return;
+        this.attemptFailure = error;
+        this.isCompleted = true;
+        this.reportFailure(error);
+        // Invalidate callbacks before stopping siblings, so expected shutdown exits do not recurse.
+        this.processGeneration++;
+        this.stopPromise = this.stopPipeline();
+        void this.stopPromise.catch(stopError => {
+            this.failure = stopError instanceof Error ? stopError : new Error('RecordedVodHlsStopFailed');
+            this.option.log.stream.warn(this.failure.message);
+        });
+        if (this.fallbackStarted || this.option.fallbackCommand === undefined) this.failure = error;
+    }
+    private stopPipeline(): Promise<void> {
+        if (this.stopPromise !== null) return this.stopPromise;
+        const source = this.fileStream;
+        this.fileStream = null;
+        source?.unpipe();
+        source?.destroy();
+        const children = this.processes;
+        // Keep the list until termination is confirmed, including on failure.
+        this.stopPromise = Promise.all(children.map(child => stopStreamProcess(child))).then(() => {
+            if (this.processes === children) this.processes = [];
+        });
+        return this.stopPromise;
+    }
     private async startMuxer(command: string): Promise<void> {
         const generation = ++this.processGeneration;
         const dir = await this.directoryPromise;
-        const segmentPath = path.join(dir, 'segment-%d.ts');
-        const playlistPath = path.join(dir, 'playlist.m3u8');
-        const preprocessor = this.option.preprocessor;
-        const config = this.option.config;
-
-        this.fileStream = fs.createReadStream(this.option.videoInfo.filePath, { start: this.option.startByte });
-        const preProcessProcess = spawn(preprocessor.bin, preprocessor.args, {
-            windowsHide: true,
-        });
-        const encodeProcess = spawn(command, {
-            shell: true,
-            windowsHide: true,
-        });
-        const hlsMuxProcess = spawn(
-            config.ffmpeg,
-            [
-                '-hide_banner',
-                '-loglevel',
-                'warning',
-                '-fflags',
-                '+genpts',
-                '-f',
-                'mpegts',
-                '-i',
-                'pipe:0',
-                '-map',
-                '0',
-                '-c',
-                'copy',
-                '-hls_time',
-                this.option.segmentDuration.toFixed(6),
-                '-hls_list_size',
-                '0',
-                '-hls_playlist_type',
-                'vod',
-                '-hls_segment_type',
-                'mpegts',
-                '-hls_flags',
-                'independent_segments',
-                '-start_number',
-                this.option.startSequence.toString(10),
-                '-hls_segment_filename',
-                segmentPath,
-                '-y',
-                playlistPath,
-            ],
-            {
-                windowsHide: true,
-            },
-        );
-
-        this.processes.push(preProcessProcess, encodeProcess, hlsMuxProcess);
-        this.option.log.stream.debug(
-            `create recorded VOD HLS TS continuous preprocessor: ${preprocessor.bin} ${preprocessor.args.join(' ')}`,
-        );
-        this.option.log.stream.debug(`create recorded VOD HLS TS continuous process: ${command}`);
-        this.option.log.stream.debug(`create recorded VOD HLS TS muxer: ${config.ffmpeg}`);
-
-        const captureProcess = (name: string, process: ChildProcess): void => {
+        if (this.isStopping) throw new Error('RecordedVodHlsSessionStopped');
+        const muxArgs = [
+            '-hide_banner',
+            '-loglevel',
+            'warning',
+            ...(this.option.preserveTimestamps === true ? ['-copyts'] : []),
+            '-fflags',
+            '+genpts',
+            '-f',
+            'mpegts',
+            // Explicitly allow enough input to identify both audio tracks after a seek.
+            '-analyzeduration',
+            '10000000',
+            '-probesize',
+            '32000000',
+            '-i',
+            'pipe:0',
+            '-map',
+            '0',
+            '-c',
+            'copy',
+            '-hls_time',
+            this.option.segmentDuration.toFixed(6),
+            '-hls_list_size',
+            '0',
+            '-hls_playlist_type',
+            'vod',
+            '-hls_segment_type',
+            'mpegts',
+            '-hls_flags',
+            'independent_segments',
+            '-start_number',
+            String(this.startSequence),
+            '-hls_segment_filename',
+            path.join(dir, 'segment-%d.ts'),
+            '-y',
+            path.join(dir, 'playlist.m3u8'),
+        ];
+        const create = (name: string, bin: string, args?: string[]): ChildProcess => {
+            const child =
+                args === undefined
+                    ? spawn(bin, { shell: true, windowsHide: true })
+                    : spawn(bin, args, { windowsHide: true });
+            this.processes.push(child);
             let stderr = '';
-            process.stderr?.on('data', (data: Buffer) => {
-                if (stderr.length < 16 * 1024) {
-                    stderr += data.toString();
-                }
+            child.stderr?.on('data', (chunk: Buffer) => {
+                stderr = (stderr + chunk.toString()).slice(-32768);
             });
-            process.on('exit', (code, signal) => {
-                const detail = stderr.trim();
+            child.once('error', error => this.failAttempt(error, generation));
+            child.once('exit', (code, signal) => {
+                if (this.isStopping || generation !== this.processGeneration) return;
                 const message = `recorded VOD HLS TS ${name} exited: code=${String(code)}, signal=${String(signal)}`;
-                if (this.isStopping) {
-                    this.option.log.stream.debug(message);
-                } else if (code === 0 || (code === null && signal === null)) {
-                    this.option.log.stream.info(message);
-                } else {
-                    this.option.log.stream.warn(message + (detail.length === 0 ? '' : `\n${detail}`));
+                if (code !== 0) {
+                    this.option.log.stream.warn(message + (stderr.trim() ? '\n' + stderr.trim() : ''));
+                    this.failAttempt(new Error(`RecordedVodHls${name}Failed`), generation);
+                } else if (name === 'muxer') {
+                    this.isCompleted = true;
+                }
+                // Keep late encoder errors visible even if its stdout reached EOF first.
+                if (this.processes.every(child => child.exitCode === 0)) {
+                    this.resources?.dispose();
+                    this.resources = null;
                 }
             });
+            return child;
         };
-
-        captureProcess('preprocessor', preProcessProcess);
-        captureProcess('encoder', encodeProcess);
-        captureProcess('muxer', hlsMuxProcess);
-
-        if (
-            this.fileStream === null ||
-            preProcessProcess.stdin === null ||
-            preProcessProcess.stdout === null ||
-            encodeProcess.stdin === null ||
-            encodeProcess.stdout === null ||
-            hlsMuxProcess.stdin === null
-        ) {
-            await this.cleanup();
-            throw new Error('SegmentStreamIsNull');
-        }
-
-        const ignorePipeError = (err: NodeJS.ErrnoException): void => {
-            if (err.code !== 'EPIPE' && err.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
-                this.option.log.stream.warn(`recorded VOD HLS mux stream error: ${err.message}`);
+        try {
+            this.fileStream = fs.createReadStream(this.option.videoInfo.filePath, { start: this.option.startByte });
+            const pre = create('preprocessor', this.option.preprocessor.bin, this.option.preprocessor.args);
+            const encoder = create('encoder', command);
+            const muxer = create('muxer', this.option.config.ffmpeg, muxArgs);
+            this.resources ??=
+                streamResourceSampler?.subscribe(() =>
+                    this.processes
+                        .filter(child => child.exitCode === null && child.signalCode === null)
+                        .flatMap(child => (child.pid === undefined ? [] : [child.pid])),
+                ) ?? null;
+            for (const pipe of [this.fileStream, pre.stdin, pre.stdout, encoder.stdin, encoder.stdout, muxer.stdin]) {
+                (pipe as NodeJS.EventEmitter | null)?.on('error', (error: Error) =>
+                    this.failAttempt(error, generation),
+                );
             }
-        };
-
-        this.fileStream.on('error', ignorePipeError);
-        preProcessProcess.stdin.on('error', ignorePipeError);
-        preProcessProcess.stdout.on('error', ignorePipeError);
-        encodeProcess.stdin.on('error', ignorePipeError);
-        encodeProcess.stdout.on('error', ignorePipeError);
-        hlsMuxProcess.stdin.on('error', ignorePipeError);
-
-        this.fileStream.pipe(preProcessProcess.stdin);
-        preProcessProcess.stdout.pipe(encodeProcess.stdin);
-        encodeProcess.stdout.pipe(hlsMuxProcess.stdin);
-
-        hlsMuxProcess.on('exit', () => {
-            if (generation === this.processGeneration) this.isCompleted = true;
-        });
+            if (!pre.stdin || !pre.stdout || !encoder.stdin || !encoder.stdout || !muxer.stdin)
+                throw new Error('SegmentStreamIsNull');
+            this.fileStream.pipe(pre.stdin);
+            pre.stdout.pipe(encoder.stdin);
+            encoder.stdout.pipe(muxer.stdin);
+        } catch (error) {
+            this.failAttempt(error instanceof Error ? error : new Error('RecordedVodHlsStartFailed'), generation);
+        }
     }
-
     private async waitSegmentFile(sequence: number): Promise<string> {
         const dir = await this.directoryPromise;
-        const segmentPath = path.join(dir, `segment-${sequence.toString(10)}.ts`);
+        const segmentPath = path.join(dir, `segment-${sequence}.ts`);
         let startedAt = Date.now();
-
         while (Date.now() - startedAt < RecordedVodHlsMuxSession.SEGMENT_WAIT_TIMEOUT) {
-            if (fs.existsSync(segmentPath) === true && (await this.isFileStable(segmentPath)) === true) {
+            if (this.isStopping) throw new Error('RecordedVodHlsSessionStopped');
+            if (this.failure !== null) {
+                await this.stopPromise;
+                throw this.failure;
+            }
+            if (this.attemptFailure === null && fs.existsSync(segmentPath) && (await this.isFileStable(segmentPath)))
                 return segmentPath;
-            }
-
             if (
-                fs.existsSync(segmentPath) === false &&
-                (this.isCompleted === true ||
-                    (this.option.fallbackCommand !== undefined &&
-                        this.fallbackStarted === false &&
-                        Date.now() - startedAt >= RecordedVodHlsMuxSession.FAST_INPUT_FALLBACK_TIMEOUT)) &&
-                (await this.startFallback())
+                this.attemptFailure !== null ||
+                (this.isCompleted && !fs.existsSync(segmentPath)) ||
+                (!this.fallbackStarted &&
+                    this.option.fallbackCommand !== undefined &&
+                    Date.now() - startedAt >= RecordedVodHlsMuxSession.FAST_INPUT_FALLBACK_TIMEOUT)
             ) {
-                startedAt = Date.now();
-                continue;
+                if (await this.startFallback()) {
+                    startedAt = Date.now();
+                    continue;
+                }
+                const error = this.attemptFailure ?? new Error('SegmentIsNotFound');
+                this.failure = error;
+                this.reportFailure(error);
+                await (this.stopPromise ?? this.stopPipeline());
+                throw error;
             }
-
-            if (this.isCompleted === true && fs.existsSync(segmentPath) === false) {
-                throw new Error('SegmentIsNotFound');
-            }
-
             await new Promise(resolve => setTimeout(resolve, 100));
         }
-
-        throw new Error('SegmentWaitTimeout');
+        const error = new Error('SegmentWaitTimeout');
+        this.failAttempt(error, this.processGeneration);
+        this.failure = error;
+        await this.stopPromise;
+        throw error;
     }
-
     private async startFallback(): Promise<boolean> {
         if (this.fallbackPromise !== null) return this.fallbackPromise;
-        if (this.fallbackStarted || this.option.fallbackCommand === undefined || this.isStopping) return false;
-
+        if (
+            this.fallbackStarted ||
+            this.option.fallbackCommand === undefined ||
+            this.isStopping ||
+            this.failure !== null
+        )
+            return false;
         this.fallbackPromise = (async () => {
             this.fallbackStarted = true;
             this.option.log.stream.warn('recorded VOD HLS fast TS input failed; retry with legacy analysis');
-            this.processGeneration += 1;
-            this.fileStream?.destroy();
-            const processes = this.processes.splice(0);
-            await Promise.all(processes.map(process => ProcessUtil.kill(process).catch(() => {})));
+            this.processGeneration++;
+            await (this.stopPromise ?? this.stopPipeline());
+            this.stopPromise = null;
+            if (this.isStopping) return false;
             const dir = await this.directoryPromise;
-            const files = await fs.promises.readdir(dir).catch(() => []);
-            await Promise.all(files.map(file => fs.promises.rm(path.join(dir, file), { force: true }).catch(() => {})));
+            const files = await fs.promises.readdir(dir);
+            await Promise.all(files.map(file => fs.promises.rm(path.join(dir, file), { force: true })));
             if (this.isStopping) return false;
             this.isCompleted = false;
+            this.attemptFailure = null;
             await this.startMuxer(this.option.fallbackCommand!);
             return true;
         })();
-
         try {
             return await this.fallbackPromise;
         } finally {
             this.fallbackPromise = null;
         }
     }
-
     private async isFileStable(filePath: string): Promise<boolean> {
         try {
             const first = await fs.promises.stat(filePath);
-            if (first.size <= 0) {
-                return false;
-            }
-
+            if (first.size <= 0) return false;
             await new Promise(resolve => setTimeout(resolve, 150));
             const second = await fs.promises.stat(filePath);
-
             return first.size === second.size && second.size > 0;
         } catch {
             return false;
@@ -547,6 +581,7 @@ interface EncodedVodHlsMuxSessionOption {
     startSequence: number;
     qualityName?: string;
     encoder?: apid.RecordedStreanOption['encoder'];
+    client?: apid.RecordedStreanOption['client'];
     isHevc?: boolean;
     subtitleIndex?: number;
     subtitlePath?: string;
@@ -566,12 +601,19 @@ class EncodedVodHlsMuxSession {
 
     private readonly option: EncodedVodHlsMuxSessionOption;
     private readonly directoryPromise: Promise<string>;
-    private process: ChildProcess | null = null;
+    private processes: ChildProcess[] = [];
+    private probeProcess: ChildProcess | null = null;
+    private failure: Error | null = null;
     private subtitleProcess: ChildProcess | null = null;
     private isCompleted: boolean = false;
     private isStopping: boolean = false;
     private startPromise: Promise<void> | null = null;
     private highestReadySequence: number;
+    private resources: StreamResourceSamplerHandle | null = null;
+
+    public isUsable(): boolean {
+        return !this.isStopping && this.failure === null;
+    }
 
     constructor(option: EncodedVodHlsMuxSessionOption) {
         this.option = option;
@@ -580,7 +622,9 @@ class EncodedVodHlsMuxSession {
         this.highestReadySequence = option.startSequence - 1;
         this.directoryPromise = fs.promises
             .mkdir(option.temporaryDir, { recursive: true })
-            .then(() => fs.promises.mkdtemp(path.join(option.temporaryDir, 'epgstation-encoded-vodhls-')));
+            .then(() =>
+                fs.promises.mkdtemp(path.join(option.temporaryDir, `epgstation-encoded-vodhls-${process.pid}-`)),
+            );
     }
 
     public async getSegment(sequence: number): Promise<Buffer> {
@@ -598,6 +642,7 @@ class EncodedVodHlsMuxSession {
     }
 
     public async shouldRebase(sequence: number): Promise<boolean> {
+        if (!this.isUsable()) return true;
         const dir = await this.directoryPromise;
         const segmentPath = path.join(dir, `segment-${sequence.toString(10)}.ts`);
 
@@ -630,17 +675,17 @@ class EncodedVodHlsMuxSession {
 
     public async cleanup(): Promise<void> {
         this.isStopping = true;
+        this.resources?.dispose();
+        this.resources = null;
+        if (this.probeProcess !== null) await stopStreamProcess(this.probeProcess);
         if (this.subtitleProcess !== null) {
             const subtitleProcess = this.subtitleProcess;
-            this.subtitleProcess = null;
             await stopStreamProcess(subtitleProcess);
+            if (this.subtitleProcess === subtitleProcess) this.subtitleProcess = null;
         }
         await this.startPromise?.catch(() => {});
-        if (this.process !== null) {
-            const process = this.process;
-            this.process = null;
-            await stopStreamProcess(process);
-        }
+        await Promise.all(this.processes.map(process => stopStreamProcess(process)));
+        this.processes = [];
 
         const dir = await this.directoryPromise.catch(() => null);
         if (dir !== null) {
@@ -658,7 +703,10 @@ class EncodedVodHlsMuxSession {
             return this.startPromise;
         }
 
-        this.startPromise = this.startMuxer();
+        this.startPromise = this.startMuxer().catch(error => {
+            this.fail(error);
+            throw error;
+        });
 
         return this.startPromise;
     }
@@ -670,7 +718,7 @@ class EncodedVodHlsMuxSession {
         const playlistPath = path.join(dir, 'playlist.m3u8');
         const subtitlePath = await this.prepareSubtitleSource(dir);
         if (this.isStopping) throw new Error('EncodedVodHlsSessionStopped');
-        const command = WatchStreamProfileUtil.buildEncodedVodHlsContinuousCommand(this.option.config, {
+        const commandOption = {
             input: this.option.videoInfo.filePath,
             playlistPath: playlistPath,
             segmentDuration: this.option.segmentDuration,
@@ -683,27 +731,187 @@ class EncodedVodHlsMuxSession {
             subtitlePath: subtitlePath,
             inputVideoCodec: this.option.videoInfo.videoCodecName,
             inputPixelFormat: this.option.videoInfo.videoPixelFormat,
-        });
+            frameRate: this.option.videoInfo.frameRate,
+            duration: Math.max(0.001, this.option.videoInfo.duration - this.option.startPosition),
+            client: this.option.client,
+        };
+        if (
+            subtitlePath === undefined &&
+            WatchStreamProfileUtil.usesEncodedVodHlsNVEnc(this.option.config, this.option.encoder)
+        ) {
+            const timing = getEncodedVodHlsTiming(this.option.videoInfo.frameRate);
+            const seekPosition = await this.findInputKeyframe();
+            if (this.isStopping) throw new Error('EncodedVodHlsSessionStopped');
+            const prerollFrames = Math.max(
+                0,
+                Math.round((this.option.startPosition - seekPosition) * timing.frameRate),
+            );
+            const keyFile = path.join(dir, 'keyframes.txt');
+            const remainingSegments = this.option.segmentCount - this.option.startSequence;
+            const keys = Array.from(
+                { length: remainingSegments + 1 },
+                (_, index) => prerollFrames + index * timing.segmentFrames,
+            );
+            await fs.promises.writeFile(keyFile, `${keys.join('\n')}\n`, 'utf8');
+            if (this.isStopping) throw new Error('EncodedVodHlsSessionStopped');
+            const encodeCommand = WatchStreamProfileUtil.buildEncodedVodHlsNVEncCommand(
+                this.option.config,
+                commandOption,
+                seekPosition,
+                keyFile,
+            );
+            const muxCommand = WatchStreamProfileUtil.buildEncodedVodHlsCopyMuxCommand(
+                this.option.config,
+                commandOption,
+                prerollFrames / timing.frameRate,
+            );
+            const mux = this.spawnProcess(muxCommand, true, dir);
+            const encode = this.spawnProcess(encodeCommand, false, dir);
+            encode.stdout!.pipe(mux.stdin!);
+            mux.stdin!.on('error', err => {
+                if (!this.isStopping && !this.isCompleted) this.fail(err);
+            });
+            return;
+        }
+        const command = WatchStreamProfileUtil.buildEncodedVodHlsContinuousCommand(this.option.config, commandOption);
+        this.spawnProcess(command, true, dir);
+    }
 
+    private spawnProcess(command: ProcessUtil.Cmds, isMuxer: boolean, directory: string): ChildProcess {
         this.option.log.stream.debug(
             `create recorded VOD HLS encoded continuous process: ${command.bin} ${command.args.join(' ')}`,
         );
 
         const process = spawn(command.bin, command.args, {
             windowsHide: true,
-            cwd: dir,
+            // Subtitle paths are relative to the per-session directory.
+            cwd: directory,
         });
-        this.process = process;
+        this.processes.push(process);
+        this.resources ??=
+            streamResourceSampler?.subscribe(() =>
+                this.processes
+                    .filter(child => child.exitCode === null && child.signalCode === null)
+                    .flatMap(child => (child.pid === undefined ? [] : [child.pid])),
+            ) ?? null;
         let stderrTail = '';
         process.stderr?.on('data', data => {
             stderrTail = this.appendStderrTail(stderrTail, Buffer.from(data).toString('utf8'));
         });
         process.on('exit', code => {
-            this.isCompleted = true;
-            if (this.isStopping === false && code !== 0 && stderrTail.length > 0) {
+            const unexpected = !this.isStopping && code !== 0 && (isMuxer || !this.isCompleted);
+            if (isMuxer) this.isCompleted = true;
+            if (unexpected && stderrTail.length > 0) {
                 this.option.log.stream.warn(`encoded VOD HLS process failed: ${stderrTail}`);
             }
+            if (unexpected) this.fail(new Error('EncodedVodHlsProcessFailed'));
+            if (isMuxer)
+                void Promise.all(
+                    this.processes.filter(child => child !== process).map(child => stopStreamProcess(child)),
+                )
+                    .then(() => {
+                        this.resources?.dispose();
+                        this.resources = null;
+                    })
+                    .catch(error => this.fail(error));
         });
+        process.on('error', err => this.fail(err));
+        return process;
+    }
+
+    private fail(error: Error): void {
+        if (this.isStopping || this.failure !== null) return;
+        this.option.log.stream.warn(
+            'recorded VOD HLS diagnostics: ' +
+                JSON.stringify({
+                    route: 'encoded',
+                    startSequence: this.startSequence,
+                    startPosition: this.option.startPosition,
+                    encoder: this.option.encoder ?? this.option.config.watch?.encoder,
+                    quality: this.option.qualityName,
+                    reason: error.message,
+                    samples: this.resources?.snapshot() ?? [],
+                }),
+        );
+        this.resources?.dispose();
+        this.resources = null;
+        this.failure = error;
+        this.isCompleted = true;
+        void Promise.all(this.processes.map(process => stopStreamProcess(process))).catch(stopError =>
+            this.option.log.stream.warn(String(stopError)),
+        );
+    }
+
+    private async findInputKeyframe(): Promise<number> {
+        if (this.option.startPosition <= 0) return 0;
+        const sourceStart = this.option.videoInfo.startTime ?? 0;
+        try {
+            const output = await new Promise<string>((resolve, reject) => {
+                const process = spawn(
+                    this.option.config.ffprobe,
+                    [
+                        '-v',
+                        'error',
+                        '-select_streams',
+                        'v:0',
+                        '-read_intervals',
+                        `0%+#1,${(this.option.startPosition + sourceStart).toFixed(6)}%+#1`,
+                        '-show_packets',
+                        '-show_entries',
+                        'packet=pts_time,flags',
+                        '-of',
+                        'json',
+                        this.option.videoInfo.filePath,
+                    ],
+                    { windowsHide: true },
+                );
+                this.probeProcess = process;
+                let output = '';
+                const timeout = setTimeout(() => {
+                    reject(new Error('InputKeyframeProbeTimeout'));
+                    void stopStreamProcess(process);
+                }, 10000);
+                const finish = (): void => {
+                    clearTimeout(timeout);
+                    if (this.probeProcess === process) this.probeProcess = null;
+                };
+                process.stdout.on('data', data => {
+                    if (output.length < 65536) output += Buffer.from(data).toString('utf8');
+                });
+                process.stderr.resume();
+                process.on('error', err => {
+                    finish();
+                    reject(err);
+                });
+                process.on('exit', code => {
+                    finish();
+                    if (code === 0) resolve(output);
+                    else reject(new Error('InputKeyframeProbeFailed'));
+                });
+            });
+            const value = JSON.parse(output) as { packets?: { pts_time?: string; flags?: string }[] };
+            const firstPacket = value.packets?.[0];
+            const packet = value.packets?.[1];
+            // NVEncC adds --seek to the first VIDEO packet PTS, which can
+            // differ from the container start (e.g. MP4 AAC encoder padding).
+            const firstPosition = Number(firstPacket?.pts_time);
+            const position = Number(packet?.pts_time) - firstPosition;
+            if (
+                firstPacket?.flags?.includes('K') &&
+                Number.isFinite(firstPosition) &&
+                packet?.flags?.includes('K') &&
+                Number.isFinite(position) &&
+                position >= 0 &&
+                position <= this.option.startPosition
+            )
+                return position;
+            throw new Error('InputKeyframeIsInvalid');
+        } catch (err) {
+            if (this.isStopping) throw new Error('EncodedVodHlsSessionStopped');
+            // A missing index must make seeking slower, not skip the requested scene.
+            this.option.log.stream.warn(`input keyframe probe failed; decoding preroll from start: ${String(err)}`);
+            return 0;
+        }
     }
 
     private appendStderrTail(current: string, chunk: string): string {
@@ -809,6 +1017,8 @@ class EncodedVodHlsMuxSession {
         const startedAt = Date.now();
 
         while (Date.now() - startedAt < EncodedVodHlsMuxSession.SEGMENT_WAIT_TIMEOUT) {
+            if (this.isStopping) throw new Error('EncodedVodHlsSessionStopped');
+            if (this.failure !== null) throw this.failure;
             if (fs.existsSync(segmentPath) === true && (await this.isFileStable(segmentPath)) === true) {
                 return segmentPath;
             }
@@ -820,7 +1030,9 @@ class EncodedVodHlsMuxSession {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        throw new Error('SegmentWaitTimeout');
+        const error = new Error('SegmentWaitTimeout');
+        this.fail(error);
+        throw error;
     }
 
     private async isFileStable(filePath: string): Promise<boolean> {
@@ -840,41 +1052,47 @@ class EncodedVodHlsMuxSession {
     }
 }
 
-const waitStreamProcessExit = (process: ChildProcess, timeout: number): Promise<boolean> => {
-    if (process.exitCode !== null || process.signalCode !== null) return Promise.resolve(true);
-
-    return new Promise(resolve => {
-        let finished = false;
-        const finish = (exited: boolean): void => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            process.removeListener('exit', handleExit);
-            resolve(exited);
-        };
-        const handleExit = (): void => finish(true);
-        const timer = setTimeout(() => finish(false), timeout);
-        timer.unref();
-        process.once('exit', handleExit);
-    });
-};
-
-const stopStreamProcess = async (process: ChildProcess): Promise<void> => {
-    if (process.exitCode !== null || process.signalCode !== null) return;
-    await ProcessUtil.kill(process).catch(() => {});
-    if (await waitStreamProcessExit(process, 2_000)) return;
-    try {
-        if (process.exitCode === null && process.signalCode === null) process.kill('SIGKILL');
-    } catch {
-        // The process may have exited between the timeout and the forced stop.
-    }
-    await waitStreamProcessExit(process, 1_000);
+const stoppingStreamProcesses = new WeakMap<ChildProcess, Promise<void>>();
+const stopStreamProcess = (process: ChildProcess): Promise<void> => {
+    const existing = stoppingStreamProcesses.get(process);
+    if (existing !== undefined) return existing;
+    const stopped = (async (): Promise<void> => {
+        // Kill the owned tree before cmd.exe can exit and orphan its native encoder.
+        if (
+            globalThis.process.platform === 'win32' &&
+            process.pid !== undefined &&
+            process.exitCode === null &&
+            process.signalCode === null
+        ) {
+            await new Promise<void>((resolve, reject) => {
+                execFile(
+                    'taskkill',
+                    ['/PID', String(process.pid), '/T', '/F'],
+                    { windowsHide: true, timeout: 5000 },
+                    error => {
+                        if (error && process.exitCode === null && process.signalCode === null) reject(error);
+                        else resolve();
+                    },
+                );
+            });
+        }
+        await killManaged(process);
+    })();
+    stoppingStreamProcesses.set(process, stopped);
+    void stopped.catch(() => stoppingStreamProcesses.delete(process));
+    return stopped;
 };
 
 @injectable()
 export default class StreamApiModel implements IStreamApiModel {
+    private vodRequestOrder = 0;
+    private vodRequests = new Map<
+        string,
+        { order: number; registered: number; navigation: number; source: number; accessedAt: number }
+    >();
+    private vodFailures = new Map<string, { count: number; at: number }>();
+    private failedVodSessions = new WeakSet<object>();
     private static readonly TS_VOD_HLS_SEGMENT_DURATION = 180 / (30000 / 1001);
-    private static readonly ENCODED_VOD_HLS_SEGMENT_DURATION = 4;
     private static readonly VOD_HLS_SESSION_TTL = 10 * 60 * 1000;
     private static readonly VOD_HLS_CLIENT_TTL = 30 * 1000;
     private static readonly VOD_HLS_RELEASE_GRACE = 2 * 1000;
@@ -909,6 +1127,9 @@ export default class StreamApiModel implements IStreamApiModel {
     private vodHlsCleanupPromises: Map<string, Promise<void>> = new Map();
     private recordedVodHlsVideoInfoCache: Map<apid.VideoFileId, RecordedVODHLSVideoInfoCacheEntry> = new Map();
     private sharedLiveStreams: Map<string, SharedLiveStreamSlot> = new Map();
+    private vodUses = new Map<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession, { release(): Promise<void> }>();
+    private creatingVodSessions = new Map<string, Promise<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession>>();
+    private vodSessionCleanup = new WeakMap<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession, Promise<void>>();
 
     constructor(
         @inject('IConfiguration') configure: IConfiguration,
@@ -1394,10 +1615,11 @@ export default class StreamApiModel implements IStreamApiModel {
         option: apid.RecordedStreanOption,
         startupBufferSegments: number = 1,
     ): Promise<string> {
+        const request = this.beginVodRequest(option, true);
         const videoInfo = await this.getRecordedVODHLSVideoInfo(option.videoFileId);
         const isEncodedVideo = await this.isEncodedVideo(option.videoFileId);
         const streamOption = isEncodedVideo === true ? this.resolveEncodedVodHlsSubtitleOption(option) : option;
-        const segmentDuration = this.getRecordedVODHLSSegmentDurationByType(isEncodedVideo);
+        const segmentDuration = this.getRecordedVODHLSSegmentDurationByType(isEncodedVideo, videoInfo.frameRate);
         const segmentCount = Math.max(1, Math.ceil(videoInfo.duration / segmentDuration));
         const startPosition = Math.min(
             Math.max(Number.isFinite(option.playPosition) ? option.playPosition : 0, 0),
@@ -1427,11 +1649,11 @@ export default class StreamApiModel implements IStreamApiModel {
                 `recorded VOD HLS encoded playlist option: videoFileId=${streamOption.videoFileId.toString(10)}, subtitle=${subtitle}`,
             );
             const session = await this.getEncodedVodHlsSession(streamOption, videoInfo, segmentDuration);
-            this.registerRecordedVODHLSClient(streamOption.vodSessionId, session);
+            this.registerRecordedVODHLSClient(streamOption.vodSessionId, session, request);
             if (prepareSegment > 0) await session.prepareUntil(startSequence + prepareSegment);
         } else {
             const session = await this.getRecordedVodHlsSession(streamOption, videoInfo, segmentDuration);
-            this.registerRecordedVODHLSClient(streamOption.vodSessionId, session);
+            this.registerRecordedVODHLSClient(streamOption.vodSessionId, session, request);
             if (prepareSegment > 0) await session.prepareUntil(startSequence + prepareSegment);
         }
 
@@ -1451,9 +1673,11 @@ export default class StreamApiModel implements IStreamApiModel {
         option: apid.RecordedStreanOption,
         sequence: number,
     ): Promise<SegmentStreamResponse> {
+        const request = this.beginVodRequest(option);
+        if (request?.accepted === false) throw new Error('RecordedVodHlsRequestSuperseded');
         const videoInfo = await this.getRecordedVODHLSVideoInfo(option.videoFileId);
         const isEncodedVideo = await this.isEncodedVideo(option.videoFileId);
-        const segmentDuration = this.getRecordedVODHLSSegmentDurationByType(isEncodedVideo);
+        const segmentDuration = this.getRecordedVODHLSSegmentDurationByType(isEncodedVideo, videoInfo.frameRate);
         const start = sequence * segmentDuration;
 
         if (sequence < 0 || start >= videoInfo.duration + 0.001) {
@@ -1496,8 +1720,8 @@ export default class StreamApiModel implements IStreamApiModel {
                         `sequence=${sequence.toString(10)}, position=${playPosition.toFixed(3)}`,
                 );
             }
-            this.registerRecordedVODHLSClient(streamOption.vodSessionId, session);
-            const buffer = await session.getSegment(sequence);
+            this.registerRecordedVODHLSClient(streamOption.vodSessionId, session, request);
+            const buffer = await this.readVodSegment(session, sequence);
 
             return {
                 process: null,
@@ -1537,8 +1761,8 @@ export default class StreamApiModel implements IStreamApiModel {
                     `sequence=${sequence.toString(10)}, position=${playPosition.toFixed(3)}`,
             );
         }
-        this.registerRecordedVODHLSClient(option.vodSessionId, session);
-        const buffer = await session.getSegment(sequence);
+        this.registerRecordedVODHLSClient(option.vodSessionId, session, request);
+        const buffer = await this.readVodSegment(session, sequence);
 
         return {
             process: null,
@@ -1566,21 +1790,75 @@ export default class StreamApiModel implements IStreamApiModel {
         timer.unref();
     }
 
+    private beginVodRequest(option: apid.RecordedStreanOption, playlist = false): VodRequest | undefined {
+        const id = option.vodSessionId;
+        if (!id || id.length > 128) return undefined;
+        this.vodRequests ??= new Map();
+        const order = (this.vodRequestOrder = (this.vodRequestOrder ?? 0) + 1);
+        const source = option.playPosition;
+        const previous = this.vodRequests.get(id);
+        const accepted = playlist || previous === undefined || previous.source === source;
+        if (accepted)
+            this.vodRequests.set(id, {
+                order,
+                source,
+                registered: previous?.registered ?? 0,
+                navigation: playlist ? order : (previous?.navigation ?? order),
+                accessedAt: Date.now(),
+            });
+        return { id, order, source, accepted };
+    }
+
+    private async readVodSegment(
+        session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession,
+        sequence: number,
+    ): Promise<Buffer> {
+        try {
+            return await session.getSegment(sequence);
+        } catch (error) {
+            if (session.isUsable?.() === false) {
+                this.noteVodFailure(session);
+                await this.cleanupVodHlsSession(session).catch(cleanupError =>
+                    this.log.stream.warn(String(cleanupError)),
+                );
+            }
+            throw error;
+        }
+    }
+
+    private noteVodFailure(session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession): void {
+        this.failedVodSessions ??= new WeakSet();
+        if (this.failedVodSessions.has(session)) return;
+        this.failedVodSessions.add(session);
+        this.vodFailures ??= new Map();
+        const key = `${session.profileKey}|${session.startSequence}`;
+        const previous = this.vodFailures.get(key);
+        this.vodFailures.set(key, {
+            count: previous && Date.now() - previous.at < 30000 ? previous.count + 1 : 1,
+            at: Date.now(),
+        });
+        if (this.vodFailures.size > 128) this.vodFailures.delete(this.vodFailures.keys().next().value!);
+    }
+
     private registerRecordedVODHLSClient(
         sessionId: string | undefined,
         session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession,
+        request?: VodRequest,
     ): void {
         if (typeof sessionId === 'undefined' || sessionId.length === 0 || sessionId.length > 128) return;
-        const current = this.vodHlsClients.get(sessionId)?.session;
-        if (current?.profileKey === session.profileKey && current.startSequence > session.startSequence) {
-            // A request for the old playback position can finish after a large
-            // forward seek. Serve that request, but do not let it move the client
-            // association backwards and make following requests rebase again.
-            session.keep();
-            return;
+        this.managedVodHlsSessions.add(session);
+        if (request !== undefined) {
+            const current = this.vodRequests.get(sessionId);
+            if (
+                !request.accepted ||
+                !current ||
+                current.source !== request.source ||
+                request.order < Math.max(current.registered, current.navigation)
+            )
+                return;
+            current.registered = request.order;
         }
         this.vodHlsClients.set(sessionId, { session: session, lastAccess: Date.now() });
-        this.managedVodHlsSessions.add(session);
         session.keep();
     }
 
@@ -1597,7 +1875,7 @@ export default class StreamApiModel implements IStreamApiModel {
         sequence: number,
     ): Promise<T | undefined> {
         const candidates = [...sessions]
-            .filter(session => session.profileKey === profileKey)
+            .filter(session => session.profileKey === profileKey && session.isUsable?.() !== false)
             .sort((left, right) => right.lastAccess - left.lastAccess);
         for (const session of candidates) {
             if ((await session.shouldRebase(sequence)) === false) return session;
@@ -1606,8 +1884,9 @@ export default class StreamApiModel implements IStreamApiModel {
         return undefined;
     }
 
-    private cleanupVodHlsSession(session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession): void {
-        if (this.cleaningVodHlsSessions.has(session)) return;
+    private cleanupVodHlsSession(session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession): Promise<void> {
+        const pendingCleanup = this.vodSessionCleanup.get(session);
+        if (pendingCleanup !== undefined) return pendingCleanup;
         this.cleaningVodHlsSessions.add(session);
         const cleanupKeys: string[] = [];
         for (const [key, value] of this.recordedVodHlsSessions.entries()) {
@@ -1626,19 +1905,33 @@ export default class StreamApiModel implements IStreamApiModel {
             if (client.session === session) this.vodHlsClients.delete(sessionId);
         }
         this.managedVodHlsSessions.delete(session);
-        const cleanupPromise = session.cleanup().catch(() => {});
+        const cleanupPromise = session.cleanup().then(async () => {
+            await this.vodUses.get(session)?.release();
+            this.vodUses.delete(session);
+        });
+        this.vodSessionCleanup.set(session, cleanupPromise);
+        void cleanupPromise.catch(error => {
+            this.vodSessionCleanup.delete(session);
+            this.log.stream.error(error);
+        });
         for (const key of cleanupKeys) {
             this.vodHlsCleanupPromises.set(key, cleanupPromise);
-            void cleanupPromise.finally(() => {
-                if (this.vodHlsCleanupPromises.get(key) === cleanupPromise) {
-                    this.vodHlsCleanupPromises.delete(key);
-                }
-            });
+            void cleanupPromise
+                .then(() => {
+                    if (this.vodHlsCleanupPromises.get(key) === cleanupPromise) {
+                        this.vodHlsCleanupPromises.delete(key);
+                    }
+                })
+                .catch(() => {});
         }
+        return cleanupPromise;
     }
 
     private cleanupVodHlsSessions(): void {
         const now = Date.now();
+        for (const [id, request] of this.vodRequests ?? []) {
+            if (now - request.accessedAt > StreamApiModel.VOD_HLS_CLIENT_TTL) this.vodRequests.delete(id);
+        }
         for (const [sessionId, client] of this.vodHlsClients.entries()) {
             if (now - client.lastAccess > StreamApiModel.VOD_HLS_CLIENT_TTL) {
                 this.vodHlsClients.delete(sessionId);
@@ -1652,6 +1945,76 @@ export default class StreamApiModel implements IStreamApiModel {
     }
 
     private async getRecordedVodHlsSession(
+        option: apid.RecordedStreanOption,
+        videoInfo: RecordedVODHLSVideoInfo,
+        segmentDuration: number,
+    ): Promise<RecordedVodHlsMuxSession> {
+        return this.getLeasedVodSession('recorded', option, videoInfo, segmentDuration, () =>
+            this.createRecordedVodHlsSession(option, videoInfo, segmentDuration),
+        ) as Promise<RecordedVodHlsMuxSession>;
+    }
+
+    private async getLeasedVodSession(
+        kind: 'recorded' | 'encoded',
+        option: apid.RecordedStreanOption,
+        videoInfo: RecordedVODHLSVideoInfo,
+        segmentDuration: number,
+        create: () => Promise<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession>,
+    ): Promise<RecordedVodHlsMuxSession | EncodedVodHlsMuxSession> {
+        const profile = this.createRecordedVodHlsSessionProfileKey(option, videoInfo.filePath, segmentDuration);
+        const key = this.createRecordedVodHlsSessionKey(option, profile, segmentDuration);
+        const existing =
+            kind === 'recorded' ? this.recordedVodHlsSessions.get(key) : this.encodedVodHlsSessions.get(key);
+        if (existing !== undefined && existing.isUsable?.() !== false) {
+            existing.keep();
+            return existing;
+        }
+        if (existing !== undefined) {
+            this.noteVodFailure(existing);
+            await this.cleanupVodHlsSession(existing);
+        }
+        const recentFailure = this.vodFailures?.get(key);
+        if (recentFailure && recentFailure.count >= 2 && Date.now() - recentFailure.at < 30000) {
+            throw new Error('RecordedVodHlsRetryLimit');
+        }
+        const pendingKey = `${kind}:${key}`;
+        const pending = this.creatingVodSessions.get(pendingKey);
+        if (pending !== undefined) return pending;
+        let canceled = false;
+        let session: RecordedVodHlsMuxSession | EncodedVodHlsMuxSession | undefined;
+        const creation = (async () => {
+            const video = await this.videoFileDB.findId(option.videoFileId);
+            if (video === null) throw new Error('VideoFileIsNotFound');
+            const use = await recordedUseClient.acquire(
+                { recordedId: video.recordedId, videoFileId: video.id, purpose: 'vod-hls' },
+                async () => {
+                    canceled = true;
+                    await creation.catch(() => undefined);
+                    if (session !== undefined) await this.cleanupVodHlsSession(session);
+                },
+            );
+            try {
+                session = await create();
+                this.vodUses.set(session, use);
+                if (canceled) {
+                    await this.cleanupVodHlsSession(session);
+                    throw new Error('RecordedStreamCanceled');
+                }
+                return session;
+            } catch (error) {
+                if (session === undefined) await use.release();
+                throw error;
+            }
+        })();
+        this.creatingVodSessions.set(pendingKey, creation);
+        try {
+            return await creation;
+        } finally {
+            if (this.creatingVodSessions.get(pendingKey) === creation) this.creatingVodSessions.delete(pendingKey);
+        }
+    }
+
+    private async createRecordedVodHlsSession(
         option: apid.RecordedStreanOption,
         videoInfo: RecordedVODHLSVideoInfo,
         segmentDuration: number,
@@ -1714,6 +2077,10 @@ export default class StreamApiModel implements IStreamApiModel {
                 `source=${pcrStartByte === null ? 'estimated' : 'pcr'}`,
         );
         const session = new RecordedVodHlsMuxSession({
+            videoFileId: option.videoFileId,
+            encoder: option.encoder,
+            qualityName: option.quality,
+            isHevc: option.isHevc,
             profileKey: profileKey,
             config: config,
             videoInfo: videoInfo,
@@ -1725,6 +2092,8 @@ export default class StreamApiModel implements IStreamApiModel {
             preprocessor: preprocessor,
             command: command,
             fallbackCommand: fallbackCommand,
+            preserveTimestamps:
+                option.client === 'ios' && WatchStreamProfileUtil.usesRecordedVodHlsFFmpeg(config, option.encoder),
             log: this.log,
             temporaryDir: config.temporaryDir ?? os.tmpdir(),
         });
@@ -1736,6 +2105,16 @@ export default class StreamApiModel implements IStreamApiModel {
     }
 
     private async getEncodedVodHlsSession(
+        option: apid.RecordedStreanOption,
+        videoInfo: RecordedVODHLSVideoInfo,
+        segmentDuration: number,
+    ): Promise<EncodedVodHlsMuxSession> {
+        return this.getLeasedVodSession('encoded', option, videoInfo, segmentDuration, () =>
+            this.createEncodedVodHlsSession(option, videoInfo, segmentDuration),
+        ) as Promise<EncodedVodHlsMuxSession>;
+    }
+
+    private async createEncodedVodHlsSession(
         option: apid.RecordedStreanOption,
         videoInfo: RecordedVODHLSVideoInfo,
         segmentDuration: number,
@@ -1778,6 +2157,7 @@ export default class StreamApiModel implements IStreamApiModel {
             startSequence: startSequence,
             qualityName: option.quality,
             encoder: option.encoder,
+            client: option.client,
             isHevc: option.isHevc,
             subtitleIndex: option.subtitleIndex,
             subtitlePath: preparedSubtitlePath,
@@ -1835,6 +2215,7 @@ export default class StreamApiModel implements IStreamApiModel {
             option.subtitleOpacity ?? 100,
             option.subtitleOutlineSize ?? 100,
             option.subtitleOutlineOpacity ?? 100,
+            ...(option.client === 'ios' ? ['client:ios'] : []),
         ].join('|');
     }
 
@@ -1849,7 +2230,8 @@ export default class StreamApiModel implements IStreamApiModel {
     private cleanupRecordedVodHlsSessions(): void {
         const now = Date.now();
         for (const session of this.recordedVodHlsSessions.values()) {
-            if (now - session.lastAccess > StreamApiModel.VOD_HLS_SESSION_TTL) {
+            if (session.isUsable?.() === false || now - session.lastAccess > StreamApiModel.VOD_HLS_SESSION_TTL) {
+                if (session.isUsable?.() === false) this.noteVodFailure(session);
                 this.cleanupVodHlsSession(session);
             }
         }
@@ -1858,7 +2240,8 @@ export default class StreamApiModel implements IStreamApiModel {
     private cleanupEncodedVodHlsSessions(): void {
         const now = Date.now();
         for (const session of this.encodedVodHlsSessions.values()) {
-            if (now - session.lastAccess > StreamApiModel.VOD_HLS_SESSION_TTL) {
+            if (session.isUsable?.() === false || now - session.lastAccess > StreamApiModel.VOD_HLS_SESSION_TTL) {
+                if (session.isUsable?.() === false) this.noteVodFailure(session);
                 this.cleanupVodHlsSession(session);
             }
         }
@@ -1962,24 +2345,44 @@ export default class StreamApiModel implements IStreamApiModel {
             throw new Error('GetVideoFilePathError');
         }
 
-        const analysis = await this.videoAnalysis.get(videoFileId);
-        if (analysis.duration === null || Number.isFinite(analysis.duration) === false || analysis.duration <= 0) {
+        let analysis = await this.videoAnalysis.get(videoFileId);
+        let videoDuration: number | null | undefined;
+        if (await this.isEncodedVideo(videoFileId)) {
+            let video = analysis.streams.find(stream => stream.type === 'video');
+            // Refresh pre-existing metadata once. A null duration is also cached,
+            // so files without a track length are not repeatedly re-probed.
+            if (video !== undefined && video.duration === undefined) {
+                analysis = await this.videoAnalysis.get(videoFileId, true);
+                video = analysis.streams.find(stream => stream.type === 'video');
+            }
+            videoDuration = video?.duration;
+        }
+        let duration = typeof videoDuration === 'number' && videoDuration > 0 ? videoDuration : analysis.duration;
+        if (duration === null || Number.isFinite(duration) === false || duration <= 0) {
             throw new Error('VideoDurationIsInvalid');
+        }
+        if (typeof videoDuration === 'number' && videoDuration > 0) {
+            const timing = getEncodedVodHlsTiming(analysis.frameRate ?? undefined);
+            // Track metadata can be rounded to milliseconds. Snap it back to
+            // the output frame grid so that a rounded-up boundary adds no empty segment.
+            duration = Math.max(1, Math.round(duration * timing.frameRate)) / timing.frameRate;
         }
 
         return {
-            duration: analysis.duration,
+            duration,
             filePath: filePath,
             size: analysis.size,
             videoCodecName: analysis.videoCodec ?? undefined,
             videoPixelFormat: analysis.pixelFormat ?? undefined,
+            frameRate: analysis.frameRate ?? undefined,
+            startTime: analysis.startTime ?? undefined,
             tsInputInfo: this.toRecordedTsInputInfo(analysis.ts),
         };
     }
 
-    private getRecordedVODHLSSegmentDurationByType(isEncodedVideo: boolean): number {
+    private getRecordedVODHLSSegmentDurationByType(isEncodedVideo: boolean, frameRate?: number): number {
         return isEncodedVideo === true
-            ? StreamApiModel.ENCODED_VOD_HLS_SEGMENT_DURATION
+            ? getEncodedVodHlsTiming(frameRate).segmentDuration
             : StreamApiModel.TS_VOD_HLS_SEGMENT_DURATION;
     }
 
@@ -2019,6 +2422,7 @@ export default class StreamApiModel implements IStreamApiModel {
         if (typeof option.vodSessionId !== 'undefined') {
             params.set('vodSessionId', option.vodSessionId);
         }
+        if (option.client === 'ios') params.set('client', 'ios');
 
         return params.toString();
     }

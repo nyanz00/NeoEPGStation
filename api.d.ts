@@ -38,7 +38,7 @@ export type GRAltChannelType =
     | 'GR-ALT18'
     | 'GR-ALT19'
     | 'GR-ALT20';
-export type ChannelType = 'GR' | GRAltChannelType | 'BS' | 'CS' | 'SKY';
+export type ChannelType = 'GR' | GRAltChannelType | 'BS' | 'CS' | 'SKY' | 'BS4K';
 export type ProgramGenreLv1 = number;
 export type ProgramGenreLv2 = number;
 export type ProgramVideoType = 'mpeg2' | 'h.264' | 'h.265';
@@ -309,6 +309,7 @@ export interface AnnictWorkSummary {
 }
 
 export interface AnnictWorkList {
+    broadcastDateSource?: 'receivable-program' | 'work';
     broadcastSupplementPending?: boolean;
     broadcastSupplementError?: string;
     broadcastDatesIncomplete?: boolean;
@@ -653,6 +654,7 @@ export interface BroadcastStatus {
     BS: boolean;
     CS: boolean;
     SKY: boolean;
+    BS4K: boolean;
 }
 
 /**
@@ -740,6 +742,7 @@ export interface RuleSearchOption {
     BS?: boolean; // BS
     CS?: boolean; // CS
     SKY?: boolean; // SKY
+    BS4K?: boolean; // BS4K
     channelTypes?: ChannelType[]; // GR-ALT などの追加 channel type
     channelIds?: ChannelId[]; // channels ids
     genres?: Genre[];
@@ -1185,6 +1188,7 @@ export interface ScheduleOption {
     BS: boolean;
     CS: boolean;
     SKY: boolean;
+    BS4K?: boolean;
     channelTypes?: ChannelType[];
 }
 
@@ -1341,15 +1345,16 @@ export interface RecordedStreanOption {
     playPosition: number; // 再生位置 (秒)
     mode: number; // config 設定
     vodSessionId?: string; // VOD HLS 視聴クライアント識別子
+    client?: 'ios'; // 明示指定時のみiOSアプリ向けHLS互換設定を使用
     quality?: string;
     encoder?: 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC';
     isHevc?: boolean;
     subtitleIndex?: number;
     subtitleFileKey?: string;
     subtitleSize?: number;
-    subtitleOpacity?: number;
+    subtitleOpacity?: number; // 焼き込み文字の不透明度（0〜100%の絶対値）
     subtitleOutlineSize?: number;
-    subtitleOutlineOpacity?: number;
+    subtitleOutlineOpacity?: number; // 焼き込み縁取りの不透明度（0〜100%の絶対値）
 }
 /**
  * ライブストリーム情報
@@ -1662,4 +1667,21 @@ export interface StartSystemUpdateOption {
     target: SystemUpdateTarget;
     packageManager: SystemUpdatePackageManager;
     preserveLocalChanges: boolean;
+}
+/** Estimated keyframe intervals from a few packet-only samples, not a seek index. */
+export interface VideoKeyframeAnalysis {
+    status: 'pending' | 'analyzing' | 'ready' | 'unavailable' | 'error';
+    version: number;
+    currentVersion: number;
+    estimated: true;
+    averageInterval: number | null;
+    minInterval: number | null;
+    maxInterval: number | null;
+    intervalCount: number;
+    keyframeCount: number;
+    sampledDuration: number;
+    sampleWindows: Array<{ start: number; end: number; keyframeCount: number }>;
+    analyzedAt: number | null;
+    error: string | null;
+    stale: boolean;
 }

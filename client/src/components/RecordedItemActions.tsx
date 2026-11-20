@@ -78,10 +78,14 @@ export function RecordedItemActions({
         queryKey: ['video-info', infoVideoId],
         queryFn: () => api.getVideoInfo(infoVideoId!),
         enabled: infoOpen && infoVideoId !== null,
+        refetchInterval: query => {
+            const status = query.state.data?.keyframes?.status;
+            return status === 'pending' || status === 'analyzing' ? 3000 : false;
+        },
     });
     const reanalyze = useMutation({
-        mutationFn: () => api.getVideoInfo(infoVideoId!, true),
-        onSuccess: data => queryClient.setQueryData(['video-info', infoVideoId], data),
+        mutationFn: (videoId: number) => api.getVideoInfo(videoId, true),
+        onSuccess: (data, videoId) => queryClient.setQueryData(['video-info', videoId], data),
         onError: error => notify(`再解析に失敗しました: ${error.message}`, 'error'),
     });
     const annictEpisodeKey = ['recorded-annict-episode', item.id, viewerProfile.profileId] as const;
@@ -392,16 +396,23 @@ export function RecordedItemActions({
                             ))}
                         </Stack>
                     )}
-                    {info.isLoading ? (
-                        <Typography color="text.secondary">解析中...</Typography>
+                    {info.data !== undefined ? (
+                        <>
+                            {info.isError && (
+                                <Typography color="error" sx={{ mb: 2 }}>
+                                    Could not refresh the latest analysis information: {info.error.message}
+                                </Typography>
+                            )}
+                            <VideoInfoView info={info.data} />
+                        </>
+                    ) : info.isLoading ? (
+                        <Typography color="text.secondary">Loading analysis information...</Typography>
                     ) : info.isError ? (
-                        <Typography color="error">解析情報を取得できません: {info.error.message}</Typography>
-                    ) : info.data !== undefined ? (
-                        <VideoInfoView info={info.data} />
+                        <Typography color="error">Could not load analysis information: {info.error.message}</Typography>
                     ) : null}
                 </DialogContent>
                 <DialogActions>
-                    <Button variant="contained" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => reanalyze.mutate()}>
+                    <Button variant="contained" disabled={reanalyze.isPending || infoVideoId === null} onClick={() => infoVideoId !== null && reanalyze.mutate(infoVideoId)}>
                         Reanalyze
                     </Button>
                     <Button color="inherit" variant="outlined" onClick={() => setInfoOpen(false)}>
@@ -417,6 +428,7 @@ function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
     const audios = info.streams.filter(stream => stream.type === 'audio');
     const subtitles = info.streams.filter(stream => stream.type === 'subtitle');
     const ts = info.ts as Record<string, any> | null;
+    const keyframes = info.keyframes;
     const rows: Array<[string, string]> = [
         ['File', info.fileName],
         ['Format', info.formatName ?? '-'],
@@ -433,17 +445,88 @@ function VideoInfoView({ info }: { info: VideoAnalysisInfo }): ReactNode {
             'TS PIDs',
             ts === null ? '-' : `PMT=${ts.pmtPid ?? '-'} PCR=${ts.pcrPid ?? '-'} video=${ts.videoPid ?? '-'} audio=${ts.audioPid ?? '-'} subtitle=${ts.subtitlePid ?? '-'}`,
         ],
-        ['Analyzed', info.analyzedAt === null ? '-' : new Date(info.analyzedAt).toLocaleString()],
-        ['Status', info.analysisError ?? 'OK'],
+    ];
+    const footerRows: Array<[string, string]> = [
+        ['Analyzed', formatLatestAnalysisDate(info.analyzedAt, keyframes?.analyzedAt ?? null)],
+        ['Status', getVideoAnalysisStatus(info)],
     ];
     return (
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
-            {rows.map(([label, value]) => (
-                <Box key={label} sx={{ display: 'contents' }}>
-                    <Typography color="text.secondary">{label}</Typography>
-                    <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
-                </Box>
-            ))}
+        <Stack spacing={2}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
+                {rows.map(([label, value]) => (
+                    <Box key={label} sx={{ display: 'contents' }}>
+                        <Typography color="text.secondary">{label}</Typography>
+                        <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                    </Box>
+                ))}
+            </Box>
+            {keyframes !== undefined && <KeyframeIntervalInfo keyframes={keyframes} />}
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
+                {footerRows.map(([label, value]) => (
+                    <Box key={label} sx={{ display: 'contents' }}>
+                        <Typography color="text.secondary">{label}</Typography>
+                        <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                    </Box>
+                ))}
+            </Box>
+        </Stack>
+    );
+}
+
+function formatLatestAnalysisDate(...timestamps: Array<number | null>): string {
+    const latest = timestamps
+        .filter((timestamp): timestamp is number => timestamp !== null && Number.isFinite(timestamp) && Number.isFinite(new Date(timestamp).getTime()))
+        .reduce<number | null>((current, timestamp) => (current === null || timestamp > current ? timestamp : current), null);
+    return latest === null ? '-' : new Date(latest).toLocaleString();
+}
+
+function getVideoAnalysisStatus(info: VideoAnalysisInfo): string {
+    const keyframes = info.keyframes;
+    const statuses: string[] = [];
+    if (info.analysisError !== null) statuses.push(`Video error: ${info.analysisError}`);
+    if (keyframes === undefined) {
+        statuses.push('Keyframe analysis unavailable');
+    } else {
+        const status = {
+            pending: 'Pending',
+            analyzing: 'Analyzing',
+            ready: keyframes.stale ? 'Stale' : 'Ready',
+            unavailable: 'Unavailable',
+            error: 'Error',
+        }[keyframes.status];
+        const details = keyframes.error !== null && (keyframes.status === 'error' || keyframes.status === 'unavailable') ? `: ${keyframes.error}` : '';
+        const staleNote = keyframes.stale && keyframes.status !== 'ready' ? ' (stale results available)' : '';
+        if (keyframes.status !== 'ready' || keyframes.stale) statuses.push(`Keyframe analysis ${status}${staleNote}${details}`);
+    }
+    return statuses.join('; ') || 'OK';
+}
+
+function KeyframeIntervalInfo({ keyframes }: { keyframes: NonNullable<VideoAnalysisInfo['keyframes']> }): ReactNode {
+    const hasStats = keyframes.status === 'ready' || keyframes.stale;
+    const rows: Array<[string, string]> = [];
+    if (hasStats) {
+        rows.push(
+            ['Average interval', keyframes.averageInterval === null ? '-' : `${keyframes.averageInterval.toFixed(3)} sec`],
+            ['Minimum interval', keyframes.minInterval === null ? '-' : `${keyframes.minInterval.toFixed(3)} sec`],
+            ['Maximum interval', keyframes.maxInterval === null ? '-' : `${keyframes.maxInterval.toFixed(3)} sec`],
+            ['Sample windows', String(keyframes.sampleWindows.length)],
+            ['Sampled duration', `${keyframes.sampledDuration.toFixed(3)} sec`],
+            ['Keyframes', String(keyframes.keyframeCount)],
+            ['Intervals', String(keyframes.intervalCount)],
+        );
+    }
+
+    return (
+        <Box>
+            <Typography sx={{ fontWeight: 600, mb: 1 }}>Keyframe interval (estimated)</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 160px) 1fr', gap: 1 }}>
+                {rows.map(([label, value]) => (
+                    <Box key={label} sx={{ display: 'contents' }}>
+                        <Typography color="text.secondary">{label}</Typography>
+                        <Typography sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{value}</Typography>
+                    </Box>
+                ))}
+            </Box>
         </Box>
     );
 }

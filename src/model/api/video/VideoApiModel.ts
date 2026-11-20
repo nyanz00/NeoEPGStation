@@ -1,23 +1,24 @@
-import { spawn } from 'child_process';
+import { spawnManaged as spawn } from '../../../util/ManagedProcess.js';
 import { createHash, randomUUID } from 'crypto';
-import * as fileType from 'file-type';
+import { fileTypeFromFile } from 'file-type';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
+import { recordedUseClient } from '../../RecordedUseClient.js';
 import * as os from 'os';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IConfiguration from '../../IConfiguration';
-import IIPCClient from '../../ipc/IIPCClient';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
-import IApiUtil from '../IApiUtil';
-import IPlayList from '../IPlayList';
-import IVideoApiModel, { VideoFilePathInfo } from './IVideoApiModel';
-import IVideoUtil, { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil';
-import IVideoAnalysisModel from '../../video/IVideoAnalysisModel';
+import * as apid from '../../../../api.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IConfiguration from '../../IConfiguration.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IEncodeManageModel from '../../service/encode/IEncodeManageModel.js';
+import IApiUtil from '../IApiUtil.js';
+import IPlayList from '../IPlayList.js';
+import IVideoApiModel, { VideoFilePathInfo } from './IVideoApiModel.js';
+import IVideoUtil, { SubtitleTextRange, VideoRecordingTimeInfo } from './IVideoUtil.js';
+import IVideoAnalysisModel from '../../video/IVideoAnalysisModel.js';
 
 @injectable()
 export default class VideoApiModel implements IVideoApiModel {
@@ -318,7 +319,7 @@ export default class VideoApiModel implements IVideoApiModel {
      * @return Promise<string>
      */
     private async createMime(filePath: string): Promise<string> {
-        const mime = await fileType.fromFile(filePath);
+        const mime = await fileTypeFromFile(filePath);
         if (typeof mime !== 'undefined') {
             return mime.mime;
         }
@@ -382,6 +383,7 @@ export default class VideoApiModel implements IVideoApiModel {
         // この場合は同じ recordedId のエンコードをすべて停止してから削除する。
         if (recorded?.isRecording === true) {
             await this.encodeManage.withRecordedDeletion(videoFile.recordedId, async () => {
+                await recordedUseClient.stopUses(videoFile.recordedId);
                 if ((await this.recordedDB.findId(videoFile.recordedId)) === null) return;
                 await this.ipc.recorded.deleteVideoFile(videoFileId);
             });
@@ -390,6 +392,7 @@ export default class VideoApiModel implements IVideoApiModel {
 
         // 入力元を削除する場合だけ対象エンコードの完了処理まで待つ。
         await this.encodeManage.withVideoFileDeletion(videoFile.recordedId, videoFileId, async () => {
+            await recordedUseClient.stopUses(videoFile.recordedId, videoFileId);
             if ((await this.videoFileDB.findId(videoFileId)) === null) return;
             await this.ipc.recorded.deleteVideoFile(videoFileId);
         });

@@ -72,6 +72,7 @@ export interface AppSettings {
     recordingLength: number;
     recordedLength: number;
     isShowTableMode: boolean;
+    isExtendedPaginationEnabled: boolean;
     isHighlightRecordedOnReturn: boolean;
     isPreferredPlayingOnWeb: boolean;
     isShowDropInfoInsteadOfDescription: boolean;
@@ -159,6 +160,7 @@ export const defaultSettings: AppSettings = {
     recordingLength: 24,
     recordedLength: 24,
     isShowTableMode: false,
+    isExtendedPaginationEnabled: false,
     isHighlightRecordedOnReturn: true,
     isPreferredPlayingOnWeb: !isAppleMobile && !isAndroid,
     isShowDropInfoInsteadOfDescription: false,
@@ -236,9 +238,9 @@ function loadSettings(): AppSettings {
             ),
             watchWaitForPlaySubtitleExtraction: parsed.watchWaitForPlaySubtitleExtraction === true,
             watchStreamingSubtitleSizePercent: normalizePercent(parsed.watchStreamingSubtitleSizePercent, 50, 250, 100),
-            watchStreamingSubtitleOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOpacityPercent, 10, 300, 100),
+            watchStreamingSubtitleOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOpacityPercent, 0, 100, 100),
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(parsed.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
-            watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
+            watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(parsed.watchStreamingSubtitleOutlineOpacityPercent, 0, 100, 100),
             watchPlaySubtitleDanmaku: parsed.watchPlaySubtitleDanmaku === true,
             watchStreamingSubtitleDanmaku: parsed.watchStreamingSubtitleDanmaku === true,
             watchSelectSubtitleInPlayerSettings: parsed.watchSelectSubtitleInPlayerSettings === true,
@@ -296,9 +298,9 @@ export const settingsStore = {
             watchSubtitlePreferredKeywords: normalizeSubtitlePreferredKeywords(value.watchSubtitlePreferredKeywords),
             watchWaitForPlaySubtitleExtraction: value.watchWaitForPlaySubtitleExtraction === true,
             watchStreamingSubtitleSizePercent: normalizePercent(value.watchStreamingSubtitleSizePercent, 50, 250, 100),
-            watchStreamingSubtitleOpacityPercent: normalizePercent(value.watchStreamingSubtitleOpacityPercent, 10, 300, 100),
+            watchStreamingSubtitleOpacityPercent: normalizePercent(value.watchStreamingSubtitleOpacityPercent, 0, 100, 100),
             watchStreamingSubtitleOutlineSizePercent: normalizePercent(value.watchStreamingSubtitleOutlineSizePercent, 0, 300, 100),
-            watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 300, 100),
+            watchStreamingSubtitleOutlineOpacityPercent: normalizePercent(value.watchStreamingSubtitleOutlineOpacityPercent, 0, 100, 100),
             watchPlaySubtitleDanmaku: value.watchPlaySubtitleDanmaku === true,
             watchStreamingSubtitleDanmaku: value.watchStreamingSubtitleDanmaku === true,
             watchSelectSubtitleInPlayerSettings: value.watchSelectSubtitleInPlayerSettings === true,

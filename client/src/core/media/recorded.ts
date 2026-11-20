@@ -108,6 +108,7 @@ export interface RecordedSelectStreamSettings {
     type: RecordedStreamType;
     mode: number;
     subtitleIndex: number | null;
+    danmakuSubtitleIndex?: number | null;
 }
 
 const recordedStreamStorageKey = 'RecordedSelectStreamSetting';
@@ -120,6 +121,12 @@ export function loadRecordedSelectStreamSettings(): RecordedSelectStreamSettings
             type,
             mode: Number.isSafeInteger(parsed?.mode) && Number(parsed?.mode) >= 0 ? Number(parsed?.mode) : 0,
             subtitleIndex: Number.isSafeInteger(parsed?.subtitleIndex) ? Number(parsed?.subtitleIndex) : null,
+            danmakuSubtitleIndex:
+                parsed?.danmakuSubtitleIndex === null
+                    ? null
+                    : Number.isSafeInteger(parsed?.danmakuSubtitleIndex) && Number(parsed?.danmakuSubtitleIndex) >= 0
+                      ? Number(parsed?.danmakuSubtitleIndex)
+                      : undefined,
         };
     } catch {
         return { type: 'HLS', mode: 0, subtitleIndex: null };
@@ -176,8 +183,11 @@ export function getRecordedStreamWatchPath(
     settings: AppSettings,
     subtitleIndex: number | null,
     subtitleFileKey?: string,
+    danmakuSubtitleIndex?: number | null,
 ): string {
     const params = recordedStreamParams(mode, quality, settings, subtitleIndex);
+    if (settings.watchStreamingSubtitleDanmaku && danmakuSubtitleIndex !== undefined)
+        params.set('danmakuSubtitleIndex', danmakuSubtitleIndex === null ? '-1' : String(danmakuSubtitleIndex));
     if (subtitleFileKey !== undefined) params.set('subtitleFileKey', subtitleFileKey);
     params.set('recordedId', String(recordedId));
     params.set('videoId', String(videoFileId));

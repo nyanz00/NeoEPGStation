@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import { parseAssComments } from '../../../util/AssCommentParser';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IJikkyoApiModel from '../jikkyo/IJikkyoApiModel';
-import IVideoApiModel from './IVideoApiModel';
-import IVideoCommentApiModel from './IVideoCommentApiModel';
+import * as apid from '../../../../api.js';
+import { parseAssComments } from '../../../util/AssCommentParser.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IJikkyoApiModel from '../jikkyo/IJikkyoApiModel.js';
+import IVideoApiModel from './IVideoApiModel.js';
+import IVideoCommentApiModel from './IVideoCommentApiModel.js';
 
 export class VideoCommentRequestError extends Error {
     constructor(

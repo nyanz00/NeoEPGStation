@@ -1,7 +1,7 @@
 import { ChildProcess } from 'child_process';
 import internal from 'stream';
-import * as apid from '../../../../api';
-import IPlayList from '../IPlayList';
+import * as apid from '../../../../api.js';
+import IPlayList from '../IPlayList.js';
 
 export interface SegmentStreamResponse {
     process: ChildProcess | null;

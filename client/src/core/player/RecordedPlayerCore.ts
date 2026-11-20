@@ -16,6 +16,8 @@ import { RecordedJikkyoCommentCore } from './RecordedJikkyoCommentCore';
 import { PlayerVolumeController } from './PlayerVolumeController';
 import type { JikkyoComment } from './jikkyoComment';
 import { getRecordedDanmakuDisplayTime } from './recordedDanmakuTiming';
+import { getSubtitleFontFamily } from './subtitleFont';
+import { bindAribCaptionVisibility } from './AribCaptionVisibility';
 
 export type RecordedPlayerSourceType = 'normal' | 'hls' | 'mpegts';
 
@@ -98,10 +100,7 @@ function isAppleSafari(): boolean {
 }
 
 function aribb24Option(forceSubtitleStroke: boolean): Record<string, unknown> {
-    const windowsFirefox = /Windows/.test(navigator.userAgent) && /Firefox/.test(navigator.userAgent);
-    const font = windowsFirefox
-        ? '"Windows TV MaruGothic", "MS Gothic", "Yu Gothic", sans-serif'
-        : '"Windows TV MaruGothic", "Hiragino Maru Gothic Pro", "HGMaruGothicMPRO", "Yu Gothic Medium", sans-serif';
+    const font = getSubtitleFontFamily();
     return {
         normalFont: font,
         gaijiFont: font,
@@ -368,6 +367,7 @@ export class RecordedPlayerCore {
     private bindEvents(): void {
         const player = this.player;
         if (player === null) return;
+        bindAribCaptionVisibility(player, () => this.player);
         player.on('waiting', () => {
             if (this.playbackFinished || player.video.ended) {
                 this.finishPlayback();

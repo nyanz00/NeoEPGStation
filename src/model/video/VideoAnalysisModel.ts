@@ -2,21 +2,25 @@ import { execFile } from 'child_process';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../api';
-import VideoFile from '../../db/entities/VideoFile';
-import VideoFileTsInfo from '../../db/entities/VideoFileTsInfo';
-import Recorded from '../../db/entities/Recorded';
-import Channel from '../../db/entities/Channel';
-import StrUtil from '../../util/StrUtil';
-import IDBOperator from '../db/IDBOperator';
-import IVideoFileDB from '../db/IVideoFileDB';
-import IConfigFile from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import ITsInfoAnalyzer from '../recorded/ts/ITsInfoAnalyzer';
-import IVideoUtil from '../api/video/IVideoUtil';
-import IVideoAnalysisModel, { VideoAnalysis, VideoStreamAnalysis } from './IVideoAnalysisModel';
+import * as apid from '../../../api.js';
+import VideoFile from '../../db/entities/VideoFile.js';
+import VideoFileTsInfo from '../../db/entities/VideoFileTsInfo.js';
+import Recorded from '../../db/entities/Recorded.js';
+import Channel from '../../db/entities/Channel.js';
+import StrUtil from '../../util/StrUtil.js';
+import IDBOperator from '../db/IDBOperator.js';
+import IVideoFileDB from '../db/IVideoFileDB.js';
+import IConfigFile from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import ITsInfoAnalyzer from '../recorded/ts/ITsInfoAnalyzer.js';
+import { acquireRecordedFileUse } from '../RecordedFileUse.js';
+import IVideoUtil from '../api/video/IVideoUtil.js';
+import IVideoAnalysisModel, { VideoAnalysis, VideoStreamAnalysis } from './IVideoAnalysisModel.js';
+import IKeyframeAnalysisModel from './IKeyframeAnalysisModel.js';
+
+export const VIDEO_ANALYSIS_VERSION = 1;
 
 interface ProbeResult {
     format?: Record<string, unknown>;
@@ -36,6 +40,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
         @inject('IVideoUtil') private readonly videoUtil: IVideoUtil,
         @inject('ITsInfoAnalyzer') private readonly tsAnalyzer: ITsInfoAnalyzer,
         @inject('ILoggerModel') logger: ILoggerModel,
+        @inject('IKeyframeAnalysisModel') private readonly keyframes: IKeyframeAnalysisModel,
     ) {
         this.config = configuration.getConfig();
         this.log = logger.getLogger();
@@ -66,6 +71,21 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
     }
 
     public async get(videoFileId: apid.VideoFileId, force = false, includeEit = false): Promise<VideoAnalysis> {
+        const video = await this.videoFileDB.findId(videoFileId);
+        if (video === null) throw new Error('VideoFileIsNull');
+        const use = await acquireRecordedFileUse({ recordedId: video.recordedId, videoFileId, purpose: 'analysis' });
+        try {
+            return await this.getProtected(videoFileId, force, includeEit);
+        } finally {
+            await use.release();
+        }
+    }
+
+    private async getProtected(
+        videoFileId: apid.VideoFileId,
+        force: boolean,
+        includeEit: boolean,
+    ): Promise<VideoAnalysis> {
         let video = await this.videoFileDB.findId(videoFileId);
         if (video === null) throw new Error('VideoFileIsNull');
         const filePath = this.videoUtil.getFullFilePathFromVideoFile(video);
@@ -78,8 +98,9 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
             Number(video.analyzedMtime) === mtime &&
             video.analyzedAt !== null &&
             video.analysisError === null;
+        const versionValid = video.analysisVersion === VIDEO_ANALYSIS_VERSION;
 
-        if (!valid) {
+        if (!valid || !versionValid) {
             try {
                 const probe = await this.probe(filePath);
                 const streams = this.mapStreams(probe.streams ?? []);
@@ -107,6 +128,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
                         analyzedMtime: mtime,
                         analyzedAt: Date.now(),
                         analysisError: null,
+                        analysisVersion: VIDEO_ANALYSIS_VERSION,
                     },
                 );
                 video = (await this.videoFileDB.findId(videoFileId))!;
@@ -128,7 +150,9 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
         if (path.extname(filePath).toLowerCase() === '.ts' || path.extname(filePath).toLowerCase() === '.m2ts') {
             await this.ensureTsInfo(videoFileId, filePath, stat.size, mtime, force, includeEit);
         }
-        return await this.toResult(video);
+        const result = await this.toResult(video);
+        result.keyframes = await this.keyframes.request(video, stat.size, mtime, force);
+        return result;
     }
 
     private async ensureTsInfo(
@@ -306,6 +330,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
                 width: this.number(stream.width) ?? undefined,
                 height: this.number(stream.height) ?? undefined,
                 frameRate: this.ratio(stream.avg_frame_rate ?? stream.r_frame_rate) ?? undefined,
+                duration: this.streamDuration(stream),
                 pixelFormat: this.string(stream.pix_fmt) ?? undefined,
                 bitDepth:
                     this.number(stream.bits_per_raw_sample) ??
@@ -316,6 +341,18 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
                 isForced: Number(stream.disposition?.forced) === 1,
             };
         });
+    }
+
+    private streamDuration(stream: Record<string, any>): number | null {
+        const duration = this.number(stream.duration);
+        if (duration !== null && duration > 0) return duration;
+        // Matroska stores track lengths in DURATION tags instead of stream.duration.
+        const tagged = this.string(stream.tags?.DURATION);
+        const match = tagged === null ? null : /^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/.exec(tagged);
+        if (match === null) return null;
+        const end = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        const value = end - (this.number(stream.start_time) ?? 0);
+        return value > 0 ? value : null;
     }
 
     private async toResult(video: VideoFile): Promise<VideoAnalysis> {
@@ -346,6 +383,7 @@ export default class VideoAnalysisModel implements IVideoAnalysisModel {
             streams,
             analyzedAt: video.analyzedAt === null ? null : Number(video.analyzedAt),
             analysisError: video.analysisError,
+            analysisVersion: video.analysisVersion,
             ts: ts === null ? null : { ...ts, analyzedAt: Number(ts.analyzedAt) },
         };
     }

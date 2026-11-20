@@ -1,7 +1,7 @@
-import { Operation } from '../../../../../ApiOperation';
-import IStreamApiModel from '../../../../../../api/stream/IStreamApiModel';
-import container from '../../../../../../ModelContainer';
-import * as api from '../../../../../api';
+import { Operation } from '../../../../../ApiOperation.js';
+import IStreamApiModel from '../../../../../../api/stream/IStreamApiModel.js';
+import container from '../../../../../../ModelContainer.js';
+import * as api from '../../../../../api.js';
 
 const parseWatchEncoder = (encoder: any): 'FFmpeg' | 'QSVEncC' | 'NVEncC' | 'VCEEncC' | undefined => {
     return encoder === 'FFmpeg' || encoder === 'QSVEncC' || encoder === 'NVEncC' || encoder === 'VCEEncC'
@@ -51,15 +51,16 @@ export const get: Operation = async (req, res) => {
                 playPosition: parseFloat(req.query.ss as string),
                 mode: parseInt(req.query.mode as string, 10),
                 vodSessionId: typeof req.query.vodSessionId === 'string' ? req.query.vodSessionId : undefined,
+                client: req.query.client === 'ios' ? 'ios' : undefined,
                 quality: typeof req.query.quality === 'string' ? req.query.quality : undefined,
                 encoder: parseWatchEncoder(req.query.encoder),
                 isHevc: parseBoolean(req.query.hevc),
                 subtitleIndex: parseOptionalInteger(req.query.subtitleIndex),
                 subtitleFileKey: typeof req.query.subtitleFileKey === 'string' ? req.query.subtitleFileKey : undefined,
                 subtitleSize: parsePercent(req.query.subtitleSize, 50, 250),
-                subtitleOpacity: parsePercent(req.query.subtitleOpacity, 10, 300),
+                subtitleOpacity: parsePercent(req.query.subtitleOpacity, 0, 100),
                 subtitleOutlineSize: parsePercent(req.query.subtitleOutlineSize, 0, 300),
-                subtitleOutlineOpacity: parsePercent(req.query.subtitleOutlineOpacity, 0, 300),
+                subtitleOutlineOpacity: parsePercent(req.query.subtitleOutlineOpacity, 0, 100),
             },
             parseOptionalInteger(req.query.startupBufferSegments),
         );
@@ -96,6 +97,13 @@ get.apiDoc = {
             $ref: '#/components/parameters/WatchStreamQuality',
         },
         {
+            name: 'client',
+            in: 'query',
+            required: false,
+            description: 'ios指定時、FFmpegで映像変換する経路にiOSアプリ向け時刻互換設定を適用する',
+            schema: { type: 'string', enum: ['ios'] },
+        },
+        {
             $ref: '#/components/parameters/WatchStreamEncoder',
         },
         {
@@ -120,8 +128,8 @@ get.apiDoc = {
             name: 'subtitleOpacity',
             in: 'query',
             required: false,
-            description: '焼き込み字幕の文字不透明度（元字幕に対する割合）',
-            schema: { type: 'integer', minimum: 10, maximum: 300, default: 100 },
+            description: '焼き込み字幕の文字不透明度（0%で透明、100%で完全に不透明）',
+            schema: { type: 'integer', minimum: 0, maximum: 100, default: 100 },
         },
         {
             name: 'subtitleOutlineSize',
@@ -134,8 +142,8 @@ get.apiDoc = {
             name: 'subtitleOutlineOpacity',
             in: 'query',
             required: false,
-            description: '焼き込み字幕の縁取り不透明度（元字幕に対する割合）',
-            schema: { type: 'integer', minimum: 0, maximum: 300, default: 100 },
+            description: '焼き込み字幕の縁取り不透明度（0%で透明、100%で完全に不透明）',
+            schema: { type: 'integer', minimum: 0, maximum: 100, default: 100 },
         },
         {
             name: 'startupBufferSegments',

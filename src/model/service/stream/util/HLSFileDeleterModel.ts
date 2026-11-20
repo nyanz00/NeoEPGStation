@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify';
-import FileUtil from '../../../../util/FileUtil';
-import ILogger from '../../../ILogger';
-import ILoggerModel from '../../../ILoggerModel';
-import IHLSFileDeleterModel, { HLSFileDeleterOption } from './IHLSFileDeleterModel';
+import FileUtil from '../../../../util/FileUtil.js';
+import ILogger from '../../../ILogger.js';
+import ILoggerModel from '../../../ILoggerModel.js';
+import IHLSFileDeleterModel, { HLSFileDeleterOption } from './IHLSFileDeleterModel.js';
 
 @injectable()
 export default class HLSFileDeleterModel implements IHLSFileDeleterModel {

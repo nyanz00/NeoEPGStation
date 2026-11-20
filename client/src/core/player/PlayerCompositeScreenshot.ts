@@ -202,7 +202,7 @@ export async function downloadCompositeScreenshot(option: CompositeScreenshotOpt
 
     const subtitleCanvases = [
         ...Array.from(root.children).filter((element): element is HTMLCanvasElement => element instanceof HTMLCanvasElement),
-        ...Array.from(root.querySelectorAll<HTMLCanvasElement>('.JASSUB canvas')),
+        ...Array.from(root.querySelectorAll<HTMLCanvasElement>('.neo-player-ass-canvas')),
     ];
     const drawnCanvases = new Set<HTMLCanvasElement>();
     for (const subtitleCanvas of subtitleCanvases) {

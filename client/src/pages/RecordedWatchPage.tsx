@@ -39,16 +39,17 @@ import {
     getRecordedStreamOptions,
     getRecordedStreamURL,
     getRecordedVideoPlayURL,
+    loadRecordedSelectStreamSettings,
     saveRecordedSelectStreamSettings,
     type RecordedStreamType,
 } from '../core/media/recorded';
-import { isDanmakuSubtitle, preferredSubtitleIndex } from '../core/media/subtitles';
+import { initialSubtitleIndex, isDanmakuSubtitle, preferredSubtitleIndex } from '../core/media/subtitles';
 import { useAppBack } from '../core/navigation';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { AssCommentCore } from '../core/player/AssCommentCore';
 import { type DPlayerTrackSetting, updateDPlayerTrackSettings } from '../core/player/DPlayerUi';
-import { JassubSubtitleRenderer } from '../core/player/JassubSubtitleRenderer';
+import { CanvasSubtitleRenderer } from '../core/player/CanvasSubtitleRenderer';
 import { RecordedPlayerCore, type RecordedPlayerSourceType, type RecordedPlayerState } from '../core/player/RecordedPlayerCore';
 import { useTouchPlayerControls } from '../core/player/useTouchPlayerControls';
 import { RecordedPlaybackTracker, type RecordedPlaybackSample } from '../core/player/RecordedPlaybackTracker';
@@ -172,7 +173,7 @@ function RecordedPlayer({
     const theme = useTheme();
     const container = useRef<HTMLDivElement | null>(null);
     const coreRef = useRef<RecordedPlayerCore | null>(null);
-    const rendererRef = useRef(new JassubSubtitleRenderer());
+    const rendererRef = useRef(new CanvasSubtitleRenderer());
     const assCommentRef = useRef<AssCommentCore | null>(null);
     const assCommentModeRef = useRef<'danmaku' | 'subtitle' | null>(null);
     const assCommentVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -358,10 +359,8 @@ function RecordedPlayer({
             return;
         }
 
-        // In danmaku mode the ordinary subtitle selector must still render
-        // through libass/JASSUB.  The danmaku selector is an additional track,
-        // not a replacement for the ordinary subtitle track.
-        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:JASSUB]', error));
+        // Ordinary captions and the optional danmaku track can be shown together.
+        void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:subtitles]', error));
     }, [subtitleIsNicoJk, subtitleText, video]);
 
     useEffect(() => {
@@ -441,19 +440,15 @@ function RecordedPlayer({
                 '& .recorded-dplayer .dplayer-video-wrap-aspect, & .recorded-dplayer video': { width: '100%', height: '100%' },
                 '& .recorded-dplayer video': { objectFit: 'contain', opacity: '1 !important' },
                 // DPlayer's WebGL danmaku renderer composites the video into
-                // its own canvas and makes the native video transparent.  A
-                // JASSUB canvas inserted immediately after the video would
+                // its own canvas and makes the native video transparent.
+                // A subtitle canvas inserted immediately after the video would
                 // otherwise remain behind that opaque composite canvas, so
                 // keep subtitle layers above danmaku while leaving controls
                 // above them. The native video remains visible underneath as a
                 // fallback while the WebGL canvas is resized.
                 '& .recorded-dplayer .dplayer-danmaku': { zIndex: 2 },
                 '& .recorded-dplayer .neo-player-arib-canvas': { zIndex: 3 },
-                '& .recorded-dplayer .JASSUB': {
-                    position: 'absolute !important',
-                    inset: '0 !important',
-                    width: '100% !important',
-                    height: '100% !important',
+                '& .recorded-dplayer .neo-player-ass-canvas': {
                     zIndex: 3,
                     pointerEvents: 'none',
                 },
@@ -1014,6 +1009,7 @@ export function RecordedWatchPage(): ReactNode {
     const quality = params.get('quality') ?? '';
     const streamType: RecordedStreamType = params.get('type') === 'hls-ts' ? 'HLS-TS' : 'HLS';
     const subtitleIndexParam = params.get('subtitleIndex');
+    const danmakuSubtitleIndexParam = params.get('danmakuSubtitleIndex');
     const streamSubtitleIndex = subtitleIndexParam === null || subtitleIndexParam === '-1' ? null : Number(subtitleIndexParam);
     const streamSubtitleFileKey = params.get('subtitleFileKey') ?? undefined;
     const validIds = Number.isSafeInteger(videoFileId) && videoFileId >= 0 && Number.isSafeInteger(recordedId) && recordedId >= 0;
@@ -1153,7 +1149,7 @@ export function RecordedWatchPage(): ReactNode {
         usesClientSubtitles && !settings.watchSelectSubtitleInPlayerSettings && (selectableSubtitleItems.length > 0 || (subtitleDanmaku && danmakuSubtitleItems.length > 0));
     const selectedSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedSubtitleIndex);
     const selectedDanmakuSubtitle = subtitles.data?.items.find(item => item.subtitleIndex === selectedDanmakuSubtitleIndex);
-    const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${usesClientSubtitles ? 'client' : 'server'}:${subtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}`;
+    const currentSubtitleSelectionSignature = `${videoFileId.toString(10)}:${usesClientSubtitles ? 'client' : 'server'}:${subtitleDanmaku ? 'danmaku' : 'ass'}:${JSON.stringify(settings.watchSubtitlePreferredKeywords)}:${streaming ? JSON.stringify([subtitleIndexParam, danmakuSubtitleIndexParam]) : ''}`;
     const subtitleSelectionReady = subtitleSelectionSignature === currentSubtitleSelectionSignature;
     const subtitlePreviewStartAt = Math.max(0, (resumePosition ?? storedResumePosition ?? 0) - PLAY_SUBTITLE_PREVIEW_LOOK_BEHIND);
     const normalSubtitleEnabled =
@@ -1461,12 +1457,23 @@ export function RecordedWatchPage(): ReactNode {
         const danmakuSubtitles = subtitles.data.items.filter(subtitle => isDanmakuSubtitle(subtitle));
         const preferredDanmaku = preferredSubtitleIndex(danmakuSubtitles, settings.watchSubtitlePreferredKeywords);
         const preferredNormal = preferredSubtitleIndex(normalSubtitles, settings.watchSubtitlePreferredKeywords);
-        setSelectedDanmakuSubtitleIndex(preferredDanmaku ?? danmakuSubtitles[0]?.subtitleIndex ?? null);
+        setSelectedDanmakuSubtitleIndex(
+            initialSubtitleIndex(danmakuSubtitles, streaming ? danmakuSubtitleIndexParam : null, preferredDanmaku ?? danmakuSubtitles[0]?.subtitleIndex ?? null),
+        );
         // When the priority keyword only matches the danmaku track, do not
         // accidentally reuse that track as an ordinary subtitle.
-        setSelectedSubtitleIndex(preferredNormal);
+        setSelectedSubtitleIndex(initialSubtitleIndex(normalSubtitles, streaming ? subtitleIndexParam : null, preferredNormal));
         setSubtitleSelectionSignature(currentSubtitleSelectionSignature);
-    }, [currentSubtitleSelectionSignature, subtitleDanmaku, settings.watchSubtitlePreferredKeywords, usesClientSubtitles, subtitles.data]);
+    }, [
+        currentSubtitleSelectionSignature,
+        subtitleDanmaku,
+        settings.watchSubtitlePreferredKeywords,
+        usesClientSubtitles,
+        subtitles.data,
+        streaming,
+        subtitleIndexParam,
+        danmakuSubtitleIndexParam,
+    ]);
     useEffect(() => {
         resetComments();
         setCommentStatus(
@@ -1545,10 +1552,27 @@ export function RecordedWatchPage(): ReactNode {
             next.set('quality', nextQuality);
             setResumePosition(nextPosition);
             setResumePlaying(shouldResume);
-            saveRecordedSelectStreamSettings({ type: streamType, mode: nextMode, subtitleIndex: streamSubtitleIndex });
+            saveRecordedSelectStreamSettings({
+                type: streamType,
+                mode: nextMode,
+                subtitleIndex: usesClientSubtitles ? selectedSubtitleIndex : streamSubtitleIndex,
+                danmakuSubtitleIndex: subtitleDanmaku ? selectedDanmakuSubtitleIndex : loadRecordedSelectStreamSettings().danmakuSubtitleIndex,
+            });
             setParams(next, { replace: true });
         },
-        [mode, params, selectedStreamingOption, setParams, streamSubtitleIndex, streamType, streaming],
+        [
+            mode,
+            params,
+            selectedStreamingOption,
+            setParams,
+            streamSubtitleIndex,
+            streamType,
+            streaming,
+            usesClientSubtitles,
+            subtitleDanmaku,
+            selectedSubtitleIndex,
+            selectedDanmakuSubtitleIndex,
+        ],
     );
     const source = useMemo<PlayerSource | null>(() => {
         if (!valid) return null;

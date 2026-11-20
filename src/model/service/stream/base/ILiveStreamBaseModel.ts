@@ -1,6 +1,6 @@
-import * as apid from '../../../../../api';
-import ProcessUtil from '../../../../util/ProcessUtil';
-import IStreamBaseModel from './IStreamBaseModel';
+import * as apid from '../../../../../api.js';
+import ProcessUtil from '../../../../util/ProcessUtil.js';
+import IStreamBaseModel from './IStreamBaseModel.js';
 
 export type LiveStreamModelProvider = () => Promise<ILiveStreamBaseModel>;
 export type LiveHLSStreamModelProvider = () => Promise<ILiveStreamBaseModel>;
