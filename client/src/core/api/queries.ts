@@ -88,6 +88,7 @@ import type {
     ViewerProfileRecoveryCode,
     ViewerProfileSession,
     VideoFileId,
+    VideoKeyframeAnalysis,
     VideoPreparedSubtitle,
     SubtitleTransferOption,
     SubtitleTransferTask,
@@ -118,6 +119,7 @@ export interface VideoAnalysisStream {
     isForced: boolean;
 }
 export interface VideoAnalysisInfo {
+    analysisVersion?: number;
     videoFileId: number;
     fileName: string;
     formatName: string | null;
@@ -137,6 +139,7 @@ export interface VideoAnalysisInfo {
     analyzedAt: number | null;
     analysisError: string | null;
     ts: Record<string, unknown> | null;
+    keyframes?: VideoKeyframeAnalysis;
 }
 
 function playbackUserHeader(userId: number): Record<string, string> {
@@ -504,7 +507,7 @@ export const api = {
         return (await apiClient.get<EncodeInfo>('/encode', { params: { isHalfWidth } })).data;
     },
     async cancelEncode(encodeId: EncodeId): Promise<void> {
-        await apiClient.delete(`/encode/${encodeId}`);
+        await apiClient.delete(`/encode/${encodeId}`, { timeout: 0 });
     },
     async retryEncode(encodeId: EncodeId): Promise<void> {
         await apiClient.post(`/encode/${encodeId}/retry`);

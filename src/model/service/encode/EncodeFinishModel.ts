@@ -1,11 +1,11 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IEncodeEvent, { ErrorEncodeInfo, FinishEncodeInfo } from '../../event/IEncodeEvent';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IIPCClient from '../../ipc/IIPCClient';
-import ISocketIOManageModel from '../socketio/ISocketIOManageModel';
-import IEncodeFinishModel from './IEncodeFinishModel';
+import * as apid from '../../../../api.js';
+import IEncodeEvent, { ErrorEncodeInfo, FinishEncodeInfo } from '../../event/IEncodeEvent.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import ISocketIOManageModel from '../socketio/ISocketIOManageModel.js';
+import IEncodeFinishModel from './IEncodeFinishModel.js';
 
 @injectable()
 export default class EncodeFinishModel implements IEncodeFinishModel {

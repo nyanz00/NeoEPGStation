@@ -1,15 +1,23 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../api';
-import IConfiguration from '../IConfiguration';
-import IAutoEncodeSettingsModel from './IAutoEncodeSettingsModel';
+import * as apid from '../../../api.js';
+import IConfiguration from '../IConfiguration.js';
+import IAutoEncodeSettingsModel from './IAutoEncodeSettingsModel.js';
 
 export class AutoEncodeSettingsValidationError extends Error {}
 
 @injectable()
 export default class AutoEncodeSettingsModel implements IAutoEncodeSettingsModel {
-    private readonly settingsPath = path.join(__dirname, '..', '..', '..', 'data', 'auto-encode-settings.json');
+    private readonly settingsPath = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        'data',
+        'auto-encode-settings.json',
+    );
     private writing: Promise<void> = Promise.resolve();
 
     constructor(@inject('IConfiguration') private readonly configuration: IConfiguration) {}

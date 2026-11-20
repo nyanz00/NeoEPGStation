@@ -29,7 +29,9 @@ import {
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelItem, EncodeId, EncodeProgramItem } from '../../../api';
-import { type DragEvent, type ReactNode, useEffect, useState } from 'react';
+import { type DragEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { programDialogPaper } from '../components/programDialogStyles';
+import { cancelEncodeBatch } from '../core/media/encodeBulkCancel';
 import { PageHeader } from '../components/PageHeader';
 import { ProgramThumbnail } from '../components/ProgramThumbnail';
 import { api } from '../core/api/queries';
@@ -74,6 +76,29 @@ function EncodeCard({
     const percent = Math.min(100, Math.max(0, (item.percent ?? 0) * 100));
     const scheduled = item.scheduledAt !== undefined;
     const reorderable = waiting && !scheduled;
+    const controls =
+        reordering && reorderable ? (
+            <Stack direction={{ xs: 'row', sm: 'column' }} spacing={0.25} sx={{ alignSelf: 'center', gridColumn: 2, gridRow: 2, justifySelf: 'end' }}>
+                <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
+                    <ArrowUpwardOutlined />
+                </IconButton>
+                <IconButton size="small" aria-label={`${item.recorded.name}を一つ下へ移動`} disabled={onMoveDown === undefined} onClick={onMoveDown}>
+                    <ArrowDownwardOutlined />
+                </IconButton>
+            </Stack>
+        ) : !editing ? (
+            <IconButton
+                sx={{ gridColumn: 2, gridRow: 2, justifySelf: 'end' }}
+                aria-label="エンコードをキャンセル"
+                color="error"
+                onClick={event => {
+                    event.stopPropagation();
+                    onCancel();
+                }}
+            >
+                <CancelOutlined />
+            </IconButton>
+        ) : null;
     return (
         <Card
             variant="outlined"
@@ -85,8 +110,25 @@ function EncodeCard({
                 opacity: dragged ? 0.72 : 1,
             }}
         >
-            <CardContent sx={{ display: 'flex', gap: 1.5, p: 1.5, '&:last-child': { pb: 1.5 } }} onClick={editing ? onSelect : undefined}>
-                {editing && <Checkbox checked={selected} onChange={onSelect} onClick={event => event.stopPropagation()} />}
+            <CardContent
+                sx={{
+                    display: { xs: 'grid', sm: 'flex' },
+                    gridTemplateColumns: editing ? 'auto 120px minmax(0, 1fr)' : '120px minmax(0, 1fr)',
+                    columnGap: 1.5,
+                    rowGap: { xs: 0, sm: 0.75 },
+                    p: 1.5,
+                    '&:last-child': { pb: 1.5 },
+                }}
+                onClick={editing ? onSelect : undefined}
+            >
+                {editing && (
+                    <Checkbox
+                        checked={selected}
+                        onChange={onSelect}
+                        onClick={event => event.stopPropagation()}
+                        sx={{ gridColumn: 1, gridRow: 1, alignSelf: { xs: 'center', sm: 'stretch' } }}
+                    />
+                )}
                 {reordering && reorderable && (
                     <Box
                         draggable
@@ -105,26 +147,73 @@ function EncodeCard({
                         <DragIndicatorOutlined />
                     </Box>
                 )}
-                <ProgramThumbnail
-                    thumbnailId={item.recorded.thumbnails?.[0]}
-                    channel={channel}
-                    sx={{ width: { xs: 120, sm: 200 }, height: { xs: 67.5, sm: 112.5 }, aspectRatio: '16 / 9', alignSelf: 'center' }}
-                />
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
-                            {item.recorded.name}
+                <Box
+                    sx={{
+                        display: { xs: 'grid', sm: 'contents' },
+                        gridTemplateRows: 'minmax(min-content, 1fr) auto minmax(0, 1fr)',
+                        gap: 1,
+                        alignSelf: 'stretch',
+                        alignItems: 'start',
+                        gridColumn: editing ? 2 : 1,
+                        gridRow: editing ? '1' : '1 / 3',
+                        minWidth: 0,
+                    }}
+                >
+                    <Chip
+                        size="small"
+                        color={waiting ? 'default' : 'primary'}
+                        label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
+                        sx={{
+                            display: { xs: 'inline-flex', sm: 'none' },
+                            alignSelf: 'start',
+                            justifySelf: 'start',
+                            maxWidth: '100%',
+                            height: 'auto',
+                            minHeight: 24,
+                            '& .MuiChip-label': { py: 0.25, whiteSpace: 'normal', overflowWrap: 'anywhere' },
+                        }}
+                    />
+                    <ProgramThumbnail
+                        thumbnailId={item.recorded.thumbnails?.[0]}
+                        channel={channel}
+                        sx={{ width: { xs: 120, sm: 200 }, height: { xs: 67.5, sm: 112.5 }, aspectRatio: '16 / 9', alignSelf: 'center', gridRow: 2 }}
+                    />
+                </Box>
+                <Box sx={{ display: { xs: 'contents', sm: 'block' }, flex: 1, minWidth: 0 }}>
+                    <Box sx={{ gridColumn: editing ? 3 : 2, gridRow: 1, minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Typography
+                                variant="subtitle1"
+                                sx={{
+                                    flex: 1,
+                                    minWidth: { xs: 0, sm: 'auto' },
+                                    fontWeight: 700,
+                                    display: { xs: '-webkit-box', sm: 'block' },
+                                    WebkitLineClamp: { xs: 2, sm: 'unset' },
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: { xs: 'hidden', sm: 'visible' },
+                                    overflowWrap: { xs: 'anywhere', sm: 'normal' },
+                                }}
+                                title={item.recorded.name}
+                            >
+                                {item.recorded.name}
+                            </Typography>
+                            <Chip
+                                size="small"
+                                color={waiting ? 'default' : 'primary'}
+                                label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
+                                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
+                            />
+                        </Stack>
+                        <Typography variant="body2" color="text.secondary">
+                            {channel?.name ?? item.recorded.channelId}
                         </Typography>
-                        <Chip size="small" color={waiting ? 'default' : 'primary'} label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode} />
-                    </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                        {channel?.name ?? item.recorded.channelId}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                        {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
-                    </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                            {formatProgramDate(item.recorded.startAt)} - {formatProgramTime(item.recorded.endAt)}（{programDuration(item.recorded)}分）
+                        </Typography>
+                    </Box>
                     {!waiting && (
-                        <Box sx={{ mt: 1 }}>
+                        <Box sx={{ mt: { xs: 0, sm: 1 }, minWidth: 0, gridColumn: '1 / -1', gridRow: editing ? 2 : 3 }}>
                             <Stack direction="row" sx={{ mb: 0.35, justifyContent: 'space-between' }}>
                                 <Typography variant="body2">{item.mode}</Typography>
                                 <Typography variant="body2">{Math.floor(percent)}%</Typography>
@@ -138,29 +227,7 @@ function EncodeCard({
                         </Box>
                     )}
                 </Box>
-                {reordering && reorderable ? (
-                    <Stack spacing={0.25} sx={{ alignSelf: 'center' }}>
-                        <IconButton size="small" aria-label={`${item.recorded.name}を一つ上へ移動`} disabled={onMoveUp === undefined} onClick={onMoveUp}>
-                            <ArrowUpwardOutlined />
-                        </IconButton>
-                        <IconButton size="small" aria-label={`${item.recorded.name}を一つ下へ移動`} disabled={onMoveDown === undefined} onClick={onMoveDown}>
-                            <ArrowDownwardOutlined />
-                        </IconButton>
-                    </Stack>
-                ) : (
-                    !editing && (
-                        <IconButton
-                            aria-label="エンコードをキャンセル"
-                            color="error"
-                            onClick={event => {
-                                event.stopPropagation();
-                                onCancel();
-                            }}
-                        >
-                            <CancelOutlined />
-                        </IconButton>
-                    )
-                )}
+                {controls}
             </CardContent>
         </Card>
     );
@@ -239,6 +306,8 @@ export function EncodePage(): ReactNode {
     const [draggedId, setDraggedId] = useState<EncodeId | null>(null);
     const [selected, setSelected] = useState<Set<EncodeId>>(new Set());
     const [targets, setTargets] = useState<EncodeId[]>([]);
+    const [cancelCompleted, setCancelCompleted] = useState(0);
+    const cancelInFlight = useRef(false);
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
@@ -270,19 +339,14 @@ export function EncodePage(): ReactNode {
     }, [encodes.data, reordering]);
 
     const cancel = useMutation({
-        mutationFn: async (ids: EncodeId[]) => {
-            const results = await Promise.allSettled(ids.map(id => api.cancelEncode(id)));
-            return {
-                succeeded: ids.filter((_id, index) => results[index].status === 'fulfilled'),
-                failed: ids
-                    .map((id, index) => ({ id, result: results[index] }))
-                    .filter((entry): entry is { id: EncodeId; result: PromiseRejectedResult } => entry.result.status === 'rejected'),
-            };
+        mutationFn: (ids: EncodeId[]) => cancelEncodeBatch(ids, api.cancelEncode, setCancelCompleted),
+        onSettled: () => {
+            cancelInFlight.current = false;
         },
         onSuccess: async result => {
             setTargets([]);
-            setSelected(new Set(result.failed.map(entry => entry.id)));
-            setEditing(result.failed.length > 0);
+            setSelected(editing ? new Set(result.failed.map(entry => entry.id)) : new Set());
+            setEditing(wasEditing => wasEditing && result.failed.length > 0);
             if (result.succeeded.length > 0) notify(`${result.succeeded.length}件のエンコードをキャンセルしました`, 'success');
             if (result.failed.length > 0) {
                 const detail = result.failed
@@ -561,10 +625,24 @@ export function EncodePage(): ReactNode {
                     </Stack>
                 )}
             </Box>
-            <Dialog open={currentTargets.length > 0} onClose={() => setTargets([])}>
+            <Dialog
+                open={cancel.isPending || currentTargets.length > 0}
+                onClose={() => {
+                    if (!cancelInFlight.current) setTargets([]);
+                }}
+                maxWidth="sm"
+                slotProps={{ paper: { sx: programDialogPaper } }}
+            >
                 <DialogTitle>エンコードをキャンセルしますか？</DialogTitle>
                 <DialogContent>
-                    {singleCancelTarget !== undefined ? (
+                    {cancel.isPending ? (
+                        <Stack spacing={2}>
+                            <Typography>
+                                キャンセル処理中：{cancelCompleted} / {cancel.variables?.length ?? 0}件
+                            </Typography>
+                            <LinearProgress variant="determinate" value={(cancelCompleted / Math.max(1, cancel.variables?.length ?? 0)) * 100} />
+                        </Stack>
+                    ) : singleCancelTarget !== undefined ? (
                         <Typography>
                             ［{singleCancelTarget.mode}］{singleCancelTarget.recorded.name}を停止しますか？
                         </Typography>
@@ -573,8 +651,23 @@ export function EncodePage(): ReactNode {
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setTargets([])}>閉じる</Button>
-                    <Button color="error" variant="contained" disabled={cancel.isPending} onClick={() => cancel.mutate(currentTargets)}>
+                    <Button variant="outlined" disabled={cancel.isPending} onClick={() => setTargets([])}>
+                        閉じる
+                    </Button>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        disabled={cancel.isPending}
+                        onClick={() => {
+                            if (cancelInFlight.current) return;
+                            cancelInFlight.current = true;
+                            setCancelCompleted(0);
+                            // Remove waiting entries before stopping running encoders, so their
+                            // newly freed slots do not immediately start the next selected job.
+                            const running = new Set(encodes.data?.runningItems.map(item => item.id));
+                            cancel.mutate([...currentTargets.filter(id => !running.has(id)), ...currentTargets.filter(id => running.has(id))]);
+                        }}
+                    >
                         キャンセル実行
                     </Button>
                 </DialogActions>

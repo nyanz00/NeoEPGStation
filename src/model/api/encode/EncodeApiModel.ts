@@ -1,12 +1,13 @@
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import Recorded from '../../../db/entities/Recorded';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IEncodeManageModel from '../../service/encode/IEncodeManageModel';
-import IRecordedItemUtil from '../IRecordedItemUtil';
-import IEncodeApiModel from './IEncodeApiModel';
+import * as apid from '../../../../api.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import { INVALID_SUB_DIRECTORY_ERROR, isSubDirectoryInsideRoot } from '../../../util/SubDirectoryUtil.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IEncodeManageModel from '../../service/encode/IEncodeManageModel.js';
+import IRecordedItemUtil from '../IRecordedItemUtil.js';
+import IEncodeApiModel from './IEncodeApiModel.js';
 
 @injectable()
 export default class EncodeApiModel implements IEncodeApiModel {
@@ -159,6 +160,9 @@ export default class EncodeApiModel implements IEncodeApiModel {
      * @return Promise<apid.EncodeId>
      */
     public async add(addOption: apid.AddManualEncodeProgramOption): Promise<apid.EncodeId> {
+        if (typeof addOption.directory === 'string' && !isSubDirectoryInsideRoot(addOption.directory)) {
+            throw new Error(INVALID_SUB_DIRECTORY_ERROR);
+        }
         if (typeof addOption.parentDir === 'undefined' && !!addOption.isSaveSameDirectory === false) {
             throw new Error('OptionError');
         }

@@ -1,5 +1,5 @@
-import * as apid from '../../../../api';
-import { AddEncodeOption } from './IEncoderModel';
+import * as apid from '../../../../api.js';
+import { AddEncodeOption } from './IEncoderModel.js';
 
 export interface EncodeRecordedIdIndex {
     [recordedId: number]: {
@@ -36,6 +36,7 @@ export interface EncodeRecoveryInfoItem {
 export default interface IEncodeManageModel {
     waitUntilReady(): Promise<void>;
     push(addOption: AddEncodeOption): Promise<apid.EncodeId>;
+    pushPersisted(encodeId: apid.EncodeId): Promise<void>;
     cancel(encodeId: apid.EncodeId): Promise<void>;
     retry(encodeId: apid.EncodeId): Promise<void>;
     reorderWaitQueue(encodeIds: apid.EncodeId[], expectedEncodeIds: apid.EncodeId[]): Promise<void>;

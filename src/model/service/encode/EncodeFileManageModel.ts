@@ -1,7 +1,7 @@
 import { injectable } from 'inversify';
 import * as path from 'path';
-import FileUtil from '../../../util/FileUtil';
-import IEncodeFileManageModel from './IEncodeFileManageModel';
+import FileUtil from '../../../util/FileUtil.js';
+import IEncodeFileManageModel from './IEncodeFileManageModel.js';
 
 @injectable()
 export default class EncodeFileManageModel implements IEncodeFileManageModel {

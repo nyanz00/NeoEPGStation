@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 require('reflect-metadata');
 
@@ -25,6 +26,9 @@ loadedModule.paths = Module._nodeModulePaths(path.dirname(sourcePath));
 const load = Module._load;
 let sleepImplementation = async () => undefined;
 Module._load = function (request, parent, isMain) {
+    if (parent?.filename === sourcePath && request === '../../../util/FileUtil') {
+        return { default: { stat: async () => ({}), mkdir: async () => {} } };
+    }
     if (parent?.filename === sourcePath && request === '../../../util/Util') {
         return { __esModule: true, default: { sleep: (...args) => sleepImplementation(...args) } };
     }
@@ -42,9 +46,202 @@ try {
 const { default: EncoderModel, AmatsukazePushSubscription } = loadedModule.exports;
 const inputPath = 'C:\\Recordings\\日本語\\program.ts';
 
+function restoredEncoderForCancel(items) {
+    const model = Object.create(EncoderModel.prototype);
+    const events = [];
+    Object.assign(model, {
+        encodeOption: {
+            encodeId: 256,
+            sourceVideoFileId: 3,
+            mode: 'amt',
+            resumeExistingAmatsukaze: true,
+            amatsukazeTaskId: 10421,
+        },
+        configure: { getConfig: () => ({ encode: [{ name: 'amt', type: 'amatsukaze', suffix: '.mkv' }] }) },
+        log: { encode: { info() {}, warn() {} } },
+        amatsukazePushSubscription: {},
+        childProcess: null,
+        timerId: null,
+        isFinished: false,
+        isCanceld: false,
+        amatsukazeErrorMessage: '',
+        currentOutputFilePath: 'completed.mkv',
+        getAmatsukazeConfig: () => ({}),
+        videoUtil: { getFullFilePathFromId: async () => inputPath },
+        mapAmatsukazeServerPath: (_config, value) => value,
+        queryAmatsukazeRestQueueItems: async () => {
+            if (items instanceof Error) throw items;
+            return items;
+        },
+        cancelAmatsukazeTask: async () => {
+            throw new Error('stop confirmation still required');
+        },
+        existsFile: async () => assert.fail('terminal cancellation must not delete existing output'),
+        getEncoderFailureMessage: () => '',
+        stopAmatsukazePushClient() {},
+        fileManager: { release: () => events.push('released') },
+        listener: { emit: (...args) => events.push(args), removeAllListeners() {} },
+        finishHandoffPromise: Promise.resolve(),
+        resolveFinishHandoff() {},
+    });
+    return { model, events };
+}
+
+test('terminal cancellation preserves completed output and keeps failed-output cleanup semantics', async () => {
+    for (const state of ['Complete', 'Failed', 'PreFailed', 'Canceled']) {
+        const { model, events } = restoredEncoderForCancel([{ id: 10421, state }]);
+        let checks = 0;
+        model.existsFile = async () => {
+            checks++;
+            return false;
+        };
+        await model.cancel();
+        assert.equal(model.isCanceld, true);
+        assert.equal(model.isFinished, true);
+        assert.equal(model.preserveAmatsukazeOutputOnCancel, state === 'Complete');
+        assert.equal(checks, state === 'Complete' ? 0 : 1);
+        assert.equal(events[0], 'released');
+        assert.equal(events[1][3], true, 'finish notification reports cancellation');
+        assert.equal(events[1][5], true, 'finish notification confirms external source stopped');
+    }
+});
+
+test('a normal task that completes during Push cancellation is reconciled without deleting its output', async () => {
+    const { model, events } = restoredEncoderForCancel([]);
+    model.encodeOption.resumeExistingAmatsukaze = false;
+    let reads = 0;
+    model.queryAmatsukazeRestQueueItems = async () => [{ id: 10421, state: ++reads === 1 ? 'Encoding' : 'Complete' }];
+    await model.cancel();
+    assert.equal(reads, 2);
+    assert.equal(model.isFinished, true);
+    assert.equal(model.preserveAmatsukazeOutputOnCancel, true);
+    assert.equal(events[0], 'released');
+});
+
+test('a missing saved identity cannot use historical completion as stop confirmation', async () => {
+    const { model, events } = restoredEncoderForCancel([{ id: 10421, state: 'Complete' }]);
+    delete model.encodeOption.amatsukazeTaskId;
+    model.queryAmatsukazeRestQueueItems = async () => assert.fail('unknown identity must await Push confirmation');
+    await assert.rejects(model.cancel(), /stop confirmation still required/);
+    assert.equal(model.isFinished, false);
+    assert.deepEqual(events, []);
+});
+
+test('normal completion during the REST check is not reclassified as cancellation', async () => {
+    const { model, events } = restoredEncoderForCancel([]);
+    model.queryAmatsukazeRestQueueItems = async () => {
+        model.isFinished = true;
+        return [{ id: 10421, state: 'Complete' }];
+    };
+    await model.cancel();
+    assert.equal(model.isCanceld, false);
+    assert.equal(model.preserveAmatsukazeOutputOnCancel, undefined);
+    assert.deepEqual(events, []);
+});
+
+test('active, missing, mismatched and unavailable REST state cannot falsely confirm cancellation', async () => {
+    for (const items of [
+        [{ id: 10421, state: 'Encoding' }],
+        [{ id: 10421, state: 'Queue' }],
+        [{ id: 999, state: 'Complete' }],
+        [],
+        new Error('offline'),
+    ]) {
+        const { model, events } = restoredEncoderForCancel(items);
+        await assert.rejects(model.cancel(), /stop confirmation still required/);
+        assert.equal(model.isCanceld, false);
+        assert.equal(model.isFinished, false);
+        assert.equal(model.preserveAmatsukazeOutputOnCancel, undefined);
+        assert.deepEqual(events, []);
+    }
+});
+
+test('REST queue lookup rejects a reused task id whose source path differs', async () => {
+    const axios = require('axios');
+    const original = axios.default.get;
+    axios.default.get = async () => ({
+        data: {
+            items: [
+                { id: 10421, srcPath: 'C:\\other\\program.ts', state: 'Complete' },
+                { id: 10422, srcPath: inputPath, state: 'Encoding' },
+            ],
+        },
+    });
+    try {
+        const { model, events } = restoredEncoderForCancel([]);
+        delete model.queryAmatsukazeRestQueueItems;
+        await assert.rejects(model.cancel(), /stop confirmation still required/);
+        assert.deepEqual(events, []);
+    } finally {
+        axios.default.get = original;
+    }
+});
+
+test('restored Amatsukaze reconnects without a removed broadcast channel and never submits a new task', async () => {
+    const model = Object.create(EncoderModel.prototype);
+    let recovered = false;
+    Object.assign(model, {
+        encodeOption: { encodeId: 1, recordedId: 2, sourceVideoFileId: 3, mode: 'amt', resumeExistingAmatsukaze: true },
+        videoFileDB: { findId: async () => ({}) },
+        recordedDB: { findId: async () => ({ channelId: 4 }) },
+        channelDB: { findId: async () => null },
+        videoUtil: { getFullFilePathFromId: async () => inputPath },
+        configure: { getConfig: () => ({ encode: [{ name: 'amt', type: 'amatsukaze', suffix: '.mkv' }] }) },
+        log: { encode: { info() {} } },
+        getAmatsukazeConfig: () => ({}),
+        getDirPath: async () => 'C:\\out',
+        fileManager: { getFilePath: async () => 'C:\\out\\program.mkv' },
+        getAmatsukazeOutputDir: () => 'C:\\out',
+        mapAmatsukazeServerPath: (_config, value) => value,
+        existsFile: async () => false,
+        getAmatsukazeExactOutputCandidatePath: () => 'C:\\out\\candidate.mkv',
+        encodeEvent: { emitUpdateEncodeProgress() {} },
+        recoverAmatsukazeTask: async () => {
+            recovered = true;
+        },
+        processManager: { create: async () => assert.fail('recovery must not submit a new task') },
+    });
+    await model.start();
+    assert.equal(recovered, true);
+    model.encodeOption.resumeExistingAmatsukaze = false;
+    await assert.rejects(model.start(), /ChannelIsNotFound/);
+});
+
 function queueItem(id, srcPath, state = 'Encoding') {
     return `<QueueItem><ConsoleId>-1</ConsoleId><Id>${id}</Id><SrcPath>${srcPath}</SrcPath><State>${state}</State><StateLabel>${state}</StateLabel><FailReason></FailReason></QueueItem>`;
 }
+
+test('cancelling a restored task reconnects after metadata startup failed and waits for stop confirmation', async () => {
+    const model = Object.create(EncoderModel.prototype);
+    const order = [];
+    Object.assign(model, {
+        encodeOption: { encodeId: 256, sourceVideoFileId: 3, mode: 'amt', resumeExistingAmatsukaze: true },
+        configure: { getConfig: () => ({ encode: [{ name: 'amt', type: 'amatsukaze', suffix: '.mkv' }] }) },
+        log: { encode: { info() {} } },
+        amatsukazePushSubscription: null,
+        childProcess: null,
+        getAmatsukazeConfig: () => ({}),
+        videoUtil: { getFullFilePathFromId: async () => inputPath },
+        mapAmatsukazeServerPath: (_config, value) => value,
+        startAmatsukazePushClient: (_config, value) => {
+            assert.equal(value, inputPath);
+            order.push('connect');
+        },
+        cancelAmatsukazeTask: async () => {
+            assert.deepEqual(order, ['connect']);
+            order.push('confirmed');
+        },
+        childEndProcessing: async () => {
+            order.push('cleanup');
+        },
+        waitForFinishHandoff: async () => {
+            order.push('handoff');
+        },
+    });
+    await model.cancel();
+    assert.deepEqual(order, ['connect', 'confirmed', 'cleanup', 'handoff']);
+    assert.equal(model.isCanceld, true);
+});
 
 function queueData(...items) {
     return `<UIData><QueueData><Items>${items.join('')}</Items></QueueData></UIData>`;

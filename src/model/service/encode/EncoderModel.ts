@@ -6,23 +6,25 @@ import { inject, injectable } from 'inversify';
 import * as net from 'net';
 import * as path from 'path';
 import { TextDecoder } from 'util';
-import * as apid from '../../../../api';
-import FileUtil from '../../../util/FileUtil';
-import ProcessUtil from '../../../util/ProcessUtil';
-import Util from '../../../util/Util';
-import IVideoUtil, { VideoInfo } from '../../api/video/IVideoUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IEncodeEvent from '../../event/IEncodeEvent';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import { AmatsukazeEncodeConfig } from '../../IConfigFile';
-import IEncodeFileManageModel from './IEncodeFileManageModel';
-import IEncodeProcessManageModel from './IEncodeProcessManageModel';
-import { EncodeOption, EncodeProgressInfo, IEncoderModel } from './IEncoderModel';
-import IRecordingUtilModel from '../../operator/recording/IRecordingUtilModel';
+import * as apid from '../../../../api.js';
+import FileUtil from '../../../util/FileUtil.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { killManaged } from '../../../util/ManagedProcess.js';
+import Util from '../../../util/Util.js';
+import { safeSubDirectory } from '../../../util/SubDirectoryUtil.js';
+import IVideoUtil, { VideoInfo } from '../../api/video/IVideoUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IEncodeEvent from '../../event/IEncodeEvent.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import { AmatsukazeEncodeConfig } from '../../IConfigFile.js';
+import IEncodeFileManageModel from './IEncodeFileManageModel.js';
+import IEncodeProcessManageModel from './IEncodeProcessManageModel.js';
+import { EncodeOption, EncodeProgressInfo, IEncoderModel } from './IEncoderModel.js';
+import IRecordingUtilModel from '../../operator/recording/IRecordingUtilModel.js';
 
 interface AmatsukazeOutputCandidate {
     path: string;
@@ -1014,6 +1016,7 @@ class EncoderModel implements IEncoderModel {
     private timerId: NodeJS.Timeout | null = null; // タイムアウト検知用タイマーid
     private isCanceld: boolean = false; // キャンセルが呼び出されたか?
     private isFinished: boolean = false;
+    private preserveAmatsukazeOutputOnCancel = false;
     private currentOutputFilePath: string | null = null;
     private progressInfo: EncodeProgressInfo | null = null;
     private amatsukazePushSubscription: AmatsukazePushSubscription | null = null;
@@ -1078,12 +1081,19 @@ class EncoderModel implements IEncoderModel {
             outputFilePath: string | null,
             isCanceled: boolean,
             encoderMessage?: string,
+            sourceStopped?: boolean,
         ) => void,
     ): void {
         this.listener.once(
             EncoderModel.ENCODE_FINISH_EVENT,
-            (isError: boolean, outputFilePath: string | null, isCanceled: boolean, encoderMessage?: string) => {
-                callback(isError, outputFilePath, isCanceled, encoderMessage);
+            (
+                isError: boolean,
+                outputFilePath: string | null,
+                isCanceled: boolean,
+                encoderMessage?: string,
+                sourceStopped?: boolean,
+            ) => {
+                callback(isError, outputFilePath, isCanceled, encoderMessage, sourceStopped);
             },
         );
     }
@@ -1119,7 +1129,7 @@ class EncoderModel implements IEncoderModel {
 
         // 放送局情報を取得する
         const channel = await this.channelDB.findId(recorded.channelId);
-        if (channel === null) {
+        if (channel === null && this.encodeOption.resumeExistingAmatsukaze !== true) {
             throw new Error('ChannelIsNotFound');
         }
 
@@ -1360,8 +1370,8 @@ class EncoderModel implements IEncoderModel {
                     AUDIOCOMPONENTTYPE:
                         typeof recorded.audioComponentType === 'number' ? recorded.audioComponentType.toString(10) : '',
                     CHANNELID: typeof recorded.channelId === 'number' ? recorded.channelId.toString(10) : '',
-                    CHANNELNAME: typeof channel.name === 'string' ? channel.name : '',
-                    HALF_WIDTH_CHANNELNAME: typeof channel.halfWidthName === 'string' ? channel.halfWidthName : '',
+                    CHANNELNAME: typeof channel?.name === 'string' ? channel.name : '',
+                    HALF_WIDTH_CHANNELNAME: typeof channel?.halfWidthName === 'string' ? channel.halfWidthName : '',
                     GENRE1: typeof recorded.genre1 === 'number' ? recorded.genre1.toString(10) : '',
                     SUBGENRE1: typeof recorded.subGenre1 === 'number' ? recorded.subGenre1.toString(10) : '',
                     GENRE2: typeof recorded.genre2 === 'number' ? recorded.genre2.toString(10) : '',
@@ -1527,15 +1537,17 @@ class EncoderModel implements IEncoderModel {
         if (this.isCanceld === true) throw new Error('AmatsukazeEncodeCanceled');
 
         const state = queueItem?.state.trim().toLowerCase() ?? '';
+        if (queueItem !== null && this.encodeOption !== null) {
+            this.encodeOption.amatsukazeTaskId = queueItem.id;
+            this.onAmatsukazeTaskMatched?.(queueItem.id);
+        }
         if (queueItem !== null && ['encoding', 'queue', 'logopending'].includes(state)) {
             if (this.encodeOption === null) throw new Error('EncodeOptionIsNull');
-            this.encodeOption.amatsukazeTaskId = queueItem.id;
             if (Number.isFinite(queueItem.consoleId) && queueItem.consoleId >= 0) {
                 this.encodeOption.amatsukazeConsoleId = queueItem.consoleId;
             } else {
                 delete this.encodeOption.amatsukazeConsoleId;
             }
-            this.onAmatsukazeTaskMatched?.(queueItem.id);
             this.log.encode.info(
                 `resume Amatsukaze task from REST: id=${queueItem.id.toString(10)}, state=${queueItem.state}`,
             );
@@ -1592,29 +1604,14 @@ class EncoderModel implements IEncoderModel {
         amatsukaze: AmatsukazeEncodeConfig,
         serverInputFilePath: string,
     ): Promise<AmatsukazeRestQueueItem | null> {
-        const host = amatsukaze.ip || '127.0.0.1';
-        const tcpPort = amatsukaze.port ?? 32768;
-        const restPort = amatsukaze.restPort ?? tcpPort + 1;
-        const hostForUrl = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
-        const url = new URL(`http://${hostForUrl}:${restPort.toString(10)}/api/queue`);
-        url.searchParams.set('search', path.basename(serverInputFilePath));
-        url.searchParams.set('searchTargets', 'file');
-
         let reconnectAttempts = 0;
         let successfulMisses = 0;
         while (this.isCanceld === false) {
             try {
-                const response = await axios.get<AmatsukazeRestQueueView>(url.toString(), { timeout: 5000 });
-                const rawItems = response.data.items ?? response.data.Items ?? [];
-                const items = rawItems
-                    .map(item => this.normalizeAmatsukazeRestQueueItem(item))
-                    .filter(
-                        item =>
-                            Number.isFinite(item.id) && this.isSameAmatsukazePath(item.srcPath, serverInputFilePath),
-                    );
-                const matched = this.selectAmatsukazeRestQueueItem(items);
+                const matched = this.selectAmatsukazeRestQueueItem(
+                    await this.queryAmatsukazeRestQueueItems(amatsukaze, serverInputFilePath),
+                );
                 if (matched !== null) return matched;
-
                 successfulMisses += 1;
                 if (successfulMisses >= 3) return null;
                 await Util.sleep(1000);
@@ -1623,9 +1620,7 @@ class EncoderModel implements IEncoderModel {
                 const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts, 5));
                 reconnectAttempts += 1;
                 const message = axios.isAxiosError(err) ? err.message : String(err);
-                this.log.encode.info(
-                    `wait for Amatsukaze REST API: ${host}:${restPort.toString(10)} (${message}), retry in ${delay.toString(10)}ms`,
-                );
+                this.log.encode.info(`wait for Amatsukaze REST API (${message}), retry in ${delay.toString(10)}ms`);
                 this.progressInfo = {
                     percent: 0,
                     log: `Amatsukaze REST APIの起動を待機中 (${Math.round(delay / 1000).toString(10)}秒後に再試行)`,
@@ -1635,6 +1630,26 @@ class EncoderModel implements IEncoderModel {
             }
         }
         throw new Error('AmatsukazeEncodeCanceled');
+    }
+
+    private async queryAmatsukazeRestQueueItems(
+        amatsukaze: AmatsukazeEncodeConfig,
+        serverInputFilePath: string,
+    ): Promise<AmatsukazeRestQueueItem[]> {
+        const host = amatsukaze.ip || '127.0.0.1';
+        const tcpPort = amatsukaze.port ?? 32768;
+        const restPort = amatsukaze.restPort ?? tcpPort + 1;
+        const hostForUrl = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+        const url = new URL(`http://${hostForUrl}:${restPort.toString(10)}/api/queue`);
+        url.searchParams.set('search', path.basename(serverInputFilePath));
+        url.searchParams.set('searchTargets', 'file');
+
+        const response = await axios.get<AmatsukazeRestQueueView>(url.toString(), { timeout: 5000 });
+        const rawItems = response.data.items ?? response.data.Items ?? [];
+        const items = rawItems
+            .map(item => this.normalizeAmatsukazeRestQueueItem(item))
+            .filter(item => Number.isFinite(item.id) && this.isSameAmatsukazePath(item.srcPath, serverInputFilePath));
+        return items;
     }
 
     private normalizeAmatsukazeRestQueueItem(item: any): AmatsukazeRestQueueItem {
@@ -2146,7 +2161,8 @@ class EncoderModel implements IEncoderModel {
             }
         }
 
-        return typeof queueItem.directory === 'undefined' ? parentDir : path.join(parentDir, queueItem.directory);
+        if (queueItem.directory !== undefined) queueItem.directory = safeSubDirectory(queueItem.directory);
+        return queueItem.directory === undefined ? parentDir : path.join(parentDir, queueItem.directory);
     }
 
     /**
@@ -2314,6 +2330,7 @@ class EncoderModel implements IEncoderModel {
         if (this.isFinished === true) {
             return;
         }
+        if (this.childProcess !== null) await killManaged(this.childProcess, 0);
         this.isFinished = true;
 
         // exit code
@@ -2323,10 +2340,14 @@ class EncoderModel implements IEncoderModel {
         if (this.timerId !== null) {
             clearTimeout(this.timerId);
         }
+        const external =
+            this.configure.getConfig().encode.find(mode => mode.name === this.encodeOption?.mode)?.type ===
+            'amatsukaze';
+        const sourceStopped = !external || code === 0 || this.isCanceld || this.amatsukazeErrorMessage.length > 0;
         this.stopAmatsukazePushClient();
 
         // ファイルパスの登録を削除
-        if (outputFilePath !== null) {
+        if (outputFilePath !== null && sourceStopped) {
             this.fileManager.release(outputFilePath);
         }
 
@@ -2355,7 +2376,7 @@ class EncoderModel implements IEncoderModel {
             isError = false;
         }
 
-        if (isError === true) {
+        if (isError === true && sourceStopped && !this.preserveAmatsukazeOutputOnCancel) {
             // 出力ファイルを削除
             if (outputFilePath !== null && (await this.existsFile(outputFilePath)) === true) {
                 this.log.encode.info(`delete encode output file: ${outputFilePath}`);
@@ -2379,6 +2400,7 @@ class EncoderModel implements IEncoderModel {
                 outputFilePath,
                 this.isCanceld,
                 encoderFailureMessage || this.lastEncoderMessage,
+                sourceStopped,
             );
         } finally {
             this.listener.removeAllListeners();
@@ -2391,14 +2413,41 @@ class EncoderModel implements IEncoderModel {
      * キャンセル処理
      */
     public async cancel(): Promise<void> {
+        const hasFinished = (): boolean => this.isFinished;
         if (this.encodeOption === null) {
+            return;
+        }
+        if (hasFinished()) {
+            await this.waitForFinishHandoff();
             return;
         }
 
         this.log.encode.info(`cancel encode: ${this.encodeOption.encodeId}`);
         const encodeCmd = this.configure.getConfig().encode.find(command => command.name === this.encodeOption?.mode);
         if (encodeCmd?.type === 'amatsukaze' && typeof encodeCmd.suffix !== 'undefined') {
-            await this.cancelAmatsukazeTask();
+            const alreadyStopped = await this.reconcileAmatsukazeCancellation(encodeCmd);
+            if (!alreadyStopped) {
+                if (this.amatsukazePushSubscription === null && this.encodeOption.resumeExistingAmatsukaze === true) {
+                    // Startup can fail before the normal reconnect path (for example while
+                    // metadata is being refreshed). Confirm the external task before stopping it.
+                    const config = this.configure.getConfig();
+                    const amatsukaze = this.getAmatsukazeConfig(config.amatsukaze, encodeCmd.amatsukaze);
+                    const input = await this.videoUtil.getFullFilePathFromId(this.encodeOption.sourceVideoFileId);
+                    if (amatsukaze !== undefined && input !== null) {
+                        this.startAmatsukazePushClient(amatsukaze, this.mapAmatsukazeServerPath(amatsukaze, input));
+                    }
+                }
+                try {
+                    await this.cancelAmatsukazeTask();
+                } catch (error) {
+                    // The task can finish between the REST read and the Push reply.
+                    if (!(await this.reconcileAmatsukazeCancellation(encodeCmd))) throw error;
+                }
+            }
+        }
+        if (hasFinished()) {
+            await this.waitForFinishHandoff();
+            return;
         }
         this.isCanceld = true;
 
@@ -2410,9 +2459,10 @@ class EncoderModel implements IEncoderModel {
                 `kill encode process encodeId: ${this.encodeOption.encodeId}, pid: ${this.childProcess.pid}`,
             );
 
-            await ProcessUtil.kill(this.childProcess).catch(err => {
+            await killManaged(this.childProcess).catch(err => {
                 this.log.encode.error(`kill encode process failed: ${this.encodeOption?.encodeId}`);
                 this.log.encode.error(err);
+                throw err;
             });
         }
 
@@ -2430,6 +2480,39 @@ class EncoderModel implements IEncoderModel {
                 resolve();
             });
         });
+    }
+
+    private async reconcileAmatsukazeCancellation(encodeCmd: {
+        amatsukaze?: AmatsukazeEncodeConfig;
+    }): Promise<boolean> {
+        const option = this.encodeOption;
+        if (option === null || !Number.isFinite(option.amatsukazeTaskId)) return false;
+        const config = this.configure.getConfig();
+        const amatsukaze = this.getAmatsukazeConfig(config.amatsukaze, encodeCmd.amatsukaze);
+        if (amatsukaze === undefined) return false;
+        try {
+            const input = await this.videoUtil.getFullFilePathFromId(option.sourceVideoFileId);
+            if (input === null) return false;
+            const items = await this.queryAmatsukazeRestQueueItems(
+                amatsukaze,
+                this.mapAmatsukazeServerPath(amatsukaze, input),
+            );
+            if (this.isFinished === true) return true;
+            const task = items.find(item => item.id === option.amatsukazeTaskId);
+            if (!task || !['complete', 'failed', 'prefailed', 'canceled'].includes(task.state.trim().toLowerCase()))
+                return false;
+            // Cancel abandons output validation, so it must not report a successful
+            // encode or delete a completed external output that has not been collected.
+            this.preserveAmatsukazeOutputOnCancel = task.state.trim().toLowerCase() === 'complete';
+            this.isCanceld = true;
+            this.log.encode.info(`stop monitoring terminal Amatsukaze task: id=${task.id}, state=${task.state}`);
+            return true;
+        } catch (error) {
+            this.log.encode.warn(
+                `Amatsukaze cancellation state check failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return false;
+        }
     }
 
     /**
@@ -2473,6 +2556,10 @@ class EncoderModel implements IEncoderModel {
 
     public getOutputFilePath(): string | null {
         return this.currentOutputFilePath;
+    }
+
+    public releaseOutputReservation(): void {
+        if (this.currentOutputFilePath !== null) this.fileManager.release(this.currentOutputFilePath);
     }
 }
 
