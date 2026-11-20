@@ -4,7 +4,7 @@
 
 ## セットアップ
 
-1. **Node.js (20.19 以上の 20 系、22.13 以上の 22 系、または 24.11 以上), Mirakurun, FFmpeg/FFprobe, Python (2.7, v3.5, v3.6, or v3.7), GCC** がインストール済みであることを確認する
+1. **Node.js (22.13 以上の 22 系、または 24.11 以上), Mirakurun, FFmpeg/FFprobe, Python (2.7, v3.5, v3.6, or v3.7), GCC** がインストール済みであることを確認する
 
     ```bash
     $ node --version

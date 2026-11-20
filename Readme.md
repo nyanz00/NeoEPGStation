@@ -76,7 +76,7 @@
 - Webプレイヤーの刷新
   - 共通Webプレイヤーを[tsukumijima版DPlayer](https://github.com/tsukumijima/DPlayer)をNeoEPGStation用に最適化したプレイヤーに変更
   - STREAMING視聴時のHLSをVOD HLS方式に変更し、プレイヤー制御やシーク精度を改善
-  - JASSUBやDPlayerのdanmakuを使用し、mkv内の字幕やNicoJKコメント字幕のweb上での再生に対応
+  - ブラウザのシステムフォントによるCanvas描画とDPlayerのdanmakuを使用し、動画内のASS・SRT字幕やNicoJKコメント字幕のWeb上での再生に対応
 - ユーザー機能の追加
   - 各録画に対して所有ユーザーの概念を追加し、フィルタリング機能を向上
   - ユーザーごとに視聴履歴を保存する機能を追加し、リジューム再生にも対応
@@ -96,7 +96,7 @@
 
 ### 必須
 
-- Node.js `^20.19.0 || ^22.13.0 || >=24.11.0`
+- Node.js `^22.13.0 || >=24.11.0`
 - [Mirakurun-nyanz](https://github.com/nyanz00/Mirakurun)または[Mirakurun](https://github.com/Chinachu/Mirakurun)（[mirakc](https://github.com/mirakc/mirakc)での動作は未確認です）
 - [FFmpeg](https://ffmpeg.org/)
 - 次のいずれかのデータベース
@@ -116,7 +116,7 @@ Linuxでは公式ソースをビルドするため、`git`、`make`、`g++`が�
 - Windows 10／11
 - Ubuntu 22.04
 - Docker（Debian／Alpine）
-- Node.js 20／22／24
+- Node.js 22／24
 - better-sqlite3、MariaDB／MySQL
 
 環境ごとの確認範囲は[NeoEPGStationドキュメント](doc/neoepgstation.md#動作環境)を参照してください。
