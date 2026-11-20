@@ -1,37 +1,54 @@
-# 詳細については、Dockerfile.debianのコメントを参照。
-FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.23 AS client-builder
-COPY client/package*.json /app/client/
-WORKDIR /app/client
-RUN npm config set fetch-retries 10 \
-    && npm config set fetch-retry-mintimeout 100000 \
-    && npm config set fetch-retry-maxtimeout 600000
-RUN npm install --no-save --loglevel=info
-COPY . /app/
-RUN npm run build --loglevel=info
-
-FROM node:24.18.0-alpine3.23 AS server-builder
+FROM node:24.18.0-alpine3.23 AS server-deps
 RUN apk add --no-cache g++ git make pkgconf python3
 WORKDIR /app
-COPY package*.json /app/
+COPY package.json package-lock.json ./
 ENV DOCKER="YES"
-RUN npm config set fetch-retries 10 \
-    && npm config set fetch-retry-mintimeout 100000 \
-    && npm config set fetch-retry-maxtimeout 600000
-RUN npm install --no-save --loglevel=info
-COPY . .
-RUN rm -rf client
-RUN npm run update-tsreadex
-RUN npm run build-server --loglevel=info
+RUN npm ci --loglevel=info
 
-FROM node:24.18.0-alpine3.23
+FROM server-deps AS server-builder
+COPY . .
+RUN npm run update-tsreadex \
+    && node scripts/preflight.cjs build-server
+
+FROM node:24.18.0-alpine3.23 AS server-prod-deps
+RUN apk add --no-cache g++ make pkgconf python3
+WORKDIR /app
+COPY package.json package-lock.json ./
+ENV DOCKER="YES"
+RUN npm ci --omit=dev --loglevel=info \
+    && npm cache clean --force
+
+FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.23 AS client-deps
+WORKDIR /app/client
+COPY client/package.json client/package-lock.json ./
+RUN npm ci --loglevel=info
+
+FROM client-deps AS client-builder
+WORKDIR /app
+COPY package.json ./
+COPY api.d.ts ./
+COPY src/util/AssCommentParser.ts src/util/AssCommentParser.ts
+COPY scripts/preflight.cjs scripts/preflight-resources.cjs scripts/run-package-scripts.cjs scripts/
+COPY client/ client/
+RUN node scripts/preflight.cjs build-client
+
+FROM node:24.18.0-alpine3.23 AS final
 LABEL maintainer="l3tnun"
 RUN apk add --no-cache ffmpeg \
     && ln -sf /usr/bin/ffmpeg /usr/local/bin/ffmpeg \
     && ln -sf /usr/bin/ffprobe /usr/local/bin/ffprobe
 ENV NEOEPGSTATION_CONTAINER_RUNTIME=docker
-COPY --from=server-builder /app /app/
-COPY --from=client-builder /app/client /app/client/
-EXPOSE 8888
 WORKDIR /app
+COPY --from=server-prod-deps /app/node_modules ./node_modules
+COPY package.json ./
+COPY --from=server-builder /app/config ./config
+COPY --from=server-builder /app/api.yml /app/ormconfig.js ./
+COPY --from=server-builder /app/img ./img
+COPY --from=server-builder /app/licenses ./licenses
+COPY --from=server-builder /app/dist ./dist
+COPY --from=server-builder /app/scripts/preflight-resources.cjs ./scripts/preflight-resources.cjs
+COPY --from=server-builder /app/thirdparty/tsreadex/ ./thirdparty/tsreadex/
+COPY --from=client-builder /app/client/dist ./client/dist
+EXPOSE 8888
 ENTRYPOINT ["npm"]
 CMD ["start"]

@@ -1,46 +1,44 @@
-# クライアントはプラットフォーム依存のコードを含まないため、BUILDPLATFORMでビルドした結果を
-# 全てのTARGETPLATFORMで再利用できる。これによりビルド時間を短縮できる。
-FROM --platform=$BUILDPLATFORM node:24.18.0-bookworm AS client-builder
-COPY client/package*.json /app/client/
-WORKDIR /app/client
-RUN npm config set fetch-retries 10 \
-    && npm config set fetch-retry-mintimeout 100000 \
-    && npm config set fetch-retry-maxtimeout 600000
-# どこで時間が掛かっているのか確認できるようにログレベルを変更。
-RUN npm install --no-save --loglevel=info
-# clientフォルダー外にビルドに必要なファイルが存在するため、全てコピーする。
-COPY . /app/
-RUN npm run build --loglevel=info
-
-# サーバーはsqlite3のようなプラットフォーム依存のネイティブ・アドオンを含んでいる。そのため、各
-# TARGETPLATFORMごとにソースをビルドしなければならない。BUILDPLATFORM以外のTARGETPLATFORMでは、QEMU
-# 上でnpmコマンドを実行することになるため、どうしても時間が掛かる。
-#
-# `npm install`時にネイティブ・アドオンをクロスビルドできればビルド時間を短縮できるが、現時点では明
-# 確な手順は存在しない。https://github.com/mapbox/node-pre-gyp/issues/348を見ればそれが分かる。
-#
-# `npm run build-server`はプラットフォーム依存処理を含まないため、これをBUILDPLATFORMで実行すること
-# でビルド時間をさらに短縮可能だが、手順が煩雑で面倒なので現時点では行っていない。
-FROM node:24.18.0-bookworm AS server-builder
+FROM node:24.18.0-bookworm AS server-deps
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates git python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package*.json /app/
+COPY package.json package-lock.json ./
 ENV DOCKER="YES"
-RUN npm config set fetch-retries 10 \
-    && npm config set fetch-retry-mintimeout 100000 \
-    && npm config set fetch-retry-maxtimeout 600000
-RUN npm install --no-save --loglevel=info
-# 最終イメージのサイズ削減のため、すべてコピーした後でclientフォルダーを削除。clientフォルダー以外
-# をコピーする方法は，ファイルが追加された場合に変更する必要があるため採用しない。
-COPY . .
-RUN rm -rf client
-RUN npm run update-tsreadex
-RUN npm run build-server --loglevel=info
+RUN npm ci --loglevel=info
 
-FROM node:24.18.0-bookworm-slim
+FROM server-deps AS server-builder
+COPY . .
+RUN npm run update-tsreadex \
+    && node scripts/preflight.cjs build-server
+
+FROM node:24.18.0-bookworm AS server-prod-deps
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY package.json package-lock.json ./
+ENV DOCKER="YES"
+RUN npm ci --omit=dev --loglevel=info \
+    && npm cache clean --force
+
+FROM --platform=$BUILDPLATFORM node:24.18.0-bookworm AS client-deps
+WORKDIR /app/client
+COPY client/package.json client/package-lock.json ./
+RUN npm ci --loglevel=info
+
+FROM client-deps AS client-builder
+WORKDIR /app
+COPY package.json ./
+COPY api.d.ts ./
+COPY src/util/AssCommentParser.ts src/util/AssCommentParser.ts
+COPY scripts/preflight.cjs scripts/preflight-resources.cjs scripts/run-package-scripts.cjs scripts/
+COPY client/ client/
+RUN node scripts/preflight.cjs build-client
+
+FROM node:24.18.0-bookworm-slim AS final
 LABEL maintainer="l3tnun"
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
@@ -49,9 +47,17 @@ RUN apt-get update \
     && ln -sf /usr/bin/ffprobe /usr/local/bin/ffprobe \
     && rm -rf /var/lib/apt/lists/*
 ENV NEOEPGSTATION_CONTAINER_RUNTIME=docker
-COPY --from=server-builder /app /app/
-COPY --from=client-builder /app/client /app/client/
-EXPOSE 8888
 WORKDIR /app
+COPY --from=server-prod-deps /app/node_modules ./node_modules
+COPY package.json ./
+COPY --from=server-builder /app/config ./config
+COPY --from=server-builder /app/api.yml /app/ormconfig.js ./
+COPY --from=server-builder /app/img ./img
+COPY --from=server-builder /app/licenses ./licenses
+COPY --from=server-builder /app/dist ./dist
+COPY --from=server-builder /app/scripts/preflight-resources.cjs ./scripts/preflight-resources.cjs
+COPY --from=server-builder /app/thirdparty/tsreadex/ ./thirdparty/tsreadex/
+COPY --from=client-builder /app/client/dist ./client/dist
+EXPOSE 8888
 ENTRYPOINT ["npm"]
 CMD ["start"]

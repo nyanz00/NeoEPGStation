@@ -1,4 +1,4 @@
-FROM node:18-bookworm-slim
+FROM node:24.18.0-bookworm-slim
 
 RUN : "echo install packages" \
     && apt update \
