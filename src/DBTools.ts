@@ -1,39 +1,40 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import * as path from 'path';
 import minimist from 'minimist';
 import 'reflect-metadata';
 import { install } from 'source-map-support';
-import AnnictRuleLink from './db/entities/AnnictRuleLink';
-import AnnictEpisodeWatch from './db/entities/AnnictEpisodeWatch';
-import AnnictRecordedEpisode from './db/entities/AnnictRecordedEpisode';
-import DropLogFile from './db/entities/DropLogFile';
-import Recorded from './db/entities/Recorded';
-import RecordedHistory from './db/entities/RecordedHistory';
-import RecordedPlayback from './db/entities/RecordedPlayback';
-import RecordedTag from './db/entities/RecordedTag';
-import Reserve from './db/entities/Reserve';
-import Thumbnail from './db/entities/Thumbnail';
-import TvUser from './db/entities/TvUser';
-import VideoFile from './db/entities/VideoFile';
-import ViewerCredential from './db/entities/ViewerCredential';
-import ViewerProfile from './db/entities/ViewerProfile';
-import ViewerProfileSession from './db/entities/ViewerProfileSession';
-import IDBOperator from './model/db/IDBOperator';
-import IAnnictRuleLinkDB from './model/db/IAnnictRuleLinkDB';
-import IDropLogFileDB from './model/db/IDropLogFileDB';
-import IRecordedDB from './model/db/IRecordedDB';
-import IRecordedHistoryDB from './model/db/IRecordedHistoryDB';
-import IRecordedTagDB from './model/db/IRecordedTagDB';
-import IReserveDB from './model/db/IReserveDB';
-import IRuleDB, { RuleWithCnt } from './model/db/IRuleDB';
-import IThumbnailDB from './model/db/IThumbnailDB';
-import ITvUserDB from './model/db/ITvUserDB';
-import IVideoFileDB from './model/db/IVideoFileDB';
-import IConnectionCheckModel from './model/IConnectionCheckModel';
-import ILogger from './model/ILogger';
-import ILoggerModel from './model/ILoggerModel';
-import container from './model/ModelContainer';
-import * as containerSetter from './model/ModelContainerSetter';
+import AnnictRuleLink from './db/entities/AnnictRuleLink.js';
+import AnnictEpisodeWatch from './db/entities/AnnictEpisodeWatch.js';
+import AnnictRecordedEpisode from './db/entities/AnnictRecordedEpisode.js';
+import DropLogFile from './db/entities/DropLogFile.js';
+import Recorded from './db/entities/Recorded.js';
+import RecordedHistory from './db/entities/RecordedHistory.js';
+import RecordedPlayback from './db/entities/RecordedPlayback.js';
+import RecordedTag from './db/entities/RecordedTag.js';
+import Reserve from './db/entities/Reserve.js';
+import Thumbnail from './db/entities/Thumbnail.js';
+import TvUser from './db/entities/TvUser.js';
+import VideoFile from './db/entities/VideoFile.js';
+import ViewerCredential from './db/entities/ViewerCredential.js';
+import ViewerProfile from './db/entities/ViewerProfile.js';
+import ViewerProfileSession from './db/entities/ViewerProfileSession.js';
+import IDBOperator from './model/db/IDBOperator.js';
+import IAnnictRuleLinkDB from './model/db/IAnnictRuleLinkDB.js';
+import IDropLogFileDB from './model/db/IDropLogFileDB.js';
+import IRecordedDB from './model/db/IRecordedDB.js';
+import IRecordedHistoryDB from './model/db/IRecordedHistoryDB.js';
+import IRecordedTagDB from './model/db/IRecordedTagDB.js';
+import IReserveDB from './model/db/IReserveDB.js';
+import IRuleDB, { RuleWithCnt } from './model/db/IRuleDB.js';
+import IThumbnailDB from './model/db/IThumbnailDB.js';
+import ITvUserDB from './model/db/ITvUserDB.js';
+import IVideoFileDB from './model/db/IVideoFileDB.js';
+import IConnectionCheckModel from './model/IConnectionCheckModel.js';
+import ILogger from './model/ILogger.js';
+import ILoggerModel from './model/ILoggerModel.js';
+import container from './model/ModelContainer.js';
+import * as containerSetter from './model/ModelContainerSetter.js';
 install();
 
 containerSetter.set(container);
@@ -59,7 +60,7 @@ interface BackupData {
 }
 
 class DBTools {
-    private readonly dataRoot = path.join(__dirname, '..', 'data');
+    private readonly dataRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
     private filePath: string;
     private mode: 'backup' | 'restore';
     private backupType: 'full' | 'legacy';
@@ -296,13 +297,13 @@ class DBTools {
             await this.tvUserDB.ensureDefaultUser();
         }
         const connection = await this.dbOperator.getConnection();
-        await connection.getRepository(AnnictEpisodeWatch).delete({});
-        await connection.getRepository(AnnictRuleLink).delete({});
-        await connection.getRepository(ViewerCredential).delete({});
-        await connection.getRepository(ViewerProfileSession).delete({});
-        await connection.getRepository(AnnictRecordedEpisode).delete({});
-        await connection.getRepository(RecordedPlayback).delete({});
-        await connection.getRepository(ViewerProfile).delete({});
+        await connection.getRepository(AnnictEpisodeWatch).deleteAll();
+        await connection.getRepository(AnnictRuleLink).deleteAll();
+        await connection.getRepository(ViewerCredential).deleteAll();
+        await connection.getRepository(ViewerProfileSession).deleteAll();
+        await connection.getRepository(AnnictRecordedEpisode).deleteAll();
+        await connection.getRepository(RecordedPlayback).deleteAll();
+        await connection.getRepository(ViewerProfile).deleteAll();
 
         this.log.system.info('viewer profile');
         if (Array.isArray(backup.viewerProfileItems) && backup.viewerProfileItems.length > 0) {

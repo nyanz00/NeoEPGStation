@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export namespace IChannelApiModelError {
     export const NOT_FOUND = 'notfound';

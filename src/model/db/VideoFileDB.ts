@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import VideoFile from '../../db/entities/VideoFile';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import IVideoFileDB, { UpdateFilePathOption, VideoFileSizeSummary } from './IVideoFileDB';
+import * as apid from '../../../api.js';
+import VideoFile from '../../db/entities/VideoFile.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import IVideoFileDB, { UpdateFilePathOption, VideoFileSizeSummary } from './IVideoFileDB.js';
 
 @injectable()
 export default class VideoFileDB implements IVideoFileDB {

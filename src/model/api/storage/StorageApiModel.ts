@@ -1,16 +1,16 @@
 import { execFile } from 'child_process';
-import { getDiskUsage } from '../../../util/DiskUsage';
+import { getDiskUsage } from '../../../util/DiskUsage.js';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as os from 'os';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import { getConfiguredLogFile, resolveCurrentLogFile } from '../../../util/LogConfig';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import { getRuntimeLogLevel, setRuntimeLogLevel } from '../../RuntimeLogLevel';
-import IStorageApiModel from './IStorageApiModel';
+import * as apid from '../../../../api.js';
+import { getConfiguredLogFile, resolveCurrentLogFile } from '../../../util/LogConfig.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import { getRuntimeLogLevel, setRuntimeLogLevel } from '../../RuntimeLogLevel.js';
+import IStorageApiModel from './IStorageApiModel.js';
 
 interface CpuTimes {
     idle: number;

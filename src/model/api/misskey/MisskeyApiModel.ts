@@ -1,9 +1,9 @@
 import axios, { AxiosError } from 'axios';
 import { randomUUID } from 'crypto';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel';
-import IMisskeyApiModel from './IMisskeyApiModel';
+import * as apid from '../../../../api.js';
+import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel.js';
+import IMisskeyApiModel from './IMisskeyApiModel.js';
 
 interface StoredMisskeyCredential {
     accessToken: string;

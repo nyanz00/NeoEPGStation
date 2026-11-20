@@ -1,4 +1,4 @@
-import * as apid from '../../../api';
+import * as apid from '../../../api.js';
 
 export default interface IReserveOptionChecker {
     checkRuleOption(rule: apid.Rule | apid.AddRuleOption): boolean;

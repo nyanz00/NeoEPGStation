@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import Thumbnail from '../../db/entities/Thumbnail';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import IThumbnailDB from './IThumbnailDB';
+import * as apid from '../../../api.js';
+import Thumbnail from '../../db/entities/Thumbnail.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import IThumbnailDB from './IThumbnailDB.js';
 
 @injectable()
 export default class ThumbnailDB implements IThumbnailDB {

@@ -1,5 +1,5 @@
 import { BaseEntity, Column, Entity, JoinColumn, OneToOne, PrimaryColumn } from 'typeorm';
-import VideoFile from './VideoFile';
+import VideoFile from './VideoFile.js';
 
 @Entity()
 export default class VideoFileTsInfo extends BaseEntity {

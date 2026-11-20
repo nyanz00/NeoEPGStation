@@ -1,10 +1,17 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import * as path from 'path';
-import * as apid from '../../api';
-import { getLogConfigPath } from '../util/LogConfig';
+import * as apid from '../../api.js';
+import { getLogConfigPath } from '../util/LogConfig.js';
 
-export const runtimeLogLevelPath = path.join(__dirname, '..', '..', 'data', 'runtime-log-levels.json');
+export const runtimeLogLevelPath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'data',
+    'runtime-log-levels.json',
+);
 
 const levels: apid.SystemLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'off'];
 

@@ -1,6 +1,6 @@
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import { EncodeRecordedIdIndex } from '../service/encode/IEncodeManageModel';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import { EncodeRecordedIdIndex } from '../service/encode/IEncodeManageModel.js';
 
 export default interface IRecordedItemUtil {
     convertRecordedToRecordedItem(

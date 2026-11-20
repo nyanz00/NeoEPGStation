@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import * as apid from '../../api';
+import * as apid from '../../api.js';
 
 interface LogAppender {
     type?: unknown;
@@ -21,7 +22,7 @@ interface LogConfiguration {
 
 const sources: apid.SystemLogSource[] = ['Operator', 'Service', 'EPGUpdater'];
 const categories: apid.SystemLogCategory[] = ['system', 'access', 'stream', 'encode'];
-const appRoot = path.join(__dirname, '..', '..');
+const appRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export function getLogConfigPath(source: apid.SystemLogSource): string {
     const configName = source === 'EPGUpdater' ? 'epgUpdaterLogConfig.yml' : `${source.toLowerCase()}LogConfig.yml`;

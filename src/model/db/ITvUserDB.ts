@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import TvUser from '../../db/entities/TvUser';
+import * as apid from '../../../api.js';
+import TvUser from '../../db/entities/TvUser.js';
 
 export default interface ITvUserDB {
     restore(items: TvUser[]): Promise<void>;

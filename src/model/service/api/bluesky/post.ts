@@ -1,8 +1,8 @@
-import { Operation } from '../../ApiOperation';
-import IBlueskyApiModel from '../../../api/bluesky/IBlueskyApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
-import { getViewerProfileId } from '../viewerProfileSession';
+import { Operation } from '../../ApiOperation.js';
+import IBlueskyApiModel from '../../../api/bluesky/IBlueskyApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
+import { getViewerProfileId } from '../viewerProfileSession.js';
 
 export const post: Operation = async (req, res) => {
     try {

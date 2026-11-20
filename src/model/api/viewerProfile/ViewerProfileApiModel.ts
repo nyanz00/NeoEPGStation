@@ -1,12 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, scrypt, timingSafeEqual } from 'crypto';
 import { inject, injectable } from 'inversify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import * as apid from '../../../../api';
-import ITvUserDB from '../../db/ITvUserDB';
-import IViewerProfileDB from '../../db/IViewerProfileDB';
-import IViewerProfileApiModel from './IViewerProfileApiModel';
+import * as apid from '../../../../api.js';
+import ITvUserDB from '../../db/ITvUserDB.js';
+import IViewerProfileDB from '../../db/IViewerProfileDB.js';
+import IViewerProfileApiModel from './IViewerProfileApiModel.js';
 
 const scryptAsync = promisify(scrypt);
 
@@ -27,7 +28,15 @@ export default class ViewerProfileApiModel implements IViewerProfileApiModel {
     private static readonly UNLOCK_BLOCK_DURATION = 5 * 60_000;
     private static readonly ALLOWED_LOCK_PASSWORD =
         /^[\x21-\x7E\u3001-\u303F\u3040-\u30FF\u31F0-\u31FF\uFF01-\uFF60\uFF61-\uFF9F\p{Script=Han}]+$/u;
-    private readonly root = path.join(__dirname, '..', '..', '..', '..', 'data', 'viewer-profiles');
+    private readonly root = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        '..',
+        'data',
+        'viewer-profiles',
+    );
     private readonly unlockAttempts = new Map<number, UnlockAttemptState>();
     private readonly unlockQueues = new Map<number, Promise<void>>();
     private encryptionKey?: Buffer;

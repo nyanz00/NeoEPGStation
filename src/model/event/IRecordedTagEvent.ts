@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import RecordedTag from '../../db/entities/RecordedTag';
+import * as apid from '../../../api.js';
+import RecordedTag from '../../db/entities/RecordedTag.js';
 
 export default interface IRecordedTagEvent {
     emitCreated(tag: RecordedTag): void;

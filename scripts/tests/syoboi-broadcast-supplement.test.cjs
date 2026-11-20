@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 require('reflect-metadata');
 
@@ -312,29 +313,38 @@ test('Annict dates win conflicts while new television stations update details an
 });
 
 test('list sorting uses the same supplement and applies current receivable/paid filters', async () => {
-    const model = Object.create(AnnictApiModel.prototype);
-    model.getCachedWorks = async () => ({
-        works: [{ ...work(1), broadcastStarts: [{ channelName: 'WEB', startedAt: '2026-10-01T01:05:00+09:00' }] }],
-    });
-    model.channelApiModel = {
-        getChannels: async () => [
-            { id: 11, name: 'BS11' },
-            { id: 12, name: 'AT-X' },
-        ],
-    };
-    model.readBroadcastSupplements = async () => [
-        {
-            programs: [program(1), program(1, { pid: 2, channelName: 'AT-X', startedAt: '2026-10-02T01:05:00+09:00' })],
-            pending: true,
-            error: 'partial failure',
-        },
-    ];
-    const all = await model.getWorks(season, false);
-    const free = await model.getWorks(season, false, false, true);
-    assert.equal(all.works[0].firstReceivableProgramStartedAt, '2026-10-02T01:05:00+09:00');
-    assert.equal(free.works[0].firstReceivableProgramStartedAt, '2026-10-05T01:05:00+09:00');
-    assert.equal(all.broadcastSupplementPending, true);
-    assert.equal(all.broadcastSupplementError, 'partial failure');
+    const originalNow = Date.now;
+    Date.now = () => Date.parse('2026-10-01T03:00:00Z');
+    try {
+        const model = Object.create(AnnictApiModel.prototype);
+        model.getCachedWorks = async () => ({
+            works: [{ ...work(1), broadcastStarts: [{ channelName: 'WEB', startedAt: '2026-10-01T01:05:00+09:00' }] }],
+        });
+        model.channelApiModel = {
+            getChannels: async () => [
+                { id: 11, name: 'BS11' },
+                { id: 12, name: 'AT-X' },
+            ],
+        };
+        model.readBroadcastSupplements = async () => [
+            {
+                programs: [
+                    program(1),
+                    program(1, { pid: 2, channelName: 'AT-X', startedAt: '2026-10-02T01:05:00+09:00' }),
+                ],
+                pending: true,
+                error: 'partial failure',
+            },
+        ];
+        const all = await model.getWorks(season, false);
+        const free = await model.getWorks(season, false, false, true);
+        assert.equal(all.works[0].firstReceivableProgramStartedAt, '2026-10-02T01:05:00+09:00');
+        assert.equal(free.works[0].firstReceivableProgramStartedAt, '2026-10-05T01:05:00+09:00');
+        assert.equal(all.broadcastSupplementPending, true);
+        assert.equal(all.broadcastSupplementError, 'partial failure');
+    } finally {
+        Date.now = originalNow;
+    }
 });
 
 test('Annict enrichment is allowed to establish priorities before unknown list works are queued', async t => {

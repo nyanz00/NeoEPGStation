@@ -1,7 +1,7 @@
-import { Operation } from '../ApiOperation';
-import IConfigApiModel from '../../api/config/IConfigApiModel';
-import container from '../../ModelContainer';
-import * as api from '../api';
+import { Operation } from '../ApiOperation.js';
+import IConfigApiModel from '../../api/config/IConfigApiModel.js';
+import container from '../../ModelContainer.js';
+import * as api from '../api.js';
 
 export const get: Operation = async (req, res) => {
     const configApiModel = container.get<IConfigApiModel>('IConfigApiModel');

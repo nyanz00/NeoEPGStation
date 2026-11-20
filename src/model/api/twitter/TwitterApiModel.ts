@@ -2,11 +2,11 @@ import { createHash } from 'crypto';
 import { inject, injectable } from 'inversify';
 import type { Browser, BrowserContext, Page } from 'playwright-core';
 import { chromium } from 'playwright-core';
-import * as apid from '../../../../api';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel';
-import ITwitterApiModel from './ITwitterApiModel';
+import * as apid from '../../../../api.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IViewerProfileApiModel from '../viewerProfile/IViewerProfileApiModel.js';
+import ITwitterApiModel from './ITwitterApiModel.js';
 
 interface StoredTwitterCredential {
     cookiesText: string;

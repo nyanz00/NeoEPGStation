@@ -1,10 +1,10 @@
-import * as apid from '../../../../../api';
-import { AutoEncodeSettingsValidationError } from '../../../encode/AutoEncodeSettingsModel';
-import IAutoEncodeSettingsModel from '../../../encode/IAutoEncodeSettingsModel';
-import container from '../../../ModelContainer';
-import { Operation } from '../../ApiOperation';
-import * as api from '../../api';
-import { AdminAccessError, requireActiveAdmin } from '../adminAccess';
+import * as apid from '../../../../../api.js';
+import { AutoEncodeSettingsValidationError } from '../../../encode/AutoEncodeSettingsModel.js';
+import IAutoEncodeSettingsModel from '../../../encode/IAutoEncodeSettingsModel.js';
+import container from '../../../ModelContainer.js';
+import { Operation } from '../../ApiOperation.js';
+import * as api from '../../api.js';
+import { AdminAccessError, requireActiveAdmin } from '../adminAccess.js';
 
 export const get: Operation = async (_req, res) => {
     try {

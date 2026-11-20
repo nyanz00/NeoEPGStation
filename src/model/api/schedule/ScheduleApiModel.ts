@@ -1,11 +1,11 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import Channel from '../../../db/entities/Channel';
-import Program from '../../../db/entities/Program';
-import ChannelTypeUtil from '../../../util/ChannelTypeUtil';
-import IChannelDB from '../../db/IChannelDB';
-import IProgramDB, { ProgramWithOverlap } from '../../db/IProgramDB';
-import IScheduleApiModel from './IScheduleApiModel';
+import * as apid from '../../../../api.js';
+import Channel from '../../../db/entities/Channel.js';
+import Program from '../../../db/entities/Program.js';
+import ChannelTypeUtil from '../../../util/ChannelTypeUtil.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IProgramDB, { ProgramWithOverlap } from '../../db/IProgramDB.js';
+import IScheduleApiModel from './IScheduleApiModel.js';
 
 @injectable()
 export default class ScheduleApiModel implements IScheduleApiModel {

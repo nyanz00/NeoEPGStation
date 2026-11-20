@@ -1,4 +1,4 @@
-import * as apid from '../../../../api';
+import * as apid from '../../../../api.js';
 
 export default interface IRecordedPlaybackApiModel {
     get(recordedId: apid.RecordedId, userId: number): Promise<apid.RecordedPlayback>;

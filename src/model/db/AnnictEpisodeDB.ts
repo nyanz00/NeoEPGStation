@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import AnnictEpisodeWatch from '../../db/entities/AnnictEpisodeWatch';
-import AnnictRecordedEpisode from '../../db/entities/AnnictRecordedEpisode';
-import IPromiseRetry from '../IPromiseRetry';
-import IAnnictEpisodeDB, { AnnictEpisodeMatch } from './IAnnictEpisodeDB';
-import IDBOperator from './IDBOperator';
+import AnnictEpisodeWatch from '../../db/entities/AnnictEpisodeWatch.js';
+import AnnictRecordedEpisode from '../../db/entities/AnnictRecordedEpisode.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IAnnictEpisodeDB, { AnnictEpisodeMatch } from './IAnnictEpisodeDB.js';
+import IDBOperator from './IDBOperator.js';
 
 @injectable()
 export default class AnnictEpisodeDB implements IAnnictEpisodeDB {

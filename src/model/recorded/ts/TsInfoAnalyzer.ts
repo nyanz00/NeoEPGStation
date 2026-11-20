@@ -1,12 +1,12 @@
-import * as aribts from 'aribts';
+import aribts from 'aribts';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as stream from 'stream';
-import BitParser from '../../channel/BitParser';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import ChannelUtil from '../../../util/ChannelUtil';
-import ITsInfoAnalyzer, { TsGenre, TsInfo, TsInfoAnalyzeOption } from './ITsInfoAnalyzer';
+import BitParser from '../../channel/BitParser.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import ChannelUtil from '../../../util/ChannelUtil.js';
+import ITsInfoAnalyzer, { TsGenre, TsInfo, TsInfoAnalyzeOption } from './ITsInfoAnalyzer.js';
 
 /**
  * PCR (Program Clock Reference) のサンプル 1 点

@@ -1,7 +1,7 @@
-import { Operation } from '../../../ApiOperation';
-import UpdateManager from '../../../../update/UpdateManager';
-import * as api from '../../../api';
-import { AdminAccessError, requireActiveAdmin } from '../../adminAccess';
+import { Operation } from '../../../ApiOperation.js';
+import UpdateManager from '../../../../update/UpdateManager.js';
+import * as api from '../../../api.js';
+import { AdminAccessError, requireActiveAdmin } from '../../adminAccess.js';
 
 export const post: Operation = async (req, res) => {
     try {

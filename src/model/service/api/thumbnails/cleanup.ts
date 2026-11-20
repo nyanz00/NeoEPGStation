@@ -1,7 +1,7 @@
-import { Operation } from '../../ApiOperation';
-import IThumbnailApiModel from '../../../api/thumbnail/IThumbnailApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../ApiOperation.js';
+import IThumbnailApiModel from '../../../api/thumbnail/IThumbnailApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
 
 export const post: Operation = async (_req, res) => {
     const thumbnailApiModel = container.get<IThumbnailApiModel>('IThumbnailApiModel');

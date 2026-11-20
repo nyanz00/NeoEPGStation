@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const { test } = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const repoRoot = path.resolve(__dirname, '../..');

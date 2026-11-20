@@ -1,7 +1,7 @@
-import { Operation } from '../../ApiOperation';
-import IDiscordNotificationModel from '../../../operator/discord/IDiscordNotificationModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../ApiOperation.js';
+import IDiscordNotificationModel from '../../../operator/discord/IDiscordNotificationModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
 
 export const post: Operation = async (req, res) => {
     try {

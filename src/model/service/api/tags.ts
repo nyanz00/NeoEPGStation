@@ -1,8 +1,8 @@
-import { Operation } from '../ApiOperation';
-import * as apid from '../../../../api';
-import IRecordedTagApiModel from '../../api/recordedTag/IRecordedTagApiModel';
-import container from '../../ModelContainer';
-import * as api from '../api';
+import { Operation } from '../ApiOperation.js';
+import * as apid from '../../../../api.js';
+import IRecordedTagApiModel from '../../api/recordedTag/IRecordedTagApiModel.js';
+import container from '../../ModelContainer.js';
+import * as api from '../api.js';
 
 export const get: Operation = async (req, res) => {
     const recordedTagApiModel = container.get<IRecordedTagApiModel>('IRecordedTagApiModel');

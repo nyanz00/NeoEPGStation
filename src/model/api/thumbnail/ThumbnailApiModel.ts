@@ -1,11 +1,11 @@
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import IThumbnailDB from '../../db/IThumbnailDB';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import IIPCClient from '../../ipc/IIPCClient';
-import IThumbnailApiModel from './IThumbnailApiModel';
+import * as apid from '../../../../api.js';
+import IThumbnailDB from '../../db/IThumbnailDB.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import IThumbnailApiModel from './IThumbnailApiModel.js';
 
 @injectable()
 export default class ThumbnailApiModel implements IThumbnailApiModel {

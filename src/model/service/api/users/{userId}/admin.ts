@@ -1,9 +1,9 @@
-import { Operation } from '../../../ApiOperation';
-import * as apid from '../../../../../../api';
-import IUserApiModel from '../../../../api/user/IUserApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
-import { AdminAccessError, requireActiveAdmin } from '../../adminAccess';
+import { Operation } from '../../../ApiOperation.js';
+import * as apid from '../../../../../../api.js';
+import IUserApiModel from '../../../../api/user/IUserApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
+import { AdminAccessError, requireActiveAdmin } from '../../adminAccess.js';
 
 export const put: Operation = async (req, res) => {
     const option: unknown = req.body;

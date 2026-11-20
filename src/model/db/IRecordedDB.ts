@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
 
 export interface RecordedColumnOption {
     isNeedVideoFiles: boolean;

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 function loadTypeScriptModule(relativePath) {

@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import Thumbnail from '../../db/entities/Thumbnail';
+import * as apid from '../../../api.js';
+import Thumbnail from '../../db/entities/Thumbnail.js';
 
 export default interface IThumbnailDB {
     restore(items: Thumbnail[]): Promise<void>;

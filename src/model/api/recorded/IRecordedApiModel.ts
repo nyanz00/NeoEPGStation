@@ -1,5 +1,5 @@
-import * as apid from '../../../../api';
-import { UploadedVideoFileOption } from '../../operator/recorded/IRecordedManageModel';
+import * as apid from '../../../../api.js';
+import { UploadedVideoFileOption } from '../../operator/recorded/IRecordedManageModel.js';
 
 export default interface IRecordedApiModel {
     gets(option: apid.GetRecordedOption): Promise<apid.Records>;

@@ -1,12 +1,12 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import DropLogFile from '../../db/entities/DropLogFile';
-import Recorded from '../../db/entities/Recorded';
-import Thumbnail from '../../db/entities/Thumbnail';
-import VideoFile from '../../db/entities/VideoFile';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import IDropLogFileDB, { UpdateCntOption } from './IDropLogFileDB';
+import * as apid from '../../../api.js';
+import DropLogFile from '../../db/entities/DropLogFile.js';
+import Recorded from '../../db/entities/Recorded.js';
+import Thumbnail from '../../db/entities/Thumbnail.js';
+import VideoFile from '../../db/entities/VideoFile.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import IDropLogFileDB, { UpdateCntOption } from './IDropLogFileDB.js';
 
 @injectable()
 export default class DropLogFileDB implements IDropLogFileDB {

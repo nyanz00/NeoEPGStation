@@ -1,7 +1,7 @@
-import { Operation } from '../../../ApiOperation';
-import IJikkyoApiModel from '../../../../api/jikkyo/IJikkyoApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
+import { Operation } from '../../../ApiOperation.js';
+import IJikkyoApiModel from '../../../../api/jikkyo/IJikkyoApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
 
 export const get: Operation = async (req, res) => {
     const jikkyoApiModel = container.get<IJikkyoApiModel>('IJikkyoApiModel');

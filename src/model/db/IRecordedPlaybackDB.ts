@@ -1,4 +1,4 @@
-import RecordedPlayback from '../../db/entities/RecordedPlayback';
+import RecordedPlayback from '../../db/entities/RecordedPlayback.js';
 
 export interface RecordedPlaybackUpdate {
     position: number;

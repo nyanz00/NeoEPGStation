@@ -1,9 +1,9 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IRuleEvent from './IRuleEvent';
+import * as apid from '../../../api.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IRuleEvent from './IRuleEvent.js';
 
 @injectable()
 class RuleEvent implements IRuleEvent {

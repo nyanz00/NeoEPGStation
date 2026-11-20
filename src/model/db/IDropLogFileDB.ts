@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import DropLogFile from '../../db/entities/DropLogFile';
+import * as apid from '../../../api.js';
+import DropLogFile from '../../db/entities/DropLogFile.js';
 
 export interface UpdateCntOption {
     id: apid.DropLogFileId;

@@ -1,17 +1,18 @@
+import { fileURLToPath } from 'node:url';
 import axios from 'axios';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { inject, injectable } from 'inversify';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import Recorded from '../../../db/entities/Recorded';
-import Reserve from '../../../db/entities/Reserve';
-import IChannelDB from '../../db/IChannelDB';
-import IRecordedDB from '../../db/IRecordedDB';
-import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IDiscordNotificationModel from './IDiscordNotificationModel';
+import * as apid from '../../../../api.js';
+import Recorded from '../../../db/entities/Recorded.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import IChannelDB from '../../db/IChannelDB.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IDiscordNotificationModel from './IDiscordNotificationModel.js';
 
 interface StoredDestination {
     id: string;
@@ -49,7 +50,15 @@ export default class DiscordNotificationModel implements IDiscordNotificationMod
     private static readonly FINISH_DELAY = 1_500;
     private static readonly FAILED_TTL = 60_000;
     private static readonly ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-    private readonly root = path.join(__dirname, '..', '..', '..', '..', 'data', 'viewer-profiles');
+    private readonly root = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        '..',
+        'data',
+        'viewer-profiles',
+    );
     private readonly settingsPath = path.join(this.root, 'discord-notification.json');
     private readonly keyPath = path.join(this.root, 'credential.key');
     private readonly pendingFinish = new Map<number, NodeJS.Timeout>();

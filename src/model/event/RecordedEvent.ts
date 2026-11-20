@@ -1,10 +1,10 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IRecordedEvent from './IRecordedEvent';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IRecordedEvent from './IRecordedEvent.js';
 
 @injectable()
 class RecordedEvent implements IRecordedEvent {

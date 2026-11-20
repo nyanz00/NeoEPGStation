@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const axios = require('axios');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const previousTypeScriptLoader = require.extensions['.ts'];

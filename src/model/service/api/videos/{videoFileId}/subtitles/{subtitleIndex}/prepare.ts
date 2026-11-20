@@ -1,7 +1,7 @@
-import { Operation } from '../../../../../ApiOperation';
-import IVideoApiModel from '../../../../../../api/video/IVideoApiModel';
-import container from '../../../../../../ModelContainer';
-import * as api from '../../../../../api';
+import { Operation } from '../../../../../ApiOperation.js';
+import IVideoApiModel from '../../../../../../api/video/IVideoApiModel.js';
+import container from '../../../../../../ModelContainer.js';
+import * as api from '../../../../../api.js';
 
 export const post: Operation = async (req, res) => {
     const videoApiModel = container.get<IVideoApiModel>('IVideoApiModel');

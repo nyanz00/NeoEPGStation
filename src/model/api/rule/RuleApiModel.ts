@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IReserveDB from '../../db/IReserveDB';
-import IRuleDB from '../../db/IRuleDB';
-import IAnnictRuleLinkDB from '../../db/IAnnictRuleLinkDB';
-import IIPCClient from '../../ipc/IIPCClient';
-import IRuleApiModel from './IRuleApiModel';
+import * as apid from '../../../../api.js';
+import IReserveDB from '../../db/IReserveDB.js';
+import IRuleDB from '../../db/IRuleDB.js';
+import IAnnictRuleLinkDB from '../../db/IAnnictRuleLinkDB.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import IRuleApiModel from './IRuleApiModel.js';
 
 @injectable()
 export default class RuleApiModel implements IRuleApiModel {

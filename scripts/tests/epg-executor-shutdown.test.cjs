@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const sourcePath = path.resolve(__dirname, '../../src/model/epgUpdater/EPGUpdateExecutorManageModel.ts');
@@ -51,6 +52,7 @@ function loadManager(children) {
             injectable: () => target => target,
         },
         path,
+        'node:url': require('node:url'),
         '../../util/ProcessUtil': { default: { kill: async child => child.emit('exit', null, 'SIGKILL') } },
     };
     const loadedModule = { exports: {} };
@@ -63,6 +65,7 @@ function loadManager(children) {
                 return mocks[request] ?? {};
             },
             __dirname: path.dirname(sourcePath),
+            __filename: sourcePath,
             process: { argv: ['node'] },
             setTimeout,
             clearTimeout,

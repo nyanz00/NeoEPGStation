@@ -1,8 +1,8 @@
-import IVideoCommentApiModel from '../../../../api/video/IVideoCommentApiModel';
-import { VideoCommentRequestError } from '../../../../api/video/VideoCommentApiModel';
-import container from '../../../../ModelContainer';
-import { Operation } from '../../../ApiOperation';
-import * as api from '../../../api';
+import IVideoCommentApiModel from '../../../../api/video/IVideoCommentApiModel.js';
+import { VideoCommentRequestError } from '../../../../api/video/VideoCommentApiModel.js';
+import container from '../../../../ModelContainer.js';
+import { Operation } from '../../../ApiOperation.js';
+import * as api from '../../../api.js';
 
 export const get: Operation = async (req, res) => {
     try {

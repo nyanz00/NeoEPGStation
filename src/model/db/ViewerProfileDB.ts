@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
-import ViewerCredential from '../../db/entities/ViewerCredential';
-import ViewerProfile from '../../db/entities/ViewerProfile';
-import ViewerProfileSession from '../../db/entities/ViewerProfileSession';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import IViewerProfileDB from './IViewerProfileDB';
+import ViewerCredential from '../../db/entities/ViewerCredential.js';
+import ViewerProfile from '../../db/entities/ViewerProfile.js';
+import ViewerProfileSession from '../../db/entities/ViewerProfileSession.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import IViewerProfileDB from './IViewerProfileDB.js';
 
 @injectable()
 export default class ViewerProfileDB implements IViewerProfileDB {

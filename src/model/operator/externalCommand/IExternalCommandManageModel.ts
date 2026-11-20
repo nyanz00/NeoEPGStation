@@ -1,7 +1,7 @@
-import Recorded from '../../../db/entities/Recorded';
-import Reserve from '../../../db/entities/Reserve';
-import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent';
-import { IReserveUpdateValues } from '../../event/IReserveEvent';
+import Recorded from '../../../db/entities/Recorded.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../../event/IOperatorEncodeEvent.js';
+import { IReserveUpdateValues } from '../../event/IReserveEvent.js';
 
 export default interface IExternalCommandManageModel {
     addUpdateReseves(diff: IReserveUpdateValues): void;

@@ -1,6 +1,6 @@
 import { Request } from 'express';
-import IViewerProfileApiModel from '../../api/viewerProfile/IViewerProfileApiModel';
-import container from '../../ModelContainer';
+import IViewerProfileApiModel from '../../api/viewerProfile/IViewerProfileApiModel.js';
+import container from '../../ModelContainer.js';
 
 export async function getViewerProfileId(req: Request, requireUnlocked = true): Promise<number | undefined> {
     const rawId = req.header('x-viewer-profile-id');

@@ -1,5 +1,5 @@
-import * as apid from '../../../api';
-import VideoFile from '../../db/entities/VideoFile';
+import * as apid from '../../../api.js';
+import VideoFile from '../../db/entities/VideoFile.js';
 
 export interface UpdateFilePathOption {
     videoFileId: apid.VideoFileId;

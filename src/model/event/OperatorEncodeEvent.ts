@@ -1,8 +1,8 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IOperatorEncodeEvent, { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from './IOperatorEncodeEvent';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IOperatorEncodeEvent, { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from './IOperatorEncodeEvent.js';
 
 @injectable()
 class OperatorEncodeEvent implements IOperatorEncodeEvent {

@@ -8,6 +8,7 @@ const Ajv = require('ajv');
 const express = require('express');
 const openapi = require('express-openapi');
 const yaml = require('js-yaml');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const repoRoot = path.resolve(__dirname, '../..');

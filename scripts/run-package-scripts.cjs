@@ -1,5 +1,6 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const { getBuildEnvironment } = require('./preflight-resources.cjs');
 
 const args = process.argv.slice(2);
 let cwd = process.cwd();
@@ -40,7 +41,7 @@ for (const script of args) {
           : ['run', script];
     const result = spawnSync(command, commandArgs, {
         cwd,
-        env: process.env,
+        env: getBuildEnvironment(process.env),
         stdio: 'inherit',
     });
 

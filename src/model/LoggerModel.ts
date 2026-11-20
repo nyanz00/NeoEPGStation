@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import { injectable } from 'inversify';
 import * as yaml from 'js-yaml';
-import * as log4js from 'log4js';
+import log4js from 'log4js';
 import * as path from 'path';
-import ILogger from './ILogger';
-import ILoggerModel from './ILoggerModel';
-import { isSystemLogLevel, readRuntimeLogLevels, runtimeLogLevelPath } from './RuntimeLogLevel';
-import { expandLogConfigPaths } from '../util/LogConfig';
+import ILogger from './ILogger.js';
+import ILoggerModel from './ILoggerModel.js';
+import { isSystemLogLevel, readRuntimeLogLevels, runtimeLogLevelPath } from './RuntimeLogLevel.js';
+import { expandLogConfigPaths } from '../util/LogConfig.js';
 
 /**
  * Logger

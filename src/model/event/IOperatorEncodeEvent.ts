@@ -1,4 +1,4 @@
-import * as apid from '../../../api';
+import * as apid from '../../../api.js';
 
 /**
  * 追加されたビデオファイル情報

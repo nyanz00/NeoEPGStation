@@ -1,7 +1,7 @@
-import { Operation } from '../ApiOperation';
-import IStreamApiModel from '../../api/stream/IStreamApiModel';
-import container from '../../ModelContainer';
-import * as api from '../api';
+import { Operation } from '../ApiOperation.js';
+import IStreamApiModel from '../../api/stream/IStreamApiModel.js';
+import container from '../../ModelContainer.js';
+import * as api from '../api.js';
 
 export const get: Operation = async (req, res) => {
     const streamApiModel = container.get<IStreamApiModel>('IStreamApiModel');

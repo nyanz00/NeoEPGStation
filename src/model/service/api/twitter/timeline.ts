@@ -1,8 +1,8 @@
-import { Operation } from '../../ApiOperation';
-import ITwitterApiModel from '../../../api/twitter/ITwitterApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
-import { getViewerProfileId } from '../viewerProfileSession';
+import { Operation } from '../../ApiOperation.js';
+import ITwitterApiModel from '../../../api/twitter/ITwitterApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
+import { getViewerProfileId } from '../viewerProfileSession.js';
 
 export const get: Operation = async (req, res) => {
     try {

@@ -1,9 +1,9 @@
-import { Operation } from '../../../ApiOperation';
-import * as apid from '../../../../../../api';
-import IAnnictApiModel from '../../../../api/annict/IAnnictApiModel';
-import container from '../../../../ModelContainer';
-import * as api from '../../../api';
-import { getViewerProfileId } from '../../viewerProfileSession';
+import { Operation } from '../../../ApiOperation.js';
+import * as apid from '../../../../../../api.js';
+import IAnnictApiModel from '../../../../api/annict/IAnnictApiModel.js';
+import container from '../../../../ModelContainer.js';
+import * as api from '../../../api.js';
+import { getViewerProfileId } from '../../viewerProfileSession.js';
 
 function recordedId(value: string): number {
     const id = Number(value);

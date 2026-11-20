@@ -1,8 +1,8 @@
-import { Operation } from '../../ApiOperation';
-import * as apid from '../../../../../api';
-import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
+import { Operation } from '../../ApiOperation.js';
+import * as apid from '../../../../../api.js';
+import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
 
 export const post: Operation = async (req, res) => {
     const recordedApiModel = container.get<IRecordedApiModel>('IRecordedApiModel');

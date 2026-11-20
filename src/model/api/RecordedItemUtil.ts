@@ -1,9 +1,9 @@
 import * as path from 'path';
 import { injectable } from 'inversify';
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import { EncodeRecordedIdIndex } from '../service/encode/IEncodeManageModel';
-import IRecordedItemUtil from './IRecordedItemUtil';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import { EncodeRecordedIdIndex } from '../service/encode/IEncodeManageModel.js';
+import IRecordedItemUtil from './IRecordedItemUtil.js';
 
 @injectable()
 export default class RecordedItemUtil implements IRecordedItemUtil {

@@ -1,4 +1,4 @@
-import Reserve from '../../db/entities/Reserve';
+import Reserve from '../../db/entities/Reserve.js';
 
 export interface IReserveUpdateValues {
     insert?: Reserve[];

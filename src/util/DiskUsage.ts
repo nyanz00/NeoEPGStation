@@ -1,5 +1,5 @@
 import { statfs } from 'fs/promises';
-import type { DiskUsage } from '../../api';
+import type { DiskUsage } from '../../api.js';
 
 /** Query the filesystem containing the path without invoking platform commands. */
 export async function getDiskUsage(dirPath: string): Promise<DiskUsage> {

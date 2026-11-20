@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import Reserve from '../../../db/entities/Reserve';
-import IReserveDB from '../../db/IReserveDB';
-import IIPCClient from '../../ipc/IIPCClient';
-import IReserveApiModel from './IReserveApiModel';
+import * as apid from '../../../../api.js';
+import Reserve from '../../../db/entities/Reserve.js';
+import IReserveDB from '../../db/IReserveDB.js';
+import IIPCClient from '../../ipc/IIPCClient.js';
+import IReserveApiModel from './IReserveApiModel.js';
 
 @injectable()
 export default class ReserveApiModel implements IReserveApiModel {

@@ -1,9 +1,9 @@
 import { Request } from 'express';
-import { Operation } from '../../ApiOperation';
-import IBlueskyApiModel from '../../../api/bluesky/IBlueskyApiModel';
-import container from '../../../ModelContainer';
-import * as api from '../../api';
-import { getViewerProfileId } from '../viewerProfileSession';
+import { Operation } from '../../ApiOperation.js';
+import IBlueskyApiModel from '../../../api/bluesky/IBlueskyApiModel.js';
+import container from '../../../ModelContainer.js';
+import * as api from '../../api.js';
+import { getViewerProfileId } from '../viewerProfileSession.js';
 
 async function requireViewerProfileId(req: Request): Promise<number> {
     const profileId = await getViewerProfileId(req);

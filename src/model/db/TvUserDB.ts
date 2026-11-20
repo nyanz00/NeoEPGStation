@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import TvUser from '../../db/entities/TvUser';
-import IPromiseRetry from '../IPromiseRetry';
-import IDBOperator from './IDBOperator';
-import ITvUserDB from './ITvUserDB';
+import * as apid from '../../../api.js';
+import TvUser from '../../db/entities/TvUser.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IDBOperator from './IDBOperator.js';
+import ITvUserDB from './ITvUserDB.js';
 
 @injectable()
 export default class TvUserDB implements ITvUserDB {

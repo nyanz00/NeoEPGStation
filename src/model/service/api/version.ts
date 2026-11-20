@@ -1,13 +1,19 @@
-import { Operation } from '../ApiOperation';
+import { fileURLToPath } from 'node:url';
+import { Operation } from '../ApiOperation.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import UpdateManager from '../../update/UpdateManager';
-import * as api from '../api';
+import UpdateManager from '../../update/UpdateManager.js';
+import * as api from '../api.js';
 
 export const get: Operation = async (_req, res) => {
     try {
         const pkg = <any>(
-            JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'package.json'), 'utf-8'))
+            JSON.parse(
+                fs.readFileSync(
+                    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'package.json'),
+                    'utf-8',
+                ),
+            )
         );
         api.responseJSON(res, 200, {
             version: pkg.version,
