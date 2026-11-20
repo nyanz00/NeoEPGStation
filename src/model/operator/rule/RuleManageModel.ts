@@ -1,13 +1,14 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../../api';
-import IRuleDB from '../../db/IRuleDB';
-import IRuleEvent from '../../event/IRuleEvent';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IReserveOptionChecker from '../IReserveOptionChecker';
-import IRuleManageModel from './IRuleManageModel';
-import IConfiguration from '../../IConfiguration';
-import removeMissingEncodePresets from './removeMissingEncodePresets';
+import * as apid from '../../../../api.js';
+import { hasSubDirectoryOutsideRoot, INVALID_SUB_DIRECTORY_ERROR } from '../../../util/SubDirectoryUtil.js';
+import IRuleDB from '../../db/IRuleDB.js';
+import IRuleEvent from '../../event/IRuleEvent.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IReserveOptionChecker from '../IReserveOptionChecker.js';
+import IRuleManageModel from './IRuleManageModel.js';
+import IConfiguration from '../../IConfiguration.js';
+import removeMissingEncodePresets from './removeMissingEncodePresets.js';
 
 @injectable()
 export default class RuleManageModel implements IRuleManageModel {
@@ -57,6 +58,8 @@ export default class RuleManageModel implements IRuleManageModel {
      * @return Promise<apid.Rule>
      */
     public async add(rule: apid.AddRuleOption): Promise<apid.RuleId> {
+        if (hasSubDirectoryOutsideRoot(rule.saveOption, rule.encodeOption))
+            throw new Error(INVALID_SUB_DIRECTORY_ERROR);
         await this.lockExecution();
         try {
             this.log.system.info('add rule');
@@ -92,6 +95,8 @@ export default class RuleManageModel implements IRuleManageModel {
      * @param rule: apid.Rule
      */
     public async update(rule: apid.Rule): Promise<void> {
+        if (hasSubDirectoryOutsideRoot(rule.saveOption, rule.encodeOption))
+            throw new Error(INVALID_SUB_DIRECTORY_ERROR);
         await this.lockExecution();
         try {
             // rule が存在するか確認

@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import ChannelTypeUtil from '../../util/ChannelTypeUtil';
-import IConfigFile from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import IReserveOptionChecker from './IReserveOptionChecker';
+import * as apid from '../../../api.js';
+import ChannelTypeUtil from '../../util/ChannelTypeUtil.js';
+import IConfigFile from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import IReserveOptionChecker from './IReserveOptionChecker.js';
 
 export interface KeywordOption {
     cs: boolean;
@@ -100,6 +100,7 @@ export default class ReserveOptionChecker implements IReserveOptionChecker {
                 !!option.BS === true ||
                 !!option.CS === true ||
                 !!option.SKY === true ||
+                !!option.BS4K === true ||
                 ChannelTypeUtil.getRuleChannelTypes(option).length > 0
             ) {
                 return false;

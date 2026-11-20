@@ -128,6 +128,11 @@ export default class Rule extends BaseEntity {
     public SKY: boolean = false; // SKY
 
     @Column({
+        default: false,
+    })
+    public BS4K: boolean = false; // BS4K
+
+    @Column({
         type: 'text',
         nullable: true,
     })

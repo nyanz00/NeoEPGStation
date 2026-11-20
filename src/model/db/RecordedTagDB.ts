@@ -1,12 +1,12 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import RecordedTag from '../../db/entities/RecordedTag';
-import StrUtil from '../../util/StrUtil';
-import IPromiseRetry from '../IPromiseRetry';
-import DBUtil from './DBUtil';
-import IDBOperator from './IDBOperator';
-import IRecordedTagDB from './IRecordedTagDB';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import RecordedTag from '../../db/entities/RecordedTag.js';
+import StrUtil from '../../util/StrUtil.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import DBUtil from './DBUtil.js';
+import IDBOperator from './IDBOperator.js';
+import IRecordedTagDB from './IRecordedTagDB.js';
 
 @injectable()
 export default class RecordedTagDB implements IRecordedTagDB {
@@ -257,14 +257,12 @@ export default class RecordedTagDB implements IRecordedTagDB {
             queryBuilder = queryBuilder.andWhere(q.query, q.values);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder = queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder = queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder = queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder = queryBuilder.take(pagination.limit);
         }
 
         return await this.promieRetry.run(() => {

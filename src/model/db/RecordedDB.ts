@@ -1,14 +1,14 @@
 import { inject, injectable } from 'inversify';
 import { In } from 'typeorm';
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import Thumbnail from '../../db/entities/Thumbnail';
-import VideoFile from '../../db/entities/VideoFile';
-import StrUtil from '../../util/StrUtil';
-import IPromiseRetry from '../IPromiseRetry';
-import DBUtil from './DBUtil';
-import IDBOperator from './IDBOperator';
-import IRecordedDB, { FindAllOption, RecordedColumnOption } from './IRecordedDB';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import Thumbnail from '../../db/entities/Thumbnail.js';
+import VideoFile from '../../db/entities/VideoFile.js';
+import StrUtil from '../../util/StrUtil.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import DBUtil from './DBUtil.js';
+import IDBOperator from './IDBOperator.js';
+import IRecordedDB, { FindAllOption, RecordedColumnOption } from './IRecordedDB.js';
 
 @injectable()
 export default class RecordedDB implements IRecordedDB {
@@ -528,14 +528,12 @@ export default class RecordedDB implements IRecordedDB {
             queryBuilder = queryBuilder.andWhere(q.query, q.values);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder.take(pagination.limit);
         }
 
         // order by

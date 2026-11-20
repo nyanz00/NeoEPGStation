@@ -1,5 +1,5 @@
-import * as apid from '../../../../api';
-import IConfigFile from '../../IConfigFile';
+import * as apid from '../../../../api.js';
+import IConfigFile from '../../IConfigFile.js';
 
 /** Remove only slots whose preset no longer exists, including their dependent settings. */
 export default function removeMissingEncodePresets(rule: apid.AddRuleOption, config: IConfigFile): boolean {

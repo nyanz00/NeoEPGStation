@@ -1,12 +1,12 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import Reserve from '../../db/entities/Reserve';
-import Rule from '../../db/entities/Rule';
-import StrUtil from '../../util/StrUtil';
-import IPromiseRetry from '../IPromiseRetry';
-import DBUtil from './DBUtil';
-import IDBOperator from './IDBOperator';
-import IRuleDB, { RuleWithCnt } from './IRuleDB';
+import * as apid from '../../../api.js';
+import Reserve from '../../db/entities/Reserve.js';
+import Rule from '../../db/entities/Rule.js';
+import StrUtil from '../../util/StrUtil.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import DBUtil from './DBUtil.js';
+import IDBOperator from './IDBOperator.js';
+import IRuleDB, { RuleWithCnt } from './IRuleDB.js';
 
 @injectable()
 export default class RuleDB implements IRuleDB {
@@ -232,6 +232,7 @@ export default class RuleDB implements IRuleDB {
             BS: !!rule.searchOption.BS,
             CS: !!rule.searchOption.CS,
             SKY: !!rule.searchOption.SKY,
+            BS4K: !!rule.searchOption.BS4K,
             channelTypes:
                 typeof rule.searchOption.channelTypes === 'undefined'
                     ? null
@@ -417,6 +418,7 @@ export default class RuleDB implements IRuleDB {
                 BS: rule.BS,
                 CS: rule.CS,
                 SKY: rule.SKY,
+                BS4K: rule.BS4K,
                 isFree: rule.isFree,
             },
             reserveOption: {
@@ -597,14 +599,12 @@ export default class RuleDB implements IRuleDB {
             this.setReserveTypeQuery(queryBuilder, option.type);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder = queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder = queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder = queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder = queryBuilder.take(pagination.limit);
         }
 
         // order by
@@ -719,14 +719,12 @@ export default class RuleDB implements IRuleDB {
             queryBuilder = queryBuilder.andWhere(DBUtil.createOrQuery(or), values);
         }
 
-        // offset
-        if (typeof option.offset !== 'undefined') {
-            queryBuilder = queryBuilder.skip(option.offset);
+        const pagination = DBUtil.resolvePagination(option.offset, option.limit, connection.options.type);
+        if (typeof pagination.offset !== 'undefined') {
+            queryBuilder = queryBuilder.skip(pagination.offset);
         }
-
-        // limit
-        if (typeof option.limit !== 'undefined') {
-            queryBuilder = queryBuilder.take(option.limit);
+        if (typeof pagination.limit !== 'undefined') {
+            queryBuilder = queryBuilder.take(pagination.limit);
         }
 
         const result = await this.promieRetry.run(() => {

@@ -107,13 +107,15 @@ namespace StrUtil {
      * @return string
      */
     export const deleteBrackets = (str: string): string => {
+        const former = ['\u{1f21c}', '[前]'].some(key => str.includes(key)) ? '[前]' : '';
+        const latter = ['\u{1f21d}', '[後]'].some(key => str.includes(key)) ? '[後]' : '';
         // 囲み文字を削除
         for (const key in enclosedCharactersConvertTable) {
             str = str.replaceAll(key, '');
         }
 
         // [] でくくられた文字を削除 + 先頭と末尾のスペースを削除する
-        return str.replace(/\[.+?\]/g, '').trim();
+        return str.replace(/\[.+?\]/g, '').trim() + former + latter;
     };
 
     /**

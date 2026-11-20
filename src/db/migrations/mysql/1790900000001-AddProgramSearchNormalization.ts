@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { backfillProgramSearchNormalization, programSearchColumns } from '../ProgramSearchNormalization';
+import { backfillProgramSearchNormalization, programSearchColumns } from '../ProgramSearchNormalization.js';
 
 export class AddProgramSearchNormalization1790900000001 implements MigrationInterface {
     name = 'AddProgramSearchNormalization1790900000001';

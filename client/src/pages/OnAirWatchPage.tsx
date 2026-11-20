@@ -52,7 +52,7 @@ import { GuideProgramDialog, reserveIndex } from './GuidePage';
 
 type PanelTab = 'program' | 'channels' | 'comments' | 'twitter';
 
-const waveOrder: ChannelType[] = ['GR', 'GR-ALT1', 'GR-ALT2', 'GR-ALT3', 'BS', 'CS', 'SKY'];
+const waveOrder: ChannelType[] = ['GR', 'GR-ALT1', 'GR-ALT2', 'GR-ALT3', 'BS', 'CS', 'SKY', 'BS4K'];
 
 function waveSort(left: string, right: string): number {
     const leftIndex = waveOrder.indexOf(left as ChannelType);
