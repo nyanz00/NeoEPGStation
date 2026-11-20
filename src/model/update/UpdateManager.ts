@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import * as childProcess from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -11,15 +12,23 @@ import type {
     SystemUpdateRelation,
     SystemUpdateRemoteTarget,
     SystemUpdateTarget,
-} from '../../../api';
-import { isExpectedUpdateRepository, REACT_RELEASE_BASE_COMMIT, STABLE_UPDATE_TAG_PATTERN } from './UpdateValidation';
+} from '../../../api.js';
+import {
+    isExpectedUpdateRepository,
+    REACT_RELEASE_BASE_COMMIT,
+    STABLE_UPDATE_TAG_PATTERN,
+} from './UpdateValidation.js';
 import {
     createUpdateCommandInvocation,
     createUpdatePackageEnvironment,
     stripUpdateLogControlSequences,
-} from './UpdateCommand';
-import { shouldInstallUpdateDependencies } from './UpdateDependency';
-import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser';
+    resolveUpdatePackageCommand,
+    decodeUpdateCommandOutput,
+} from './UpdateCommand.js';
+import { shouldInstallUpdateDependencies } from './UpdateDependency.js';
+import { getWinserChangeBlockReason, resolveWinserResolution } from './UpdateWinser.js';
+import { assertUpdateNodeRuntime } from './UpdateNodeRuntime.js';
+import { captureUpdateArtifacts, restoreUpdateArtifacts } from './UpdateArtifacts.js';
 
 const execFile = promisify(childProcess.execFile);
 const REPOSITORY_URL = 'https://github.com/nyanz00/NeoEPGStation.git';
@@ -104,7 +113,7 @@ export default class UpdateManager {
     }
 
     private constructor() {
-        this.rootDir = path.resolve(__dirname, '..', '..', '..');
+        this.rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
         this.updateDir = path.join(this.rootDir, 'data', 'update');
         this.statePath = path.join(this.updateDir, 'state.json');
         this.gitExecutable = this.resolveGitExecutable();
@@ -236,6 +245,7 @@ export default class UpdateManager {
         let oldCommit: string | null = null;
         let oldBranch: string | null = null;
         let switched = false;
+        let artifactBackup: string | null = null;
         try {
             this.setStage(job, 'checking', 'Gitリポジトリと更新対象を確認しています');
             await this.assertRepository();
@@ -282,10 +292,15 @@ export default class UpdateManager {
                 return;
             }
             const relation = await this.getTargetRelation(job.target, oldCommit, targetCommit);
+            const targetManifest = JSON.parse(await this.gitRequiredText(['show', `${targetCommit}:package.json`]));
+            assertUpdateNodeRuntime(targetManifest, process.version);
             const applicability = await this.getTargetApplicability(job.target, relation, oldCommit, targetCommit);
             if (!applicability.canApply)
                 throw new Error(applicability.blockedReason ?? '選択した更新先へ切り替えられません');
             const manager = requestedManager === 'auto' ? this.detectPackageManager() : requestedManager;
+            // Validate the exact executable used for install/build/rollback before
+            // switching code or touching dependencies.
+            await this.runLogged(manager, ['--version']);
             await this.assertWindowsServiceWinserUnchanged(oldCommit, targetCommit, manager);
 
             if ((await this.gitRequiredText(['status', '--porcelain'])) !== '') {
@@ -303,7 +318,7 @@ export default class UpdateManager {
             }
 
             this.setStage(job, 'backing-up', 'DBとconfig.ymlをバックアップしています');
-            await this.createBackup(job.id);
+            artifactBackup = await this.createBackup(job.id);
 
             job.packageManager = manager;
             this.state.preferredPackageManager = manager;
@@ -382,7 +397,12 @@ export default class UpdateManager {
                         await this.git(['checkout', '--detach', oldCommit]);
                     }
                     if (job.installRan) await this.install(job.packageManager === 'pnpm' ? 'pnpm' : 'npm');
-                    await this.build(job.packageManager === 'pnpm' ? 'pnpm' : 'npm');
+                    if (artifactBackup !== null) {
+                        await restoreUpdateArtifacts(this.rootDir, path.join(artifactBackup, 'artifacts'));
+                        this.append(job, '更新前のビルド成果物を復元しました');
+                    } else {
+                        throw new Error('更新前のビルド成果物が見つかりません');
+                    }
                     await this.restoreStashedChanges(job);
                     job.rollback = 'success';
                     this.finish(job, 'rolled-back', 'failed', '更新に失敗したため、更新前のコードへ復旧しました');
@@ -618,7 +638,10 @@ export default class UpdateManager {
         if (stableTarget !== null && targets.stableHead !== null && currentCommit !== null) {
             if (currentCommit === targets.stableHead) {
                 stableTarget = targets.previousStable ?? { ...stableTarget, commit: targets.stableHead };
-            } else if ((await this.isAncestor(currentCommit, targets.stableHead)) === true) {
+            } else if ((await this.isAncestor(stableTarget.commit, targets.stableHead)) === true) {
+                // Follow reviewed fixes after the release tag for develop users
+                // too. The tag's original tree may have no develop counterpart
+                // after a release-note correction was synchronized separately.
                 stableTarget = { ...stableTarget, commit: targets.stableHead };
             }
         }
@@ -811,6 +834,12 @@ export default class UpdateManager {
         if (this.state.job !== undefined) this.append(this.state.job, `$ ${display}`);
         try {
             const environment = command === 'npm' || command === 'pnpm' ? createUpdatePackageEnvironment() : undefined;
+            if (environment !== undefined && process.platform === 'win32') {
+                const pathKey = Object.keys(environment).find(key => key.toLowerCase() === 'path') ?? 'Path';
+                environment[pathKey] = [path.dirname(process.execPath), path.dirname(executable), environment[pathKey]]
+                    .filter(Boolean)
+                    .join(path.delimiter);
+            }
             const result = await this.command(executable, args, cwd, environment);
             if (this.state.job !== undefined) {
                 const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
@@ -821,7 +850,7 @@ export default class UpdateManager {
         }
     }
 
-    private async createBackup(jobId: string): Promise<void> {
+    private async createBackup(jobId: string): Promise<string> {
         const backupsDir = path.join(this.updateDir, 'backups');
         const temporary = path.join(backupsDir, `.creating-${jobId}`);
         const destination = path.join(backupsDir, new Date().toISOString().replace(/[:.]/g, '-'));
@@ -840,16 +869,18 @@ export default class UpdateManager {
             const database = path.join(temporary, 'database.json');
             if (fs.statSync(database).size === 0) throw new Error('DBバックアップが空です');
             JSON.parse(fs.readFileSync(database, 'utf8'));
+            await captureUpdateArtifacts(this.rootDir, path.join(temporary, 'artifacts'));
             fs.renameSync(temporary, destination);
             const generations = fs
                 .readdirSync(backupsDir, { withFileTypes: true })
                 .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
                 .sort((a, b) => b.name.localeCompare(a.name));
             for (const old of generations.slice(3))
-                fs.rmSync(path.join(backupsDir, old.name), { recursive: true, force: true });
+                await fs.promises.rm(path.join(backupsDir, old.name), { recursive: true, force: true });
             if (this.state.job !== undefined) this.append(this.state.job, `バックアップを作成しました: ${destination}`);
+            return destination;
         } catch (err) {
-            fs.rmSync(temporary, { recursive: true, force: true });
+            await fs.promises.rm(temporary, { recursive: true, force: true });
             throw err;
         }
     }
@@ -882,15 +913,26 @@ export default class UpdateManager {
         env?: NodeJS.ProcessEnv,
     ): Promise<CommandResult> {
         const invocation = createUpdateCommandInvocation(command, args);
-        const result = await execFile(invocation.command, invocation.args, {
-            cwd,
-            env,
-            timeout: COMMAND_TIMEOUT,
-            windowsHide: true,
-            maxBuffer: 16 * 1024 * 1024,
-            encoding: 'utf8',
-        });
-        return { stdout: result.stdout, stderr: result.stderr };
+        try {
+            const result = await execFile(invocation.command, invocation.args, {
+                cwd,
+                env,
+                timeout: COMMAND_TIMEOUT,
+                windowsHide: true,
+                windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+                maxBuffer: 16 * 1024 * 1024,
+                encoding: 'buffer',
+            });
+            return {
+                stdout: decodeUpdateCommandOutput(result.stdout),
+                stderr: decodeUpdateCommandOutput(result.stderr),
+            };
+        } catch (err: any) {
+            err.stdout = decodeUpdateCommandOutput(err.stdout);
+            err.stderr = decodeUpdateCommandOutput(err.stderr);
+            if (err.stderr) err.message = `${command} failed (${err.code ?? 'unknown'}):\n${err.stderr.trim()}`;
+            throw err;
+        }
     }
 
     private resolveGitExecutable(): string {
@@ -914,8 +956,7 @@ export default class UpdateManager {
     }
 
     private resolveNodeCommandShim(command: 'npm' | 'pnpm'): string {
-        const adjacent = path.join(path.dirname(process.execPath), `${command}.cmd`);
-        return fs.existsSync(adjacent) ? adjacent : `${command}.cmd`;
+        return resolveUpdatePackageCommand(command);
     }
 
     private findWindowsUserHome(): string | null {

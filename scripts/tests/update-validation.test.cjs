@@ -131,7 +131,7 @@ test('remote refresh shares in-flight work, preserves cache on failure, and allo
     assert.match((await retry).error, /still offline/);
 });
 
-test('stable checkouts update to branch head and roll back only from its head', async () => {
+test('stable and develop checkouts target the stable branch head and roll back only from its head', async () => {
     const previous = '1'.repeat(40);
     const latest = '2'.repeat(40);
     const head = '3'.repeat(40);
@@ -167,7 +167,7 @@ test('stable checkouts update to branch head and roll back only from its head', 
     const atHead = (await updater.addTargetRelations(targets, head)).stable;
     assert.equal(atHead.commit, previous);
     assert.equal(atHead.relation, 'behind');
-    assert.equal((await updater.addTargetRelations(targets, develop)).stable.commit, latest);
+    assert.equal((await updater.addTargetRelations(targets, develop)).stable.commit, head);
 
     const noPrevious = { ...targets, previousStable: null };
     const same = (await updater.addTargetRelations(noPrevious, head)).stable;
@@ -207,7 +207,8 @@ test('Windows command shims are launched through cmd.exe', () => {
         createUpdateCommandInvocation('C:\\node\\pnpm.cmd', ['install'], 'win32', 'C:\\Windows\\cmd.exe'),
         {
             command: 'C:\\Windows\\cmd.exe',
-            args: ['/d', '/s', '/c', 'C:\\node\\pnpm.cmd', 'install'],
+            args: ['/d', '/s', '/c', '"C:\\node\\pnpm.cmd ^"install^""'],
+            windowsVerbatimArguments: true,
         },
     );
     assert.deepEqual(createUpdateCommandInvocation('git.exe', ['status'], 'win32', 'C:\\Windows\\cmd.exe'), {
@@ -216,12 +217,36 @@ test('Windows command shims are launched through cmd.exe', () => {
     });
 });
 
-test('package commands run non-interactively without discarding the service environment', () => {
-    assert.deepEqual(createUpdatePackageEnvironment({ PATH: 'C:\\node', CI: 'false' }), {
+test('package commands retain service settings and bound build worker resources', () => {
+    const environment = createUpdatePackageEnvironment({
         PATH: 'C:\\node',
-        CI: 'true',
-        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+        CI: 'false',
+        NPM_CONFIG_USERCONFIG: 'C:\\service\\.npmrc',
+        GOMAXPROCS: '1',
+        GOMEMLIMIT: '768MiB',
+        RAYON_NUM_THREADS: '1',
     });
+
+    assert.equal(environment.PATH, 'C:\\node');
+    assert.equal(environment.CI, 'true');
+    assert.equal(environment.COREPACK_ENABLE_DOWNLOAD_PROMPT, '0');
+    assert.equal(environment.NPM_CONFIG_USERCONFIG, 'C:\\service\\.npmrc');
+    assert.equal(environment.GOMAXPROCS, '1');
+    assert.equal(environment.GOMEMLIMIT, '768MiB');
+    assert.equal(environment.RAYON_NUM_THREADS, '1');
+});
+
+test('default package worker settings stay within bounded ranges and use a Go memory unit', () => {
+    const environment = createUpdatePackageEnvironment({ PATH: 'C:\\node' });
+    const goProcesses = Number(environment.GOMAXPROCS);
+    const rayonThreads = Number(environment.RAYON_NUM_THREADS);
+    const memoryLimit = /^(\d+)MiB$/.exec(environment.GOMEMLIMIT ?? '');
+
+    assert.ok(Number.isInteger(goProcesses) && goProcesses >= 1 && goProcesses <= 2);
+    assert.ok(Number.isInteger(rayonThreads) && rayonThreads >= 1 && rayonThreads <= 8);
+    assert.ok(memoryLimit, `expected a MiB memory limit, received ${environment.GOMEMLIMIT}`);
+    const memoryLimitMiB = Number(memoryLimit[1]);
+    assert.ok(memoryLimitMiB >= 512 && memoryLimitMiB <= 2048);
 });
 
 test('first updater run skips install when dependency files are unchanged', () => {
@@ -376,4 +401,92 @@ test('repackaged stable rollback still checks database compatibility', async () 
         canApply: false,
         blockedReason: 'DB schema is incompatible',
     });
+});
+
+test('stable selection follows post-tag corrections across repackaged develop history', async t => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const { execFileSync, execFile } = require('node:child_process');
+    const { promisify } = require('node:util');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-update-history-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const git = args =>
+        execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const write = (file, value) => fs.writeFileSync(path.join(root, file), value);
+    const commit = message => {
+        git(['add', '.']);
+        git(['-c', 'user.name=Updater test', '-c', 'user.email=updater@example.invalid', 'commit', '-m', message]);
+        return git(['rev-parse', 'HEAD']);
+    };
+    git(['init', '-b', 'develop']);
+    write('package.json', '{"version":"1.0.3"}\n');
+    write('feature.js', 'base\n');
+    const base = commit('base');
+    write('feature.js', 'feature one\n');
+    commit('first feature');
+    write('feature.js', 'feature one and two\n');
+    const olderDevelop = commit('second feature');
+    write('package.json', '{"version":"1.0.4"}\n');
+    write('CHANGELOG.md', 'corrected release note categories\n');
+    const source = commit('release metadata');
+    write('feature.js', 'feature one and two and three\n');
+    const newerDevelop = commit('next development');
+
+    git(['switch', '-c', 'nyanz-master', base]);
+    write('feature.js', 'feature one and two\n');
+    write('package.json', '{"version":"1.0.4"}\n');
+    write('CHANGELOG.md', 'original release note categories\n');
+    const tag = commit('repackaged release');
+    write('CHANGELOG.md', 'corrected release note categories\n');
+    const stableHead = commit('release note correction');
+    git(['update-ref', 'refs/remotes/neoe-update/nyanz-master', stableHead]);
+    git(['update-ref', 'refs/remotes/neoe-update/develop', newerDevelop]);
+    assert.equal(git(['rev-parse', `${source}^{tree}`]), git(['rev-parse', `${stableHead}^{tree}`]));
+    assert.notEqual(git(['rev-parse', `${source}^{tree}`]), git(['rev-parse', `${tag}^{tree}`]));
+
+    const updater = Object.create(UpdateManager.prototype);
+    updater.git = args => promisify(execFile)('git', args, { cwd: root, encoding: 'utf8' });
+    const isAncestor = updater.isAncestor.bind(updater);
+    updater.isAncestor = (ancestor, descendant) =>
+        ancestor === REACT_RELEASE_BASE_COMMIT ? Promise.resolve(true) : isAncestor(ancestor, descendant);
+    const makeTarget = (label, commit) => ({
+        label,
+        version: '1.0.4',
+        tag: label,
+        commit,
+        relation: 'unknown',
+        canApply: false,
+        blockedReason: null,
+    });
+    const targets = {
+        stable: makeTarget('Neo-v1.0.4', tag),
+        stableHead,
+        previousStable: makeTarget('Neo-v1.0.3', base),
+        develop: makeTarget('develop', newerDevelop),
+        checkedAt: 123,
+        error: null,
+    };
+    assert.equal(
+        await updater.getTargetRelation('stable', olderDevelop, tag),
+        'diverged',
+        'reproduces the original rejected release tree',
+    );
+    for (const current of [olderDevelop, source, tag]) {
+        const result = await updater.addTargetRelations(targets, current);
+        assert.equal(result.stable.commit, stableHead);
+        assert.equal(result.stable.label, 'Neo-v1.0.4');
+        assert.equal(result.stable.relation, 'ahead');
+        assert.equal(result.stable.canApply, true);
+    }
+    const rollback = await updater.addTargetRelations(targets, newerDevelop);
+    assert.equal(rollback.stable.commit, stableHead);
+    assert.equal(rollback.stable.relation, 'behind');
+    assert.equal(rollback.stable.canApply, true);
+    const alreadyStable = await updater.addTargetRelations(targets, stableHead);
+    assert.equal(alreadyStable.stable.commit, base, 'retain the previous-release rollback option');
+    assert.equal(alreadyStable.stable.relation, 'behind');
+
+    const unrelated = await updater.addTargetRelations({ ...targets, stableHead: newerDevelop }, olderDevelop);
+    assert.equal(unrelated.stable.commit, tag, 'do not redirect to a head outside the stable tag history');
+    assert.equal(unrelated.stable.canApply, false);
 });

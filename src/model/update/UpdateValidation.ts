@@ -1,4 +1,4 @@
-import type { StartSystemUpdateOption } from '../../../api';
+import type { StartSystemUpdateOption } from '../../../api.js';
 
 export const STABLE_UPDATE_TAG_PATTERN = /^(?:Neo-v|v?)(\d+)\.(\d+)\.(\d+)$/;
 
