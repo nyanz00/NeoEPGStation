@@ -1,16 +1,17 @@
-import { spawn } from 'child_process';
-import { getDiskUsage } from '../../../util/DiskUsage';
+import { ChildProcess, spawn } from 'child_process';
+import { getDiskUsage } from '../../../util/DiskUsage.js';
 import { inject, injectable } from 'inversify';
-import Recorded from '../../../db/entities/Recorded';
-import ProcessUtil from '../../../util/ProcessUtil';
-import Util from '../../../util/Util';
-import IRecordedDB from '../../db/IRecordedDB';
-import IConfigFile, { RecordedDirInfo } from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IRecordedManageModel from '../recorded/IRecordedManageModel';
-import IStorageManageModel from './IStorageManageModel';
+import Recorded from '../../../db/entities/Recorded.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import { killManaged } from '../../../util/ManagedProcess.js';
+import Util from '../../../util/Util.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IConfigFile, { RecordedDirInfo } from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IRecordedManageModel from '../recorded/IRecordedManageModel.js';
+import IStorageManageModel from './IStorageManageModel.js';
 
 @injectable()
 export default class StorageManageModel implements IStorageManageModel {
@@ -96,9 +97,12 @@ export default class StorageManageModel implements IStorageManageModel {
                 try {
                     const cmds = ProcessUtil.parseCmdStr(l.limitCmd);
                     // 互換性のためここでは全ての環境変数を渡すため env は未指定
-                    spawn(cmds.bin, cmds.args, {
+                    const child = spawn(cmds.bin, cmds.args, {
                         stdio: 'ignore',
+                        detached: process.platform !== 'win32',
+                        windowsHide: true,
                     });
+                    await this.waitForLimitCommand(child, l.limitCmd);
                 } catch (err: any) {
                     this.log.system.error(`limit cmd error: ${l.limitCmd}`);
                     this.log.system.error(err);
@@ -149,6 +153,88 @@ export default class StorageManageModel implements IStorageManageModel {
         }
 
         this.isRunning = false;
+    }
+
+    private waitForLimitCommand(child: ChildProcess, command: string): Promise<void> {
+        const timeout = this.config.storageCommandTimeout ?? 300_000;
+        return new Promise<void>((resolve, reject) => {
+            let settled = false;
+            let timedOut = false;
+            let killPending = false;
+            let retryTimer: NodeJS.Timeout | null = null;
+
+            const cleanup = (): void => {
+                clearTimeout(timer);
+                if (retryTimer !== null) clearTimeout(retryTimer);
+                child.removeListener('exit', onExit);
+                child.removeListener('error', onError);
+            };
+            const finish = (error?: Error): void => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                if (error !== undefined) reject(error);
+                else resolve();
+            };
+            const finishTimeout = (): void => finish(new Error('StorageCommandTimeout'));
+            const onExit = (): void => {
+                if (timedOut) {
+                    if (child.pid === undefined) finishTimeout();
+                    return;
+                }
+                if (child.exitCode === 0) this.log.system.info(`storage limit cmd finished: ${command}`);
+                else this.log.system.error(`storage limit cmd failed: ${command}. exit: ${child.exitCode}`);
+                finish();
+            };
+            const onError = (error: Error): void => {
+                this.log.system.error(`storage limit cmd failed: ${command}`);
+                this.log.system.error(error);
+                if (timedOut) {
+                    if (child.pid === undefined) finishTimeout();
+                    return;
+                }
+                finish();
+            };
+
+            const confirmStop = (): void => {
+                if (settled || killPending) return;
+                if (child.pid === undefined) {
+                    finishTimeout();
+                    return;
+                }
+                killPending = true;
+                void killManaged(child).then(
+                    () => {
+                        killPending = false;
+                        finishTimeout();
+                    },
+                    error => {
+                        killPending = false;
+                        this.log.system.error(`StorageCommandTimeout: failed to confirm process stop for ${command}`);
+                        this.log.system.error(error);
+                        if (child.pid === undefined && (child.exitCode !== null || child.signalCode !== null)) {
+                            finishTimeout();
+                            return;
+                        }
+                        retryTimer = setTimeout(() => {
+                            retryTimer = null;
+                            confirmStop();
+                        }, 5_000);
+                        retryTimer.unref();
+                    },
+                );
+            };
+            const timer = setTimeout(() => {
+                if (settled) return;
+                timedOut = true;
+                this.log.system.error(`StorageCommandTimeout: ${command} exceeded ${timeout}ms; stopping process`);
+                confirmStop();
+            }, timeout);
+
+            child.once('exit', onExit);
+            child.once('error', onError);
+            if (child.exitCode !== null || child.signalCode !== null) onExit();
+        });
     }
 
     /**

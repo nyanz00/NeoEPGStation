@@ -1,12 +1,18 @@
+import { fileURLToPath } from 'node:url';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
-import * as yaml from 'js-yaml';
 import * as path from 'path';
 import urljoin from 'url-join';
-import IConfigFile from './IConfigFile';
-import IConfiguration from './IConfiguration';
-import ILogger from './ILogger';
-import ILoggerModel from './ILoggerModel';
+import IConfigFile, { WatchStreamEncoder } from './IConfigFile.js';
+import IConfiguration from './IConfiguration.js';
+import ILogger from './ILogger.js';
+import ILoggerModel from './ILoggerModel.js';
+import { loadConfigYaml } from '../util/ConfigYamlUtil.js';
+import { validateEncodeSuspendTimes } from '../util/EncodeSuspendTime.js';
+
+function cloneConfigValue<T>(value: T): T {
+    return typeof value === 'undefined' ? value : JSON.parse(JSON.stringify(value));
+}
 
 /**
  * Configuration
@@ -34,7 +40,9 @@ class Configuration implements IConfiguration {
         fs.watchFile(Configuration.CONFIG_FILE_PATH, async () => {
             this.log.system.info('updated config file');
             try {
-                const newConfig = <any>yaml.load(await fs.promises.readFile(Configuration.CONFIG_FILE_PATH, 'utf-8'));
+                const newConfig = <any>(
+                    loadConfigYaml(await fs.promises.readFile(Configuration.CONFIG_FILE_PATH, 'utf-8'))
+                );
                 this.config = this.formatConfig(newConfig);
             } catch (err: any) {
                 this.log.system.error('read config error');
@@ -86,7 +94,7 @@ class Configuration implements IConfiguration {
         }
 
         // parse configFile
-        const newConfig: IConfigFile = <any>yaml.load(str);
+        const newConfig: IConfigFile = <any>loadConfigYaml(str);
 
         return this.formatConfig(newConfig);
     }
@@ -98,6 +106,44 @@ class Configuration implements IConfiguration {
      */
     private formatConfig(newConfig: IConfigFile): IConfigFile {
         this.setTemplateValues(newConfig);
+        validateEncodeSuspendTimes(newConfig.encodeSuspendTime);
+
+        const limits = [
+            'encodeMaxPending',
+            'thumbnailMaxPending',
+            'externalCommandMaxPending',
+            'uploadMaxConcurrent',
+            'uploadTimeout',
+            'externalCommandTimeout',
+            'storageCommandTimeout',
+            'tunerRequestTimeout',
+            'iptvDocumentTimeout',
+        ] as const;
+        for (const key of limits) {
+            const value = newConfig[key];
+            if (
+                !Number.isSafeInteger(value) ||
+                (value as number) < 1 ||
+                (key.endsWith('Timeout') && (value as number) > 2147483647)
+            )
+                throw new Error(`InvalidConfigLimit: ${key}`);
+        }
+        if (
+            newConfig.sqlite?.busyTimeout !== undefined &&
+            (!Number.isSafeInteger(newConfig.sqlite.busyTimeout) || newConfig.sqlite.busyTimeout < 0)
+        ) {
+            throw new Error('InvalidConfigLimit: sqlite.busyTimeout');
+        }
+        if (newConfig.sqlite?.enableWAL !== undefined && typeof newConfig.sqlite.enableWAL !== 'boolean') {
+            throw new Error('InvalidConfigValue: sqlite.enableWAL');
+        }
+
+        if (typeof newConfig.watch?.encoder === 'string') {
+            const encoders: WatchStreamEncoder[] = ['FFmpeg', 'QSVEncC', 'NVEncC', 'VCEEncC'];
+            const encoderName = newConfig.watch.encoder.trim().toLowerCase();
+            const encoder = encoders.find(value => value.toLowerCase() === encoderName);
+            if (encoder !== undefined) newConfig.watch.encoder = encoder;
+        }
 
         const isTailscaleHttpsEnabled = newConfig.tailscaleHttps?.enabled === true;
         if (isTailscaleHttpsEnabled && typeof newConfig.https !== 'undefined') {
@@ -201,7 +247,7 @@ class Configuration implements IConfiguration {
     private setTemplateValues(config: IConfigFile): void {
         for (const key in Configuration.DEFAULT_VALUE) {
             if (typeof (<any>config)[key] === 'undefined') {
-                (<any>config)[key] = (<any>Configuration.DEFAULT_VALUE)[key];
+                (<any>config)[key] = cloneConfigValue((<any>Configuration.DEFAULT_VALUE)[key]);
             }
         }
 
@@ -209,43 +255,51 @@ class Configuration implements IConfiguration {
         if (this.templateConfig !== null && typeof config.stream !== 'undefined') {
             if (typeof config.stream.live !== 'undefined' && typeof config.stream.live.ts !== 'undefined') {
                 if (typeof config.stream.live.ts.m2ts === 'undefined') {
-                    config.stream.live.ts.m2ts = this.templateConfig.stream?.live?.ts?.m2ts;
+                    config.stream.live.ts.m2ts = cloneConfigValue(this.templateConfig.stream?.live?.ts?.m2ts);
                 }
                 if (typeof config.stream.live.ts.m2tsll === 'undefined') {
-                    config.stream.live.ts.m2tsll = this.templateConfig.stream?.live?.ts?.m2tsll;
+                    config.stream.live.ts.m2tsll = cloneConfigValue(this.templateConfig.stream?.live?.ts?.m2tsll);
                 }
                 if (typeof config.stream.live.ts.webm === 'undefined') {
-                    config.stream.live.ts.webm = this.templateConfig.stream?.live?.ts?.webm;
+                    config.stream.live.ts.webm = cloneConfigValue(this.templateConfig.stream?.live?.ts?.webm);
                 }
                 if (typeof config.stream.live.ts.mp4 === 'undefined') {
-                    config.stream.live.ts.mp4 = this.templateConfig.stream?.live?.ts?.mp4;
+                    config.stream.live.ts.mp4 = cloneConfigValue(this.templateConfig.stream?.live?.ts?.mp4);
                 }
                 if (typeof config.stream.live.ts.hls === 'undefined') {
-                    config.stream.live.ts.hls = this.templateConfig.stream?.live?.ts?.hls;
+                    config.stream.live.ts.hls = cloneConfigValue(this.templateConfig.stream?.live?.ts?.hls);
                 }
             }
 
             if (typeof config.stream.recorded !== 'undefined') {
                 if (typeof config.stream.recorded.ts !== 'undefined') {
                     if (typeof config.stream.recorded.ts.webm === 'undefined') {
-                        config.stream.recorded.ts.webm = this.templateConfig.stream?.recorded?.ts?.webm;
+                        config.stream.recorded.ts.webm = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.ts?.webm,
+                        );
                     }
                     if (typeof config.stream.recorded.ts.mp4 === 'undefined') {
-                        config.stream.recorded.ts.mp4 = this.templateConfig.stream?.recorded?.ts?.mp4;
+                        config.stream.recorded.ts.mp4 = cloneConfigValue(this.templateConfig.stream?.recorded?.ts?.mp4);
                     }
                     if (typeof config.stream.recorded.ts.hls === 'undefined') {
-                        config.stream.recorded.ts.hls = this.templateConfig.stream?.recorded?.ts?.hls;
+                        config.stream.recorded.ts.hls = cloneConfigValue(this.templateConfig.stream?.recorded?.ts?.hls);
                     }
                 }
                 if (typeof config.stream.recorded.encoded !== 'undefined') {
                     if (typeof config.stream.recorded.encoded.webm === 'undefined') {
-                        config.stream.recorded.encoded.webm = this.templateConfig.stream?.recorded?.encoded?.webm;
+                        config.stream.recorded.encoded.webm = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.encoded?.webm,
+                        );
                     }
                     if (typeof config.stream.recorded.encoded.mp4 === 'undefined') {
-                        config.stream.recorded.encoded.mp4 = this.templateConfig.stream?.recorded?.encoded?.mp4;
+                        config.stream.recorded.encoded.mp4 = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.encoded?.mp4,
+                        );
                     }
                     if (typeof config.stream.recorded.encoded.hls === 'undefined') {
-                        config.stream.recorded.encoded.hls = this.templateConfig.stream?.recorded?.encoded?.hls;
+                        config.stream.recorded.encoded.hls = cloneConfigValue(
+                            this.templateConfig.stream?.recorded?.encoded?.hls,
+                        );
                     }
                 }
             }
@@ -269,9 +323,23 @@ class Configuration implements IConfiguration {
 }
 
 namespace Configuration {
-    export const CONFIG_FILE_PATH = path.join(__dirname, '..', '..', 'config', 'config.yml');
-    export const CONFIG_TEMPLATE_FILE_PATH = path.join(__dirname, '..', '..', 'config', 'config.yml.template');
-    export const ROOT_PATH = path.join(__dirname, '..', '..').replace(new RegExp(`\\${path.sep}$`), '');
+    export const CONFIG_FILE_PATH = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'config',
+        'config.yml',
+    );
+    export const CONFIG_TEMPLATE_FILE_PATH = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'config',
+        'config.yml.template',
+    );
+    export const ROOT_PATH = path
+        .join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+        .replace(new RegExp(`\\${path.sep}$`), '');
 
     export const DEFAULT_VALUE: IConfigFile = {
         mirakurunPath: 'http+unix://%2Fvar%2Frun%2Fmirakurun.sock/',
@@ -290,24 +358,34 @@ namespace Configuration {
         recorded: [
             {
                 name: 'recorded',
-                path: path.join(__dirname, '..', '..', 'recorded'),
+                path: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'recorded'),
             },
         ],
         recordedHistoryRetentionPeriodDays: 90,
         storageLimitCheckIntervalTime: 60,
-        thumbnail: path.join(__dirname, '..', '..', 'thumbnail'),
+        thumbnail: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'thumbnail'),
         thumbnailCmd:
             '%FFMPEG% -ss %THUMBNAIL_POSITION% -y -i %INPUT% -vframes 1 -f image2 -s %THUMBNAIL_SIZE% %OUTPUT%',
         thumbnailSize: '480x270',
         thumbnailPosition: 5,
-        channelLogo: path.join(__dirname, '..', '..', 'channel-logo'),
-        dropLog: path.join(__dirname, '..', '..', 'drop'),
-        uploadTempDir: path.join(__dirname, '..', '..', 'data', 'upload'),
+        channelLogo: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'channel-logo'),
+        dropLog: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'drop'),
+        uploadTempDir: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'upload'),
         isEnabledDropCheck: false,
         ffmpeg: '/usr/local/bin/ffmpeg',
         ffprobe: '/usr/local/bin/ffprobe',
         encodeProcessNum: 0,
         concurrentEncodeNum: 0,
+        encodeMaxPending: 1024,
+        thumbnailMaxPending: 32,
+        externalCommandMaxPending: 64,
+        uploadMaxConcurrent: 3,
+        uploadTimeout: 300000,
+        externalCommandTimeout: 300000,
+        storageCommandTimeout: 300000,
+        tunerRequestTimeout: 30000,
+        iptvDocumentTimeout: 30000,
+        encodeSuspendTime: [],
         encode: [],
         isSuppressReservesUpdateAllLog: false,
         urlscheme: {
@@ -323,7 +401,7 @@ namespace Configuration {
                 ios: 'vlc-x-callback://x-callback-url/stream?url=PROTOCOL%3A%2F%2FADDRESS&filename=FILENAME',
             },
         },
-        streamFilePath: path.join(__dirname, '..', '..', 'data', 'streamfiles'),
+        streamFilePath: path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'streamfiles'),
     };
 }
 

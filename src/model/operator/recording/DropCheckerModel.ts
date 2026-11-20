@@ -1,14 +1,14 @@
-import * as aribts from 'aribts';
+import aribts from 'aribts';
 import * as events from 'events';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
 import * as stream from 'stream';
-import DateUtil from '../../../util/DateUtil';
-import FileUtil from '../../../util/FileUtil';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IDropCheckerModel from './IDropCheckerModel';
+import DateUtil from '../../../util/DateUtil.js';
+import FileUtil from '../../../util/FileUtil.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IDropCheckerModel from './IDropCheckerModel.js';
 
 @injectable()
 class DropCheckerModel implements IDropCheckerModel {
@@ -51,6 +51,11 @@ class DropCheckerModel implements IDropCheckerModel {
         readableStream: stream.Readable,
         recordingEndAt?: number,
     ): Promise<void> {
+        await this.prepare(logDirPath, srcFilePath, recordingEndAt);
+        this.attach(srcFilePath, readableStream);
+    }
+
+    public async prepare(logDirPath: string, srcFilePath: string, recordingEndAt?: number): Promise<void> {
         this.result = null;
         this.pidIndex = {};
         this.ecmPids.clear();
@@ -64,7 +69,9 @@ class DropCheckerModel implements IDropCheckerModel {
 
         // 空ファイル生成
         await FileUtil.touchFile(this.dest);
+    }
 
+    public attach(srcFilePath: string, readableStream: stream.Readable): void {
         this.transformStream = new stream.Transform({
             transform: function (chunk: any, _encoding: string, done: () => void): void {
                 this.push(chunk);

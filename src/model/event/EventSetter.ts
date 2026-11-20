@@ -1,29 +1,29 @@
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import IConfigFile from '../IConfigFile';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IAnnictApiModel from '../api/annict/IAnnictApiModel';
-import IIPCServer from '../ipc/IIPCServer';
-import IExternalCommandManageModel from '../operator/externalCommand/IExternalCommandManageModel';
-import IDiscordNotificationModel from '../operator/discord/IDiscordNotificationModel';
-import IRecordedManageModel from '../operator/recorded/IRecordedManageModel';
-import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel';
-import IRecordingManageModel from '../operator/recording/IRecordingManageModel';
-import IReservationManageModel from '../operator/reservation/IReservationManageModel';
-import IThumbnailManageModel from '../operator/thumbnail/IThumbnailManageModel';
-import IOperatorEncodeEvent from './IOperatorEncodeEvent';
-import IEPGUpdateEvent from './IEPGUpdateEvent';
-import IEventSetter from './IEventSetter';
-import IRecordedEvent from './IRecordedEvent';
-import IRecordedTagEvent from './IRecordedTagEvent';
-import IRecordingEvent from './IRecordingEvent';
-import IReserveEvent from './IReserveEvent';
-import IRuleEvent from './IRuleEvent';
-import IThumbnailEvent from './IThumbnailEvent';
-import IVideoAnalysisModel from '../video/IVideoAnalysisModel';
-import IAutoEncodeSettingsModel from '../encode/IAutoEncodeSettingsModel';
+import * as apid from '../../../api.js';
+import IConfigFile from '../IConfigFile.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IAnnictApiModel from '../api/annict/IAnnictApiModel.js';
+import IIPCServer from '../ipc/IIPCServer.js';
+import IExternalCommandManageModel from '../operator/externalCommand/IExternalCommandManageModel.js';
+import IDiscordNotificationModel from '../operator/discord/IDiscordNotificationModel.js';
+import IRecordedManageModel from '../operator/recorded/IRecordedManageModel.js';
+import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel.js';
+import IRecordingManageModel from '../operator/recording/IRecordingManageModel.js';
+import IReservationManageModel from '../operator/reservation/IReservationManageModel.js';
+import IThumbnailManageModel from '../operator/thumbnail/IThumbnailManageModel.js';
+import IOperatorEncodeEvent from './IOperatorEncodeEvent.js';
+import IEPGUpdateEvent from './IEPGUpdateEvent.js';
+import IEventSetter from './IEventSetter.js';
+import IRecordedEvent from './IRecordedEvent.js';
+import IRecordedTagEvent from './IRecordedTagEvent.js';
+import IRecordingEvent from './IRecordingEvent.js';
+import IReserveEvent from './IReserveEvent.js';
+import IRuleEvent from './IRuleEvent.js';
+import IThumbnailEvent from './IThumbnailEvent.js';
+import IVideoAnalysisModel from '../video/IVideoAnalysisModel.js';
+import IAutoEncodeSettingsModel from '../encode/IAutoEncodeSettingsModel.js';
 
 @injectable()
 export default class EventSetter implements IEventSetter {
@@ -258,53 +258,65 @@ export default class EventSetter implements IEventSetter {
 
                 // エンコード追加 1
                 if (skipAutoEncode === false && reserve.encodeMode1 !== null) {
-                    this.ipc.setEncode({
-                        recordedId: recorded.id,
-                        sourceVideoFileId: recorded.videoFiles[0].id,
-                        parentDir:
-                            reserve.encodeParentDirectoryName1 === null
-                                ? this.config.recorded[0].name
-                                : reserve.encodeParentDirectoryName1,
-                        directory: reserve.encodeDirectory1 === null ? undefined : reserve.encodeDirectory1,
-                        mode: reserve.encodeMode1,
-                        removeOriginal: reserve.isDeleteOriginalAfterEncode,
-                        updateThumbnail: reserve.updateThumbnail,
-                        scheduledAt,
-                    });
+                    await this.ipc
+                        .setEncode({
+                            recordedId: recorded.id,
+                            sourceVideoFileId: recorded.videoFiles[0].id,
+                            parentDir:
+                                reserve.encodeParentDirectoryName1 === null
+                                    ? this.config.recorded[0].name
+                                    : reserve.encodeParentDirectoryName1,
+                            directory: reserve.encodeDirectory1 === null ? undefined : reserve.encodeDirectory1,
+                            mode: reserve.encodeMode1,
+                            removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                            updateThumbnail: reserve.updateThumbnail,
+                            scheduledAt,
+                        })
+                        .catch(error =>
+                            this.log.system.error(`automatic encode intake failed: ${recorded.id}: ${error}`),
+                        );
                 }
 
                 // エンコード追加 2
                 if (skipAutoEncode === false && reserve.encodeMode2 !== null) {
-                    this.ipc.setEncode({
-                        recordedId: recorded.id,
-                        sourceVideoFileId: recorded.videoFiles[0].id,
-                        parentDir:
-                            reserve.encodeParentDirectoryName2 === null
-                                ? this.config.recorded[0].name
-                                : reserve.encodeParentDirectoryName2,
-                        directory: reserve.encodeDirectory2 === null ? undefined : reserve.encodeDirectory2,
-                        mode: reserve.encodeMode2,
-                        removeOriginal: reserve.isDeleteOriginalAfterEncode,
-                        updateThumbnail: reserve.updateThumbnail,
-                        scheduledAt,
-                    });
+                    await this.ipc
+                        .setEncode({
+                            recordedId: recorded.id,
+                            sourceVideoFileId: recorded.videoFiles[0].id,
+                            parentDir:
+                                reserve.encodeParentDirectoryName2 === null
+                                    ? this.config.recorded[0].name
+                                    : reserve.encodeParentDirectoryName2,
+                            directory: reserve.encodeDirectory2 === null ? undefined : reserve.encodeDirectory2,
+                            mode: reserve.encodeMode2,
+                            removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                            updateThumbnail: reserve.updateThumbnail,
+                            scheduledAt,
+                        })
+                        .catch(error =>
+                            this.log.system.error(`automatic encode intake failed: ${recorded.id}: ${error}`),
+                        );
                 }
 
                 // エンコード追加 3
                 if (skipAutoEncode === false && reserve.encodeMode3 !== null) {
-                    this.ipc.setEncode({
-                        recordedId: recorded.id,
-                        sourceVideoFileId: recorded.videoFiles[0].id,
-                        parentDir:
-                            reserve.encodeParentDirectoryName3 === null
-                                ? this.config.recorded[0].name
-                                : reserve.encodeParentDirectoryName3,
-                        directory: reserve.encodeDirectory3 === null ? undefined : reserve.encodeDirectory3,
-                        mode: reserve.encodeMode3,
-                        removeOriginal: reserve.isDeleteOriginalAfterEncode,
-                        updateThumbnail: reserve.updateThumbnail,
-                        scheduledAt,
-                    });
+                    await this.ipc
+                        .setEncode({
+                            recordedId: recorded.id,
+                            sourceVideoFileId: recorded.videoFiles[0].id,
+                            parentDir:
+                                reserve.encodeParentDirectoryName3 === null
+                                    ? this.config.recorded[0].name
+                                    : reserve.encodeParentDirectoryName3,
+                            directory: reserve.encodeDirectory3 === null ? undefined : reserve.encodeDirectory3,
+                            mode: reserve.encodeMode3,
+                            removeOriginal: reserve.isDeleteOriginalAfterEncode,
+                            updateThumbnail: reserve.updateThumbnail,
+                            scheduledAt,
+                        })
+                        .catch(error =>
+                            this.log.system.error(`automatic encode intake failed: ${recorded.id}: ${error}`),
+                        );
                 }
             }
 
@@ -342,18 +354,18 @@ export default class EventSetter implements IEventSetter {
         });
 
         // サムネイル作成完了
-        this.thumbnailEvent.setAdded((_videoFileId, _recordedId) => {
-            this.ipc.notifyClient();
+        this.thumbnailEvent.setAdded((_videoFileId, recordedId) => {
+            this.ipc.notifyClient(recordedId);
         });
 
         // サムネイル削除
-        this.thumbnailEvent.setDeleted(() => {
-            this.ipc.notifyClient();
+        this.thumbnailEvent.setDeleted(recordedId => {
+            this.ipc.notifyClient(recordedId);
         });
 
         // 録画削除
         this.recordedEvent.setDeleteRecorded(recorded => {
-            this.ipc.notifyClient();
+            this.ipc.notifyClient(recorded.id);
 
             if (typeof recorded.videoFiles !== 'undefined') {
                 for (const videoFile of recorded.videoFiles) {

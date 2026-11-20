@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import { AddVideoFileOption, UploadedVideoFileOption } from '../operator/recorded/IRecordedManageModel';
-import IEncodeManageModel from '../service/encode/IEncodeManageModel';
-import ISocketIOManageModel from '../service/socketio/ISocketIOManageModel';
+import * as apid from '../../../api.js';
+import { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import { AddVideoFileOption, UploadedVideoFileOption } from '../operator/recorded/IRecordedManageModel.js';
+import IEncodeManageModel from '../service/encode/IEncodeManageModel.js';
+import ISocketIOManageModel from '../service/socketio/ISocketIOManageModel.js';
 import IIPCClient, {
     IPCOperatorEncodeEvent,
     IPCRecordedManageModel,
@@ -15,11 +15,12 @@ import IIPCClient, {
     IPCReservationManageModel,
     IPCRuleManageModel,
     IPCThumbnailManageModel,
-} from './IIPCClient';
+} from './IIPCClient.js';
 import {
     ClientMessageOption,
     OperatorEncodeEventFunctions,
     ModelName,
+    NotifyClientMessage,
     ParentMessage,
     PushEncodeMessage,
     RecordedFunctions,
@@ -30,7 +31,7 @@ import {
     RuleFuntions,
     SendMessage,
     ThumbnailFunctions,
-} from './IPCMessageDefine';
+} from './IPCMessageDefine.js';
 
 interface PendingRequest {
     resolve: (value: unknown) => void;
@@ -81,6 +82,7 @@ export default class IPCClient implements IIPCClient {
      */
     private ipcInit(): void {
         process.on('message', async (msg: ReplayMessage | ParentMessage) => {
+            if (typeof msg !== 'object' || msg === null || (msg as any).type === 'recorded-use-result') return;
             if (typeof (<ReplayMessage>msg).id !== 'undefined') {
                 // 送信したメッセージの応答
                 const replay = msg as ReplayMessage;
@@ -92,10 +94,12 @@ export default class IPCClient implements IIPCClient {
                 else pending.reject(new Error(replay.error));
             } else if ((<ParentMessage>msg).type === 'notifyClient') {
                 // socket.io によるクライアントへの状態更新通知
-                this.socketIO.notifyClient();
+                this.socketIO.notifyClient((msg as NotifyClientMessage).value);
             } else if ((<ParentMessage>msg).type === 'pushEncode') {
                 // エンコード依頼
-                this.encodeManage.push((<PushEncodeMessage>msg).value);
+                await this.encodeManage
+                    .pushPersisted((<PushEncodeMessage>msg).value)
+                    .catch(error => this.log.encode.error(error));
             }
         });
         process.once('disconnect', () => {

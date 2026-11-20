@@ -2,26 +2,28 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import { inject, injectable } from 'inversify';
 import * as path from 'path';
-import * as apid from '../../../../api';
-import Thumbnail from '../../../db/entities/Thumbnail';
-import FileUtil from '../../../util/FileUtil';
-import ProcessUtil from '../../../util/ProcessUtil';
-import IVideoUtil from '../../api/video/IVideoUtil';
-import IRecordedDB from '../../db/IRecordedDB';
-import IThumbnailDB from '../../db/IThumbnailDB';
-import IVideoFileDB from '../../db/IVideoFileDB';
-import IThumbnailEvent from '../../event/IThumbnailEvent';
-import IConfigFile from '../../IConfigFile';
-import IConfiguration from '../../IConfiguration';
-import ILogger from '../../ILogger';
-import ILoggerModel from '../../ILoggerModel';
-import IThumbnailManageModel from './IThumbnailManageModel';
+import * as apid from '../../../../api.js';
+import Thumbnail from '../../../db/entities/Thumbnail.js';
+import FileUtil from '../../../util/FileUtil.js';
+import ProcessUtil from '../../../util/ProcessUtil.js';
+import BoundedWorkQueue from '../../../util/BoundedWorkQueue.js';
+import IVideoUtil from '../../api/video/IVideoUtil.js';
+import IRecordedDB from '../../db/IRecordedDB.js';
+import IThumbnailDB from '../../db/IThumbnailDB.js';
+import IVideoFileDB from '../../db/IVideoFileDB.js';
+import IThumbnailEvent from '../../event/IThumbnailEvent.js';
+import IConfigFile from '../../IConfigFile.js';
+import IConfiguration from '../../IConfiguration.js';
+import ILogger from '../../ILogger.js';
+import ILoggerModel from '../../ILoggerModel.js';
+import IThumbnailManageModel from './IThumbnailManageModel.js';
+import { acquireRecordedFileUse } from '../../RecordedFileUse.js';
 
 @injectable()
 export default class ThumbnailManageModel implements IThumbnailManageModel {
     private log: ILogger;
     private config: IConfigFile;
-    private queue: Promise<void> = Promise.resolve();
+    private queue: BoundedWorkQueue;
     private recordingTimers: Map<apid.VideoFileId, NodeJS.Timeout> = new Map();
     private recordingAttempts: Map<apid.VideoFileId, number> = new Map();
     private recordingProcesses: Map<apid.VideoFileId, ChildProcess> = new Map();
@@ -42,6 +44,7 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     ) {
         this.log = logger.getLogger();
         this.config = configuration.getConfig();
+        this.queue = new BoundedWorkQueue(this.config.thumbnailMaxPending ?? 32);
         this.recordedDB = recordedDB;
         this.videoFileDB = videoFileDB;
         this.thumbnailDB = thumbnailDB;
@@ -90,12 +93,7 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
     }
 
     private enqueue<T>(job: () => Promise<T>): Promise<T> {
-        const result = this.queue.then(job);
-        this.queue = result.then(
-            () => undefined,
-            () => undefined,
-        );
-        return result;
+        return this.queue.enqueue(job);
     }
 
     private scheduleRecordingThumbnail(videoFileId: apid.VideoFileId, delay: number): void {
@@ -137,6 +135,17 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
      * @param videoFileId: apid.VideoFileId
      */
     private async create(videoFileId: apid.VideoFileId, isDuringRecording: boolean = false): Promise<void> {
+        const video = await this.videoFileDB.findId(videoFileId);
+        if (video === null) throw new Error('VideoFileIsNotFound');
+        const use = await acquireRecordedFileUse({ recordedId: video.recordedId, videoFileId, purpose: 'thumbnail' });
+        try {
+            await this.createProtected(videoFileId, isDuringRecording);
+        } finally {
+            await use.release();
+        }
+    }
+
+    private async createProtected(videoFileId: apid.VideoFileId, isDuringRecording: boolean): Promise<void> {
         const videoFile = await this.videoFileDB.findId(videoFileId);
         const videoFilePath = await this.videoUtil.getFullFilePathFromId(videoFileId);
         if (videoFile === null || videoFilePath === null) {
@@ -330,6 +339,9 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
             throw err;
         });
 
+        // The visible DB state has changed even if deleting the file later fails.
+        this.thumbnailEvent.emitDeleted(thumbnail.recordedId);
+
         // サムネイルファイルを削除
         const filePath = path.join(this.config.thumbnail, thumbnail.filePath);
         await FileUtil.unlink(filePath).catch(err => {
@@ -337,8 +349,6 @@ export default class ThumbnailManageModel implements IThumbnailManageModel {
             this.log.system.error(err);
             throw err;
         });
-
-        this.thumbnailEvent.emitDeleted();
     }
 
     /**

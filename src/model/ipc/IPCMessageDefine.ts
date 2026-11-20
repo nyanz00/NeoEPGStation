@@ -1,5 +1,3 @@
-import { AddEncodeOption } from '../service/encode/IEncoderModel';
-
 export type MessageId = string;
 
 /**
@@ -15,11 +13,12 @@ export interface ParentMessage {
  */
 export interface NotifyClientMessage extends ParentMessage {
     type: 'notifyClient';
+    value?: number;
 }
 
 export interface PushEncodeMessage extends ParentMessage {
     type: 'pushEncode';
-    value: AddEncodeOption;
+    value: number;
 }
 
 /**

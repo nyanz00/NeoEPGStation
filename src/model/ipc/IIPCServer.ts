@@ -1,8 +1,9 @@
 import { ChildProcess } from 'child_process';
-import { AddEncodeOption } from '../service/encode/IEncoderModel';
+import { AddEncodeOption } from '../service/encode/IEncoderModel.js';
 
 export default interface IIPCServer {
     register(child: ChildProcess): void;
-    notifyClient(): void;
-    setEncode(addOption: AddEncodeOption): void;
+    getRecordedUsePeer(child: ChildProcess): string | undefined;
+    notifyClient(recordedId?: number): void;
+    setEncode(addOption: AddEncodeOption): Promise<void>;
 }

@@ -1,6 +1,6 @@
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import Reserve from '../../db/entities/Reserve';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import Reserve from '../../db/entities/Reserve.js';
 
 export type RecordingResult = 'success' | 'failed';
 
@@ -16,7 +16,7 @@ export default interface IRecordingEvent {
         recorded: Recorded,
         isNeedDeleteReservation: boolean,
         result?: RecordingResult,
-    ): void;
+    ): Promise<void>;
     emitEventRelay(programs: { programId: apid.ProgramId; parentReserve: Reserve }[]): void;
     setStartPrepRecording(callback: (reserve: Reserve) => void): void;
     setCancelPrepRecording(callback: (reserve: Reserve) => void): void;

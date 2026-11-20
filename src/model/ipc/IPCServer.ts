@@ -1,17 +1,22 @@
 import { ChildProcess } from 'child_process';
+import { randomUUID } from 'crypto';
+import { recordedUseRegistry, RecordedUseResource } from '../RecordedUseRegistry.js';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import IOperatorEncodeEvent, { OperatorErrorEncodeInfo, OperatorFinishEncodeInfo } from '../event/IOperatorEncodeEvent';
+import * as apid from '../../../api.js';
+import IOperatorEncodeEvent, {
+    OperatorErrorEncodeInfo,
+    OperatorFinishEncodeInfo,
+} from '../event/IOperatorEncodeEvent.js';
 import IRecordedManageModel, {
     AddVideoFileOption,
     UploadedVideoFileOption,
-} from '../operator/recorded/IRecordedManageModel';
-import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel';
-import IRecordingManageModel from '../operator/recording/IRecordingManageModel';
-import IReservationManageModel from '../operator/reservation/IReservationManageModel';
-import IRuleManageModel from '../operator/rule/IRuleManageModel';
-import IThumbnailManageModel from '../operator/thumbnail/IThumbnailManageModel';
-import IIPCServer from './IIPCServer';
+} from '../operator/recorded/IRecordedManageModel.js';
+import IRecordedTagManadeModel from '../operator/recordedTag/IRecordedTagManadeModel.js';
+import IRecordingManageModel from '../operator/recording/IRecordingManageModel.js';
+import IReservationManageModel from '../operator/reservation/IReservationManageModel.js';
+import IRuleManageModel from '../operator/rule/IRuleManageModel.js';
+import IThumbnailManageModel from '../operator/thumbnail/IThumbnailManageModel.js';
+import IIPCServer from './IIPCServer.js';
 import {
     OperatorEncodeEventFunctions,
     ModelName,
@@ -25,8 +30,11 @@ import {
     RuleFuntions,
     SendMessage,
     ThumbnailFunctions,
-} from './IPCMessageDefine';
-import { AddEncodeOption } from '../service/encode/IEncoderModel';
+} from './IPCMessageDefine.js';
+import { AddEncodeOption } from '../service/encode/IEncoderModel.js';
+import IDBOperator from '../db/IDBOperator.js';
+import IConfiguration from '../IConfiguration.js';
+import { persistEncodeRequest } from '../encode/EncodeTaskIntake.js';
 
 interface IFunctionIndex {
     [functionName: string]: (msg: SendMessage) => Promise<any>;
@@ -42,6 +50,11 @@ export default class IPCServer implements IIPCServer {
     private thumbnailManage: IThumbnailManageModel;
     private encodeEvent: IOperatorEncodeEvent;
     private child: ChildProcess | null = null;
+    private peerIds = new WeakMap<ChildProcess, string>();
+
+    public getRecordedUsePeer(child: ChildProcess): string | undefined {
+        return this.peerIds.get(child);
+    }
     private functions: {
         [modelName: string]: IFunctionIndex;
     } = {};
@@ -55,6 +68,8 @@ export default class IPCServer implements IIPCServer {
         @inject('IRuleManageModel') ruleManage: IRuleManageModel,
         @inject('IThumbnailManageModel') thumbnailManage: IThumbnailManageModel,
         @inject('IOperatorEncodeEvent') encodeEvent: IOperatorEncodeEvent,
+        @inject('IDBOperator') private dbOperator: IDBOperator,
+        @inject('IConfiguration') private configuration: IConfiguration,
     ) {
         this.reservationManage = reservationManage;
         this.recordedManage = recordedManage;
@@ -69,10 +84,47 @@ export default class IPCServer implements IIPCServer {
 
     public register(child: ChildProcess): void {
         this.child = child;
+        const peer = `service:${child.pid ?? 'unknown'}:${randomUUID()}`;
+        this.peerIds.set(child, peer);
+        const leases = new Map<string, string>();
+        const markUnknown = () => {
+            recordedUseRegistry.markPeerUnknown(peer);
+            if (this.child === child) this.child = null;
+        };
+        child.once('disconnect', markUnknown);
+        child.once('exit', markUnknown);
 
         this.child.on('message', async (msg: SendMessage) => {
+            if (typeof msg !== 'object' || msg === null) return;
+            const raw = msg as any;
+            if (raw?.type === 'recorded-use') {
+                const response: any = { type: 'recorded-use-result', id: raw.id };
+                try {
+                    if (typeof raw.id !== 'string' || raw.id.length > 100) throw new Error('InvalidRecordedUseRequest');
+                    if (raw.op === 'acquire') {
+                        if (!leases.has(raw.id))
+                            leases.set(raw.id, recordedUseRegistry.acquire(peer, raw.resource as RecordedUseResource));
+                    } else if (raw.op === 'release' && typeof raw.leaseRequestId === 'string') {
+                        const lease = leases.get(raw.leaseRequestId);
+                        if (lease !== undefined) recordedUseRegistry.release(peer, lease);
+                        leases.delete(raw.leaseRequestId);
+                    } else throw new Error('InvalidRecordedUseRequest');
+                    response.result = true;
+                } catch (error: any) {
+                    response.error = error.message;
+                }
+                if (child.connected) child.send(response, () => {});
+                return;
+            }
             if (
-                ['heartbeat', 'ready', 'update-restart-request', 'update-shutdown-ready'].includes((msg as any)?.type)
+                [
+                    'heartbeat',
+                    'ready',
+                    'update-restart-request',
+                    'update-shutdown-ready',
+                    'serviceProcessStarted',
+                    'serviceProcessEnded',
+                ].includes((msg as any)?.type)
             ) {
                 return;
             }
@@ -83,21 +135,30 @@ export default class IPCServer implements IIPCServer {
                 // 指定された関数が存在するなら実行
                 try {
                     const result = await this.functions[msg.model][msg.func](msg);
-                    this.replay({
-                        id: msg.id,
-                        result: result,
-                    });
+                    this.replay(
+                        {
+                            id: msg.id,
+                            result: result,
+                        },
+                        child,
+                    );
                 } catch (err: any) {
-                    this.replay({
-                        id: msg.id,
-                        error: err.message,
-                    });
+                    this.replay(
+                        {
+                            id: msg.id,
+                            error: err.message,
+                        },
+                        child,
+                    );
                 }
             } else {
-                this.replay({
-                    id: msg.id,
-                    error: 'IPCFunctionError',
-                });
+                this.replay(
+                    {
+                        id: msg.id,
+                        error: 'IPCFunctionError',
+                    },
+                    child,
+                );
             }
         });
     }
@@ -105,13 +166,14 @@ export default class IPCServer implements IIPCServer {
     /**
      * 子プロセスに socket.io による状態更新通知を依頼する
      */
-    public notifyClient(): void {
+    public notifyClient(recordedId?: number): void {
         if (this.child === null) {
             return;
         }
 
         this.child.send(<any>(<NotifyClientMessage>{
             type: 'notifyClient',
+            value: recordedId,
         }));
     }
 
@@ -119,27 +181,32 @@ export default class IPCServer implements IIPCServer {
      * クライアントへエンコードを依頼する
      * @param addOption: apid.AddEncodeProgramOption
      */
-    public setEncode(addOption: AddEncodeOption): void {
-        if (this.child === null) {
-            throw new Error('ChildIsNull');
+    public async setEncode(addOption: AddEncodeOption): Promise<void> {
+        const peer = 'operator:encode-intake';
+        const lease = recordedUseRegistry.acquire(peer, {
+            recordedId: addOption.recordedId,
+            videoFileId: addOption.sourceVideoFileId,
+            purpose: 'encode-intake',
+        });
+        try {
+            const option = await persistEncodeRequest(
+                this.dbOperator,
+                addOption,
+                this.configuration.getConfig().encodeMaxPending ?? 1024,
+            );
+            if (this.child?.connected)
+                this.child.send({ type: 'pushEncode', value: option.encodeId } satisfies PushEncodeMessage, () => {});
+        } finally {
+            recordedUseRegistry.release(peer, lease);
         }
-
-        this.child.send(<any>(<PushEncodeMessage>{
-            type: 'pushEncode',
-            value: addOption,
-        }));
     }
 
     /**
      * 応答メッセージ送信
      * @param msg: ReplayMessage
      */
-    private replay(msg: ReplayMessage): void {
-        if (this.child === null) {
-            throw new Error('IPCSendReplayError');
-        }
-
-        this.child.send(msg);
+    private replay(msg: ReplayMessage, child: ChildProcess): void {
+        if (child.connected) child.send(msg, () => {});
     }
 
     /**

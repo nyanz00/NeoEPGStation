@@ -1,16 +1,19 @@
+import { fileURLToPath } from 'node:url';
 import * as path from 'path';
 import 'reflect-metadata';
-import ILoggerModel from '../ILoggerModel';
-import IDBOperator from '../db/IDBOperator';
-import container from '../ModelContainer';
-import * as containerSetter from '../ModelContainerSetter';
-import IEPGUpdater from './IEPGUpdater';
-import ProcessShutdown from '../../util/ProcessShutdown';
+import ILoggerModel from '../ILoggerModel.js';
+import IDBOperator from '../db/IDBOperator.js';
+import container from '../ModelContainer.js';
+import * as containerSetter from '../ModelContainerSetter.js';
+import IEPGUpdater from './IEPGUpdater.js';
+import ProcessShutdown from '../../util/ProcessShutdown.js';
 
 containerSetter.set(container);
 
 const loggerModel = container.get<ILoggerModel>('ILoggerModel');
-loggerModel.initialize(path.join(__dirname, '..', '..', '..', 'config', 'epgUpdaterLogConfig.yml'));
+loggerModel.initialize(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'config', 'epgUpdaterLogConfig.yml'),
+);
 
 const log = loggerModel.getLogger();
 process.on('uncaughtException', err => {

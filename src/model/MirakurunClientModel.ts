@@ -1,70 +1,29 @@
-import * as fs from 'fs';
+import { fileURLToPath } from 'node:url';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { inject, injectable } from 'inversify';
-import mirakurun from 'mirakurun';
-import * as path from 'path';
-import { URL } from 'url';
-import IConfigFile from './IConfigFile';
-import IConfiguration from './IConfiguration';
-import IMirakurunClientModel from './IMirakurunClientModel';
+import IConfiguration from './IConfiguration.js';
+import IMirakurunClientModel from './IMirakurunClientModel.js';
+import TunerServerAccessModel from './tuner/TunerServerAccessModel.js';
 
-/**
- * mirakurun client のインスタンスを生成する
- */
 @injectable()
 export default class MirakurunClientModel implements IMirakurunClientModel {
-    private client: mirakurun;
-    private config: IConfigFile;
-
-    constructor(@inject('IConfiguration') conf: IConfiguration) {
-        this.client = new mirakurun();
-        this.config = conf.getConfig();
-
-        this.setClient();
+    private readonly client: TunerServerAccessModel;
+    constructor(@inject('IConfiguration') configuration: IConfiguration) {
+        const config = configuration.getConfig();
+        const pkg = JSON.parse(
+            fs.readFileSync(
+                path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'),
+                'utf8',
+            ),
+        );
+        this.client = new TunerServerAccessModel(
+            config.mirakurunPath,
+            `NeoEPGStation/${pkg.version}`,
+            config.tunerRequestTimeout ?? 30000,
+        );
     }
-
-    /**
-     * mirakurun client の設定
-     */
-    private setClient(): void {
-        const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json')).toString());
-        const mirakurunPath = this.config.mirakurunPath;
-
-        /**
-         * Copyright (c) 2016 Yuki KAN and Chinachu Project Contributors
-         * Released under the MIT license
-         * http://opensource.org/licenses/mit-license.php
-         */
-        if (/\\\\.\\pipe/.test(mirakurunPath)) {
-            this.client.socketPath = mirakurunPath;
-        } else if (/(?:\/|\+)unix:/.test(mirakurunPath) === true) {
-            const standardFormat = /^http\+unix:\/\/([^\/]+)(\/?.*)$/;
-            const legacyFormat = /^http:\/\/unix:([^:]+):?(.*)$/;
-
-            if (standardFormat.test(mirakurunPath) === true) {
-                this.client.socketPath = mirakurunPath.replace(standardFormat, '$1').replace(/%2F/g, '/');
-                this.client.basePath = path.posix.join(
-                    mirakurunPath.replace(standardFormat, '$2'),
-                    this.client.basePath,
-                );
-            } else {
-                this.client.socketPath = mirakurunPath.replace(legacyFormat, '$1');
-                this.client.basePath = path.posix.join(mirakurunPath.replace(legacyFormat, '$2'), this.client.basePath);
-            }
-        } else {
-            const urlObject = new URL(mirakurunPath);
-            this.client.host = urlObject.hostname;
-            this.client.port = Number(urlObject.port);
-            this.client.basePath = path.posix.join(urlObject.pathname, this.client.basePath);
-        }
-
-        this.client.userAgent = `NeoEPGStation/${pkg.version}`;
-    }
-
-    /**
-     * mirakurun client を返す
-     * @return mirakurun client
-     */
-    public getClient(): mirakurun {
+    public getClient(): TunerServerAccessModel {
         return this.client;
     }
 }

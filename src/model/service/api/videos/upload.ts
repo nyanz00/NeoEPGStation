@@ -1,13 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as apid from '../../../../../api';
-import { Operation } from '../../ApiOperation';
-import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel';
-import IChannelDB from '../../../db/IChannelDB';
-import container from '../../../ModelContainer';
-import { UploadedVideoFileOption } from '../../../operator/recorded/IRecordedManageModel';
-import ITsInfoAnalyzer, { TsInfo } from '../../../recorded/ts/ITsInfoAnalyzer';
-import * as api from '../../api';
+import * as apid from '../../../../../api.js';
+import { Operation } from '../../ApiOperation.js';
+import IRecordedApiModel from '../../../api/recorded/IRecordedApiModel.js';
+import IChannelDB from '../../../db/IChannelDB.js';
+import container from '../../../ModelContainer.js';
+import { UploadedVideoFileOption } from '../../../operator/recorded/IRecordedManageModel.js';
+import ITsInfoAnalyzer, { TsInfo } from '../../../recorded/ts/ITsInfoAnalyzer.js';
+import * as api from '../../api.js';
+import { UploadRequest } from '../../upload/receiveUpload.js';
 
 const decodeUploadFileName = (fileName: string): string => {
     const decoded = Buffer.from(fileName, 'latin1').toString('utf8');
@@ -149,6 +150,8 @@ export const post: Operation = async (req, res) => {
         if (createdRecordedId !== undefined) await recordedApiModel.delete(createdRecordedId).catch(() => undefined);
         if (req.file !== undefined) await fs.promises.unlink(req.file.path).catch(() => undefined);
         api.responseServerError(res, err.message);
+    } finally {
+        await (req as UploadRequest).cleanupIncomingUpload?.().catch(() => undefined);
     }
 };
 

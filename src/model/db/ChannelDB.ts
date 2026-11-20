@@ -1,16 +1,16 @@
 import { inject, injectable } from 'inversify';
-import { FindOptionsWhere } from 'typeorm';
-import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import * as apid from '../../../api';
-import * as mapid from '../../../node_modules/mirakurun/api';
-import Channel from '../../db/entities/Channel';
-import StrUtil from '../../util/StrUtil';
-import IConfiguration from '../IConfiguration';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IPromiseRetry from '../IPromiseRetry';
-import IChannelDB, { ChannelUpdateValues } from './IChannelDB';
-import IDBOperator from './IDBOperator';
+import { FindOptionsWhere, In, Not } from 'typeorm';
+import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
+import * as apid from '../../../api.js';
+import * as mapid from '../tuner/TunerApi.js';
+import Channel from '../../db/entities/Channel.js';
+import StrUtil from '../../util/StrUtil.js';
+import IConfiguration from '../IConfiguration.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IPromiseRetry from '../IPromiseRetry.js';
+import IChannelDB, { ChannelUpdateValues } from './IChannelDB.js';
+import IDBOperator from './IDBOperator.js';
 
 @injectable()
 export default class ChannelDB implements IChannelDB {
@@ -34,10 +34,14 @@ export default class ChannelDB implements IChannelDB {
     /**
      * Mirakurun から取得した channel 情報を DB へ全件挿入する
      * @param channels: Service[]
-     * @param needesDeleted: 更新前に全データ削除が必要か
+     * @param needesDeleted: 更新後に一覧にない局を削除するか
      * @return Promise<void>
      */
-    public async insert(channels: mapid.Service[], needesDeleted: boolean = true): Promise<void> {
+    public async insert(
+        channels: mapid.Service[],
+        needesDeleted: boolean = true,
+        deleteChannelIds: mapid.ServiceId[] = [],
+    ): Promise<void> {
         const values: QueryDeepPartialEntity<Channel>[] = [];
 
         // 挿入データ作成
@@ -70,9 +74,8 @@ export default class ChannelDB implements IChannelDB {
 
         let hasError = false;
         try {
-            if (needesDeleted === true) {
-                // 削除
-                await queryRunner.manager.clear(Channel);
+            if (deleteChannelIds.length > 0) {
+                await queryRunner.manager.delete(Channel, { id: In(deleteChannelIds) });
             }
 
             // 挿入処理
@@ -82,8 +85,19 @@ export default class ChannelDB implements IChannelDB {
                         this.log.system.error('channel update error');
                         this.log.system.error(err);
                         this.log.system.error(serr);
+                        throw serr;
                     });
                 });
+            }
+
+            if (needesDeleted === true) {
+                // Never empty the table before replacing retained stations. In MySQL,
+                // clear() uses TRUNCATE and commits outside the transaction.
+                if (values.length > 0) {
+                    await queryRunner.manager.delete(Channel, { id: Not(In(values.map(value => value.id!))) });
+                } else {
+                    await queryRunner.manager.createQueryBuilder().delete().from(Channel).where('1 = 1').execute();
+                }
             }
 
             await queryRunner.commitTransaction();
@@ -105,6 +119,10 @@ export default class ChannelDB implements IChannelDB {
      * @paramChannelTypeId
      */
     private getChannelTypeId(type: mapid.ChannelType): number {
+        if ((type as string) === 'BS4K') {
+            return 103;
+        }
+
         const grAltMatch = /^GR-ALT(\d+)$/.exec(type);
         if (grAltMatch !== null) {
             return parseInt(grAltMatch[1], 10);
@@ -134,7 +152,7 @@ export default class ChannelDB implements IChannelDB {
         Array.prototype.push.apply(channels, values.insert);
         Array.prototype.push.apply(channels, values.update);
 
-        await this.insert(channels, false);
+        await this.insert(channels, false, values.delete);
     }
 
     /**

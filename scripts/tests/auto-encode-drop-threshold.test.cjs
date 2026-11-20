@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 
 const root = path.resolve(__dirname, '../..');
@@ -73,7 +74,7 @@ function makeEventSetter(autoEncodeSettings, calls, errors) {
         {
             get: (_target, property) => (...args) => {
                 calls.push([String(property), ...args]);
-                if (['cancel', 'updateRule', 'matchRecordedEpisode'].includes(String(property))) {
+                if (['cancel', 'updateRule', 'matchRecordedEpisode', 'setEncode'].includes(String(property))) {
                     return Promise.resolve();
                 }
             },

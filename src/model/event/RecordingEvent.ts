@@ -1,12 +1,12 @@
 import * as events from 'events';
 import { inject, injectable } from 'inversify';
-import * as apid from '../../../api';
-import Recorded from '../../db/entities/Recorded';
-import Reserve from '../../db/entities/Reserve';
-import { RecordingResult } from './IRecordingEvent';
-import ILogger from '../ILogger';
-import ILoggerModel from '../ILoggerModel';
-import IRecordingEvent from './IRecordingEvent';
+import * as apid from '../../../api.js';
+import Recorded from '../../db/entities/Recorded.js';
+import Reserve from '../../db/entities/Reserve.js';
+import { RecordingResult } from './IRecordingEvent.js';
+import ILogger from '../ILogger.js';
+import ILoggerModel from '../ILoggerModel.js';
+import IRecordingEvent from './IRecordingEvent.js';
 
 @injectable()
 class RecordingEvent implements IRecordingEvent {
@@ -72,13 +72,17 @@ class RecordingEvent implements IRecordingEvent {
      * @param recorded: Recorded
      * @param isNeedDeleteReservation: boolean true 予約の削除が必要
      */
-    public emitFinishRecording(
+    public async emitFinishRecording(
         reserve: Reserve,
         recorded: Recorded,
         isNeedDeleteReservation: boolean,
         result: RecordingResult = 'success',
-    ): void {
-        this.emitter.emit(RecordingEvent.FINISH_RECORDING_EVENT, reserve, recorded, isNeedDeleteReservation, result);
+    ): Promise<void> {
+        await Promise.all(
+            this.emitter
+                .listeners(RecordingEvent.FINISH_RECORDING_EVENT)
+                .map(listener => listener(reserve, recorded, isNeedDeleteReservation, result)),
+        );
     }
 
     /**
