@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+require('./ts-cjs-compat.cjs');
 const ts = require('typescript');
 require('reflect-metadata');
 
@@ -21,6 +22,7 @@ require.extensions['.ts'] = (module, filename) => {
     module._compile(output, filename);
 };
 const AnnictApiModel = require('../../src/model/api/annict/AnnictApiModel.ts').default;
+const { workStartDateValue } = require('../../client/src/core/animeReleaseSort.ts');
 if (previousTypeScriptLoader === undefined) delete require.extensions['.ts'];
 else require.extensions['.ts'] = previousTypeScriptLoader;
 
@@ -51,15 +53,30 @@ function createModel(root = '/unused') {
     };
     model.workListRefreshRequests = new Map();
     model.workListRefreshFailures = new Map();
+    model.rerunWorkListRefreshRequests = new Map();
+    model.rerunWorkListRefreshFailures = new Map();
     model.workListEnrichmentRequests = new Map();
     model.workListEnrichmentFailures = new Map();
     model.workListCacheWriteQueues = new Map();
+    model.broadcastSeasonFromDate = () => season;
     return model;
 }
 
 function receivedProgramPage(nodes, { hasNextPage = false, endCursor } = {}) {
     return { nodes, pageInfo: { hasNextPage, ...(endCursor === undefined ? {} : { endCursor }) } };
 }
+
+test('season boundaries follow the actual quarter in Japan time', () => {
+    const model = Object.create(AnnictApiModel.prototype);
+    for (const [time, expected] of [
+        ['2026-09-25T00:00:00Z', '2026-summer'],
+        ['2026-09-30T14:59:59Z', '2026-summer'],
+        ['2026-09-30T15:00:00Z', '2026-autumn'],
+        ['2026-12-31T14:59:59Z', '2026-autumn'],
+        ['2026-12-31T15:00:00Z', '2027-winter'],
+    ])
+        assert.equal(model.broadcastSeasonFromDate(Date.parse(time)), expected);
+});
 
 test('initial and cached work-list refreshes request 100 and 50 works per page', async t => {
     const root = temporaryRoot(t);
@@ -84,6 +101,598 @@ test('initial and cached work-list refreshes request 100 and 50 works per page',
         [100, 50],
     );
     assert.ok(requests.every(request => request.query.includes('first: $first')));
+});
+
+test('noncurrent work-list GraphQL requests omit programs while current-season requests include them', async () => {
+    const model = createModel();
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    model.mapWork = node => node;
+    const requests = [];
+    model.requestWorkListData = async (query, variables) => {
+        requests.push({ query, variables });
+        return { searchWorks: { nodes: [], pageInfo: { hasNextPage: false } } };
+    };
+
+    await model.fetchBasicWorkList('2026-summer');
+    await model.fetchBasicWorkList('2027-winter');
+    await model.fetchBasicWorkList('2026-autumn');
+
+    assert.ok(requests.every(({ query }) => query.includes('programs(first: 1')));
+    assert.ok(requests.every(({ query }) => query.includes('@include(if: $includePrograms)')));
+    assert.deepEqual(
+        requests.map(({ variables }) => variables.includePrograms),
+        [false, false, true],
+    );
+});
+
+test('release dates reach the basic cache and release-date sort before slow image enrichment finishes', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    model.fetchBasicWorkList = async (value, pageSize) => {
+        assert.equal(value, '2026-summer');
+        assert.equal(pageSize, 100);
+        return [
+            work(1, { title: 'Later', seasonYear: 2026, seasonName: 'SUMMER' }),
+            work(2, { title: 'Earlier', seasonYear: 2026, seasonName: 'SUMMER' }),
+        ];
+    };
+    model.enrichWorkBroadcastStarts = async () => {
+        assert.fail('a noncurrent season must skip program scans');
+    };
+    const releaseImages = deferred();
+    const imageEnrichmentStarted = deferred();
+    model.requestRest = async (resource, parameters) => {
+        assert.equal(resource, 'works');
+        assert.equal(parameters.filter_ids, '1,2');
+        return {
+            works: [
+                { id: 1, released_on: '2026-07-03' },
+                { id: 2, released_on: '2026-07-01' },
+            ],
+        };
+    };
+    model.fillMissingWorkImages = async works => {
+        imageEnrichmentStarted.resolve();
+        await releaseImages.promise;
+        return works.map(item => ({ ...item, imageUrl: `https://image.example/${item.annictId}.jpg` }));
+    };
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+
+    const result = await model.refreshWorkList('2026-summer', basicFile, enrichedFile);
+    await imageEnrichmentStarted.promise;
+
+    assert.equal(result.enrichmentPending, true);
+    const basic = await model.readCache(basicFile);
+    assert.equal(basic.releaseDatesCheckedAt > 0, true);
+    assert.deepEqual(
+        basic.value.map(item => item.releasedOn),
+        ['2026-07-03', '2026-07-01'],
+    );
+
+    const list = await model.getWorks('2026-summer', false);
+    assert.equal(list.broadcastDateSource, 'work');
+    assert.deepEqual(
+        [...list.works]
+            .sort(
+                (left, right) =>
+                    workStartDateValue(left, list.broadcastDateSource) -
+                    workStartDateValue(right, list.broadcastDateSource),
+            )
+            .map(item => item.title),
+        ['Earlier', 'Later'],
+    );
+
+    releaseImages.resolve();
+    await Promise.all(model.workListEnrichmentRequests.values());
+    const enriched = await model.readCache(enrichedFile);
+    assert.equal(enriched.value[0].imageUrl, 'https://image.example/1.jpg');
+    assert.equal(enriched.value[0].releasedOn, '2026-07-03');
+});
+
+function deferred() {
+    let resolve;
+    const promise = new Promise(done => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
+function rerunCacheFile(root, excludePaidChannels = false) {
+    return path.join(root, 'cache', `rerun-works-v5-${season}-${excludePaidChannels ? 'paid-excluded' : 'all'}.json`);
+}
+
+function staleRerunCache(value = [work(301, { title: 'Cached rerun work' })]) {
+    return { cachedAt: Date.now() - 24 * 60 * 60 * 1000 - 1, value };
+}
+
+test('expired rerun cache returns immediately and deduplicates each season and paid-channel mode', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root, false);
+    const paidFile = rerunCacheFile(root, true);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    await model.writeJson(paidFile, cached);
+
+    const refresh = deferred();
+    const refreshStarted = deferred();
+    const calls = [];
+    model.refreshRerunWorkList = async (value, cacheFile, excludePaidChannels) => {
+        calls.push({ value, cacheFile, excludePaidChannels });
+        refreshStarted.resolve();
+        await refresh.promise;
+        return { season: value, works: [work(302)], cachedAt: Date.now(), stale: false, rerun: true };
+    };
+
+    const first = await model.getRerunWorks(season, false, false);
+    const duplicate = await model.getRerunWorks(season, false, false);
+    const paid = await model.getRerunWorks(season, false, true);
+    await refreshStarted.promise;
+    const originalGetOrStart = model.getOrStartRerunWorkListRefresh;
+    const manualJoin = deferred();
+    model.getOrStartRerunWorkListRefresh = function (...args) {
+        if (args[3] === true) manualJoin.resolve();
+        return originalGetOrStart.apply(this, args);
+    };
+    let manualSettled = false;
+    const manualPromise = model.getRerunWorks(season, true, false).finally(() => {
+        manualSettled = true;
+    });
+    await manualJoin.promise;
+    await Promise.resolve();
+    assert.equal(manualSettled, false);
+
+    for (const result of [first, duplicate, paid]) {
+        assert.equal(result.stale, true);
+        assert.equal(result.refreshPending, true);
+        assert.equal(result.cachedAt, cached.cachedAt);
+    }
+    assert.deepEqual(first.works, cached.value);
+    assert.deepEqual(duplicate.works, cached.value);
+    assert.deepEqual(calls, [
+        { value: season, cacheFile: file, excludePaidChannels: false },
+        { value: season, cacheFile: paidFile, excludePaidChannels: true },
+    ]);
+
+    const requests = [model.rerunWorkListRefreshRequests.get(file), model.rerunWorkListRefreshRequests.get(paidFile)];
+    assert.ok(requests.every(request => request instanceof Promise));
+    refresh.resolve();
+    await Promise.all(requests);
+    const manual = await manualPromise;
+    assert.equal(manual.stale, false);
+    assert.equal(manual.works[0].annictId, 302);
+});
+
+test('failed background rerun refresh keeps cache and suppresses retries during cooldown', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const originalFile = await fs.promises.readFile(file, 'utf8');
+    let calls = 0;
+    const firstFailure = deferred();
+    const firstFailureStarted = deferred();
+    const retry = deferred();
+    const retryStarted = deferred();
+    model.refreshRerunWorkList = async () => {
+        calls += 1;
+        if (calls === 1) {
+            firstFailureStarted.resolve();
+            await firstFailure.promise;
+            throw new Error('synthetic rerun refresh failure');
+        }
+        retryStarted.resolve();
+        await retry.promise;
+        const result = { season, works: [work(304)], cachedAt: Date.now(), stale: false, rerun: true };
+        await model.writeJson(file, { cachedAt: result.cachedAt, value: result.works });
+        return result;
+    };
+
+    const firstPromise = model.getRerunWorks(season, false, false);
+    await firstFailureStarted.promise;
+    const failedRequest = model.rerunWorkListRefreshRequests.get(file);
+    firstFailure.resolve();
+    const first = await firstPromise;
+    assert.equal(first.refreshPending, true);
+    await assert.rejects(failedRequest, /synthetic rerun refresh failure/);
+
+    const duringCooldown = await model.getRerunWorks(season, false, false);
+    assert.equal(duringCooldown.stale, true);
+    assert.equal(duringCooldown.refreshPending, false);
+    assert.deepEqual(duringCooldown.works, cached.value);
+    assert.equal(calls, 1);
+    assert.equal(await fs.promises.readFile(file, 'utf8'), originalFile);
+
+    model.rerunWorkListRefreshFailures.set(file, Date.now() - 5 * 60 * 1000 - 1);
+    const afterCooldown = await model.getRerunWorks(season, false, false);
+    assert.equal(afterCooldown.refreshPending, true);
+    await retryStarted.promise;
+    const retryRequest = model.rerunWorkListRefreshRequests.get(file);
+    retry.resolve();
+    await retryRequest;
+    const refreshed = await model.getRerunWorks(season, false, false);
+    assert.equal(refreshed.stale, false);
+    assert.equal(refreshed.refreshPending, undefined);
+    assert.equal(refreshed.works[0].annictId, 304);
+    assert.equal(calls, 2);
+});
+
+test('manual rerun refresh waits for its result and preserves the old cache after a failure', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const originalFile = await fs.promises.readFile(file, 'utf8');
+    const refresh = deferred();
+    const refreshStarted = deferred();
+    model.refreshRerunWorkList = async () => {
+        refreshStarted.resolve();
+        return refresh.promise;
+    };
+
+    let settled = false;
+    const resultPromise = model.getRerunWorks(season, true, false).finally(() => {
+        settled = true;
+    });
+    await refreshStarted.promise;
+    await Promise.resolve();
+    assert.equal(settled, false);
+
+    refresh.resolve({
+        season,
+        works: [work(303, { title: 'Manually refreshed' })],
+        cachedAt: Date.now(),
+        stale: false,
+        rerun: true,
+    });
+    const result = await resultPromise;
+    assert.equal(result.stale, false);
+    assert.notEqual(result.refreshPending, true);
+    assert.equal(result.works[0].title, 'Manually refreshed');
+
+    model.refreshRerunWorkList = async () => {
+        throw new Error('manual refresh failed');
+    };
+    const failedManualRefresh = await model.getRerunWorks(season, true, false);
+    assert.equal(failedManualRefresh.stale, true);
+    assert.equal(failedManualRefresh.refreshPending, false);
+    assert.deepEqual(failedManualRefresh.works, cached.value);
+    assert.equal(await fs.promises.readFile(file, 'utf8'), originalFile);
+});
+
+test('an initial rerun list waits for the full refresh pipeline and saves its result', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    model.mapWork = node => node;
+    const candidateFetch = deferred();
+    const candidateFetchStarted = deferred();
+    model.getSyoboiRerunCandidates = async (value, excludePaidChannels) => {
+        assert.equal(value, season);
+        assert.equal(excludePaidChannels, false);
+        candidateFetchStarted.resolve();
+        return candidateFetch.promise;
+    };
+    model.requestRest = async (resource, parameters) => {
+        assert.equal(resource, 'works');
+        assert.equal(parameters.filter_title, 'Example rerun');
+        return { works: [{ id: 42, syobocal_tid: 420, title: 'Example rerun' }] };
+    };
+    model.requestWithSavedToken = async query => {
+        if (query.includes('query RerunWorks')) {
+            return { searchWorks: { nodes: [work(42, { title: 'Example rerun' })] } };
+        }
+        assert.match(query, /query RerunProgramStations/);
+        return { searchWorks: { nodes: [{ annictId: 42, programs: { nodes: [] } }] } };
+    };
+    model.getBroadcastSupplement = () => ({ seed: async () => undefined });
+    model.fillMissingWorkImages = async works => works;
+    model.enrichWorkReleaseDates = async works => works;
+
+    let settled = false;
+    const resultPromise = model.getRerunWorks(season, false, false).finally(() => {
+        settled = true;
+    });
+    await candidateFetchStarted.promise;
+    await Promise.resolve();
+    assert.equal(settled, false);
+    candidateFetch.resolve([
+        {
+            tid: 420,
+            title: 'Example rerun',
+            programs: [{ count: 1, startedAt, channelName: 'BS11', pid: 42001, channelId: 1, channelGroup: 1 }],
+        },
+    ]);
+
+    const result = await resultPromise;
+    assert.equal(result.rerun, true);
+    assert.equal(result.stale, false);
+    assert.notEqual(result.refreshPending, true);
+    assert.equal(result.works[0].annictId, 42);
+    assert.equal(result.works[0].syobocalTid, 420);
+    assert.deepEqual(result.works[0].broadcastStarts, [{ channelName: 'BS11', startedAt }]);
+    assert.deepEqual((await model.readCache(file)).value, result.works);
+});
+
+test('a successful stale rerun refresh is visible as a fresh cache on the next read', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const finishRefresh = deferred();
+    const refreshStarted = deferred();
+    let calls = 0;
+    model.refreshRerunWorkList = async value => {
+        calls += 1;
+        refreshStarted.resolve();
+        await finishRefresh.promise;
+        const result = {
+            season: value,
+            works: [work(305, { title: 'Updated rerun' })],
+            cachedAt: Date.now(),
+            stale: false,
+            rerun: true,
+        };
+        await model.writeJson(file, { cachedAt: result.cachedAt, value: result.works });
+        return result;
+    };
+
+    const staleResult = await model.getRerunWorks(season, false, false);
+    assert.equal(staleResult.stale, true);
+    assert.equal(staleResult.refreshPending, true);
+    await refreshStarted.promise;
+    const pending = model.rerunWorkListRefreshRequests.get(file);
+    finishRefresh.resolve();
+    await pending;
+
+    const freshResult = await model.getRerunWorks(season, false, false);
+    assert.equal(freshResult.stale, false);
+    assert.equal(freshResult.refreshPending, undefined);
+    assert.equal(freshResult.works[0].annictId, 305);
+    assert.equal(calls, 1);
+});
+
+test('a failed REST title match leaves a stale rerun cache untouched', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    const file = rerunCacheFile(root);
+    const cached = staleRerunCache();
+    await model.writeJson(file, cached);
+    const originalFile = await fs.promises.readFile(file, 'utf8');
+    model.getSyoboiRerunCandidates = async () => [
+        { tid: 421, title: 'Unavailable rerun', programs: [{ count: 1, startedAt, channelName: 'BS11' }] },
+    ];
+    let restCalls = 0;
+    model.requestRest = async () => {
+        restCalls += 1;
+        throw new Error('synthetic REST outage');
+    };
+
+    const result = await model.getRerunWorks(season, true, false);
+    assert.equal(restCalls, 1);
+    assert.equal(result.stale, true);
+    assert.equal(result.refreshPending, false);
+    assert.deepEqual(result.works, cached.value);
+    assert.equal(await fs.promises.readFile(file, 'utf8'), originalFile);
+});
+
+test('indexed local-channel lookup matches the former filter and observes each new channel snapshot', () => {
+    const model = createModel();
+    const channels = [
+        { id: 1, name: 'BS１１', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 2, name: 'BS11イレブン', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 3, name: 'NHK総合1・東京', halfWidthName: '', channelType: 'GR', type: 0 },
+        { id: 4, name: '関西テレビ', halfWidthName: '', channelType: 'GR', type: 0 },
+        { id: 5, name: '', halfWidthName: 'BS11', channelType: 'BS', type: 0 },
+        { id: 6, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 192 },
+        { id: 7, name: '携帯 BS11', halfWidthName: '', channelType: 'GR', type: 0 },
+        { id: 8, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 9, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 0 },
+        { id: 10, name: '', halfWidthName: '   ', channelType: 'BS', type: 0 },
+    ];
+    const formerLookup = (name, snapshot) =>
+        snapshot
+            .filter(channel => model.isSelectableLocalChannel(channel))
+            .filter(channel => model.channelNamesMatch(name, model.localChannelName(channel) ?? ''))
+            .map(channel => ({
+                id: channel.id,
+                name: model.localChannelName(channel),
+                channelType: channel.channelType,
+            }));
+    const lookups = [
+        ['BS11', [1, 2, 5, 8, 9]],
+        ['BS１１', [1, 2, 5, 8, 9]],
+        ['BS11イレブン', [1, 2, 5, 8, 9]],
+        ['NHK総合2', [3]],
+        ['関西テレビ放送', [4]],
+        ['携帯 BS11', []],
+        ['', []],
+    ];
+
+    for (const [name, expectedIds] of lookups) {
+        const actual = model.matchLocalChannels(name, channels);
+        assert.deepEqual(actual, formerLookup(name, channels), `lookup for ${name}`);
+        assert.deepEqual(
+            actual.map(channel => channel.id),
+            expectedIds,
+            `expected stations for ${name}`,
+        );
+    }
+
+    const newSnapshot = [...channels, { id: 11, name: 'BS11', halfWidthName: '', channelType: 'BS', type: 0 }];
+    assert.deepEqual(
+        model.matchLocalChannels('BS11', newSnapshot).map(channel => channel.id),
+        [1, 2, 5, 8, 9, 11],
+    );
+    assert.deepEqual(
+        model.matchLocalChannels('BS11', channels).map(channel => channel.id),
+        [1, 2, 5, 8, 9],
+    );
+});
+
+test('a warm noncurrent cache without a date-check marker performs one REST check even when no dates are returned', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedAt = Date.now();
+    const value = [work(1, { title: 'Undated' })];
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', value });
+    let calls = 0;
+    model.requestRest = async () => {
+        calls += 1;
+        return { works: [] };
+    };
+    model.fillMissingWorkImages = async works => works;
+
+    const first = await model.getCachedWorks('2026-summer', false);
+    assert.equal(first.enrichmentPending, true);
+    await Promise.all(model.workListEnrichmentRequests.values());
+    const checked = await model.readCache(basicFile);
+    assert.equal(checked.releaseDatesCheckedAt > 0, true);
+    assert.equal(checked.value[0].releasedOn, undefined);
+
+    const second = await model.getCachedWorks('2026-summer', false);
+    assert.equal(second.enrichmentPending, false);
+    assert.equal(calls, 1);
+});
+
+test('failed warm-cache date enrichment preserves cached data and retries after its cooldown', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedAt = Date.now();
+    const value = [work(1, { releasedOn: '2026-07-01', title: 'Saved' })];
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', value });
+    let fail = true;
+    let calls = 0;
+    model.requestRest = async () => {
+        calls += 1;
+        if (fail) throw new Error('temporary REST error');
+        return { works: [{ id: 1, released_on: '2026-07-02' }] };
+    };
+    model.fillMissingWorkImages = async works => works;
+
+    const first = await model.getCachedWorks('2026-summer', false);
+    assert.equal(first.enrichmentPending, true);
+    const key = `2026-summer:same`;
+    await model.workListEnrichmentRequests.get(key);
+    assert.equal((await model.readCache(basicFile)).value[0].releasedOn, '2026-07-01');
+    assert.equal((await model.readCache(enrichedFile)).value[0].releasedOn, '2026-07-01');
+    assert.equal((await model.readCache(basicFile)).releaseDatesCheckedAt, undefined);
+
+    const duringCooldown = await model.getCachedWorks('2026-summer', false);
+    assert.equal(duringCooldown.enrichmentPending, false);
+    assert.equal(calls, 1);
+
+    fail = false;
+    model.workListEnrichmentFailures.set(key, Date.now() - 5 * 60 * 1000 - 1);
+    const retry = await model.getCachedWorks('2026-summer', false);
+    assert.equal(retry.enrichmentPending, true);
+    await Promise.all(model.workListEnrichmentRequests.values());
+    assert.equal((await model.readCache(basicFile)).value[0].releasedOn, '2026-07-02');
+    assert.equal((await model.readCache(basicFile)).releaseDatesCheckedAt > 0, true);
+    assert.equal(calls, 2);
+});
+
+test('a warm noncurrent cache keeps acquired broadcast metadata without starting date enrichment when marked complete', async t => {
+    const root = temporaryRoot(t);
+    const model = createModel(root);
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedAt = Date.now();
+    const value = [
+        work(1, {
+            releasedOn: '2026-07-01',
+            imageUrl: 'https://image.example/old.jpg',
+            broadcastStarts: [{ channelName: 'BS11', startedAt }],
+            broadcastStartsCheckedAt: cachedAt,
+            broadcastStartsComplete: true,
+        }),
+    ];
+    const basicFile = path.join(root, 'cache', 'works-basic-v3-2026-summer.json');
+    const enrichedFile = path.join(root, 'cache', 'works-v13-2026-summer.json');
+    await model.writeJson(basicFile, { cachedAt, generation: 'same', releaseDatesCheckedAt: cachedAt, value });
+    await model.writeJson(enrichedFile, { cachedAt, generation: 'same', releaseDatesCheckedAt: cachedAt, value });
+    model.startWorkListEnrichment = () => {
+        throw new Error('warm fully checked cache must not start enrichment');
+    };
+
+    const result = await model.getCachedWorks('2026-summer', false);
+
+    assert.equal(result.works[0].releasedOn, '2026-07-01');
+    assert.equal(result.works[0].imageUrl, 'https://image.example/old.jpg');
+    assert.deepEqual(result.works[0].broadcastStarts, [{ channelName: 'BS11', startedAt }]);
+});
+
+test('getWorks skips channel and Syoboi reads for noncurrent seasons and marks work release-date source', async () => {
+    const model = createModel();
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    const cachedWork = work(1, {
+        seasonYear: 2026,
+        seasonName: 'SUMMER',
+        releasedOn: '2026-07-01',
+        broadcastStarts: [{ channelName: 'BS11', startedAt }],
+        broadcastStartsCheckedAt: 123,
+        broadcastScan: { starts: [], after: 'saved-cursor', cursors: [] },
+        firstReceivableProgramStartedAt: startedAt,
+    });
+    const original = structuredClone(cachedWork);
+    model.getCachedWorks = async () => ({
+        works: [cachedWork],
+    });
+    model.channelApiModel.getChannels = async () => {
+        throw new Error('noncurrent season must not load channels');
+    };
+    model.readBroadcastSupplements = async () => {
+        throw new Error('noncurrent season must not read Syoboi supplements');
+    };
+
+    const result = await model.getWorks('2026-summer', false);
+
+    assert.equal(result.broadcastDateSource, 'work');
+    assert.equal(result.works[0].firstReceivableProgramStartedAt, undefined);
+    assert.equal(result.works[0].broadcastStarts, undefined);
+    assert.equal(result.works[0].broadcastScan, undefined);
+    assert.deepEqual(cachedWork, original, 'response projection must not remove cached broadcast metadata');
+    assert.equal(result.broadcastSupplementPending, false);
+});
+
+test('current-season initial lists and reruns keep receivable-program as the date source', async () => {
+    const model = createModel();
+    model.broadcastSeasonFromDate = () => '2026-autumn';
+    model.getCachedWorks = async (_season, _refresh, rerun) => ({
+        works: [
+            work(1, {
+                seasonYear: 2026,
+                seasonName: 'AUTUMN',
+                releasedOn: '2026-10-05',
+                broadcastStarts: [{ channelName: 'BS11', startedAt }],
+            }),
+        ],
+    });
+    model.channelApiModel.getChannels = async () => [{ id: 1, name: 'BS11' }];
+    model.matchLocalChannels = name => (name === 'BS11' ? [{ id: 1, name }] : []);
+    model.readBroadcastSupplements = async works => works.map(() => ({ programs: [], pending: false }));
+
+    for (const [selectedSeason, rerun] of [
+        ['2026-autumn', false],
+        ['2026-autumn', true],
+        ['2026-summer', true],
+    ]) {
+        const result = await model.getWorks(selectedSeason, false, rerun);
+        assert.equal(result.broadcastDateSource, 'receivable-program');
+        assert.equal(result.works[0].firstReceivableProgramStartedAt, startedAt);
+    }
 });
 
 test('initial missing broadcast starts use batches of 25 works', async () => {

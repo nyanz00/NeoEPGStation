@@ -1,5 +1,6 @@
 import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import ControlPoint from '@mui/icons-material/ControlPoint';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import DeleteSweepOutlined from '@mui/icons-material/DeleteSweepOutlined';
 import DriveFileMoveOutlined from '@mui/icons-material/DriveFileMoveOutlined';
@@ -27,6 +28,10 @@ import {
     InputLabel,
     LinearProgress,
     ListSubheader,
+    List,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
     Menu,
     MenuItem,
     Popover,
@@ -43,7 +48,9 @@ import {
     ToggleButtonGroup,
     Tooltip,
     Typography,
+    useMediaQuery,
 } from '@mui/material';
+import type { Theme } from '@mui/material/styles';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AddManualEncodeProgramOption, GetRecordedOption, RecordedCleanupPlanResult, RecordedItem, VideoFileId } from '../../../api';
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,12 +58,23 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { ChannelSelector } from '../components/ChannelSelector';
 import { DateTextInput } from '../components/DateTimeInput';
+import { RecordedDropInfo } from '../components/RecordedDropInfo';
 import { RecordedItemActions } from '../components/RecordedItemActions';
+import { RecordedBulkEncodeDialog } from '../components/RecordedBulkEncodeDialog';
+import { MulticastIcon } from '../components/icons/MulticastIcon';
 import { UserSelector } from '../components/UserSelector';
 import { VueCompatiblePagination } from '../components/VueCompatiblePagination';
 import { programDialogClose, programDialogFields, programDialogPaper } from '../components/programDialogStyles';
 import { api } from '../core/api/queries';
 import { createRecordedRelatedSearchOption } from '../core/media/recorded';
+import type { BulkEncodeResult } from '../core/media/recordedBulkEncode';
+import {
+    createRecordedBulkDeleteTargets,
+    deleteRecordedBulkTargets,
+    getRecordedDeleteFileNames,
+    type RecordedBulkDeleteOption,
+    type RecordedBulkDeleteTarget,
+} from '../core/media/recordedBulkDelete';
 import { useNotifications } from '../core/notifications/Notifications';
 import { withBasePath } from '../core/path';
 import { formatProgramTime, genreNames, programDuration } from '../core/program';
@@ -83,8 +101,6 @@ interface RecordedFilters {
     month: string;
     day: string;
 }
-
-type MultipleDeletionOption = 'all' | 'original' | 'encoded';
 
 const emptyFilters: RecordedFilters = {
     keyword: '',
@@ -461,8 +477,6 @@ function RecordedCard({
 }): ReactNode {
     const [anchor, setAnchor] = useState<HTMLElement | null>(null);
     const thumbnail = item.thumbnails?.[0];
-    const drop = item.dropLogFile;
-    const hasError = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     const clickCard = (): void => (editMode ? onSelect() : onOpen());
     return (
         <Card
@@ -530,15 +544,15 @@ function RecordedCard({
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                     {recordedTime(item)}
                 </Typography>
-                {showDrop && drop !== undefined ? (
-                    <Typography variant="caption" color={hasError ? 'error' : 'text.secondary'} noWrap sx={{ display: 'block' }}>
-                        drop: {drop.dropCnt}, error: {drop.errorCnt}, scrambling: {drop.scramblingCnt}
-                    </Typography>
-                ) : (
-                    <Typography variant="caption" noWrap title={item.description} sx={{ display: 'block' }}>
-                        {item.description ?? '\u00a0'}
-                    </Typography>
-                )}
+                <RecordedDropInfo
+                    drop={item.dropLogFile}
+                    videoFiles={item.videoFiles}
+                    description={item.description}
+                    isRecording={item.isRecording}
+                    showDrop={showDrop}
+                    noWrap
+                    sx={{ display: 'block' }}
+                />
             </Box>
             <RecordedItemActions
                 item={item}
@@ -584,8 +598,6 @@ function RecordedTableRow({
     onDeleted: () => void;
 }): ReactNode {
     const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-    const drop = item.dropLogFile;
-    const hasError = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     return (
         <TableRow
             id={`recorded-card-${item.id}`}
@@ -600,10 +612,8 @@ function RecordedTableRow({
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>
                         {item.name}
                     </Typography>
-                    {showDrop && drop !== undefined && (
-                        <Typography variant="caption" color={hasError ? 'error' : 'text.secondary'} sx={{ whiteSpace: 'nowrap' }}>
-                            drop: {drop.dropCnt}, error: {drop.errorCnt}, scrambling: {drop.scramblingCnt}
-                        </Typography>
+                    {showDrop && item.dropLogFile !== undefined && !item.isRecording && (
+                        <RecordedDropInfo drop={item.dropLogFile} videoFiles={item.videoFiles} showDrop noWrap sx={{ flex: '0 0 auto' }} />
                     )}
                 </Stack>
             </TableCell>
@@ -807,6 +817,7 @@ export function RecordedPage(): ReactNode {
     const settings = useSettings();
     const queryClient = useQueryClient();
     const { notify } = useNotifications();
+    const mobile = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
     const initialPage = Number(searchParams.get('page'));
     const initialUserId = searchParams.get('userId');
     const initialFocus = Number(searchParams.get('focus'));
@@ -836,8 +847,12 @@ export function RecordedPage(): ReactNode {
     const [editMode, setEditMode] = useState(false);
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [deleteOpen, setDeleteOpen] = useState(false);
-    const [deleteOption, setDeleteOption] = useState<MultipleDeletionOption>('all');
+    const [deleteOption, setDeleteOption] = useState<RecordedBulkDeleteOption>('all');
+    const [deleteFileNames, setDeleteFileNames] = useState<string[]>([]);
+    const deleteBusy = useRef(false);
     const [encodeTarget, setEncodeTarget] = useState<RecordedItem | null>(null);
+    const [bulkEncodeTargets, setBulkEncodeTargets] = useState<RecordedItem[] | null>(null);
+    const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
     const [bulkUserOpen, setBulkUserOpen] = useState(false);
     const [bulkUserId, setBulkUserId] = useState<ActiveUserId>(null);
     const [moveOpen, setMoveOpen] = useState(false);
@@ -1083,25 +1098,7 @@ export function RecordedPage(): ReactNode {
         },
     });
     const deleteSelected = useMutation({
-        mutationFn: async () => {
-            const items = currentSelectedItems();
-            const results = await Promise.allSettled(
-                items.map(async item => {
-                    if (deleteOption === 'all') {
-                        await api.deleteRecorded(item.id);
-                        return;
-                    }
-                    const type = deleteOption === 'original' ? 'ts' : 'encoded';
-                    for (const video of item.videoFiles?.filter(value => value.type === type) ?? []) await api.deleteVideo(video.id);
-                }),
-            );
-            return {
-                succeeded: items.filter((_item, index) => results[index].status === 'fulfilled').map(item => item.id),
-                failed: items
-                    .map((item, index) => ({ item, result: results[index] }))
-                    .filter((entry): entry is { item: RecordedItem; result: PromiseRejectedResult } => entry.result.status === 'rejected'),
-            };
-        },
+        mutationFn: (targets: RecordedBulkDeleteTarget[]) => deleteRecordedBulkTargets(targets, api.deleteRecorded, api.deleteVideo),
         onSuccess: async result => {
             setDeleteOpen(false);
             setSelected(new Set(result.failed.map(entry => entry.item.id)));
@@ -1110,7 +1107,7 @@ export function RecordedPage(): ReactNode {
             if (result.failed.length > 0) {
                 const detail = result.failed
                     .slice(0, 3)
-                    .map(entry => `${entry.item.name}: ${entry.result.reason instanceof Error ? entry.result.reason.message : String(entry.result.reason)}`)
+                    .map(entry => `${entry.item.name}: ${entry.error}`)
                     .join(' / ');
                 notify(`${result.failed.length}件を削除できませんでした: ${detail}`, 'error');
             }
@@ -1119,6 +1116,9 @@ export function RecordedPage(): ReactNode {
         onError: async error => {
             notify(`削除に失敗しました: ${error.message}`, 'error');
             await queryClient.invalidateQueries({ queryKey: ['recorded'] });
+        },
+        onSettled: () => {
+            deleteBusy.current = false;
         },
     });
     const stopEncode = useMutation({
@@ -1208,6 +1208,8 @@ export function RecordedPage(): ReactNode {
     );
     const totalPages = Math.max(1, Math.ceil((records.data?.total ?? 0) / settings.recordedLength));
     const selectedRecords = records.data?.records.filter(item => selected.has(item.id)) ?? [];
+    const deleteFileOptions = getRecordedDeleteFileNames(selectedRecords);
+    const deleteTargets = createRecordedBulkDeleteTargets(selectedRecords, deleteOption, deleteFileNames);
     const selectedSize = selectedRecords.reduce((total, item) => total + (item.videoFiles?.reduce((subtotal, videoFile) => subtotal + videoFile.size, 0) ?? 0), 0);
     const hasEncodingSelection = selectedRecords.some(item => item.isEncoding);
     const currentRecordIds = records.data?.records.map(item => item.id) ?? [];
@@ -1268,6 +1270,16 @@ export function RecordedPage(): ReactNode {
             else next.add(id);
             return next;
         });
+    const openBulkEncode = (): void => {
+        setBulkActionsOpen(false);
+        setBulkEncodeTargets(selectedRecords);
+    };
+    const onBulkEncodeCompleted = (result: BulkEncodeResult): void => {
+        const succeededIds = new Set(result.succeeded.map(job => job.recordedId));
+        setSelected(current => new Set([...current].filter(id => !succeededIds.has(id))));
+        if (result.failed.length === 0) setEditMode(false);
+        void Promise.all([queryClient.invalidateQueries({ queryKey: ['encode'] }), queryClient.invalidateQueries({ queryKey: ['recorded'] })]);
+    };
 
     return (
         <>
@@ -1281,38 +1293,59 @@ export function RecordedPage(): ReactNode {
                                     <SelectAllOutlined />
                                 </IconButton>
                             </Tooltip>
-                            <Tooltip title="ユーザーを一括変更">
-                                <span>
-                                    <IconButton
-                                        disabled={selectedRecords.length === 0}
-                                        onClick={() => {
-                                            setBulkUserId(null);
-                                            setBulkUserOpen(true);
-                                        }}
-                                    >
-                                        <AccountCircleOutlined />
-                                    </IconButton>
-                                </span>
-                            </Tooltip>
-                            <Tooltip title="サブディレクトリへ一括移動">
-                                <span>
-                                    <IconButton
-                                        disabled={selectedRecords.length === 0}
-                                        onClick={() => {
-                                            setMoveSubDirectory('');
-                                            setMoveOpen(true);
-                                        }}
-                                    >
-                                        <DriveFileMoveOutlined />
-                                    </IconButton>
-                                </span>
-                            </Tooltip>
+                            {mobile ? (
+                                <Tooltip title="一括操作">
+                                    <span>
+                                        <IconButton aria-label="一括操作" disabled={selectedRecords.length === 0} onClick={() => setBulkActionsOpen(true)}>
+                                            <MulticastIcon />
+                                        </IconButton>
+                                    </span>
+                                </Tooltip>
+                            ) : (
+                                <>
+                                    <Tooltip title="エンコードを一括追加">
+                                        <span>
+                                            <IconButton aria-label="エンコードを一括追加" disabled={selectedRecords.length === 0} onClick={openBulkEncode}>
+                                                <ControlPoint />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Tooltip title="ユーザーを一括変更">
+                                        <span>
+                                            <IconButton
+                                                disabled={selectedRecords.length === 0}
+                                                onClick={() => {
+                                                    setBulkUserId(null);
+                                                    setBulkUserOpen(true);
+                                                }}
+                                            >
+                                                <AccountCircleOutlined />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Tooltip title="サブディレクトリへ一括移動">
+                                        <span>
+                                            <IconButton
+                                                disabled={selectedRecords.length === 0}
+                                                onClick={() => {
+                                                    setMoveSubDirectory('');
+                                                    setMoveOpen(true);
+                                                }}
+                                            >
+                                                <DriveFileMoveOutlined />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                </>
+                            )}
                             <Tooltip title="削除">
                                 <span>
                                     <IconButton
                                         disabled={selectedRecords.length === 0}
                                         onClick={() => {
+                                            if (deleteBusy.current) return;
                                             setDeleteOption('all');
+                                            setDeleteFileNames([]);
                                             setDeleteOpen(true);
                                         }}
                                     >
@@ -1501,6 +1534,61 @@ export function RecordedPage(): ReactNode {
             </Box>
 
             <RecordedEncodeDialog item={encodeTarget} onClose={() => setEncodeTarget(null)} onChanged={() => void queryClient.invalidateQueries({ queryKey: ['recorded'] })} />
+            {bulkEncodeTargets !== null && <RecordedBulkEncodeDialog items={bulkEncodeTargets} onClose={() => setBulkEncodeTargets(null)} onCompleted={onBulkEncodeCompleted} />}
+            <Dialog
+                open={bulkActionsOpen}
+                onClose={() => setBulkActionsOpen(false)}
+                maxWidth="xs"
+                fullWidth
+                aria-labelledby="recorded-bulk-actions-title"
+                slotProps={{ paper: { sx: programDialogPaper } }}
+            >
+                <DialogTitle id="recorded-bulk-actions-title">一括操作</DialogTitle>
+                <IconButton aria-label="閉じる" onClick={() => setBulkActionsOpen(false)} sx={programDialogClose}>
+                    <CloseOutlined />
+                </IconButton>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 1, bgcolor: 'action.hover' }}>
+                    <List disablePadding>
+                        <ListItemButton disabled={selectedRecords.length === 0} onClick={openBulkEncode}>
+                            <ListItemIcon>
+                                <ControlPoint />
+                            </ListItemIcon>
+                            <ListItemText primary="エンコードを一括追加" />
+                        </ListItemButton>
+                        <ListItemButton
+                            disabled={selectedRecords.length === 0}
+                            onClick={() => {
+                                setBulkActionsOpen(false);
+                                setBulkUserId(null);
+                                setBulkUserOpen(true);
+                            }}
+                        >
+                            <ListItemIcon>
+                                <AccountCircleOutlined />
+                            </ListItemIcon>
+                            <ListItemText primary="ユーザーを一括変更" />
+                        </ListItemButton>
+                        <ListItemButton
+                            disabled={selectedRecords.length === 0}
+                            onClick={() => {
+                                setBulkActionsOpen(false);
+                                setMoveSubDirectory('');
+                                setMoveOpen(true);
+                            }}
+                        >
+                            <ListItemIcon>
+                                <DriveFileMoveOutlined />
+                            </ListItemIcon>
+                            <ListItemText primary="サブディレクトリへ一括移動" />
+                        </ListItemButton>
+                    </List>
+                </DialogContent>
+                <DialogActions>
+                    <Button color="inherit" variant="outlined" onClick={() => setBulkActionsOpen(false)}>
+                        閉じる
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Popover
                 open={searchAnchor !== null}
@@ -1910,7 +1998,7 @@ export function RecordedPage(): ReactNode {
 
             <Dialog
                 open={deleteOpen}
-                onClose={() => !deleteSelected.isPending && setDeleteOpen(false)}
+                onClose={() => !deleteBusy.current && setDeleteOpen(false)}
                 maxWidth="xs"
                 fullWidth
                 aria-labelledby="recorded-bulk-delete-title"
@@ -1921,20 +2009,50 @@ export function RecordedPage(): ReactNode {
                     <Typography variant="body2" sx={{ mb: 2 }}>
                         選択した {selectedRecords.length} 件から削除するファイルを選択してください。
                     </Typography>
-                    <FormControl fullWidth>
+                    <FormControl fullWidth disabled={deleteSelected.isPending}>
                         <InputLabel>削除対象</InputLabel>
-                        <Select label="削除対象" value={deleteOption} onChange={event => setDeleteOption(event.target.value as MultipleDeletionOption)}>
+                        <Select label="削除対象" value={deleteOption} onChange={event => setDeleteOption(event.target.value as RecordedBulkDeleteOption)}>
                             <MenuItem value="all">すべて</MenuItem>
                             <MenuItem value="original">オリジナルファイルだけ</MenuItem>
                             <MenuItem value="encoded">エンコードファイルだけ</MenuItem>
+                            <MenuItem value="names">ファイル名を指定</MenuItem>
                         </Select>
                     </FormControl>
+                    {deleteOption === 'names' && (
+                        <Stack role="group" aria-label="削除するファイル名" sx={{ mt: 2 }}>
+                            {deleteFileOptions.map(option => (
+                                <FormControlLabel
+                                    key={option.name}
+                                    disabled={deleteSelected.isPending}
+                                    control={
+                                        <Checkbox
+                                            checked={deleteFileNames.includes(option.name)}
+                                            onChange={event =>
+                                                setDeleteFileNames(current => (event.target.checked ? [...current, option.name] : current.filter(name => name !== option.name)))
+                                            }
+                                        />
+                                    }
+                                    label={`${option.name || '（名前なし）'} (${option.count})`}
+                                />
+                            ))}
+                            {deleteFileOptions.length === 0 && <Typography sx={{ color: 'text.secondary' }}>削除できる動画ファイルがありません。</Typography>}
+                        </Stack>
+                    )}
                 </DialogContent>
                 <DialogActions>
-                    <Button color="inherit" variant="outlined" disabled={deleteSelected.isPending} onClick={() => setDeleteOpen(false)}>
+                    <Button color="inherit" variant="outlined" disabled={deleteSelected.isPending} onClick={() => !deleteBusy.current && setDeleteOpen(false)}>
                         キャンセル
                     </Button>
-                    <Button color="error" variant="contained" disabled={deleteSelected.isPending} onClick={() => deleteSelected.mutate()}>
+                    <Button
+                        color="error"
+                        variant="contained"
+                        disabled={deleteSelected.isPending || deleteTargets.length === 0}
+                        onClick={() => {
+                            if (deleteBusy.current || deleteTargets.length === 0) return;
+                            deleteBusy.current = true;
+                            deleteSelected.mutate(deleteTargets);
+                        }}
+                    >
                         削除
                     </Button>
                 </DialogActions>

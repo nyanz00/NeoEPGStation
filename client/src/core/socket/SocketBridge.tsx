@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { withBasePath } from '../path';
+import { invalidateAllPlaybackHistory, invalidatePlaybackHistory } from './historyNotifications';
 
 interface SocketBridgeProps {
     socketIOPort: number;
@@ -30,20 +31,7 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
         const target = socketUrl(socketIOPort);
         let socket: Socket = target === undefined ? io(options) : io(target, options);
 
-        const statusRoots = new Set([
-            'onair',
-            'recording',
-            'recorded',
-            'recorded-detail',
-            'recorded-playback-history',
-            'reserves',
-            'reserve-counts',
-            'reserve-lists',
-            'rules',
-            'encode',
-            'storages',
-            'system',
-        ]);
+        const statusRoots = new Set(['onair', 'recording', 'recorded', 'recorded-detail', 'reserves', 'reserve-counts', 'reserve-lists', 'rules', 'encode', 'storages', 'system']);
         let scheduleSearchTimer: ReturnType<typeof setTimeout> | undefined;
         const invalidateStatus = (): void => {
             void queryClient.invalidateQueries({
@@ -59,7 +47,11 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
         const invalidateEncode = (): void => {
             void queryClient.invalidateQueries({ queryKey: ['encode'] });
         };
-        const connect = (): void => onConnectionChange(true);
+        const invalidateHistory = (update: unknown): void => invalidatePlaybackHistory(queryClient, update);
+        const connect = (): void => {
+            onConnectionChange(true);
+            invalidateAllPlaybackHistory(queryClient);
+        };
         const disconnect = (): void => onConnectionChange(false);
         const connectError = (): void => onConnectionChange(false);
 
@@ -69,6 +61,7 @@ export function SocketBridge({ socketIOPort, onConnectionChange }: SocketBridgeP
             nextSocket.on('connect_error', connectError);
             nextSocket.on('updateStatus', invalidateStatus);
             nextSocket.on('updateEncode', invalidateEncode);
+            nextSocket.on('updateRecordedPlaybackHistory', invalidateHistory);
         };
 
         bind(socket);

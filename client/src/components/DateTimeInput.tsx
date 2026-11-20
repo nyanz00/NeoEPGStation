@@ -1,56 +1,9 @@
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
-import { Box, IconButton, InputAdornment, TextField, useTheme } from '@mui/material';
-import { type ChangeEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-
-function dateTextFromValue(value: string): string {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    return match === null ? '' : `${match[1]}/${match[2]}/${match[3]}`;
-}
-
-function parseDateText(value: string): string | null {
-    const match = /^(\d{4})[/-](\d{2})[/-](\d{2})$/.exec(value.normalize('NFKC'));
-    if (match === null) return null;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    if (year < 1) return null;
-    const date = new Date(0);
-    date.setUTCFullYear(year, month - 1, day);
-    date.setUTCHours(0, 0, 0, 0);
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
-    return `${match[1]}-${match[2]}-${match[3]}`;
-}
-
-function formatDateText(value: string): string {
-    const digits = value.normalize('NFKC').replace(/\D/g, '').slice(0, 8);
-    if (digits.length < 4) return digits;
-    if (digits.length === 4) return `${digits}/`;
-    if (digits.length < 6) return `${digits.slice(0, 4)}/${digits.slice(4)}`;
-    if (digits.length === 6) return `${digits.slice(0, 4)}/${digits.slice(4)}/`;
-    return `${digits.slice(0, 4)}/${digits.slice(4, 6)}/${digits.slice(6)}`;
-}
-
-function formatTimeText(value: string): string {
-    const digits = value.normalize('NFKC').replace(/\D/g, '').slice(0, 4);
-    if (digits.length < 2) return digits;
-    if (digits.length === 2) return `${digits}:`;
-    return `${digits.slice(0, 2)}:${digits.slice(2)}`;
-}
-
-function isValidTime(value: string): boolean {
-    const match = /^(\d{2}):(\d{2})$/.exec(value);
-    return match !== null && Number(match[1]) <= 23 && Number(match[2]) <= 59;
-}
-
-function openNativePicker(input: HTMLInputElement | null): void {
-    if (input === null) return;
-    try {
-        input.showPicker();
-    } catch {
-        input.click();
-    }
-}
+import { Box, IconButton, InputAdornment, TextField } from '@mui/material';
+import { type ChangeEvent, type ReactNode, useEffect, useState } from 'react';
+import { dateTextFromValue, formatDateText, formatDateTimeText, formatTimeText, parseDateText, parseDateTimeText, parseTimeText } from '../core/dateTimeInput';
+import { DateTimePickerDialog } from './DateTimePickerDialog';
 
 interface CommonInputProps {
     label: string;
@@ -68,9 +21,8 @@ interface TimeTextInputProps extends CommonInputProps {
 }
 
 export function DateTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: DateTextInputProps): ReactNode {
-    const theme = useTheme();
     const [text, setText] = useState(() => dateTextFromValue(value));
-    const pickerRef = useRef<HTMLInputElement>(null);
+    const [pickerOpen, setPickerOpen] = useState(false);
 
     useEffect(() => {
         if (value.length > 0) setText(dateTextFromValue(value));
@@ -100,7 +52,7 @@ export function DateTextInput({ label, value, onChange, fullWidth = true, onVali
                     input: {
                         endAdornment: (
                             <InputAdornment position="end">
-                                <IconButton aria-label={`${label}をカレンダーから選択`} edge="end" onClick={() => openNativePicker(pickerRef.current)}>
+                                <IconButton aria-label={`${label}をカレンダーから選択`} edge="end" onClick={() => setPickerOpen(true)}>
                                     <CalendarMonthOutlined />
                                 </IconButton>
                             </InputAdornment>
@@ -108,42 +60,38 @@ export function DateTextInput({ label, value, onChange, fullWidth = true, onVali
                     },
                 }}
             />
-            <input
-                ref={pickerRef}
-                type="date"
-                autoComplete="off"
-                min="0001-01-01"
-                max="9999-12-31"
+            <DateTimePickerDialog
+                open={pickerOpen}
+                mode="date"
                 value={value}
-                onChange={event => {
-                    setText(dateTextFromValue(event.target.value));
-                    onChange(event.target.value);
+                label={label}
+                onClose={() => setPickerOpen(false)}
+                onCommit={next => {
+                    setPickerOpen(false);
+                    setText(dateTextFromValue(next));
+                    onChange(next);
                     onValidityChange?.(true);
                 }}
-                tabIndex={-1}
-                aria-hidden="true"
-                style={{ position: 'absolute', top: 0, right: 0, width: 48, height: '100%', opacity: 0, pointerEvents: 'none', colorScheme: theme.palette.mode }}
             />
         </Box>
     );
 }
 
 export function TimeTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: TimeTextInputProps): ReactNode {
-    const theme = useTheme();
     const [text, setText] = useState(value);
-    const pickerRef = useRef<HTMLInputElement>(null);
+    const [pickerOpen, setPickerOpen] = useState(false);
 
     useEffect(() => {
         if (value.length > 0) setText(value);
-        else if (isValidTime(text)) setText('');
+        else if (parseTimeText(text) !== null) setText('');
     }, [text, value]);
 
     const update = (event: ChangeEvent<HTMLInputElement>): void => {
         const raw = event.target.value;
         const next = raw.length < text.length ? raw : formatTimeText(raw);
         setText(next);
-        onChange(isValidTime(next) ? next : '');
-        onValidityChange?.(next.length === 0 || isValidTime(next));
+        onChange(parseTimeText(next) !== null ? next : '');
+        onValidityChange?.(next.length === 0 || parseTimeText(next) !== null);
     };
 
     return (
@@ -154,13 +102,13 @@ export function TimeTextInput({ label, value, onChange, fullWidth = true, onVali
                 value={text}
                 onChange={update}
                 placeholder="HH:mm"
-                error={text.length === 5 && !isValidTime(text)}
+                error={text.length === 5 && parseTimeText(text) === null}
                 slotProps={{
                     htmlInput: { inputMode: 'numeric', maxLength: 5 },
                     input: {
                         endAdornment: (
                             <InputAdornment position="end">
-                                <IconButton aria-label={`${label}を時計から選択`} edge="end" onClick={() => openNativePicker(pickerRef.current)}>
+                                <IconButton aria-label={`${label}を時計から選択`} edge="end" onClick={() => setPickerOpen(true)}>
                                     <AccessTimeOutlined />
                                 </IconButton>
                             </InputAdornment>
@@ -168,19 +116,81 @@ export function TimeTextInput({ label, value, onChange, fullWidth = true, onVali
                     },
                 }}
             />
-            <input
-                ref={pickerRef}
-                type="time"
-                autoComplete="off"
+            <DateTimePickerDialog
+                open={pickerOpen}
+                mode="time"
                 value={value}
-                onChange={event => {
-                    setText(event.target.value);
-                    onChange(event.target.value);
+                label={label}
+                onClose={() => setPickerOpen(false)}
+                onCommit={next => {
+                    setPickerOpen(false);
+                    setText(next);
+                    onChange(next);
                     onValidityChange?.(true);
                 }}
-                tabIndex={-1}
-                aria-hidden="true"
-                style={{ position: 'absolute', top: 0, right: 0, width: 48, height: '100%', opacity: 0, pointerEvents: 'none', colorScheme: theme.palette.mode }}
+            />
+        </Box>
+    );
+}
+
+interface DateTimeTextInputProps extends CommonInputProps {
+    onValidityChange?: (isValid: boolean) => void;
+}
+
+export function DateTimeTextInput({ label, value, onChange, fullWidth = true, onValidityChange }: DateTimeTextInputProps): ReactNode {
+    const [text, setText] = useState(() => formatDateTimeText(value));
+    const [pickerOpen, setPickerOpen] = useState(false);
+    useEffect(() => {
+        if (value.length > 0) setText(formatDateTimeText(value));
+        else if (parseDateTimeText(text) !== null) setText('');
+    }, [text, value]);
+
+    const update = (event: ChangeEvent<HTMLInputElement>): void => {
+        const raw = event.target.value;
+        const next = raw.length < text.length ? raw : formatDateTimeText(raw);
+        const parsed = parseDateTimeText(next);
+        setText(next);
+        onChange(parsed ?? '');
+        onValidityChange?.(next.length === 0 || parsed !== null);
+    };
+
+    return (
+        <Box sx={{ position: 'relative', width: fullWidth ? '100%' : 'auto' }}>
+            <TextField
+                fullWidth={fullWidth}
+                label={label}
+                value={text}
+                onChange={update}
+                placeholder="YYYY/MM/DD HH:mm"
+                error={text.length === 16 && parseDateTimeText(text) === null}
+                slotProps={{
+                    htmlInput: { inputMode: 'numeric', maxLength: 16 },
+                    input: {
+                        endAdornment: (
+                            <InputAdornment position="end">
+                                <IconButton aria-label={`${label}をカレンダーから選択`} edge="end" onClick={() => setPickerOpen(true)}>
+                                    <CalendarMonthOutlined />
+                                </IconButton>
+                                <IconButton aria-label={`${label}を時計から選択`} edge="end" onClick={() => setPickerOpen(true)}>
+                                    <AccessTimeOutlined />
+                                </IconButton>
+                            </InputAdornment>
+                        ),
+                    },
+                }}
+            />
+            <DateTimePickerDialog
+                open={pickerOpen}
+                mode="datetime"
+                value={value}
+                label={label}
+                onClose={() => setPickerOpen(false)}
+                onCommit={next => {
+                    setPickerOpen(false);
+                    setText(formatDateTimeText(next));
+                    onChange(next);
+                    onValidityChange?.(true);
+                }}
             />
         </Box>
     );
