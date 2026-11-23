@@ -117,6 +117,7 @@ function RecordedPlayer({
     subtitleIsNicoJk,
     danmakuSubtitleText,
     subtitleDanmaku,
+    commentSubtitleIndex,
     forceSubtitleStroke,
     danmakuHighRefreshRate,
     danmakuFrameRateLimit,
@@ -146,6 +147,7 @@ function RecordedPlayer({
     subtitleIsNicoJk: boolean;
     danmakuSubtitleText: string | null;
     subtitleDanmaku: boolean;
+    commentSubtitleIndex: number | null;
     forceSubtitleStroke: boolean;
     danmakuHighRefreshRate: boolean;
     danmakuFrameRateLimit: WatchDanmakuFrameRateLimit;
@@ -174,9 +176,7 @@ function RecordedPlayer({
     const container = useRef<HTMLDivElement | null>(null);
     const coreRef = useRef<RecordedPlayerCore | null>(null);
     const rendererRef = useRef(new CanvasSubtitleRenderer());
-    const assCommentRef = useRef<AssCommentCore | null>(null);
-    const assCommentModeRef = useRef<'danmaku' | 'subtitle' | null>(null);
-    const assCommentVideoRef = useRef<HTMLVideoElement | null>(null);
+    const assCommentRef = useRef<{ core: AssCommentCore; mode: 'danmaku' | 'subtitle'; video: HTMLVideoElement; subtitleIndex: number } | null>(null);
     const [video, setVideo] = useState<HTMLVideoElement | null>(null);
     const [controlsVisible, setControlsVisible] = useState(true);
     const [controlsPortal, setControlsPortal] = useState<HTMLElement | null>(null);
@@ -237,10 +237,7 @@ function RecordedPlayer({
         window.addEventListener('pagehide', handlePageHide);
         setVideo(null);
         rendererRef.current.clear();
-        assCommentRef.current?.destroy();
-        assCommentRef.current = null;
-        assCommentModeRef.current = null;
-        assCommentVideoRef.current = null;
+        onCommentsReset();
         const core = new RecordedPlayerCore({
             container: container.current,
             src: source.src,
@@ -290,10 +287,8 @@ function RecordedPlayer({
             onVideoReady(null);
             coreRef.current = null;
             rendererRef.current.clear();
-            assCommentRef.current?.destroy();
+            assCommentRef.current?.core.destroy();
             assCommentRef.current = null;
-            assCommentModeRef.current = null;
-            assCommentVideoRef.current = null;
             core.destroy();
             if (keepTimer !== null) window.clearInterval(keepTimer);
             window.removeEventListener('pagehide', handlePageHide);
@@ -363,48 +358,46 @@ function RecordedPlayer({
         void rendererRef.current.setSubtitle(video, subtitleText, subtitleIsNicoJk).catch(error => console.error('[RecordedWatch:subtitles]', error));
     }, [subtitleIsNicoJk, subtitleText, video]);
 
+    const assCommentMode = subtitleDanmaku ? 'danmaku' : subtitleIsNicoJk ? 'subtitle' : null;
+    const commentAss = assCommentMode === 'danmaku' ? danmakuSubtitleText : assCommentMode === 'subtitle' ? subtitleText : null;
     useEffect(() => {
-        const mode = subtitleDanmaku ? 'danmaku' : subtitleIsNicoJk ? 'subtitle' : null;
-        const ass = mode === 'danmaku' ? danmakuSubtitleText : mode === 'subtitle' ? subtitleText : null;
-        if (video === null || mode === null || ass === null) {
-            assCommentRef.current?.destroy();
+        const current = assCommentRef.current;
+        if (video === null || video !== coreRef.current?.getVideoElement() || assCommentMode === null || commentAss === null || commentSubtitleIndex === null) {
+            if (current === null) return;
+            current.core.destroy();
             assCommentRef.current = null;
-            assCommentModeRef.current = null;
-            assCommentVideoRef.current = null;
             coreRef.current?.clearDanmaku();
             onCommentsReset();
 
             return;
         }
 
-        if (assCommentRef.current !== null && assCommentModeRef.current === mode && assCommentVideoRef.current === video) {
-            assCommentRef.current.updateAss(ass);
+        if (current !== null && current.mode === assCommentMode && current.video === video && current.subtitleIndex === commentSubtitleIndex) {
+            current.core.updateAss(commentAss);
 
             return;
         }
 
-        assCommentRef.current?.destroy();
+        current?.core.destroy();
         coreRef.current?.clearDanmaku();
         onCommentsReset();
         const comments = new AssCommentCore({
-            ass,
+            ass: commentAss,
             video,
-            onComment: mode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : () => {},
+            onComment: assCommentMode === 'danmaku' ? comment => coreRef.current?.drawDanmaku(comment) : () => {},
             onCommentsChange,
             onPositionChange: onCommentPositionChange,
-            getDisplayTime: mode === 'danmaku' ? (comment, originalTime) => coreRef.current?.getDanmakuDisplayTime(comment, originalTime) ?? originalTime : undefined,
+            getDisplayTime: assCommentMode === 'danmaku' ? (comment, originalTime) => coreRef.current?.getDanmakuDisplayTime(comment, originalTime) ?? originalTime : undefined,
             onReset:
-                mode === 'danmaku'
+                assCommentMode === 'danmaku'
                     ? () => {
                           coreRef.current?.clearDanmaku();
                       }
                     : undefined,
         });
-        assCommentRef.current = comments;
-        assCommentModeRef.current = mode;
-        assCommentVideoRef.current = video;
+        assCommentRef.current = { core: comments, mode: assCommentMode, video, subtitleIndex: commentSubtitleIndex };
         comments.start();
-    }, [danmakuSubtitleText, onCommentPositionChange, onCommentsChange, onCommentsReset, subtitleDanmaku, subtitleIsNicoJk, subtitleText, video]);
+    }, [assCommentMode, commentAss, commentSubtitleIndex, onCommentPositionChange, onCommentsChange, onCommentsReset, video]);
 
     const seekBy = (seconds: number): void => {
         if (video === null) return;
@@ -841,57 +834,59 @@ function CommentPanel({
     subtitleError?: { message: string; onRetry: () => void };
 }): ReactNode {
     return (
-        <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ height: '100%', overflowY: 'auto', p: 1.5 }}>
-            <Stack direction="row" spacing={1} sx={{ mb: 1.5, alignItems: 'center' }}>
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Stack component="header" direction="row" spacing={1} sx={{ p: 1.5, flexShrink: 0, alignItems: 'center' }}>
                 <ChatBubbleOutlineOutlined />
                 <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                    コメント
+                    コメント ({comments.length.toLocaleString('ja-JP')})
                 </Typography>
             </Stack>
-            {subtitleError && (
-                <Alert
-                    severity="error"
-                    sx={{ mb: 1.5 }}
-                    action={
-                        <Button color="inherit" size="small" onClick={subtitleError.onRetry}>
-                            再試行
-                        </Button>
-                    }
-                >
-                    {subtitleError.message}
-                </Alert>
-            )}
-            {!autoFollow && comments.length > 0 && (
-                <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
-                    現在位置に戻る
-                </Button>
-            )}
-            {comments.length === 0 ? (
-                <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
-                    {status}
-                </Typography>
-            ) : (
-                <Stack spacing={0.85}>
-                    {comments.map((comment, index) => (
-                        <Stack
-                            key={`${comment.id.toString(10)}-${comment.postedAt.toString(10)}-${index.toString(10)}`}
-                            data-comment-index={index}
-                            direction="row"
-                            spacing={1}
-                            sx={{
-                                alignItems: 'flex-start',
-                                contentVisibility: 'auto',
-                                containIntrinsicSize: '28px',
-                            }}
-                        >
-                            <Typography sx={{ minWidth: 0, flex: 1, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{comment.text}</Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ pt: 0.2, flex: '0 0 auto' }}>
-                                {commentTime(comment)}
-                            </Typography>
-                        </Stack>
-                    ))}
-                </Stack>
-            )}
+            <Box ref={listRef} onScroll={event => onScroll(event.currentTarget)} sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
+                {subtitleError && (
+                    <Alert
+                        severity="error"
+                        sx={{ mb: 1.5 }}
+                        action={
+                            <Button color="inherit" size="small" onClick={subtitleError.onRetry}>
+                                再試行
+                            </Button>
+                        }
+                    >
+                        {subtitleError.message}
+                    </Alert>
+                )}
+                {!autoFollow && comments.length > 0 && (
+                    <Button fullWidth size="small" variant="contained" onClick={onReturnToCurrent} sx={{ position: 'sticky', top: 0, zIndex: 2, mb: 1.25 }}>
+                        現在位置に戻る
+                    </Button>
+                )}
+                {comments.length === 0 ? (
+                    <Typography color="text.secondary" sx={{ py: 5, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
+                        {status}
+                    </Typography>
+                ) : (
+                    <Stack spacing={0.85}>
+                        {comments.map((comment, index) => (
+                            <Stack
+                                key={`${comment.id.toString(10)}-${comment.postedAt.toString(10)}-${index.toString(10)}`}
+                                data-comment-index={index}
+                                direction="row"
+                                spacing={1}
+                                sx={{
+                                    alignItems: 'flex-start',
+                                    contentVisibility: 'auto',
+                                    containIntrinsicSize: '28px',
+                                }}
+                            >
+                                <Typography sx={{ minWidth: 0, flex: 1, lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{comment.text}</Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ pt: 0.2, flex: '0 0 auto' }}>
+                                    {commentTime(comment)}
+                                </Typography>
+                            </Stack>
+                        ))}
+                    </Stack>
+                )}
+            </Box>
         </Box>
     );
 }
@@ -1475,7 +1470,6 @@ export function RecordedWatchPage(): ReactNode {
         danmakuSubtitleIndexParam,
     ]);
     useEffect(() => {
-        resetComments();
         setCommentStatus(
             usesJikkyo
                 ? 'TS録画の実況過去ログを取得しています…'
@@ -1487,10 +1481,9 @@ export function RecordedWatchPage(): ReactNode {
                     ? 'エンコード済みSTREAMINGでは、選択した字幕を映像へ焼き込んで再生します。'
                     : '録画ファイル情報を確認しています…',
         );
-    }, [recordedId, resetComments, selectedVideo?.type, subtitleDanmaku, usesClientSubtitles, usesJikkyo, videoFileId]);
+    }, [recordedId, selectedVideo?.type, subtitleDanmaku, usesClientSubtitles, usesJikkyo, videoFileId]);
     useEffect(() => {
         if (usesClientSubtitles) {
-            resetComments();
             setCommentStatus(
                 subtitleDanmaku
                     ? selectedDanmakuSubtitleIndex === null
@@ -1503,7 +1496,7 @@ export function RecordedWatchPage(): ReactNode {
                         : '選択中のASS字幕は実況コメントではありません。',
             );
         }
-    }, [resetComments, selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, subtitleDanmaku, usesClientSubtitles]);
+    }, [selectedDanmakuSubtitleIndex, selectedSubtitle, selectedSubtitleIndex, subtitleDanmaku, usesClientSubtitles]);
     const scrollCommentsToCurrent = useCallback((): number | null => {
         const list = commentList.current;
         if (panelTab !== 'comments' || list === null || nextCommentIndex === null || comments.length === 0) return null;
@@ -1721,6 +1714,7 @@ export function RecordedWatchPage(): ReactNode {
                             subtitleIsNicoJk={usesClientSubtitles && !subtitleDanmaku && isNicoJkSubtitle(selectedSubtitle)}
                             danmakuSubtitleText={usesClientSubtitles ? (danmakuSubtitleText.data?.subtitleText ?? danmakuSubtitleTextPreview.data?.subtitleText ?? null) : null}
                             subtitleDanmaku={subtitleDanmaku}
+                            commentSubtitleIndex={subtitleDanmaku ? selectedDanmakuSubtitleIndex : selectedSubtitleIndex}
                             forceSubtitleStroke={settings.isForceEnableSubtitleStroke}
                             danmakuHighRefreshRate={settings.watchDanmakuHighRefreshRate}
                             danmakuFrameRateLimit={settings.watchDanmakuFrameRateLimit}
