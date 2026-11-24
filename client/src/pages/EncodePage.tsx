@@ -17,6 +17,7 @@ import {
     Checkbox,
     Chip,
     CircularProgress,
+    ClickAwayListener,
     Dialog,
     DialogActions,
     DialogContent,
@@ -39,6 +40,60 @@ import { useNotifications } from '../core/notifications/Notifications';
 import { formatProgramDate, formatProgramTime, programDuration } from '../core/program';
 import { useSettings } from '../core/storage/settings';
 import { EncodeRecoverySection } from './EncodeRecoverySection';
+
+function EncodeBadge({ label, waiting, scheduled, mobile = false }: { label: string; waiting: boolean; scheduled: boolean; mobile?: boolean }): ReactNode {
+    const [labelElement, setLabelElement] = useState<HTMLSpanElement | null>(null);
+    const [truncated, setTruncated] = useState(false);
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        if (labelElement === null) return;
+        const measure = (): void => {
+            const clipped = labelElement.clientWidth > 0 && labelElement.scrollWidth > labelElement.clientWidth;
+            setTruncated(clipped);
+            if (!clipped) setOpen(false);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(labelElement);
+        return () => observer.disconnect();
+    }, [label, labelElement]);
+
+    const chip = (
+        <Chip
+            size="small"
+            color={waiting ? 'default' : 'primary'}
+            label={label}
+            slotProps={{ label: { ref: scheduled ? undefined : setLabelElement } }}
+            onClick={
+                !scheduled && truncated
+                    ? event => {
+                          event.stopPropagation();
+                          setOpen(true);
+                      }
+                    : undefined
+            }
+            sx={{
+                display: mobile ? { xs: 'inline-flex', sm: 'none' } : { xs: 'none', sm: 'inline-flex' },
+                alignSelf: mobile ? 'start' : undefined,
+                justifySelf: mobile ? 'start' : undefined,
+                maxWidth: mobile ? '100%' : scheduled ? undefined : 'min(200px, 40%)',
+                ...(mobile && scheduled
+                    ? { height: 'auto', minHeight: 24, '& .MuiChip-label': { py: 0.25, whiteSpace: 'normal', overflowWrap: 'anywhere' } }
+                    : { minWidth: 0, '& .MuiChip-label': { minWidth: 0 } }),
+            }}
+        />
+    );
+    if (scheduled) return chip;
+    const tooltipOpen = truncated && open;
+    return (
+        <ClickAwayListener mouseEvent={tooltipOpen ? 'onPointerDown' : false} touchEvent={false} onClickAway={() => setOpen(false)}>
+            <Tooltip title={truncated ? label : ''} open={tooltipOpen} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} disableInteractive disableTouchListener>
+                {chip}
+            </Tooltip>
+        </ClickAwayListener>
+    );
+}
 
 function EncodeCard({
     item,
@@ -75,6 +130,7 @@ function EncodeCard({
 }): ReactNode {
     const percent = Math.min(100, Math.max(0, (item.percent ?? 0) * 100));
     const scheduled = item.scheduledAt !== undefined;
+    const badgeLabel = scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode;
     const reorderable = waiting && !scheduled;
     const controls =
         reordering && reorderable ? (
@@ -159,20 +215,7 @@ function EncodeCard({
                         minWidth: 0,
                     }}
                 >
-                    <Chip
-                        size="small"
-                        color={waiting ? 'default' : 'primary'}
-                        label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
-                        sx={{
-                            display: { xs: 'inline-flex', sm: 'none' },
-                            alignSelf: 'start',
-                            justifySelf: 'start',
-                            maxWidth: '100%',
-                            height: 'auto',
-                            minHeight: 24,
-                            '& .MuiChip-label': { py: 0.25, whiteSpace: 'normal', overflowWrap: 'anywhere' },
-                        }}
-                    />
+                    <EncodeBadge label={badgeLabel} waiting={waiting} scheduled={scheduled} mobile />
                     <ProgramThumbnail
                         thumbnailId={item.recorded.thumbnails?.[0]}
                         channel={channel}
@@ -186,24 +229,19 @@ function EncodeCard({
                                 variant="subtitle1"
                                 sx={{
                                     flex: 1,
-                                    minWidth: { xs: 0, sm: 'auto' },
+                                    minWidth: 0,
                                     fontWeight: 700,
                                     display: { xs: '-webkit-box', sm: 'block' },
                                     WebkitLineClamp: { xs: 2, sm: 'unset' },
                                     WebkitBoxOrient: 'vertical',
                                     overflow: { xs: 'hidden', sm: 'visible' },
-                                    overflowWrap: { xs: 'anywhere', sm: 'normal' },
+                                    overflowWrap: 'anywhere',
                                 }}
                                 title={item.recorded.name}
                             >
                                 {item.recorded.name}
                             </Typography>
-                            <Chip
-                                size="small"
-                                color={waiting ? 'default' : 'primary'}
-                                label={scheduled ? (item.scheduledAtLabel ?? '開始予約') : item.mode}
-                                sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
-                            />
+                            <EncodeBadge label={badgeLabel} waiting={waiting} scheduled={scheduled} />
                         </Stack>
                         <Typography variant="body2" color="text.secondary">
                             {channel?.name ?? item.recorded.channelId}
@@ -215,7 +253,7 @@ function EncodeCard({
                     {!waiting && (
                         <Box sx={{ mt: { xs: 0, sm: 1 }, minWidth: 0, gridColumn: '1 / -1', gridRow: editing ? 2 : 3 }}>
                             <Stack direction="row" sx={{ mb: 0.35, justifyContent: 'space-between' }}>
-                                <Typography variant="body2">{item.mode}</Typography>
+                                <Typography variant="body2">Encoding</Typography>
                                 <Typography variant="body2">{Math.floor(percent)}%</Typography>
                             </Stack>
                             <LinearProgress variant={item.percent === undefined ? 'indeterminate' : 'determinate'} value={percent} sx={{ height: 8, borderRadius: 1 }} />
