@@ -19,11 +19,12 @@ import {
     Typography,
 } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SystemUpdateInfo, SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
+import type { StartSystemUpdateOption, SystemUpdateInfo, SystemUpdatePackageManager, SystemUpdateTarget } from '../../../api';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { api } from '../core/api/queries';
 import { useActiveAdminAccess } from '../core/adminAccess';
 import { useNotifications } from '../core/notifications/Notifications';
+import { programDialogPaper } from './programDialogStyles';
 
 interface Props {
     open: boolean;
@@ -54,6 +55,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     const [packageManager, setPackageManager] = useState<SystemUpdatePackageManager>('auto');
     const [preserveLocalChanges, setPreserveLocalChanges] = useState(false);
     const [restartRequested, setRestartRequested] = useState(false);
+    const [confirmation, setConfirmation] = useState<{ request: StartSystemUpdateOption; commit: string; message: string } | null>(null);
     const logRef = useRef<HTMLPreElement>(null);
     const followLogsRef = useRef(true);
     const info = useQuery({
@@ -65,6 +67,9 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     });
     const job = info.data?.job;
     const running = job?.status === 'running';
+    useEffect(() => {
+        if (!open) setConfirmation(null);
+    }, [open]);
     useEffect(() => {
         if (open) followLogsRef.current = true;
     }, [job?.id, open]);
@@ -104,9 +109,9 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
     }, [queryClient, restartRequested]);
 
     const start = useMutation({
-        mutationFn: async (target: SystemUpdateTarget) => {
+        mutationFn: async (request: StartSystemUpdateOption) => {
             if (!canManageVersion) throw new Error('アクティブユーザーの管理者権限を確認できません');
-            return api.startSystemUpdate({ target, packageManager, preserveLocalChanges });
+            return api.startSystemUpdate(request);
         },
         onSuccess: job => {
             notify('更新処理を開始しました', 'info');
@@ -130,27 +135,38 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
         onSuccess: data => queryClient.setQueryData(['system-update'], data),
         onError: error => notify(`更新情報を再取得できませんでした: ${error.message}`, 'error'),
     });
+    const canStartUpdate = (target: SystemUpdateTarget, preserveChanges: boolean): boolean =>
+        open &&
+        canManageVersion &&
+        !running &&
+        !start.isPending &&
+        info.data?.gitError === null &&
+        info.data.isGitRepository &&
+        (info.data.isClean || preserveChanges) &&
+        info.data.targets[target]?.canApply === true;
+
     const begin = (target: SystemUpdateTarget): void => {
-        if (!canManageVersion) return;
-        const targetInfo = target === 'stable' ? info.data?.targets.stable : info.data?.targets.develop;
-        const label = targetInfo?.label;
-        const rollback = targetInfo?.relation === 'behind';
+        const targetInfo = info.data?.targets[target];
+        if (!targetInfo || !canStartUpdate(target, preserveLocalChanges)) return;
+        const rollback = targetInfo.relation === 'behind';
         const localChangeNotice = preserveLocalChanges ? '未コミットの変更は退避され、更新後のファイルで上書きされます。' : '';
         const developWarning =
             target === 'develop'
                 ? '\n\n【警告】develop版はテストされていない開発中のコードです。更新後にNeoEPGStationが起動できなくなり、手動での復旧が必要になる可能性があります。'
                 : '';
-        if (
-            !window.confirm(
-                `${label ?? target} へ${rollback ? 'ロールバック' : '更新'}します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを切り替えてビルドします。${developWarning}\n\n続行しますか？`,
-            )
-        )
-            return;
-        start.mutate(target);
+        setConfirmation({
+            request: { target, packageManager, preserveLocalChanges },
+            commit: targetInfo.commit,
+            message: `${targetInfo.label} へ${rollback ? 'ロールバック' : '更新'}します。${localChangeNotice}DBとconfig.ymlのバックアップ後にコードを切り替えてビルドします。${developWarning}\n\n続行しますか？`,
+        });
     };
+    const canConfirm =
+        confirmation !== null &&
+        canStartUpdate(confirmation.request.target, confirmation.request.preserveLocalChanges) &&
+        info.data?.targets[confirmation.request.target]?.commit === confirmation.commit;
 
     return (
-        <Dialog open={open} onClose={running ? undefined : onClose} fullWidth maxWidth="md">
+        <Dialog open={open} onClose={running ? undefined : onClose} fullWidth maxWidth="md" slotProps={{ paper: { sx: programDialogPaper } }}>
             <DialogTitle>バージョン管理</DialogTitle>
             <DialogContent dividers sx={{ minHeight: 0 }}>
                 {info.isPending ? (
@@ -285,16 +301,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             <Button
                                 variant="contained"
                                 startIcon={<SystemUpdateAltOutlined />}
-                                disabled={
-                                    !canManageVersion ||
-                                    running ||
-                                    start.isPending ||
-                                    info.data.gitError !== null ||
-                                    !info.data.isGitRepository ||
-                                    (!info.data.isClean && !preserveLocalChanges) ||
-                                    info.data.targets.stable === null ||
-                                    !info.data.targets.stable.canApply
-                                }
+                                disabled={!canStartUpdate('stable', preserveLocalChanges)}
                                 onClick={() => begin('stable')}
                             >
                                 安定版 {info.data.targets.stable?.label ?? '取得不可'}
@@ -303,16 +310,7 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                             <Button
                                 variant="outlined"
                                 startIcon={<SystemUpdateAltOutlined />}
-                                disabled={
-                                    !canManageVersion ||
-                                    running ||
-                                    start.isPending ||
-                                    info.data.gitError !== null ||
-                                    !info.data.isGitRepository ||
-                                    (!info.data.isClean && !preserveLocalChanges) ||
-                                    info.data.targets.develop === null ||
-                                    !info.data.targets.develop.canApply
-                                }
+                                disabled={!canStartUpdate('develop', preserveLocalChanges)}
                                 onClick={() => begin('develop')}
                             >
                                 {info.data.targets.develop?.label ?? 'develop取得不可'}
@@ -375,10 +373,47 @@ export function VersionManagementDialog({ open, onClose }: Props): ReactNode {
                 )}
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose} disabled={running}>
+                <Button color="inherit" variant="outlined" onClick={onClose} disabled={running}>
                     閉じる
                 </Button>
             </DialogActions>
+            <Dialog
+                open={open && confirmation !== null}
+                onClose={() => setConfirmation(null)}
+                maxWidth="xs"
+                fullWidth
+                aria-labelledby="system-update-confirm-title"
+                aria-describedby="system-update-confirm-message"
+                slotProps={{ paper: { sx: programDialogPaper } }}
+            >
+                <DialogTitle id="system-update-confirm-title">Web更新の確認</DialogTitle>
+                <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
+                    <Typography id="system-update-confirm-message" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                        {confirmation?.message}
+                    </Typography>
+                    {confirmation !== null && !canConfirm && (
+                        <Alert severity="warning" sx={{ mt: 2 }}>
+                            更新条件が変わりました。確認画面を閉じて、対象を選び直してください。
+                        </Alert>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button autoFocus color="inherit" variant="outlined" onClick={() => setConfirmation(null)}>
+                        キャンセル
+                    </Button>
+                    <Button
+                        variant="contained"
+                        disabled={!canConfirm}
+                        onClick={() => {
+                            if (!canConfirm || confirmation === null) return;
+                            setConfirmation(null);
+                            start.mutate(confirmation.request);
+                        }}
+                    >
+                        続行
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Dialog>
     );
 }
