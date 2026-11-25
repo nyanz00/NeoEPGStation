@@ -240,7 +240,7 @@ export function SearchPage(): ReactNode {
     const isAnimeSearch = animeReturnContext !== null;
     const animeReturnPath = animeReturnContext === null ? null : animeDetailReturnPath(animeReturnContext);
     const fromAnimeDetail = (location.state as { fromAnimeDetail?: boolean } | null)?.fromAnimeDetail === true;
-    const resetSearchRequested = (location.state as { resetPage?: string } | null)?.resetPage === 'search';
+    const resetSearchRequested = navigationType !== 'POP' && (location.state as { resetPage?: string } | null)?.resetPage === 'search';
     const routeSignature = `${location.key}:${location.search}:${resetSearchRequested ? 'reset' : 'normal'}`;
     const config = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
     const channels = useQuery({ queryKey: ['channels'], queryFn: api.getChannels, staleTime: 60_000 });
@@ -250,7 +250,6 @@ export function SearchPage(): ReactNode {
     const [searchRevision, setSearchRevision] = useState(0);
     const [selectedProgram, setSelectedProgram] = useState<ScheduleProgramItem | null>(null);
     const [selectedTimeReserve, setSelectedTimeReserve] = useState<ReserveItem | null>(null);
-    const [lastSelectedProgram, setLastSelectedProgram] = useState<ScheduleProgramItem | null>(null);
     const [ruleEditorOpen, setRuleEditorOpen] = useState(false);
     const [inputValidity, setInputValidity] = useState({ startDate: true, startTime: true, endDate: true, endTime: true });
     const [inputResetVersion, setInputResetVersion] = useState(0);
@@ -275,11 +274,7 @@ export function SearchPage(): ReactNode {
     const isRuleReady = ruleId !== null && readyRuleRouteSignature === routeSignature && rule.data !== undefined;
     const isTimeRule = isRuleReady && rule.data.isTimeSpecification === true;
 
-    const historyForm = submittedOption === null ? form : normalizeSearchForm(form);
-    historySnapshot.current = {
-        form: historyForm,
-        submittedOption: submittedOption === null ? null : toSearchOption(historyForm),
-    };
+    historySnapshot.current = { form, submittedOption };
 
     const searchPrograms = useQuery({
         queryKey: ['schedule-search', submittedOption, settings.isHalfWidthDisplayed, settings.searchLength, searchRevision],
@@ -316,7 +311,6 @@ export function SearchPage(): ReactNode {
         setSearchRevision(current => current + 1);
         setSelectedProgram(null);
         setSelectedTimeReserve(null);
-        setLastSelectedProgram(null);
         setRuleEditorOpen(false);
         setInputValidity({ startDate: true, startTime: true, endDate: true, endTime: true });
         setInputResetVersion(current => current + 1);
@@ -406,7 +400,6 @@ export function SearchPage(): ReactNode {
         const normalized = normalizeSearchForm(nextForm);
         setForm(normalized);
         setSelectedProgram(null);
-        setLastSelectedProgram(null);
         shouldScrollToResults.current = scroll;
         setSubmittedOption(toSearchOption(normalized));
         setSearchRevision(current => current + 1);
@@ -492,7 +485,6 @@ export function SearchPage(): ReactNode {
         setSubmittedOption(null);
         setSearchRevision(current => current + 1);
         setSelectedProgram(null);
-        setLastSelectedProgram(null);
         setInputValidity({ startDate: true, startTime: true, endDate: true, endTime: true });
         setInputResetVersion(current => current + 1);
         channelTypesInitialized.current = true;
@@ -979,11 +971,7 @@ export function SearchPage(): ReactNode {
                                             // theme. Keep Vue's red reservation decoration from being replaced
                                             // by that default color.
                                             borderColor: theme =>
-                                                reserve?.primary.kind === 'conflict' || reserve?.primary.kind === 'normal'
-                                                    ? `${theme.palette.error.main} !important`
-                                                    : lastSelectedProgram?.id === program.id || reserve !== undefined
-                                                      ? 'primary.main'
-                                                      : 'divider',
+                                                reserve?.primary.kind === 'conflict' || reserve?.primary.kind === 'normal' ? `${theme.palette.error.main} !important` : 'divider',
                                             borderWidth: reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict' ? 4 : 1,
                                             borderStyle: reserve?.primary.kind === 'conflict' ? 'dashed' : undefined,
                                             outline: theme =>
@@ -1003,12 +991,7 @@ export function SearchPage(): ReactNode {
                                                 : {}),
                                         }}
                                     >
-                                        <CardActionArea
-                                            onClick={() => {
-                                                setLastSelectedProgram(program);
-                                                setSelectedProgram(program);
-                                            }}
-                                        >
+                                        <CardActionArea onClick={() => setSelectedProgram(program)}>
                                             <CardContent>
                                                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                                                     <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>
