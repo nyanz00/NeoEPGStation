@@ -108,6 +108,11 @@ export function AppThemeProvider({ children }: { children: ReactNode }): ReactNo
         [emphasizeLightThemeEdges, isDark, normalDivider, resolvedBackground, selectedPaper, selectedVariant],
     );
 
+    useEffect(() => {
+        const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+        if (meta !== null) meta.content = selectedVariant.headerBackground;
+    }, [selectedVariant.headerBackground]);
+
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline />

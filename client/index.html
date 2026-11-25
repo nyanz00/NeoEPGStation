@@ -24,14 +24,20 @@
                     },
                 };
                 let iconSetId = 'neo';
+                let saved = {};
                 try {
-                    const saved = JSON.parse(localStorage.getItem('settings') ?? '{}');
+                    saved = JSON.parse(localStorage.getItem('settings') ?? '{}') ?? {};
                     if (typeof saved.appIconSet === 'string' && iconSets[saved.appIconSet] !== undefined) {
                         iconSetId = saved.appIconSet;
                     }
                 } catch {
                     // Use the default icon when saved settings cannot be read.
                 }
+
+                // AppThemeProvider applies the exact preset color after it mounts.
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const isDark = saved.shouldUseOSColorTheme === false ? saved.isForceDarkTheme === true : prefersDark;
+                document.querySelector('meta[name="theme-color"]').content = isDark ? '#101418' : '#f4f6f8';
                 const iconSet = iconSets[iconSetId];
                 const appendLink = (id, rel, href, attributes = {}) => {
                     const link = document.createElement('link');

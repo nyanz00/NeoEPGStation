@@ -1,11 +1,12 @@
 import MenuIcon from '@mui/icons-material/Menu';
 import { Box, IconButton, Typography } from '@mui/material';
-import { alpha, type Theme } from '@mui/material/styles';
+import { alpha, getContrastRatio, type Theme } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { useAppLayout } from './AppLayout';
 
 function headerForeground(theme: Theme): string {
-    return theme.palette.getContrastText(theme.appHeader.background);
+    const { white, black } = theme.palette.common;
+    return getContrastRatio(theme.appHeader.background, white) >= 4.5 ? white : black;
 }
 
 export function PageHeader({ title, leading, actions }: { title: ReactNode; leading?: ReactNode; actions?: ReactNode }): ReactNode {
@@ -34,14 +35,14 @@ export function PageHeader({ title, leading, actions }: { title: ReactNode; lead
                 '& .MuiIconButton-root': { color: 'inherit' },
                 '& .MuiButton-root:not(.MuiButton-contained)': { color: 'inherit' },
                 '& .MuiButton-contained.MuiButton-colorPrimary': {
-                    bgcolor: theme => (theme.palette.mode === 'light' ? `${theme.palette.common.white} !important` : undefined),
-                    color: theme => (theme.palette.mode === 'light' ? `${theme.palette.primary.dark} !important` : undefined),
+                    bgcolor: theme => (theme.palette.mode === 'light' ? `${headerForeground(theme)} !important` : undefined),
+                    color: theme => (theme.palette.mode === 'light' ? `${theme.palette.getContrastText(headerForeground(theme))} !important` : undefined),
                     '&:hover': {
-                        bgcolor: theme => (theme.palette.mode === 'light' ? `${theme.palette.grey[100]} !important` : undefined),
+                        bgcolor: theme => (theme.palette.mode === 'light' ? `${alpha(headerForeground(theme), 0.86)} !important` : undefined),
                     },
                     '&.Mui-disabled': {
-                        bgcolor: theme => (theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.42) !important' : undefined),
-                        color: theme => (theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.38) !important' : undefined),
+                        bgcolor: theme => (theme.palette.mode === 'light' ? `${alpha(headerForeground(theme), 0.16)} !important` : undefined),
+                        color: theme => (theme.palette.mode === 'light' ? `${alpha(headerForeground(theme), 0.68)} !important` : undefined),
                     },
                 },
                 '& .MuiButton-outlined.MuiButton-colorPrimary': {
@@ -65,16 +66,16 @@ export function PageHeader({ title, leading, actions }: { title: ReactNode; lead
                         bgcolor: 'transparent',
                     },
                 },
-                '& .MuiInputLabel-root, & .MuiSelect-icon': {
+                '& .MuiInputLabel-root, & .MuiInputLabel-root.Mui-focused, & .MuiSelect-icon': {
                     color: theme => (theme.palette.mode === 'light' ? 'inherit' : undefined),
                 },
                 '& .MuiOutlinedInput-root': {
                     color: theme => (theme.palette.mode === 'light' ? 'inherit' : undefined),
                     '& .MuiOutlinedInput-notchedOutline': {
-                        borderColor: theme => (theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.55)' : undefined),
+                        borderColor: theme => (theme.palette.mode === 'light' ? alpha(headerForeground(theme), 0.55) : undefined),
                     },
-                    '&:hover .MuiOutlinedInput-notchedOutline': {
-                        borderColor: theme => (theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.8)' : undefined),
+                    '&:hover .MuiOutlinedInput-notchedOutline, &.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        borderColor: theme => (theme.palette.mode === 'light' ? alpha(headerForeground(theme), 0.8) : undefined),
                     },
                 },
             }}

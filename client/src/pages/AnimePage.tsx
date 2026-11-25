@@ -39,6 +39,7 @@ import type { AnnictProgram, AnnictWorkDetail, AnnictWorkSummary, RuleSearchOpti
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { readableLinkColor } from '../components/LinkifiedProgramText';
 import { PageSubHeader } from '../components/PageSubHeader';
 import { type BulkRuleSaveResult, type BulkRuleTarget, RuleEditorDialog } from '../components/RuleEditorDialog';
 import { workStartDateValue } from '../core/animeReleaseSort';
@@ -281,7 +282,7 @@ function InfoItem({ label, children }: { label: string; children: ReactNode }): 
 
 function ExternalInfoLink({ href, children }: { href: string; children: ReactNode }): ReactNode {
     return (
-        <Link href={href} target="_blank" rel="noreferrer">
+        <Link href={href} target="_blank" rel="noreferrer" sx={{ color: readableLinkColor, textDecorationColor: 'currentColor' }}>
             {children}
         </Link>
     );

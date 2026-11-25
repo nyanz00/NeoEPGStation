@@ -518,7 +518,21 @@ function RecordedCard({
                     fadeIn={fadeThumbnail}
                     failed={failedThumbnail}
                 />
-                {editMode && <Checkbox checked={selected} sx={{ position: 'absolute', top: 2, left: 2, bgcolor: 'rgba(0,0,0,.45)' }} />}
+                {editMode && (
+                    <Checkbox
+                        checked={selected}
+                        sx={{
+                            position: 'absolute',
+                            top: 2,
+                            left: 2,
+                            color: 'common.white',
+                            bgcolor: 'rgba(0,0,0,.68)',
+                            '&.Mui-checked': { color: 'common.white' },
+                            '&:hover': { bgcolor: 'rgba(0,0,0,.82)' },
+                            '&.Mui-focusVisible': { outline: '2px solid white', outlineOffset: -2 },
+                        }}
+                    />
+                )}
             </Box>
             <Box sx={{ p: 1, flex: 1, minWidth: 0, alignSelf: { xs: 'center', sm: 'auto' } }} onClick={clickCard}>
                 <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center' }}>

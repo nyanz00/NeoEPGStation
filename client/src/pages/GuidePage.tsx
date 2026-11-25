@@ -37,6 +37,7 @@ import {
     useMediaQuery,
     useTheme,
 } from '@mui/material';
+import { getContrastRatio } from '@mui/material/styles';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ChannelScheduleOption, ChannelType, ManualReserveOption, ReserveListItem, ScheduleChannleItem, ScheduleOption, ScheduleProgramItem } from '../../../api';
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
@@ -107,6 +108,7 @@ const hourColors = [
     '#9e2ffc',
     '#852ffc',
 ] as const;
+const hourTextColors = hourColors.map(background => (getContrastRatio(background, '#fff') >= 4.5 ? '#fff' : '#000'));
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 const SINGLE_STATION_DAYS = 8;
@@ -240,7 +242,7 @@ function GuideChannelHeader({
                 gap: '3px',
                 boxSizing: 'border-box',
                 bgcolor: dark ? '#393e46' : '#999',
-                color: '#fff',
+                color: dark ? '#fff' : '#202124',
                 borderTop: 0,
                 borderBottom: 0,
                 borderLeft: `1px solid ${borderColor}`,
@@ -250,7 +252,7 @@ function GuideChannelHeader({
                 fontSize: size.channelFontsize,
                 fontWeight: 700,
                 cursor: 'pointer',
-                '&:focus-visible': { outline: '2px solid #90caf9', outlineOffset: -2 },
+                '&:focus-visible': { outline: `2px solid ${dark ? '#90caf9' : '#202124'}`, outlineOffset: -2 },
             }}
         >
             <Box sx={{ minHeight: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -279,7 +281,7 @@ function GuideChannelHeader({
                         />
                     )}
                 </Box>
-                <Typography component="span" sx={{ ml: '4px', fontSize: 12, fontWeight: 700, lineHeight: 1, color: 'rgba(255,255,255,.86)', letterSpacing: 0 }}>
+                <Typography component="span" sx={{ ml: '4px', fontSize: 12, fontWeight: 700, lineHeight: 1, letterSpacing: 0 }}>
                     {channelTypeLabel(channel.channelType)}
                 </Typography>
             </Box>
@@ -308,7 +310,7 @@ function GuideDateHeader({ startAt, size, dark }: { startAt: number; size: Guide
                 placeItems: 'center',
                 boxSizing: 'border-box',
                 bgcolor: dark ? '#393e46' : '#999',
-                color: '#fff',
+                color: dark ? '#fff' : '#202124',
                 borderLeft: `1px solid ${borderColor}`,
                 borderRight: `1px solid ${borderColor}`,
             }}
@@ -1190,8 +1192,8 @@ export function GuidePage(): ReactNode {
                                     zIndex: 7,
                                     width: size.timescaleWidth,
                                     flex: `0 0 ${size.timescaleWidth}px`,
-                                    bgcolor: '#282d34',
-                                    borderRight: '1px solid rgba(255,255,255,.18)',
+                                    bgcolor: guideDark ? '#282d34' : '#999',
+                                    borderRight: `1px solid ${guideDark ? 'rgba(255,255,255,.18)' : '#ccc'}`,
                                 }}
                             />
                             {filteredSchedules?.map((schedule, index) =>
@@ -1211,7 +1213,6 @@ export function GuidePage(): ReactNode {
                                     width: size.timescaleWidth,
                                     flex: `0 0 ${size.timescaleWidth}px`,
                                     height: durationHeight,
-                                    color: '#fff',
                                 }}
                             >
                                 {Array.from({ length: guideHours }, (_, index) => {
@@ -1222,6 +1223,7 @@ export function GuidePage(): ReactNode {
                                             sx={{
                                                 height: size.timescaleHeight,
                                                 bgcolor: hourColors[hour],
+                                                color: hourTextColors[hour],
                                                 borderBottom: '1px solid rgba(255,255,255,.4)',
                                                 display: 'flex',
                                                 justifyContent: 'center',
