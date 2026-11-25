@@ -1261,6 +1261,8 @@ components:
                     type: boolean
                 isTimeSpecified:
                     type: boolean
+                isEventRelay:
+                    type: boolean
                 tags:
                     type: array
                     items:

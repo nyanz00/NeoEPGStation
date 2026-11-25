@@ -1,4 +1,4 @@
-import type { ReserveId } from '../../../api';
+import type { ReserveId, ReserveItem } from '../../../api';
 import type { ActiveUserId } from './storage/activeUser';
 
 export type ReserveUserId = Exclude<ActiveUserId, null>;
@@ -42,3 +42,16 @@ export function reconcileReserveSelection(selected: ReadonlySet<ReserveId>, visi
     if (next.size === selected.size && [...next].every(id => selected.has(id))) return selected as Set<ReserveId>;
     return next;
 }
+
+export function reserveChangeKind(item: ReserveItem): 'restoreSkip' | 'restoreOverlap' | 'exclude' | 'delete' {
+    if (item.isSkip) return 'restoreSkip';
+    if (item.isOverlap) return 'restoreOverlap';
+    return item.ruleId !== undefined && !item.isEventRelay ? 'exclude' : 'delete';
+}
+
+export const reserveChangeCopy = {
+    restoreSkip: { title: '除外から予約に戻しますか？', action: '解除', success: '除外から予約に戻しました' },
+    restoreOverlap: { title: '重複状態を解除しますか？', action: '解除', success: '重複状態を解除して予約に戻しました' },
+    exclude: { title: '番組を除外しますか？', action: '除外', success: '番組を除外しました' },
+    delete: { title: '予約を削除しますか？', action: '削除', success: '予約を削除しました' },
+};

@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatGuideTime } from '../core/guide/time';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
+import { reserveChangeCopy, reserveChangeKind } from '../core/reserves';
 import { LinkifiedProgramText } from './LinkifiedProgramText';
 import { ProgramBroadcastDetails } from './ProgramBroadcastDetails';
 import { ProgramDialogTitle, programDialogCloseTop, programDialogTitleBottomPadding } from './ProgramDialogTitle';
@@ -20,11 +21,6 @@ function reserveLabel(item: ReserveItem): string {
     if (item.isSkip) return '除外';
     if (item.isOverlap) return '重複';
     return '予約';
-}
-
-function removeLabel(item: ReserveItem): string {
-    if (item.isSkip || item.isOverlap) return '解除';
-    return item.ruleId === undefined ? '削除' : '除外';
 }
 
 export function ReserveProgramDialog({
@@ -44,6 +40,8 @@ export function ReserveProgramDialog({
     const [confirmOpen, setConfirmOpen] = useState(false);
     const users = useQuery({ queryKey: ['users'], queryFn: api.getUsers, enabled: item !== null });
     const userName = users.data?.users.find(user => user.id === item?.userId)?.name;
+    const changeKind = item === null ? null : reserveChangeKind(item);
+    const changeCopy = changeKind === null ? null : reserveChangeCopy[changeKind];
     const remove = useMutation({
         mutationFn: async (target: ReserveItem) => {
             if (target.isSkip) await api.removeReserveSkip(target.id);
@@ -53,7 +51,7 @@ export function ReserveProgramDialog({
         },
         onSuccess: async target => {
             setConfirmOpen(false);
-            notify(target.isSkip ? '除外から予約に戻しました' : target.isOverlap ? '重複状態を解除して予約に戻しました' : '予約をキャンセルしました', 'success');
+            notify(reserveChangeCopy[reserveChangeKind(target)].success, 'success');
             onClose();
             onChanged?.();
             await Promise.all([
@@ -188,7 +186,7 @@ export function ReserveProgramDialog({
                             )}
                             {!item.isConflict && (
                                 <Button color="error" disabled={remove.isPending} onClick={() => setConfirmOpen(true)}>
-                                    {removeLabel(item)}
+                                    {changeCopy?.action}
                                 </Button>
                             )}
                         </DialogActions>
@@ -202,18 +200,10 @@ export function ReserveProgramDialog({
                 fullWidth
                 slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
-                <DialogTitle>
-                    {item?.isSkip
-                        ? '除外から予約に戻しますか？'
-                        : item?.isOverlap
-                          ? '重複状態を解除しますか？'
-                          : item?.ruleId === undefined
-                            ? '予約を削除しますか？'
-                            : '予約を除外しますか？'}
-                </DialogTitle>
+                <DialogTitle>{changeCopy?.title}</DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography>{item?.name}</Typography>
-                    {item !== null && !item.isSkip && !item.isOverlap && item.ruleId !== undefined && (
+                    {changeKind === 'exclude' && (
                         <Typography color="text.secondary" sx={{ mt: 1 }}>
                             ルールから作成された予約は、ルール自体を残したまま除外扱いになります。
                         </Typography>
@@ -229,7 +219,7 @@ export function ReserveProgramDialog({
                         disabled={item === null || remove.isPending}
                         onClick={() => item !== null && remove.mutate(item)}
                     >
-                        {item === null ? '実行' : removeLabel(item)}
+                        {changeCopy?.action}
                     </Button>
                 </DialogActions>
             </Dialog>

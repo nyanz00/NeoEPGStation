@@ -88,6 +88,9 @@ export default class ReserveApiModel implements IReserveApiModel {
         if (reserve.ruleId !== null) {
             item.ruleId = reserve.ruleId;
         }
+        if (reserve.isEventRelay) {
+            item.isEventRelay = true;
+        }
         if (reserve.tags !== null) {
             item.tags = JSON.parse(reserve.tags);
         }

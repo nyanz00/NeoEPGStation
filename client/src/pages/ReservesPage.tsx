@@ -44,7 +44,7 @@ import { programDialogPaper } from '../components/programDialogStyles';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
 import { channelName, formatProgramDate, formatProgramTime, programDuration } from '../core/program';
-import { reconcileReserveSelection, resolveReserveUserFilter } from '../core/reserves';
+import { reconcileReserveSelection, reserveChangeCopy, reserveChangeKind, resolveReserveUserFilter } from '../core/reserves';
 import { useActiveUser, type ActiveUserId } from '../core/storage/activeUser';
 import { useSettings } from '../core/storage/settings';
 
@@ -66,6 +66,43 @@ function statusLabel(item: ReserveItem): string | null {
     if (item.isSkip) return '除外';
     if (item.isOverlap) return '重複';
     return null;
+}
+
+function bulkReserveCopy(type: ReserveViewType, items: readonly ReserveItem[]): { label: string; title: string; detail: string; action: string } {
+    if (type === 'skip' || type === 'overlap') {
+        const copy = reserveChangeCopy[type === 'skip' ? 'restoreSkip' : 'restoreOverlap'];
+        return {
+            label: type === 'skip' ? '選択した予約の除外を解除' : '選択した重複状態を解除',
+            title: copy.title,
+            detail: type === 'skip' ? `${items.length}件を除外から予約に戻します。` : `${items.length}件の重複状態を解除します。`,
+            action: type === 'skip' ? copy.action : '重複状態を解除',
+        };
+    }
+
+    const excludeCount = items.filter(item => reserveChangeKind(item) === 'exclude').length;
+    const deleteCount = items.length - excludeCount;
+    if (excludeCount > 0 && deleteCount > 0) {
+        return {
+            label: '選択した予約をキャンセル',
+            title: '予約をキャンセルしますか？',
+            detail: `ルール予約${excludeCount}件を除外し、手動予約など${deleteCount}件を削除します。`,
+            action: '予約をキャンセル',
+        };
+    }
+    if (excludeCount > 0) {
+        return {
+            label: '選択した番組を除外',
+            title: reserveChangeCopy.exclude.title,
+            detail: `${excludeCount}件を除外します。`,
+            action: reserveChangeCopy.exclude.action,
+        };
+    }
+    return {
+        label: '選択した予約を削除',
+        title: reserveChangeCopy.delete.title,
+        detail: `${deleteCount}件の予約を削除します。`,
+        action: reserveChangeCopy.delete.action,
+    };
 }
 
 function ReserveCard({
@@ -246,7 +283,7 @@ export function ReservesPage(): ReactNode {
             return item;
         },
         onSuccess: async item => {
-            notify(item.isSkip ? '除外から予約に戻しました' : item.isOverlap ? '重複状態を解除して予約に戻しました' : '予約をキャンセルしました', 'success');
+            notify(reserveChangeCopy[reserveChangeKind(item)].success, 'success');
             setTarget(current => (current?.id === item.id ? null : current));
             await refresh();
         },
@@ -255,9 +292,10 @@ export function ReservesPage(): ReactNode {
             await refresh();
         },
     });
+    const selectedItems = (reserves.data?.reserves ?? []).filter(item => selected.has(item.id));
     const removeSelected = useMutation({
         mutationFn: async () => {
-            const items = reserves.data?.reserves.filter(item => selected.has(item.id)) ?? [];
+            const items = selectedItems;
             const results = await Promise.allSettled(items.map(removeReserve));
             return {
                 succeeded: items.filter((_item, index) => results[index].status === 'fulfilled'),
@@ -270,24 +308,25 @@ export function ReservesPage(): ReactNode {
             setBulkConfirmOpen(false);
             setSelected(new Set(result.failed.map(entry => entry.item.id)));
             setEditing(result.failed.length > 0);
-            if (result.succeeded.length > 0) {
-                const restoredSkip = result.succeeded.filter(item => item.isSkip).length;
-                const restoredOverlap = result.succeeded.filter(item => item.isOverlap).length;
-                const cancelled = result.succeeded.length - restoredSkip - restoredOverlap;
-                const messages = [
-                    restoredSkip > 0 ? `${restoredSkip}件を除外から予約に戻しました` : null,
-                    restoredOverlap > 0 ? `${restoredOverlap}件の重複状態を解除して予約に戻しました` : null,
-                    cancelled > 0 ? `${cancelled}件の予約をキャンセルしました` : null,
-                ].filter((message): message is string => message !== null);
-                notify(messages.join('、'), 'success');
-            }
+            const kinds = result.succeeded.map(reserveChangeKind);
+            const restoredSkip = kinds.filter(kind => kind === 'restoreSkip').length;
+            const restoredOverlap = kinds.filter(kind => kind === 'restoreOverlap').length;
+            const excluded = kinds.filter(kind => kind === 'exclude').length;
+            const deleted = kinds.filter(kind => kind === 'delete').length;
+            const messages = [
+                restoredSkip > 0 ? `${restoredSkip}件を除外から予約に戻しました` : null,
+                restoredOverlap > 0 ? `${restoredOverlap}件の重複状態を解除して予約に戻しました` : null,
+                excluded > 0 ? `${excluded}件を除外しました` : null,
+                deleted > 0 ? `${deleted}件の予約を削除しました` : null,
+            ].filter((message): message is string => message !== null);
             if (result.failed.length > 0) {
                 const detail = result.failed
                     .slice(0, 3)
                     .map(entry => `${entry.item.name}: ${entry.result.reason instanceof Error ? entry.result.reason.message : String(entry.result.reason)}`)
                     .join(' / ');
-                notify(`${result.failed.length}件を解除できませんでした: ${detail}`, 'error');
+                messages.push(`${result.failed.length}件の予約を変更できませんでした: ${detail}`);
             }
+            if (messages.length > 0) notify(messages.join('。'), result.failed.length > 0 ? 'error' : 'success');
             await refresh();
         },
         onError: async error => {
@@ -321,15 +360,10 @@ export function ReservesPage(): ReactNode {
             return next;
         });
     const allSelected = useMemo(() => (reserves.data?.reserves.length ?? 0) > 0 && reserves.data!.reserves.every(item => selected.has(item.id)), [reserves.data, selected]);
-    const bulkActionLabel = type === 'skip' ? '選択した予約を戻す' : type === 'overlap' ? '選択した重複状態を解除' : '選択した予約をキャンセル';
-    const bulkConfirmTitle = type === 'skip' ? '除外から予約に戻しますか？' : type === 'overlap' ? '重複状態を解除しますか？' : '予約をキャンセルしますか？';
-    const bulkConfirmDescription =
-        type === 'skip'
-            ? `${selected.size}件を除外から予約に戻します。`
-            : type === 'overlap'
-              ? `${selected.size}件の重複状態を解除します。`
-              : `${selected.size}件の予約をキャンセルします。`;
-    const bulkConfirmButtonLabel = type === 'skip' ? '予約に戻す' : type === 'overlap' ? '重複状態を解除' : '予約をキャンセル';
+    const bulkCopy = bulkReserveCopy(type, selectedItems);
+    const bulkActionDisabled = selectedItems.length === 0 || removeSelected.isPending;
+    const targetKind = target === null ? null : reserveChangeKind(target);
+    const targetCopy = targetKind === null ? null : reserveChangeCopy[targetKind];
     const selectedUserName = userId === 'master' ? 'master（すべて）' : (users.data?.users.find(user => user.id === userId)?.name ?? `ユーザーID: ${userId}`);
 
     return (
@@ -390,38 +424,39 @@ export function ReservesPage(): ReactNode {
                         ))}
                     </Tabs>
                 </Box>
+                {editing && (
+                    <Stack direction="row" spacing={1} sx={{ p: 1.5, borderTop: 1, borderColor: 'divider', alignItems: 'center' }}>
+                        <Checkbox
+                            checked={allSelected}
+                            indeterminate={selected.size > 0 && !allSelected}
+                            onChange={() => setSelected(allSelected ? new Set() : new Set(reserves.data?.reserves.map(item => item.id) ?? []))}
+                            slotProps={{ input: { 'aria-label': '表示中の予約をすべて選択' } }}
+                        />
+                        <Typography sx={{ flex: 1 }}>{selected.size}件選択</Typography>
+                        <Tooltip title={bulkCopy.label}>
+                            <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                                <IconButton
+                                    color={type === 'skip' || type === 'overlap' ? 'primary' : 'error'}
+                                    aria-label={bulkCopy.label}
+                                    disabled={bulkActionDisabled}
+                                    onClick={() => setBulkConfirmOpen(true)}
+                                >
+                                    {type === 'skip' || type === 'overlap' ? <LockOpenOutlined /> : <DeleteOutlineOutlined />}
+                                </IconButton>
+                            </Box>
+                        </Tooltip>
+                        <Button
+                            color={type === 'skip' || type === 'overlap' ? 'primary' : 'error'}
+                            startIcon={type === 'skip' || type === 'overlap' ? <LockOpenOutlined /> : <DeleteOutlineOutlined />}
+                            disabled={bulkActionDisabled}
+                            onClick={() => setBulkConfirmOpen(true)}
+                            sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
+                        >
+                            {bulkCopy.label}
+                        </Button>
+                    </Stack>
+                )}
             </PageSubHeader>
-            {editing && (
-                <Stack direction="row" spacing={1} sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider', alignItems: 'center' }}>
-                    <Checkbox
-                        checked={allSelected}
-                        indeterminate={selected.size > 0 && !allSelected}
-                        onChange={() => setSelected(allSelected ? new Set() : new Set(reserves.data?.reserves.map(item => item.id) ?? []))}
-                    />
-                    <Typography sx={{ flex: 1 }}>{selected.size}件選択</Typography>
-                    <Tooltip title={bulkActionLabel}>
-                        <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
-                            <IconButton
-                                color={type === 'skip' || type === 'overlap' ? 'primary' : 'error'}
-                                aria-label={bulkActionLabel}
-                                disabled={selected.size === 0 || removeSelected.isPending}
-                                onClick={() => setBulkConfirmOpen(true)}
-                            >
-                                {type === 'skip' || type === 'overlap' ? <LockOpenOutlined /> : <DeleteOutlineOutlined />}
-                            </IconButton>
-                        </Box>
-                    </Tooltip>
-                    <Button
-                        color={type === 'skip' || type === 'overlap' ? 'primary' : 'error'}
-                        startIcon={type === 'skip' || type === 'overlap' ? <LockOpenOutlined /> : <DeleteOutlineOutlined />}
-                        disabled={selected.size === 0 || removeSelected.isPending}
-                        onClick={() => setBulkConfirmOpen(true)}
-                        sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
-                    >
-                        {bulkActionLabel}
-                    </Button>
-                </Stack>
-            )}
             {reserves.data === undefined && reserves.isPending ? (
                 <Box sx={{ minHeight: 320, display: 'grid', placeItems: 'center' }}>
                     <CircularProgress />
@@ -524,14 +559,9 @@ export function ReservesPage(): ReactNode {
                 fullWidth
                 slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
-                <DialogTitle>{bulkConfirmTitle}</DialogTitle>
+                <DialogTitle>{bulkCopy.title}</DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
-                    <Typography>{bulkConfirmDescription}</Typography>
-                    {type !== 'skip' && type !== 'overlap' && (
-                        <Typography color="text.secondary" sx={{ mt: 1 }}>
-                            手動予約は削除され、ルールから作成された予約は除外扱いになります。
-                        </Typography>
-                    )}
+                    <Typography>{bulkCopy.detail}</Typography>
                 </DialogContent>
                 <DialogActions>
                     <Button color="inherit" variant="outlined" disabled={removeSelected.isPending} onClick={() => setBulkConfirmOpen(false)}>
@@ -540,10 +570,10 @@ export function ReservesPage(): ReactNode {
                     <Button
                         color={type === 'skip' || type === 'overlap' ? 'primary' : 'error'}
                         variant="contained"
-                        disabled={removeSelected.isPending || selected.size === 0}
+                        disabled={bulkActionDisabled}
                         onClick={() => removeSelected.mutate()}
                     >
-                        {bulkConfirmButtonLabel}
+                        {bulkCopy.action}
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -554,17 +584,17 @@ export function ReservesPage(): ReactNode {
                 fullWidth
                 slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
-                <DialogTitle>{target?.isSkip ? '除外から予約に戻す' : target?.isOverlap ? '重複状態を解除' : '予約をキャンセル'}</DialogTitle>
+                <DialogTitle>{targetCopy?.title}</DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
                     <Typography>{target?.name}</Typography>
                     <Typography color="text.secondary" sx={{ mt: 1 }}>
-                        {target?.isSkip
+                        {targetKind === 'restoreSkip'
                             ? 'この番組を除外から予約に戻します。'
-                            : target?.isOverlap
+                            : targetKind === 'restoreOverlap'
                               ? 'この番組の重複状態を解除して予約に戻します。'
-                              : target?.ruleId === undefined
-                                ? 'この予約をキャンセルします。'
-                                : 'ルールから作成された予約は除外扱いになります。'}
+                              : targetKind === 'exclude'
+                                ? 'ルールを残したまま、この番組を除外します。'
+                                : 'この予約を削除します。'}
                     </Typography>
                 </DialogContent>
                 <DialogActions>
@@ -577,7 +607,7 @@ export function ReservesPage(): ReactNode {
                         disabled={remove.isPending}
                         onClick={() => target !== null && remove.mutate(target)}
                     >
-                        実行
+                        {targetCopy?.action}
                     </Button>
                 </DialogActions>
             </Dialog>

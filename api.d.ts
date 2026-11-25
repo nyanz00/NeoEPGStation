@@ -562,6 +562,7 @@ export interface ReserveItem {
     isOverlap: boolean;
     allowEndLack: boolean;
     isTimeSpecified: boolean;
+    isEventRelay?: boolean;
     tags?: RecordedTagId[];
     /**
      * 保存オプション
