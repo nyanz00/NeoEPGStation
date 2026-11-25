@@ -6,6 +6,7 @@ import type { EncodeId, EncodeRecoveryItem } from '../../../api';
 import { useState, type ReactNode } from 'react';
 import { api } from '../core/api/queries';
 import { useNotifications } from '../core/notifications/Notifications';
+import { programDialogPaper } from '../components/programDialogStyles';
 
 export function EncodeRecoverySection({ items }: { items: EncodeRecoveryItem[] }): ReactNode {
     const queryClient = useQueryClient();
@@ -85,6 +86,9 @@ export function EncodeRecoverySection({ items }: { items: EncodeRecoveryItem[] }
                 onClose={() => {
                     if (!remove.isPending) setDeleteTarget(null);
                 }}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle>要確認タスクを削除しますか？</DialogTitle>
                 <DialogContent>

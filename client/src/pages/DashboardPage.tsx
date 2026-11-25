@@ -795,7 +795,14 @@ export function DashboardPage(): ReactNode {
                 onClose={() => setReserveDetailTarget(null)}
             />
 
-            <Dialog open={reserveRemoveTarget !== null} onClose={() => setReserveRemoveTarget(null)} disableScrollLock>
+            <Dialog
+                open={reserveRemoveTarget !== null}
+                onClose={() => setReserveRemoveTarget(null)}
+                disableScrollLock
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>{reserveRemoveTarget?.isSkip ? '除外から予約に戻す' : reserveRemoveTarget?.isOverlap ? '重複状態を解除' : '予約をキャンセル'}</DialogTitle>
                 <DialogContent>
                     <Typography>{reserveRemoveTarget?.name}</Typography>

@@ -249,7 +249,7 @@ export function RecordedItemActions({
                 onClose={() => !updateUser.isPending && setUserOpen(false)}
                 fullWidth
                 maxWidth="xs"
-                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle sx={{ position: 'relative' }}>
                     ユーザー変更
@@ -327,7 +327,6 @@ export function RecordedItemActions({
                     paper: {
                         sx: theme => ({
                             ...dialogSurfacePaper(theme),
-                            bgcolor: '#191E23',
                             width: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' },
                             m: { xs: 1.5, sm: 4 },
                             maxHeight: 'calc(100dvh - 24px)',
@@ -378,7 +377,6 @@ export function RecordedItemActions({
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            bgcolor: '#191E23',
                             '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
                             '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
                         }),

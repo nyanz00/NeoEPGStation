@@ -2631,7 +2631,13 @@ export function SettingsPage(): ReactNode {
                     </Stack>
                 </Box>
             </Box>
-            <Dialog open={pendingActiveUser !== null} onClose={() => setPendingActiveUser(null)} fullWidth maxWidth="xs">
+            <Dialog
+                open={pendingActiveUser !== null}
+                onClose={() => setPendingActiveUser(null)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>アクティブユーザーを切り替え</DialogTitle>
                 <DialogContent>
                     <DialogContentText sx={{ mb: 2 }}>
@@ -2738,6 +2744,7 @@ export function SettingsPage(): ReactNode {
                 }}
                 fullWidth
                 maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle>管理者権限を解除</DialogTitle>
                 <DialogContent>
@@ -2784,7 +2791,7 @@ export function SettingsPage(): ReactNode {
                     </Button>
                 </DialogActions>
             </Dialog>
-            <Dialog open={pasteTarget !== null} onClose={() => setPasteTarget(null)} fullWidth maxWidth="sm">
+            <Dialog open={pasteTarget !== null} onClose={() => setPasteTarget(null)} fullWidth maxWidth="sm" slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}>
                 <DialogTitle>アクセストークンを貼り付け</DialogTitle>
                 <DialogContent>
                     <DialogContentText sx={{ mb: 2 }}>
@@ -2825,7 +2832,13 @@ export function SettingsPage(): ReactNode {
                     </Button>
                 </DialogActions>
             </Dialog>
-            <Dialog open={recoveryRotateConfirmOpen} onClose={() => setRecoveryRotateConfirmOpen(false)} fullWidth maxWidth="xs">
+            <Dialog
+                open={recoveryRotateConfirmOpen}
+                onClose={() => setRecoveryRotateConfirmOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>回復コードを再発行</DialogTitle>
                 <DialogContent>
                     <DialogContentText>現在の回復コードは直ちに無効になります。新しいコードを安全な場所へ保存する準備ができてから続行してください。</DialogContentText>
@@ -2844,6 +2857,7 @@ export function SettingsPage(): ReactNode {
                 }}
                 fullWidth
                 maxWidth="sm"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle>ユーザーを削除</DialogTitle>
                 <DialogContent>

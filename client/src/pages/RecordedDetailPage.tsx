@@ -572,7 +572,13 @@ export function RecordedDetailPage(): ReactNode {
                     </Stack>
                 }
             />
-            <Dialog open={unwatchConfirmOpen} onClose={() => setUnwatchConfirmOpen(false)}>
+            <Dialog
+                open={unwatchConfirmOpen}
+                onClose={() => setUnwatchConfirmOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>Annictの視聴記録を削除</DialogTitle>
                 <DialogContent>
                     <Typography>このエピソードをAnnictで「見てない」状態へ戻しますか？</Typography>
@@ -745,7 +751,6 @@ export function RecordedDetailPage(): ReactNode {
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            bgcolor: '#191E23',
                             '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 0.75, pr: { xs: 2, sm: 3 } },
                             '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 0.75 },
                         }),
@@ -803,7 +808,6 @@ export function RecordedDetailPage(): ReactNode {
                     paper: {
                         sx: theme => ({
                             ...programDialogPaper(theme),
-                            bgcolor: '#191E23',
                             '& .MuiDialogTitle-root': { ...programDialogPaper(theme)['& .MuiDialogTitle-root'], py: 1.5, pr: { xs: 2, sm: 3 } },
                             '& .MuiDialogActions-root': { ...programDialogPaper(theme)['& .MuiDialogActions-root'], py: 1 },
                         }),
@@ -835,6 +839,7 @@ export function RecordedDetailPage(): ReactNode {
                 }}
                 fullWidth
                 maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle>{item?.name ?? '録画'} - Kodi</DialogTitle>
                 <DialogContent>

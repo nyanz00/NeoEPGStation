@@ -1915,7 +1915,7 @@ export function RecordedPage(): ReactNode {
                 onClose={() => !bulkUpdateUser.isPending && setBulkUserOpen(false)}
                 maxWidth="xs"
                 fullWidth
-                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle sx={{ position: 'relative' }}>
                     ユーザーを一括変更
@@ -1948,7 +1948,7 @@ export function RecordedPage(): ReactNode {
                 onClose={() => !moveSelected.isPending && setMoveOpen(false)}
                 maxWidth="sm"
                 fullWidth
-                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle sx={{ position: 'relative' }}>
                     サブディレクトリへ一括移動
@@ -2002,7 +2002,7 @@ export function RecordedPage(): ReactNode {
                 maxWidth="xs"
                 fullWidth
                 aria-labelledby="recorded-bulk-delete-title"
-                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle id="recorded-bulk-delete-title">録画を削除</DialogTitle>
                 <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: 2, bgcolor: 'action.hover' }}>
@@ -2067,7 +2067,7 @@ export function RecordedPage(): ReactNode {
                 fullWidth
                 scroll="paper"
                 aria-labelledby="cleanup-dialog-title"
-                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle id="cleanup-dialog-title">クリーンアップ</DialogTitle>
                 <IconButton aria-label="閉じる" disabled={createCleanupPlan.isPending || executeCleanup.isPending} onClick={() => setCleanupOpen(false)} sx={programDialogClose}>
@@ -2165,7 +2165,7 @@ export function RecordedPage(): ReactNode {
                 maxWidth="xs"
                 fullWidth
                 aria-labelledby="cleanup-confirm-dialog-title"
-                slotProps={{ paper: { sx: theme => ({ ...programDialogPaper(theme), bgcolor: '#191E23' }) } }}
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
             >
                 <DialogTitle id="cleanup-confirm-dialog-title">クリーンアップ最終確認</DialogTitle>
                 <IconButton aria-label="閉じる" onClick={() => setCleanupConfirmOpen(false)} sx={programDialogClose}>

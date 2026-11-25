@@ -1357,7 +1357,7 @@ export function GuidePage(): ReactNode {
                 </MenuItem>
             </Menu>
 
-            <Dialog open={genreDialogOpen} onClose={() => setGenreDialogOpen(false)} fullWidth maxWidth="xs">
+            <Dialog open={genreDialogOpen} onClose={() => setGenreDialogOpen(false)} fullWidth maxWidth="xs" slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}>
                 <DialogTitle>表示ジャンル</DialogTitle>
                 <DialogContent dividers>
                     {genreNames.map((name, index) => (

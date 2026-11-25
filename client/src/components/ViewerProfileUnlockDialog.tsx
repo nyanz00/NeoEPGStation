@@ -9,6 +9,7 @@ import { viewerProfileStore, useViewerProfile } from '../core/storage/viewerProf
 import { normalizeViewerProfilePassword, viewerProfilePasswordError } from '../core/viewerProfilePassword';
 import { ViewerProfilePasswordField } from './ViewerProfilePasswordField';
 import { ViewerRecoveryCodeDialog } from './ViewerRecoveryCodeDialog';
+import { programDialogPaper } from './programDialogStyles';
 
 interface ViewerProfileUnlockDialogProps {
     loaded: boolean;
@@ -49,7 +50,7 @@ export function ViewerProfileUnlockDialog({ loaded, profiles }: ViewerProfileUnl
 
     return (
         <>
-            <Dialog open={shouldOpen} onClose={cancel} maxWidth="xs" fullWidth>
+            <Dialog open={shouldOpen} onClose={cancel} maxWidth="xs" fullWidth slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}>
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <LockOutlined />
                     アクティブユーザーの確認

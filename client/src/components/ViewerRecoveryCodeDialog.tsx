@@ -2,6 +2,7 @@ import ContentCopyOutlined from '@mui/icons-material/ContentCopyOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import { Alert, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 import { type ReactNode, useEffect, useState } from 'react';
+import { programDialogPaper } from './programDialogStyles';
 
 interface ViewerRecoveryCodeDialogProps {
     recoveryCode: string | null;
@@ -59,6 +60,7 @@ export function ViewerRecoveryCodeDialog({ recoveryCode, onClose }: ViewerRecove
             }}
             fullWidth
             maxWidth="sm"
+            slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
         >
             <DialogTitle>外部連携の回復コード</DialogTitle>
             <DialogContent>

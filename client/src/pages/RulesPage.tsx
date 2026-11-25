@@ -34,6 +34,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Rule, RuleId } from '../../../api';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { programDialogPaper } from '../components/programDialogStyles';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { PageSubHeader } from '../components/PageSubHeader';
@@ -539,7 +540,13 @@ export function RulesPage(): ReactNode {
                     </Fab>
                 </Tooltip>
             )}
-            <Dialog open={bulkDeleteConfirmOpen} onClose={() => !removeSelected.isPending && setBulkDeleteConfirmOpen(false)}>
+            <Dialog
+                open={bulkDeleteConfirmOpen}
+                onClose={() => !removeSelected.isPending && setBulkDeleteConfirmOpen(false)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>選択したルールを削除</DialogTitle>
                 <DialogContent>
                     <Typography>{visibleSelected.size}件のルールを削除します。</Typography>
@@ -564,7 +571,13 @@ export function RulesPage(): ReactNode {
                     </Button>
                 </DialogActions>
             </Dialog>
-            <Dialog open={deleteTarget !== null} onClose={() => !remove.isPending && setDeleteTarget(null)}>
+            <Dialog
+                open={deleteTarget !== null}
+                onClose={() => !remove.isPending && setDeleteTarget(null)}
+                fullWidth
+                maxWidth="xs"
+                slotProps={{ paper: { sx: theme => programDialogPaper(theme) } }}
+            >
                 <DialogTitle>ルールを削除</DialogTitle>
                 <DialogContent>
                     <Typography>{deleteTarget?.searchOption.keyword || '時刻指定ルール'}</Typography>
