@@ -127,7 +127,7 @@ function ReserveCard({
         <Card
             variant="outlined"
             sx={{
-                borderColor: item.isConflict ? 'error.main' : selected ? 'primary.main' : 'divider',
+                borderColor: item.isConflict ? 'error.main' : selected ? 'primary.main' : undefined,
                 bgcolor: selected ? 'action.selected' : item.isSkip || item.isOverlap ? 'action.disabledBackground' : undefined,
             }}
         >

@@ -91,8 +91,9 @@ function OnAirCard({
                 cursor: 'pointer',
                 position: 'relative',
                 overflow: 'hidden',
-                transition: theme => theme.transitions.create(['transform', 'border-color', 'box-shadow'], { duration: theme.transitions.duration.shorter }),
-                '&:hover': { transform: 'translateY(-2px)', borderColor: 'primary.main', boxShadow: 4 },
+                transition: theme => theme.transitions.create(['transform', 'box-shadow'], { duration: theme.transitions.duration.shorter }),
+                '&:hover': { transform: 'translateY(-2px)', boxShadow: 4 },
+                '&:active': { borderColor: 'primary.main' },
                 '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
             }}
         >

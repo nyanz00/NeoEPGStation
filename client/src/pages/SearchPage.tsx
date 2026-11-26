@@ -967,11 +967,11 @@ export function SearchPage(): ReactNode {
                                         key={program.id}
                                         variant="outlined"
                                         sx={{
-                                            // MuiCard's outlined style uses an !important divider color in the
-                                            // theme. Keep Vue's red reservation decoration from being replaced
-                                            // by that default color.
+                                            // Reservation state is an explicit local decoration. Leave the
+                                            // unreserved card on the shared outlined-card defaults so the
+                                            // light-theme edge setting remains effective.
                                             borderColor: theme =>
-                                                reserve?.primary.kind === 'conflict' || reserve?.primary.kind === 'normal' ? `${theme.palette.error.main} !important` : 'divider',
+                                                reserve?.primary.kind === 'conflict' || reserve?.primary.kind === 'normal' ? theme.palette.error.main : undefined,
                                             borderWidth: reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict' ? 4 : 1,
                                             borderStyle: reserve?.primary.kind === 'conflict' ? 'dashed' : undefined,
                                             outline: theme =>
@@ -979,16 +979,6 @@ export function SearchPage(): ReactNode {
                                                     ? `3px ${reserve.primary.kind === 'conflict' ? 'dashed' : 'solid'} ${theme.palette.error.main}`
                                                     : undefined,
                                             outlineOffset: reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict' ? -4 : undefined,
-                                            ...(reserve?.primary.kind === 'normal' || reserve?.primary.kind === 'conflict'
-                                                ? {
-                                                      // The shared outlined-card override targets
-                                                      // `.MuiPaper-outlined` with equal importance. Increase
-                                                      // specificity as well so the reservation color wins.
-                                                      '&&.MuiPaper-outlined': {
-                                                          borderColor: theme => `${theme.palette.error.main} !important`,
-                                                      },
-                                                  }
-                                                : {}),
                                         }}
                                     >
                                         <CardActionArea onClick={() => setSelectedProgram(program)}>

@@ -89,7 +89,7 @@ function RuleCard({
     const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
     const keyword = rule.searchOption.keyword?.trim() || (rule.isTimeSpecification ? '時刻指定ルール' : 'キーワード指定なし');
     return (
-        <Card variant="outlined" sx={{ borderColor: selected ? 'primary.main' : 'divider', bgcolor: selected ? 'action.selected' : undefined }}>
+        <Card variant="outlined" sx={{ borderColor: selected ? 'primary.main' : undefined, bgcolor: selected ? 'action.selected' : undefined }}>
             <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start', p: 2, '&:last-child': { pb: 2 } }} onClick={selecting ? onSelect : undefined}>
                 {selecting && <Checkbox checked={selected} onChange={onSelect} onClick={event => event.stopPropagation()} />}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -375,7 +375,7 @@ export function RulesPage(): ReactNode {
                         <Tooltip title={hasReserve ? '予約なしも表示' : '予約有のみ表示'}>
                             <IconButton
                                 aria-label={hasReserve ? '予約なしも表示' : '予約有のみ表示'}
-                                color={hasReserve ? 'primary' : 'inherit'}
+                                data-page-header-selected={hasReserve ? 'primary' : undefined}
                                 onClick={() => updateParams({ hasReserve: !hasReserve })}
                                 sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
                             >
@@ -395,7 +395,7 @@ export function RulesPage(): ReactNode {
                         <Tooltip title={selecting ? '選択を終了' : '選択'}>
                             <IconButton
                                 aria-label={selecting ? '選択を終了' : '選択'}
-                                color={selecting ? 'primary' : 'inherit'}
+                                data-page-header-selected={selecting ? 'primary' : undefined}
                                 onClick={() => {
                                     setSelecting(value => !value);
                                     setSelected(new Set());

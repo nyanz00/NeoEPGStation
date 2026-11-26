@@ -173,7 +173,7 @@ function ReserveDashboardCard({
             sx={{
                 position: 'relative',
                 flex: '0 0 auto',
-                borderColor: item.isConflict ? 'error.main' : 'divider',
+                borderColor: item.isConflict ? 'error.main' : undefined,
                 bgcolor: item.isSkip || item.isOverlap ? 'action.disabledBackground' : undefined,
                 opacity: item.isSkip ? 0.72 : 1,
             }}

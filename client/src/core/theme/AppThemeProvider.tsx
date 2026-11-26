@@ -61,18 +61,23 @@ export function AppThemeProvider({ children }: { children: ReactNode }): ReactNo
                 components: {
                     MuiButton: { defaultProps: { disableElevation: true } },
                     MuiCard: {
+                        variants: [
+                            {
+                                props: { variant: 'outlined' },
+                                style: emphasizeLightThemeEdges
+                                    ? {
+                                          borderColor: 'rgba(45, 61, 74, 0.34)',
+                                          boxShadow: '0 2px 6px rgba(31, 45, 57, 0.14)',
+                                      }
+                                    : {
+                                          borderColor: normalDivider,
+                                          boxShadow: 'none',
+                                      },
+                            },
+                        ],
                         styleOverrides: {
                             root: {
                                 backgroundImage: 'none',
-                                '&.MuiPaper-outlined': emphasizeLightThemeEdges
-                                    ? {
-                                          borderColor: 'rgba(45, 61, 74, 0.34) !important',
-                                          boxShadow: '0 2px 6px rgba(31, 45, 57, 0.14) !important',
-                                      }
-                                    : {
-                                          borderColor: `${normalDivider} !important`,
-                                          boxShadow: 'none !important',
-                                      },
                             },
                         },
                     },

@@ -1036,7 +1036,6 @@ export function AnimePage(): ReactNode {
                                             data-anime-work-id={work.annictId}
                                             sx={{
                                                 ...(selectionMode && {
-                                                    borderColor: selected ? 'primary.main' : 'divider',
                                                     bgcolor: selected ? 'action.selected' : undefined,
                                                     outline: selected ? 2 : 0,
                                                     outlineColor: 'primary.main',

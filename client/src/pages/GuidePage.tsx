@@ -1102,7 +1102,7 @@ export function GuidePage(): ReactNode {
                                     </FormControl>
                                     <IconButton
                                         aria-label="放送局を絞り込み"
-                                        color={channelFilter.trim().length > 0 ? 'secondary' : 'inherit'}
+                                        data-page-header-selected={channelFilter.trim().length > 0 ? 'secondary' : undefined}
                                         onClick={event => setFilterAnchor(event.currentTarget)}
                                     >
                                         <SearchOutlined />

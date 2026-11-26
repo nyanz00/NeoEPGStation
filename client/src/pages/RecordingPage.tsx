@@ -72,7 +72,7 @@ function RecordingCard({
     const drop = item.dropLogFile;
     const hasDropError = drop !== undefined && (drop.dropCnt > 0 || drop.errorCnt > 0 || drop.scramblingCnt > 0);
     return (
-        <Card variant="outlined" sx={{ borderColor: selected ? 'primary.main' : 'divider', bgcolor: selected ? 'action.selected' : undefined }}>
+        <Card variant="outlined" sx={{ borderColor: selected ? 'primary.main' : undefined, bgcolor: selected ? 'action.selected' : undefined }}>
             <CardContent
                 role="button"
                 tabIndex={0}
@@ -342,6 +342,7 @@ export function RecordingPage(): ReactNode {
                                     <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
                                         <IconButton
                                             aria-label="録画停止"
+                                            data-page-header-accent="warning"
                                             disabled={selected.size === 0}
                                             onClick={() => setStopTargets(recording.data?.records.filter(item => selected.has(item.id)) ?? [])}
                                         >
@@ -350,7 +351,7 @@ export function RecordingPage(): ReactNode {
                                     </Box>
                                 </Tooltip>
                                 <Button
-                                    color="warning"
+                                    data-page-header-accent="warning"
                                     startIcon={<StopCircleOutlined />}
                                     disabled={selected.size === 0}
                                     onClick={() => setStopTargets(recording.data?.records.filter(item => selected.has(item.id)) ?? [])}
@@ -360,13 +361,18 @@ export function RecordingPage(): ReactNode {
                                 </Button>
                                 <Tooltip title="削除">
                                     <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
-                                        <IconButton aria-label="削除" disabled={selected.size === 0 || selectedVideoIds.length === 0} onClick={() => setConfirmOpen(true)}>
+                                        <IconButton
+                                            aria-label="削除"
+                                            data-page-header-accent="error"
+                                            disabled={selected.size === 0 || selectedVideoIds.length === 0}
+                                            onClick={() => setConfirmOpen(true)}
+                                        >
                                             <DeleteOutlineOutlined />
                                         </IconButton>
                                     </Box>
                                 </Tooltip>
                                 <Button
-                                    color="error"
+                                    data-page-header-accent="error"
                                     startIcon={<DeleteOutlineOutlined />}
                                     disabled={selected.size === 0 || selectedVideoIds.length === 0}
                                     onClick={() => setConfirmOpen(true)}

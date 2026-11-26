@@ -161,7 +161,7 @@ function EncodeCard({
             onDragOver={onDragOver}
             onDrop={onDrop}
             sx={{
-                borderColor: selected || dragged ? 'primary.main' : 'divider',
+                borderColor: selected || dragged ? 'primary.main' : undefined,
                 bgcolor: selected || dragged ? 'action.selected' : undefined,
                 opacity: dragged ? 0.72 : 1,
             }}
@@ -514,7 +514,7 @@ export function EncodePage(): ReactNode {
                                     <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
                                         <IconButton
                                             aria-label="順番を保存"
-                                            color="primary"
+                                            data-page-header-accent="primary"
                                             disabled={reorder.isPending || !orderChanged || queueChangedWhileReordering}
                                             onClick={() => reorder.mutate(orderedWaitItems.map(item => item.id))}
                                         >
@@ -556,13 +556,18 @@ export function EncodePage(): ReactNode {
                                 </Button>
                                 <Tooltip title="キャンセル">
                                     <Box component="span" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
-                                        <IconButton aria-label="キャンセル" color="error" disabled={selected.size === 0} onClick={() => setTargets([...selected])}>
+                                        <IconButton
+                                            aria-label="キャンセル"
+                                            data-page-header-accent="error"
+                                            disabled={selected.size === 0}
+                                            onClick={() => setTargets([...selected])}
+                                        >
                                             <CancelOutlined />
                                         </IconButton>
                                     </Box>
                                 </Tooltip>
                                 <Button
-                                    color="error"
+                                    data-page-header-accent="error"
                                     startIcon={<CancelOutlined />}
                                     disabled={selected.size === 0}
                                     onClick={() => setTargets([...selected])}
